@@ -61,10 +61,11 @@ class MultiSyncPersonEntry(BaseModel):
 
 
 class SyncNamesMultiRequest(BaseModel):
-    persons: list[MultiSyncPersonEntry]   # one entry per account, min 2
+    persons: list[MultiSyncPersonEntry]        # one entry per account, min 2
     canonical_name: str
-    album_name: Optional[str] = None      # if set, create shared album
-    owner_account_id: Optional[str] = None  # defaults to first person's account
+    album_name: Optional[str] = None           # if set, create new shared album
+    existing_album_id: Optional[str] = None    # if set, link existing album instead
+    owner_account_id: Optional[str] = None     # album owner; defaults to first person's account
 
 
 class ExtendMatchRequest(BaseModel):

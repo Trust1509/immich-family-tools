@@ -168,6 +168,7 @@ const translations = {
   extend_no_accounts:   { de: "Alle konfigurierten Accounts sind bereits in diesem Match enthalten.",
                           en: "All configured accounts are already in this match." },
   extend_search_person: { de: "Person suchen…",            en: "Search person…" },
+  manual_album_owner:   { de: "Album-Besitzer",              en: "Album owner" },
   manual_hint:          { de: "Nur für neue Matches über mehrere Accounts. Um eine Person zu einem bestehenden Match hinzuzufügen → \"Match erweitern\" verwenden.",
                           en: "For new matches across multiple accounts only. To add a person to an existing match → use \"Extend Match\"." },
 

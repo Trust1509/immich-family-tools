@@ -140,6 +140,7 @@ export const api = {
       persons: { account_id: string; person_id: string }[];
       canonical_name: string;
       album_name?: string;
+      existing_album_id?: string;
       owner_account_id?: string;
     }) =>
       request<SyncLogEntry[]>("/sync/names-multi", {

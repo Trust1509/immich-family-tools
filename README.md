@@ -38,7 +38,17 @@ This tool bridges that gap.
 
 ## Screenshots
 
-> _Add screenshots here_
+| Accounts & Colour Picker | Match Suggestions |
+|:---:|:---:|
+| ![Accounts](screenshots/01-accounts.png) | ![Match Suggestions](screenshots/02-match-suggestions.png) |
+
+| Manual Matching | Extend Match |
+|:---:|:---:|
+| ![Manual Match](screenshots/03-manual-match.png) | ![Extend Match](screenshots/04-extend-match.png) |
+
+| Albums Overview |
+|:---:|
+| ![Albums Overview](screenshots/05-albums-overview.png) |
 
 ## How It Works
 
