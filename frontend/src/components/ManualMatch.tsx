@@ -392,7 +392,7 @@ export default function ManualMatch() {
           value={canonicalName}
           onChange={(e) => {
             setCanonicalName(e.target.value);
-            if (albumEnabled && albumMode === "new" && !albumName)
+            if (albumMode === "new" && !albumName)
               setAlbumName(e.target.value);
           }}
           className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
