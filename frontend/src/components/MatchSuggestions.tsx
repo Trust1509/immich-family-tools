@@ -122,8 +122,9 @@ function AlbumDialog({
 
 interface ResultState { text: string; ok: boolean }
 
-function MatchCard({ match, accounts, onDismiss, managedAlbum }: {
-  match: Match; accounts: Account[]; onDismiss: () => void; managedAlbum?: ManagedAlbum;
+function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount }: {
+  match: Match; accounts: Account[]; onDismiss: () => void;
+  managedAlbum?: ManagedAlbum; groupPersonCount: number;
 }) {
   const { t } = useT();
   const defaultName = match.person_a.person_name || match.person_b.person_name || "";
@@ -135,8 +136,8 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum }: {
 
   const isDismissed = match.status === "dismissed";
   const managedAlbumId = managedAlbum?.id;
-  // True when this match belongs to an album with 3+ accounts (managed via Extend Match)
-  const isMultiAccountMatch = (managedAlbum?.person_refs.length ?? 0) > 2;
+  // True when total unique persons across same-named albums > 2
+  const isMultiAccountMatch = groupPersonCount > 2;
 
   const nameMutation = useMutation({
     mutationFn: () => api.sync.names(match.id, syncName),
@@ -445,14 +446,27 @@ export default function MatchSuggestions() {
       ) : (
         <div className="space-y-4">
           {displayed.map((m) => {
-            // Pick the album with the most person_refs — avoids returning an old
-            // 2-person entry when a more complete 3+-person album also exists
+            // Find the best matching album (most person_refs)
             const managedAlbum = managedAlbums
               .filter((a) => a.linked_match_ids?.includes(m.id))
               .sort((a, b) => b.person_refs.length - a.person_refs.length)[0];
+
+            // Count unique persons across ALL albums with the same name (transitive groups).
+            // Covers the case of two 2-person albums e.g. Manu↔Majo + Majo↔Jojo both
+            // named "Manuel" — together they represent a 3-person connection.
+            const albumName = managedAlbum?.album_name.trim().toLowerCase();
+            const groupPersonCount = albumName
+              ? new Set(
+                  managedAlbums
+                    .filter((a) => a.album_name.trim().toLowerCase() === albumName)
+                    .flatMap((a) => a.person_refs.map((r) => r.person_id))
+                ).size
+              : 0;
+
             return (
               <MatchCard key={m.id} match={m} accounts={accounts}
                 managedAlbum={managedAlbum}
+                groupPersonCount={groupPersonCount}
                 onDismiss={() => dismissMutation.mutate(m.id)} />
             );
           })}
