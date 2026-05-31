@@ -5,24 +5,36 @@ All notable changes to Immich Family Tools are documented here.
 ## [1.1.2] – 2026-05-31
 
 ### Bug Fixes
-- **Multi-Account-Hinweis**: Match cards now correctly detect multi-account albums in all cases. The fix selects the album with the most `person_refs` when multiple albums share a match ID — previously the old 2-person album was returned first, hiding the hint for later-extended 3-person albums
-- **ManualMatch**: Removed "Geteiltes Album erstellen" checkbox — album creation is the core purpose of this page; the album section is now always visible
 
-### Improvements
-- **ManualMatch**: Album section shown as a labeled section (not behind a checkbox)
-- **Version display**: Sidebar now correctly shows v1.1.2
+**Match Suggestions — Album & Multi-Account State Now Fully Consistent**
+
+The match suggestion view was not correctly showing "Album linked" and the multi-account hint for all pairwise combinations of a connected person (e.g. Manuel across Manu, Majo and Jojo accounts).
+
+Root cause: the logic relied on `linked_match_ids` stored per album, which were sometimes stale or incomplete after the album was extended.
+
+Fix — transitive person-ref grouping (same logic in backend and frontend):
+- Albums are grouped by normalised name; all `person_ids` across the group are collected; all pairwise combinations are derived from that set
+- No reliance on stored `linked_match_ids` — derived fresh from `person_refs` on every request
+- Works correctly regardless of how the connection was created (Match Suggestions, Manual Match, Extend Match)
+- Covers transitive connections: Manu↔Majo + Majo↔Jojo in albums named "Manuel" → Manu↔Jojo is also correctly shown as connected
+
+**ManualMatch — Removed "Create Shared Album" Checkbox**
+Album creation is the core purpose of the page. The checkbox was removed; the album section is always visible.
+
+**Version Display**
+Sidebar now correctly shows v1.1.2 (was stuck at v1.1.0 in previous patch releases).
 
 ---
 
 ## [1.1.1] – 2026-05-31
 
 ### Bug Fixes
-- **Foto-Anzahl**: People grid lazy-loads count per person as fallback when Immich API returns `assetCount: 0` in list responses
-- **ManualMatch Ausrichtung**: Page is now left-aligned (removed `mx-auto`)
-- **ManualMatch Album-Optionen**: Added owner account selector, mode toggle (new/existing album), existing album picker
+- **Photo count**: People grid lazy-loads count per person as fallback when Immich API returns `assetCount: 0` in list responses
+- **ManualMatch alignment**: Page is now left-aligned (removed `mx-auto`)
+- **ManualMatch album options**: Added owner account selector, mode toggle (new/existing album), existing album picker per owner
 
 ### New Backend
-- `POST /api/sync/names-multi` now supports `existing_album_id` to link an existing album
+- `POST /api/sync/names-multi` now supports `existing_album_id` to link an existing album instead of creating a new one
 
 ---
 
