@@ -2,6 +2,30 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.1.2] – 2026-05-31
+
+### Bug Fixes
+- **Multi-Account-Hinweis**: Match cards now correctly detect multi-account albums in all cases. The fix selects the album with the most `person_refs` when multiple albums share a match ID — previously the old 2-person album was returned first, hiding the hint for later-extended 3-person albums
+- **ManualMatch**: Removed "Geteiltes Album erstellen" checkbox — album creation is the core purpose of this page; the album section is now always visible
+
+### Improvements
+- **ManualMatch**: Album section shown as a labeled section (not behind a checkbox)
+- **Version display**: Sidebar now correctly shows v1.1.2
+
+---
+
+## [1.1.1] – 2026-05-31
+
+### Bug Fixes
+- **Foto-Anzahl**: People grid lazy-loads count per person as fallback when Immich API returns `assetCount: 0` in list responses
+- **ManualMatch Ausrichtung**: Page is now left-aligned (removed `mx-auto`)
+- **ManualMatch Album-Optionen**: Added owner account selector, mode toggle (new/existing album), existing album picker
+
+### New Backend
+- `POST /api/sync/names-multi` now supports `existing_album_id` to link an existing album
+
+---
+
 ## [1.1.0] – 2026-05-31
 
 ### New Features

@@ -445,10 +445,11 @@ export default function MatchSuggestions() {
       ) : (
         <div className="space-y-4">
           {displayed.map((m) => {
-            // linked_match_ids covers all pairwise combinations including extend-based albums
-            const managedAlbum = managedAlbums.find((a) =>
-              a.linked_match_ids?.includes(m.id)
-            );
+            // Pick the album with the most person_refs — avoids returning an old
+            // 2-person entry when a more complete 3+-person album also exists
+            const managedAlbum = managedAlbums
+              .filter((a) => a.linked_match_ids?.includes(m.id))
+              .sort((a, b) => b.person_refs.length - a.person_refs.length)[0];
             return (
               <MatchCard key={m.id} match={m} accounts={accounts}
                 managedAlbum={managedAlbum}

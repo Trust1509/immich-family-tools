@@ -171,9 +171,6 @@ function PersonRow({
 
 function AlbumSection({
   accounts,
-  canonicalName,
-  enabled,
-  onEnabledChange,
   ownerAccountId,
   onOwnerChange,
   albumMode,
@@ -184,9 +181,6 @@ function AlbumSection({
   onExistingAlbumIdChange,
 }: {
   accounts: Account[];
-  canonicalName: string;
-  enabled: boolean;
-  onEnabledChange: (v: boolean) => void;
   ownerAccountId: string;
   onOwnerChange: (id: string) => void;
   albumMode: "new" | "existing";
@@ -201,24 +195,14 @@ function AlbumSection({
   const { data: existingAlbums = [], isFetching: loadingAlbums } = useQuery({
     queryKey: ["account-albums", ownerAccountId],
     queryFn: () => api.accounts.albums(ownerAccountId),
-    enabled: enabled && albumMode === "existing" && !!ownerAccountId,
+    enabled: albumMode === "existing" && !!ownerAccountId,
     staleTime: 30_000,
   });
 
   return (
     <div className="space-y-3">
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => onEnabledChange(e.target.checked)}
-          className="rounded"
-        />
-        <span className="text-sm text-gray-300">{t("create_shared_album")}</span>
-      </label>
-
-      {enabled && (
-        <div className="pl-6 space-y-3">
+      <label className="text-xs text-gray-400 uppercase tracking-wide">{t("create_shared_album")}</label>
+      <div className="space-y-3">
           {/* Mode toggle */}
           <div className="flex gap-1 bg-immich-surface rounded-lg p-1 w-fit">
             {(["new", "existing"] as const).map((m) => (
@@ -284,8 +268,7 @@ function AlbumSection({
           <p className="text-xs text-gray-600">
             {albumMode === "new" ? t("album_new_desc") : t("album_existing_desc")}
           </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -320,7 +303,6 @@ export default function ManualMatch() {
     { account_id: "", person_id: "" },
   ]);
   const [canonicalName, setCanonicalName] = useState("");
-  const [albumEnabled, setAlbumEnabled] = useState(true);
   const [albumMode, setAlbumMode] = useState<"new" | "existing">("new");
   const [albumName, setAlbumName] = useState("");
   const [ownerAccountId, setOwnerAccountId] = useState("");
@@ -337,11 +319,9 @@ export default function ManualMatch() {
         persons: selections.map((s) => ({ account_id: s.account_id, person_id: s.person_id })),
         canonical_name: canonicalName.trim(),
         owner_account_id: effectiveOwner || undefined,
-        ...(albumEnabled
-          ? albumMode === "new"
-            ? { album_name: albumName.trim() || canonicalName.trim() }
-            : { existing_album_id: existingAlbumId, album_name: albumName.trim() || undefined }
-          : {}),
+        ...(albumMode === "new"
+          ? { album_name: albumName.trim() || canonicalName.trim() }
+          : { existing_album_id: existingAlbumId, album_name: albumName.trim() || undefined }),
       }),
     onSuccess: (data) => {
       setResult(data);
@@ -356,11 +336,9 @@ export default function ManualMatch() {
   const removeRow = (i: number) =>
     setSelections((prev) => prev.filter((_, idx) => idx !== i));
 
-  const albumReady = !albumEnabled || (
-    albumMode === "new"
-      ? true // album_name falls back to canonicalName
-      : !!existingAlbumId
-  );
+  const albumReady = albumMode === "new"
+    ? true  // album_name falls back to canonicalName
+    : !!existingAlbumId;
 
   const isValid =
     canonicalName.trim().length > 0 &&
@@ -424,9 +402,6 @@ export default function ManualMatch() {
       {/* Album */}
       <AlbumSection
         accounts={accounts}
-        canonicalName={canonicalName}
-        enabled={albumEnabled}
-        onEnabledChange={setAlbumEnabled}
         ownerAccountId={effectiveOwner}
         onOwnerChange={setOwnerAccountId}
         albumMode={albumMode}
