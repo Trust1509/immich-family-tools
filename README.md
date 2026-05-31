@@ -1,6 +1,9 @@
 # Immich Family Tools
 
-> A companion web app for self-hosted [Immich](https://immich.app) instances with multiple user accounts — solving the missing cross-account face recognition problem via the Immich REST API, without touching your existing Immich installation.
+> A companion web app for self-hosted [Immich](https://immich.app) instances with multiple user accounts
+
+[![Built with Claude](https://img.shields.io/badge/Built%20with-Claude%20Code-orange?logo=anthropic)](https://claude.ai/claude-code)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) — solving the missing cross-account face recognition problem via the Immich REST API, without touching your existing Immich installation.
 
 ## The Problem
 
