@@ -1,8 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, ScrollText, CheckCircle, XCircle, RotateCcw } from "lucide-react";
 import { api, SyncLogEntry } from "../api/client";
+import { useT } from "../i18n";
 
 function LogRow({ entry }: { entry: SyncLogEntry }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const undoMutation = useMutation({
     mutationFn: () => api.sync.undo(entry.id),
@@ -12,10 +14,14 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
   const canUndo = entry.action === "sync_names" && entry.status === "success" && !!entry.undo_data;
   const ts = new Date(entry.timestamp).toLocaleString("de-AT");
 
-  const ACTION_LABELS: Record<string, string> = {
-    sync_names: "Namen sync",
-    create_album: "Album erstellen",
-    undo_sync_names: "Undo Namen",
+  const actionLabel: Record<string, string> = {
+    sync_names:       t("action_sync_names"),
+    create_album:     t("action_create_album"),
+    undo_sync_names:  t("action_undo_names"),
+    share_album:      t("action_share_album"),
+    album_add_assets: t("action_add_assets"),
+    refresh_album:    t("action_refresh"),
+    link_album:       t("action_link"),
   };
 
   return (
@@ -23,7 +29,7 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
       <td className="py-3 px-4 text-xs text-gray-500 whitespace-nowrap">{ts}</td>
       <td className="py-3 px-4">
         <span className="text-xs bg-immich-border px-2 py-0.5 rounded-full text-gray-300">
-          {ACTION_LABELS[entry.action] ?? entry.action}
+          {actionLabel[entry.action] ?? entry.action}
         </span>
       </td>
       <td className="py-3 px-4 text-sm text-gray-300 max-w-xs truncate" title={entry.details}>
@@ -42,14 +48,10 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
             onClick={() => undoMutation.mutate()}
             disabled={undoMutation.isPending}
             className="text-xs text-gray-500 hover:text-gray-200 flex items-center gap-1 transition-colors"
-            title="Rückgängig machen"
+            title={t("undo_tip")}
           >
-            {undoMutation.isPending ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <RotateCcw size={12} />
-            )}
-            Undo
+            {undoMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+            {t("undo")}
           </button>
         )}
       </td>
@@ -58,6 +60,7 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
 }
 
 export default function SyncPanel() {
+  const { t } = useT();
   const { data: log = [], isLoading } = useQuery({
     queryKey: ["sync-log"],
     queryFn: api.sync.log,
@@ -65,42 +68,36 @@ export default function SyncPanel() {
     refetchInterval: 30_000,
   });
 
-  const sorted = [...log].reverse(); // newest first
+  const sorted = [...log].reverse();
 
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-xl font-bold">Sync Log</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {log.length} Einträge (neueste zuerst)
-        </p>
+        <h1 className="text-xl font-bold">{t("nav_log")}</h1>
+        <p className="text-sm text-gray-500 mt-0.5">{t("log_subtitle", log.length)}</p>
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 size={28} className="animate-spin text-gray-500" />
-        </div>
+        <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-gray-500" /></div>
       ) : sorted.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <ScrollText size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Noch keine Sync-Aktionen durchgeführt.</p>
+          <p className="text-sm">{t("log_empty")}</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-immich-border text-left text-xs text-gray-500">
-                <th className="pb-2 px-4 font-medium">Zeitstempel</th>
-                <th className="pb-2 px-4 font-medium">Aktion</th>
-                <th className="pb-2 px-4 font-medium">Details</th>
-                <th className="pb-2 px-4 font-medium">Status</th>
+                <th className="pb-2 px-4 font-medium">{t("timestamp")}</th>
+                <th className="pb-2 px-4 font-medium">{t("action")}</th>
+                <th className="pb-2 px-4 font-medium">{t("details")}</th>
+                <th className="pb-2 px-4 font-medium">{t("status")}</th>
                 <th className="pb-2 px-4 font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((entry) => (
-                <LogRow key={entry.id} entry={entry} />
-              ))}
+              {sorted.map((entry) => <LogRow key={entry.id} entry={entry} />)}
             </tbody>
           </table>
         </div>

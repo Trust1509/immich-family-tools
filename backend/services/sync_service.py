@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from services.immich_client import ImmichClient, AlbumNotFoundError
 from services.config_store import ConfigStore
+from typing import Optional
 from models.account import Account
 from models.match import ManagedAlbum, SyncLogEntry
 
@@ -108,6 +109,37 @@ async def sync_names(
                     error_message=str(exc),
                 )
             )
+    return results
+
+
+async def sync_names_multi(
+    accounts_persons: list[tuple[Account, str]],
+    canonical_name: str,
+) -> list[SyncLogEntry]:
+    """Set the same name on N persons across N accounts."""
+    results: list[SyncLogEntry] = []
+    for account, person_id in accounts_persons:
+        entry_id = str(uuid.uuid4())
+        try:
+            client = ImmichClient(account.immich_url, account.api_key)
+            updated = await client.update_person(person_id, {"name": canonical_name})
+            results.append(SyncLogEntry(
+                id=entry_id, timestamp=_now(), action="sync_names",
+                details=f"Account '{account.name}' – person {person_id} → '{canonical_name}'",
+                status="success",
+                undo_data={
+                    "account_id": account.id,
+                    "person_id": person_id,
+                    "previous_name": updated.get("name", ""),
+                },
+            ))
+        except Exception as exc:
+            logger.error("sync_names_multi failed for account %s: %s", account.name, exc)
+            results.append(SyncLogEntry(
+                id=entry_id, timestamp=_now(), action="sync_names",
+                details=f"Account '{account.name}' – person {person_id}",
+                status="error", error_message=str(exc),
+            ))
     return results
 
 
@@ -346,6 +378,123 @@ async def refresh_managed_album(
             details=f"Album '{managed.album_name}': Keine neuen Assets gefunden",
             status="success",
         ))
+    return logs
+
+
+async def extend_match(
+    managed: ManagedAlbum,
+    new_account: Account,
+    person_id: str,
+    person_name: Optional[str],
+    canonical_name: Optional[str],
+    all_accounts: list[Account],
+    store: ConfigStore,
+) -> list[SyncLogEntry]:
+    """Add a new account/person to an existing managed album."""
+    logs: list[SyncLogEntry] = []
+    account_map = {a.id: a for a in all_accounts}
+
+    # Guard: person already in this album
+    already = any(
+        r["account_id"] == new_account.id and r["person_id"] == person_id
+        for r in managed.person_refs
+    )
+    if already:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details=f"Person {person_id} aus '{new_account.name}' ist bereits in Album '{managed.album_name}' enthalten.",
+            status="error",
+        ))
+        return logs
+
+    owner = account_map.get(managed.owner_account_id)
+    if not owner:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details="Owner-Account nicht mehr vorhanden.",
+            status="error",
+        ))
+        return logs
+
+    owner_client = ImmichClient(owner.immich_url, owner.api_key)
+
+    # 1. Share album with new account
+    share_logs = await _share_album_if_needed(owner_client, managed.album_id, managed.album_name, [new_account])
+    logs.extend(share_logs)
+
+    # 2. Fetch existing asset IDs to avoid duplicates
+    try:
+        existing_ids = set(await owner_client.get_album_assets(managed.album_id))
+    except Exception as exc:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details=f"Album-Assets konnten nicht abgerufen werden: {exc}",
+            status="error", error_message=str(exc),
+        ))
+        return logs
+
+    # 3. Add new person's assets
+    new_client = ImmichClient(new_account.immich_url, new_account.api_key)
+    try:
+        assets = await new_client.get_person_assets(person_id)
+        new_ids = [a["id"] for a in assets if a["id"] not in existing_ids]
+        if new_ids:
+            await new_client.add_assets_to_album(managed.album_id, new_ids)
+            logs.append(SyncLogEntry(
+                id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+                details=f"{len(new_ids)} Assets von '{new_account.name}' zu '{managed.album_name}' hinzugefügt",
+                status="success",
+            ))
+        else:
+            logs.append(SyncLogEntry(
+                id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+                details=f"Keine neuen Assets von '{new_account.name}' (alle bereits im Album)",
+                status="success",
+            ))
+        total = len(existing_ids) + len(new_ids)
+    except Exception as exc:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details=f"Assets von '{new_account.name}' konnten nicht hinzugefügt werden",
+            status="error", error_message=str(exc),
+        ))
+        total = len(existing_ids)
+
+    # 4. Optionally rename person
+    if canonical_name:
+        try:
+            updated = await new_client.update_person(person_id, {"name": canonical_name})
+            logs.append(SyncLogEntry(
+                id=str(uuid.uuid4()), timestamp=_now(), action="sync_names",
+                details=f"Account '{new_account.name}' – person {person_id} → '{canonical_name}'",
+                status="success",
+                undo_data={
+                    "account_id": new_account.id,
+                    "person_id": person_id,
+                    "previous_name": updated.get("name", ""),
+                },
+            ))
+        except Exception as exc:
+            logs.append(SyncLogEntry(
+                id=str(uuid.uuid4()), timestamp=_now(), action="sync_names",
+                details=f"Umbenennung in '{new_account.name}' fehlgeschlagen",
+                status="error", error_message=str(exc),
+            ))
+
+    # 5. Update managed album record
+    # Use canonical_name if renaming, else fall back to person_name (display name), else None
+    stored_name = canonical_name if canonical_name else person_name
+    managed.person_refs.append({
+        "account_id": new_account.id,
+        "person_id": person_id,
+        "person_name": stored_name,
+        "account_name": new_account.name,
+        "account_color": new_account.color,
+    })
+    managed.last_synced_at = _now()
+    managed.total_assets = total
+    store.update_managed_album(managed)
+
     return logs
 
 

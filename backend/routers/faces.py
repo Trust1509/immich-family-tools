@@ -55,11 +55,17 @@ async def _build_matches(request: Request) -> list[Match]:
 def _enrich(matches: list[Match], request: Request) -> list[Match]:
     """Add has_album and names_synced flags (always fresh, never cached)."""
     managed_albums = request.app.state.store.get_managed_albums()
-    album_match_ids = {ma.match_id for ma in managed_albums}
     synced_name_ids = request.app.state.store.get_synced_name_ids()
+
+    # Collect all linked_match_ids from every managed album
+    all_linked_ids: set[str] = set()
+    for ma in managed_albums:
+        all_linked_ids.update(ma.linked_match_ids)
+
     for m in matches:
-        m.has_album = m.id in album_match_ids
-        m.names_synced = m.id in synced_name_ids  # only explicit tool syncs
+        m.has_album = m.id in all_linked_ids
+        same_name = bool(m.person_a.person_name) and m.person_a.person_name == m.person_b.person_name
+        m.names_synced = m.id in synced_name_ids or same_name
     return matches
 
 

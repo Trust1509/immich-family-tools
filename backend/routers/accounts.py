@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from models.account import AccountCreate, Account, AccountStatus
+from models.account import AccountCreate, Account, AccountStatus, AccountUpdate
 from services.immich_client import ImmichClient
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -20,6 +20,27 @@ async def add_account(data: AccountCreate, request: Request):
     # Store the Immich user UUID — needed for album sharing
     user_id = user_info.get("id")
     return request.app.state.store.add_account(data, user_id=user_id)
+
+
+@router.put("/{account_id}", response_model=Account)
+async def update_account(account_id: str, data: AccountUpdate, request: Request):
+    account = request.app.state.store.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+    updates = data.model_dump(exclude_none=True)
+    # Re-validate if URL or API key changed
+    if "immich_url" in updates or "api_key" in updates:
+        new_url = updates.get("immich_url", account.immich_url).rstrip("/")
+        new_key = updates.get("api_key", account.api_key)
+        updates["immich_url"] = new_url
+        client = ImmichClient(new_url, new_key)
+        try:
+            user_info = await client.validate()
+            updates["user_id"] = user_info.get("id")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Immich API nicht erreichbar: {exc}")
+    updated = request.app.state.store.update_account(account_id, updates)
+    return updated
 
 
 @router.delete("/{account_id}", status_code=204)

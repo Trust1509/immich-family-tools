@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from models.match import SyncNamesRequest, SyncAlbumRequest, SyncLogEntry, ManagedAlbum
+from models.match import SyncNamesRequest, SyncAlbumRequest, SyncLogEntry, ManagedAlbum, SyncNamesMultiRequest, ExtendMatchRequest
 from services import sync_service
 from services.immich_client import ImmichClient
 
@@ -40,6 +40,88 @@ async def sync_names(body: SyncNamesRequest, request: Request):
     return entries
 
 
+@router.post("/names-multi", response_model=list[SyncLogEntry])
+async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
+    """Sync a canonical name + optionally create an album for N persons at once."""
+    if len(body.persons) < 2:
+        raise HTTPException(status_code=422, detail="Mindestens 2 Personen erforderlich")
+
+    store = request.app.state.store
+    accounts_persons: list[tuple] = []
+    person_refs: list[dict] = []
+
+    for entry in body.persons:
+        acc = store.get_account(entry.account_id)
+        if not acc:
+            raise HTTPException(status_code=404, detail=f"Account {entry.account_id} nicht gefunden")
+        accounts_persons.append((acc, entry.person_id))
+        person_refs.append({
+            "account_id": entry.account_id,
+            "person_id": entry.person_id,
+            "person_name": body.canonical_name,
+            "account_name": acc.name,
+            "account_color": acc.color,
+        })
+
+    logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
+    store.append_log(logs)
+
+    # Mark all pairwise combinations as names-synced
+    if all(e.status == "success" for e in logs):
+        store.mark_all_pairs_synced([e.person_id for e in body.persons])
+
+    if body.album_name and all(e.status == "success" for e in logs):
+        owner_id = body.owner_account_id or body.persons[0].account_id
+        owner = store.get_account(owner_id)
+        if not owner:
+            raise HTTPException(status_code=404, detail=f"Owner-Account {owner_id} nicht gefunden")
+        match_id = f"manual_{body.canonical_name.lower().replace(' ', '_')}_{owner_id[:8]}"
+        all_accounts = store.list_accounts()
+        _, album_logs = await sync_service.create_shared_album(
+            match_id=match_id,
+            owner_account=owner,
+            all_accounts=all_accounts,
+            person_refs=person_refs,
+            album_name=body.album_name,
+            store=store,
+        )
+        store.append_log(album_logs)
+        logs.extend(album_logs)
+
+    return logs
+
+
+@router.post("/extend", response_model=list[SyncLogEntry])
+async def extend_match(body: ExtendMatchRequest, request: Request):
+    """Add a new account/person to an existing managed album."""
+    store = request.app.state.store
+    albums = store.get_managed_albums()
+    managed = next((a for a in albums if a.id == body.managed_album_id), None)
+    if not managed:
+        raise HTTPException(status_code=404, detail="Managed Album nicht gefunden")
+    account = store.get_account(body.account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail=f"Account {body.account_id} nicht gefunden")
+    all_accounts = store.list_accounts()
+    logs = await sync_service.extend_match(
+        managed=managed,
+        new_account=account,
+        person_id=body.person_id,
+        person_name=body.person_name,
+        canonical_name=body.canonical_name,
+        all_accounts=all_accounts,
+        store=store,
+    )
+    store.append_log(logs)
+    # If name was synced, mark all new pairwise combinations as names-synced
+    if body.canonical_name and any(e.action == "sync_names" and e.status == "success" for e in logs):
+        # Re-fetch the updated album to get all person_ids
+        updated = next((a for a in store.get_managed_albums() if a.id == managed.id), None)
+        if updated:
+            store.mark_all_pairs_synced([r["person_id"] for r in updated.person_refs])
+    return logs
+
+
 @router.post("/album", response_model=list[SyncLogEntry])
 async def create_album(body: SyncAlbumRequest, request: Request):
     store = request.app.state.store
@@ -60,12 +142,14 @@ async def create_album(body: SyncAlbumRequest, request: Request):
             "person_id": match.person_a.person_id,
             "person_name": match.person_a.person_name,
             "account_name": match.person_a.account_name,
+            "account_color": match.person_a.account_color,
         },
         {
             "account_id": match.person_b.account_id,
             "person_id": match.person_b.person_id,
             "person_name": match.person_b.person_name,
             "account_name": match.person_b.account_name,
+            "account_color": match.person_b.account_color,
         },
     ]
 
@@ -121,7 +205,18 @@ async def refresh_album(managed_album_id: str, request: Request):
 
 @router.get("/albums", response_model=list[ManagedAlbum])
 async def list_managed_albums(request: Request):
-    return request.app.state.store.get_managed_albums()
+    store = request.app.state.store
+    albums = store.get_managed_albums()
+    # Always inject live account_color and account_name so frontend never shows stale data
+    account_map = {a.id: a for a in store.list_accounts()}
+    for album in albums:
+        for ref in album.person_refs:
+            acc = account_map.get(ref.get("account_id", ""))
+            if acc:
+                ref["account_color"] = acc.color
+                if not ref.get("account_name"):
+                    ref["account_name"] = acc.name
+    return albums
 
 
 @router.delete("/albums/{managed_album_id}", status_code=204)

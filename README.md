@@ -4,26 +4,41 @@
 
 [![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-orange?logo=anthropic)](https://claude.ai/claude-code)
 [![Vibe Coded](https://img.shields.io/badge/Vibe%20Coded-100%25-blueviolet)](https://claude.ai)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) — solving the missing cross-account face recognition problem via the Immich REST API, without touching your existing Immich installation.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Solving the missing cross-account face recognition problem via the Immich REST API, without touching your existing Immich installation.
 
 ## The Problem
 
-Immich does not share face recognition across user accounts. If your family runs 4 separate Immich accounts on the same server, each account builds its own independent person database — even though 90% of the faces are the same people.
+Immich does not share face recognition across user accounts. If your family runs several separate Immich accounts on the same server, each account builds its own independent person database — even though 90% of the faces are the same people.
 
 This tool bridges that gap.
 
 ## Features
 
-- **People overview** — All recognized faces from all accounts in one unified view
-- **Match suggestions** — Automatically detects the same person across accounts using name similarity, face embeddings (if available via API), and shared assets
-- **Name sync** — Set a canonical name on both persons with one click
-- **Shared album** — Create an album containing all photos of a matched person
-- **Sync log** — Full history of all actions with undo support
-- **Read-first design** — All write operations require explicit confirmation; nothing happens automatically
+### Core
+- **People overview** — All recognized faces from all accounts in one unified view, loaded per-account in parallel with progress indicator
+- **Match suggestions** — Automatically detects the same person across accounts using name similarity, face embeddings (if available), and shared assets
+- **Name sync** — Set a canonical name across all matched persons with one click; bulk-sync for high-confidence matches
+- **Shared album** — Create a shared album containing all photos of a matched person, populated from each account's own API key
+- **Sync log** — Full history of all actions with undo support for name syncs
+
+### Manual Matching
+- **Manuelles Matching** — Pick one person per account from searchable dropdowns, assign a shared name, and optionally create a shared album in one step — for cases the automatic matcher missed
+- **Match erweitern** — Add a new account/person to an existing shared album (e.g. when a new family member joins); shares the album, adds photos, and optionally renames the person
+
+### Account Management
+- **Account bearbeiten** — Edit name, Immich URL, API key and colour for any account; changes re-validate the connection automatically
+- **Custom colours** — Each account has an assignable colour (10 presets + custom picker) shown consistently as badges everywhere in the UI
+
+### UI & Internationalisation
+- **DE / EN language toggle** — Full German and English UI, persisted in localStorage
+- **Album grouping** — Albums with the same name are merged into one card in the overview, showing all linked persons across accounts
+- **Smart badges** — "Names synced" and "Album linked" badges on match cards now correctly detect matches extended via *Match erweitern*
 
 ## Screenshots
 
-> _Add screenshots here once the UI is stable_
+> _Add screenshots here_
 
 ## How It Works
 
@@ -55,17 +70,15 @@ When embeddings are unavailable, the remaining weights are scaled up to 100%.
 - `"Manuel"` vs `"Manu"` → 67%
 - Any unnamed person → 0% (no signal)
 
-**Face embeddings** are fetched via `GET /api/faces?id={assetId}` — experimental, not available in all Immich versions. Cosine similarity of ~0.9+ indicates the same person. Falls back gracefully to name-only matching.
+**Face embeddings** are fetched via `GET /api/faces?id={assetId}` — experimental, not available in all Immich versions. Falls back gracefully to name-only matching.
 
-**Shared assets** — if the same physical photo was imported into multiple accounts, the asset IDs will differ (Immich assigns new UUIDs per import), so this signal rarely fires in practice. It is reserved for future use (e.g. partner library sync).
+**Shared assets** — reserved for future use (e.g. partner library sync). Asset IDs differ across accounts even for identical photos.
 
 #### Why does "same name" only score ~75%?
 
-Name similarity alone contributes at most 75% of the total score (without embeddings). The remaining 25% comes from shared assets — which are almost always 0 across separate accounts, even for identical photos. This means:
-
-- Same name, no embeddings → **~75%** (correct match likely, but unconfirmed)
-- Same name, embeddings match → **~85–95%** (high confidence)
-- Same name, different person → **~75%** → mark as *"Not the same person"* to dismiss permanently
+Same name, no embeddings → **~75%** (correct match likely, unconfirmed)  
+Same name, embeddings match → **~85–95%** (high confidence)  
+Same name, different person → mark as *"Not the same person"* to dismiss permanently
 
 The minimum threshold to appear as a suggestion is **25%**.
 
@@ -80,7 +93,7 @@ The minimum threshold to appear as a suggestion is **25%**.
 ### 1. Clone
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/immich-family-tools.git
+git clone https://github.com/Trust1509/immich-family-tools.git
 cd immich-family-tools
 ```
 
@@ -150,27 +163,31 @@ immich-family-tools/
 │   ├── main.py             # Entry point, static file serving
 │   ├── config.py           # ENV settings (pydantic-settings)
 │   ├── routers/
-│   │   ├── accounts.py     # CRUD + live status check
+│   │   ├── accounts.py     # CRUD + edit + live status check
 │   │   ├── people.py       # Aggregated people + thumbnail proxy
 │   │   ├── faces.py        # Match computation + 5-min cache
-│   │   └── albums.py       # Sync actions + log + undo
+│   │   └── albums.py       # Sync actions: names, album, extend, log, undo
 │   └── services/
 │       ├── immich_client.py   # Async Immich REST client (httpx)
 │       ├── face_matcher.py    # Cosine similarity + Levenshtein
-│       ├── sync_service.py    # Name/album sync
+│       ├── sync_service.py    # Name/album/extend sync
 │       ├── config_store.py    # JSON persistence (accounts.json)
 │       └── thumbnail_cache.py # LRU in-memory cache (50 MB)
 └── frontend/               # React 18 + TypeScript + Tailwind (dark mode)
     └── src/
+        ├── i18n.tsx                     # DE/EN translations + LanguageProvider
         ├── components/
-        │   ├── AccountManager.tsx   # Page 1: manage accounts
-        │   ├── PeopleGrid.tsx       # Page 2: unified people view
-        │   ├── MatchSuggestions.tsx # Page 3: match + sync actions
-        │   └── SyncPanel.tsx        # Page 4: sync log + undo
-        └── api/client.ts            # Typed API client
+        │   ├── AccountManager.tsx       # Page 1: manage + edit accounts + colour picker
+        │   ├── PeopleGrid.tsx           # Page 2: unified people view (parallel loading)
+        │   ├── MatchSuggestions.tsx     # Page 3: match + sync actions
+        │   ├── ManualMatch.tsx          # Page 4: manual cross-account matching
+        │   ├── ExtendMatch.tsx          # Page 5: extend existing matches
+        │   ├── AlbumsOverview.tsx       # Page 6: managed albums (grouped by name)
+        │   └── SyncPanel.tsx            # Page 7: sync log + undo
+        └── api/client.ts                # Typed API client
 ```
 
-**No database required** — all data is loaded live from the Immich API. Only `accounts.json` (API keys + dismissed matches + sync log) is persisted on the Docker volume.
+**No database required** — all data is loaded live from the Immich API. Only `accounts.json` (API keys + dismissed matches + managed albums + sync log) is persisted on the Docker volume.
 
 ## Environment Variables
 
@@ -185,22 +202,20 @@ immich-family-tools/
 - API keys are stored in `accounts.json` on the Docker volume
 - This tool is designed for **internal network use only** (no HTTPS, no user management)
 - Do not expose it to the internet without adding authentication (e.g. Authelia, Caddy basic auth)
-- All write operations (rename, create album) require explicit user confirmation in the UI
+- All write operations (rename, create album, extend match) require explicit user confirmation in the UI
 
 ## Contributing
 
 PRs welcome! Some ideas for future improvements:
 
-- [ ] Duplicate album detection (check before creating)
-- [ ] Batch operations across all account pairs
 - [ ] Face thumbnail side-by-side zoom view
 - [ ] Export match report as CSV
 - [ ] Immich shared library support
 - [ ] Docker Hub image publishing
+- [ ] Notification when new persons are detected
 
 ## Related
 
-This tool was built to address a commonly requested Immich feature. See also:
 - [Immich GitHub Discussions – Cross-account face recognition](https://github.com/immich-app/immich/discussions)
 - [Immich API Documentation](https://immich.app/docs/api)
 

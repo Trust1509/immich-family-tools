@@ -1,23 +1,29 @@
 import { useState } from "react";
-import { Users, GitMerge, Grid, ScrollText, Activity, Disc } from "lucide-react";
+import { Users, GitMerge, Grid, ScrollText, Activity, Disc, Shuffle, UserPlus } from "lucide-react";
 import AccountManager from "./components/AccountManager";
 import PeopleGrid from "./components/PeopleGrid";
 import MatchSuggestions from "./components/MatchSuggestions";
 import SyncPanel from "./components/SyncPanel";
 import AlbumsOverview from "./components/AlbumsOverview";
+import ManualMatch from "./components/ManualMatch";
+import ExtendMatch from "./components/ExtendMatch";
+import { useT } from "./i18n";
 
-type Page = "accounts" | "people" | "matches" | "albums" | "log";
-
-const NAV: { id: Page; label: string; icon: React.ReactNode }[] = [
-  { id: "accounts", label: "Accounts", icon: <Users size={18} /> },
-  { id: "people", label: "Personen", icon: <Grid size={18} /> },
-  { id: "matches", label: "Match-Vorschläge", icon: <GitMerge size={18} /> },
-  { id: "albums", label: "Alben", icon: <Disc size={18} /> },
-  { id: "log", label: "Sync Log", icon: <ScrollText size={18} /> },
-];
+type Page = "accounts" | "people" | "matches" | "manual" | "extend" | "albums" | "log";
 
 export default function App() {
   const [page, setPage] = useState<Page>("accounts");
+  const { t, lang, setLang } = useT();
+
+  const NAV: { id: Page; label: string; icon: React.ReactNode }[] = [
+    { id: "accounts", label: t("nav_accounts"), icon: <Users size={18} /> },
+    { id: "people",   label: t("nav_people"),   icon: <Grid size={18} /> },
+    { id: "matches",  label: t("nav_matches"),  icon: <GitMerge size={18} /> },
+    { id: "manual",   label: t("nav_manual"),   icon: <Shuffle size={18} /> },
+    { id: "extend",   label: t("nav_extend"),   icon: <UserPlus size={18} /> },
+    { id: "albums",   label: t("nav_albums"),   icon: <Disc size={18} /> },
+    { id: "log",      label: t("nav_log"),      icon: <ScrollText size={18} /> },
+  ];
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -28,7 +34,7 @@ export default function App() {
             <Activity size={20} className="text-immich-primary" />
             <span className="font-semibold text-sm">Family Tools</span>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">Immich Multi-Account</p>
+          <p className="text-xs text-gray-500 mt-0.5">{t("app_subtitle")}</p>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
           {NAV.map((item) => (
@@ -46,18 +52,36 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="p-3 border-t border-immich-border">
-          <p className="text-xs text-gray-600 text-center">v1.0.0</p>
+        <div className="p-3 border-t border-immich-border space-y-2">
+          {/* Language toggle */}
+          <div className="flex gap-1">
+            {(["de", "en"] as const).map((l) => (
+              <button
+                key={l}
+                onClick={() => setLang(l)}
+                className={`flex-1 py-1 rounded text-xs font-medium transition-colors ${
+                  lang === l
+                    ? "bg-immich-primary text-white"
+                    : "text-gray-500 hover:text-gray-300 bg-immich-bg"
+                }`}
+              >
+                {l === "de" ? "🇩🇪 DE" : "🇬🇧 EN"}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-600 text-center">v1.1.0</p>
         </div>
       </aside>
 
       {/* Main content */}
       <main className="flex-1 overflow-auto">
         {page === "accounts" && <AccountManager />}
-        {page === "people" && <PeopleGrid />}
-        {page === "matches" && <MatchSuggestions />}
-        {page === "albums" && <AlbumsOverview />}
-        {page === "log" && <SyncPanel />}
+        {page === "people"   && <PeopleGrid />}
+        {page === "matches"  && <MatchSuggestions />}
+        {page === "manual"   && <ManualMatch />}
+        {page === "extend"   && <ExtendMatch />}
+        {page === "albums"   && <AlbumsOverview />}
+        {page === "log"      && <SyncPanel />}
       </main>
     </div>
   );

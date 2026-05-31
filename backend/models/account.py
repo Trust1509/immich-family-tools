@@ -38,6 +38,13 @@ class Account(BaseModel):
         )
 
 
+class AccountUpdate(BaseModel):
+    name: Optional[str] = None
+    immich_url: Optional[str] = None
+    api_key: Optional[str] = None
+    color: Optional[str] = None
+
+
 class AccountStatus(BaseModel):
     id: str
     name: str
