@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle } from "lucide-react";
+import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle, Loader2 } from "lucide-react";
 import { api, type Account, type Person, type SyncLogEntry } from "../api/client";
 import { useT } from "../i18n";
 
@@ -105,13 +105,7 @@ function SearchablePersonPicker({
 // ── Person row ─────────────────────────────────────────────────────────────
 
 function PersonRow({
-  accounts,
-  usedAccountIds,
-  selection,
-  index,
-  onUpdate,
-  onRemove,
-  canRemove,
+  accounts, usedAccountIds, selection, index, onUpdate, onRemove, canRemove,
 }: {
   accounts: Account[];
   usedAccountIds: string[];
@@ -132,7 +126,6 @@ function PersonRow({
   return (
     <div className="flex items-center gap-3 p-3 bg-immich-bg rounded-lg border border-immich-border">
       <span className="text-gray-500 text-sm w-5 shrink-0">{index + 1}.</span>
-
       <select
         className="w-36 shrink-0 bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
         value={selection.account_id}
@@ -148,7 +141,6 @@ function PersonRow({
           );
         })}
       </select>
-
       <SearchablePersonPicker
         people={people}
         loading={isFetching}
@@ -157,7 +149,6 @@ function PersonRow({
         placeholder={selection.account_id ? t("extend_search_person") : t("person_select_ph")}
         disabled={!selection.account_id}
       />
-
       {selection.person_id && (
         <img
           src={api.people.thumbnailUrl(selection.account_id, selection.person_id)}
@@ -165,7 +156,6 @@ function PersonRow({
           className="w-9 h-9 rounded-full object-cover shrink-0 border border-immich-border"
         />
       )}
-
       <button
         onClick={onRemove}
         disabled={!canRemove}
@@ -173,6 +163,129 @@ function PersonRow({
       >
         <Trash2 size={15} />
       </button>
+    </div>
+  );
+}
+
+// ── Album section ──────────────────────────────────────────────────────────
+
+function AlbumSection({
+  accounts,
+  canonicalName,
+  enabled,
+  onEnabledChange,
+  ownerAccountId,
+  onOwnerChange,
+  albumMode,
+  onAlbumModeChange,
+  albumName,
+  onAlbumNameChange,
+  existingAlbumId,
+  onExistingAlbumIdChange,
+}: {
+  accounts: Account[];
+  canonicalName: string;
+  enabled: boolean;
+  onEnabledChange: (v: boolean) => void;
+  ownerAccountId: string;
+  onOwnerChange: (id: string) => void;
+  albumMode: "new" | "existing";
+  onAlbumModeChange: (m: "new" | "existing") => void;
+  albumName: string;
+  onAlbumNameChange: (v: string) => void;
+  existingAlbumId: string;
+  onExistingAlbumIdChange: (id: string) => void;
+}) {
+  const { t } = useT();
+
+  const { data: existingAlbums = [], isFetching: loadingAlbums } = useQuery({
+    queryKey: ["account-albums", ownerAccountId],
+    queryFn: () => api.accounts.albums(ownerAccountId),
+    enabled: enabled && albumMode === "existing" && !!ownerAccountId,
+    staleTime: 30_000,
+  });
+
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onEnabledChange(e.target.checked)}
+          className="rounded"
+        />
+        <span className="text-sm text-gray-300">{t("create_shared_album")}</span>
+      </label>
+
+      {enabled && (
+        <div className="pl-6 space-y-3">
+          {/* Mode toggle */}
+          <div className="flex gap-1 bg-immich-surface rounded-lg p-1 w-fit">
+            {(["new", "existing"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => onAlbumModeChange(m)}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                  albumMode === m ? "bg-immich-primary text-white" : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                {m === "new" ? t("album_new") : t("album_link_existing")}
+              </button>
+            ))}
+          </div>
+
+          {/* Owner */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">{t("manual_album_owner")}</label>
+            <select
+              className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
+              value={ownerAccountId}
+              onChange={(e) => { onOwnerChange(e.target.value); onExistingAlbumIdChange(""); }}
+            >
+              <option value="">— {t("account_select_ph")} —</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* New album name */}
+          {albumMode === "new" && (
+            <input
+              type="text"
+              placeholder={t("album_name_label")}
+              value={albumName}
+              onChange={(e) => onAlbumNameChange(e.target.value)}
+              className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
+            />
+          )}
+
+          {/* Existing album picker */}
+          {albumMode === "existing" && (
+            loadingAlbums ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 py-1">
+                <Loader2 size={13} className="animate-spin" /> {t("loading")}
+              </div>
+            ) : (
+              <select
+                className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary disabled:opacity-40"
+                value={existingAlbumId}
+                disabled={!ownerAccountId}
+                onChange={(e) => onExistingAlbumIdChange(e.target.value)}
+              >
+                <option value="">{t("album_select_ph")}</option>
+                {existingAlbums.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            )
+          )}
+
+          <p className="text-xs text-gray-600">
+            {albumMode === "new" ? t("album_new_desc") : t("album_existing_desc")}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -190,6 +303,8 @@ function LogEntryRow({ entry }: { entry: SyncLogEntry }) {
   );
 }
 
+// ── Main page ──────────────────────────────────────────────────────────────
+
 export default function ManualMatch() {
   const { t } = useT();
   const queryClient = useQueryClient();
@@ -205,35 +320,56 @@ export default function ManualMatch() {
     { account_id: "", person_id: "" },
   ]);
   const [canonicalName, setCanonicalName] = useState("");
+  const [albumEnabled, setAlbumEnabled] = useState(true);
+  const [albumMode, setAlbumMode] = useState<"new" | "existing">("new");
   const [albumName, setAlbumName] = useState("");
-  const [createAlbum, setCreateAlbum] = useState(true);
+  const [ownerAccountId, setOwnerAccountId] = useState("");
+  const [existingAlbumId, setExistingAlbumId] = useState("");
   const [result, setResult] = useState<SyncLogEntry[] | null>(null);
+
+  // Default owner to first fully-selected row
+  const firstFilledAccountId = selections.find((s) => s.account_id)?.account_id ?? "";
+  const effectiveOwner = ownerAccountId || firstFilledAccountId;
 
   const mutation = useMutation({
     mutationFn: () =>
       api.sync.namesMulti({
         persons: selections.map((s) => ({ account_id: s.account_id, person_id: s.person_id })),
         canonical_name: canonicalName.trim(),
-        album_name: createAlbum && albumName.trim() ? albumName.trim() : undefined,
-        owner_account_id: selections[0]?.account_id || undefined,
+        owner_account_id: effectiveOwner || undefined,
+        ...(albumEnabled
+          ? albumMode === "new"
+            ? { album_name: albumName.trim() || canonicalName.trim() }
+            : { existing_album_id: existingAlbumId, album_name: albumName.trim() || undefined }
+          : {}),
       }),
     onSuccess: (data) => {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ["sync-log"] });
+      queryClient.invalidateQueries({ queryKey: ["managed-albums"] });
     },
   });
 
   const addRow = () => setSelections((prev) => [...prev, { account_id: "", person_id: "" }]);
-  const updateRow = (i: number, s: PersonSelection) => setSelections((prev) => prev.map((x, idx) => (idx === i ? s : x)));
-  const removeRow = (i: number) => setSelections((prev) => prev.filter((_, idx) => idx !== i));
+  const updateRow = (i: number, s: PersonSelection) =>
+    setSelections((prev) => prev.map((x, idx) => (idx === i ? s : x)));
+  const removeRow = (i: number) =>
+    setSelections((prev) => prev.filter((_, idx) => idx !== i));
+
+  const albumReady = !albumEnabled || (
+    albumMode === "new"
+      ? true // album_name falls back to canonicalName
+      : !!existingAlbumId
+  );
 
   const isValid =
     canonicalName.trim().length > 0 &&
     selections.length >= 2 &&
-    selections.every((s) => s.account_id && s.person_id);
+    selections.every((s) => s.account_id && s.person_id) &&
+    albumReady;
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
+    <div className="p-6 max-w-2xl space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-gray-100">{t("manual_title")}</h2>
         <p className="text-sm text-gray-400 mt-1">{t("manual_subtitle")}</p>
@@ -245,6 +381,7 @@ export default function ManualMatch() {
         <span>{t("manual_hint")}</span>
       </div>
 
+      {/* Personen */}
       <div className="space-y-2">
         <label className="text-xs text-gray-400 uppercase tracking-wide">{t("manual_people")}</label>
         {selections.map((sel, i) => (
@@ -268,6 +405,7 @@ export default function ManualMatch() {
         </button>
       </div>
 
+      {/* Gemeinsamer Name */}
       <div className="space-y-1">
         <label className="text-xs text-gray-400 uppercase tracking-wide">{t("shared_name")}</label>
         <input
@@ -276,33 +414,30 @@ export default function ManualMatch() {
           value={canonicalName}
           onChange={(e) => {
             setCanonicalName(e.target.value);
-            if (createAlbum && !albumName) setAlbumName(e.target.value);
+            if (albumEnabled && albumMode === "new" && !albumName)
+              setAlbumName(e.target.value);
           }}
           className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
         />
       </div>
 
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={createAlbum}
-            onChange={(e) => setCreateAlbum(e.target.checked)}
-            className="rounded"
-          />
-          <span className="text-sm text-gray-300">{t("create_shared_album")}</span>
-        </label>
-        {createAlbum && (
-          <input
-            type="text"
-            placeholder={t("album_name_label")}
-            value={albumName}
-            onChange={(e) => setAlbumName(e.target.value)}
-            className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
-          />
-        )}
-      </div>
+      {/* Album */}
+      <AlbumSection
+        accounts={accounts}
+        canonicalName={canonicalName}
+        enabled={albumEnabled}
+        onEnabledChange={setAlbumEnabled}
+        ownerAccountId={effectiveOwner}
+        onOwnerChange={setOwnerAccountId}
+        albumMode={albumMode}
+        onAlbumModeChange={setAlbumMode}
+        albumName={albumName}
+        onAlbumNameChange={setAlbumName}
+        existingAlbumId={existingAlbumId}
+        onExistingAlbumIdChange={setExistingAlbumId}
+      />
 
+      {/* Submit */}
       <button
         onClick={() => { setResult(null); mutation.mutate(); }}
         disabled={!isValid || mutation.isPending}

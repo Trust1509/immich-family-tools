@@ -70,21 +70,34 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     if all(e.status == "success" for e in logs):
         store.mark_all_pairs_synced([e.person_id for e in body.persons])
 
-    if body.album_name and all(e.status == "success" for e in logs):
+    wants_album = (body.album_name or body.existing_album_id) and all(e.status == "success" for e in logs)
+    if wants_album:
         owner_id = body.owner_account_id or body.persons[0].account_id
         owner = store.get_account(owner_id)
         if not owner:
             raise HTTPException(status_code=404, detail=f"Owner-Account {owner_id} nicht gefunden")
         match_id = f"manual_{body.canonical_name.lower().replace(' ', '_')}_{owner_id[:8]}"
         all_accounts = store.list_accounts()
-        _, album_logs = await sync_service.create_shared_album(
-            match_id=match_id,
-            owner_account=owner,
-            all_accounts=all_accounts,
-            person_refs=person_refs,
-            album_name=body.album_name,
-            store=store,
-        )
+        if body.existing_album_id:
+            album_name = body.album_name or body.existing_album_id
+            _, album_logs = await sync_service.link_existing_album(
+                match_id=match_id,
+                owner_account=owner,
+                album_id=body.existing_album_id,
+                album_name=album_name,
+                all_accounts=all_accounts,
+                person_refs=person_refs,
+                store=store,
+            )
+        else:
+            _, album_logs = await sync_service.create_shared_album(
+                match_id=match_id,
+                owner_account=owner,
+                all_accounts=all_accounts,
+                person_refs=person_refs,
+                album_name=body.album_name,
+                store=store,
+            )
         store.append_log(album_logs)
         logs.extend(album_logs)
 

@@ -9,6 +9,16 @@ function PersonCard({ person }: { person: Person }) {
   const thumbUrl = api.people.thumbnailUrl(person.account_id, person.id);
   const [imgError, setImgError] = useState(false);
 
+  // Lazy count fallback: Immich API often returns assetCount=0 in list responses
+  const { data: countData } = useQuery({
+    queryKey: ["person-count", person.account_id, person.id],
+    queryFn: () => api.people.count(person.account_id, person.id),
+    enabled: person.asset_count === 0,
+    staleTime: 5 * 60_000,
+  });
+
+  const photoCount = person.asset_count > 0 ? person.asset_count : (countData?.count ?? 0);
+
   return (
     <div className="card p-3 flex flex-col items-center gap-2 text-center group hover:border-immich-primary transition-colors">
       <div className="w-20 h-20 rounded-full overflow-hidden bg-immich-border flex items-center justify-center shrink-0">
@@ -28,9 +38,7 @@ function PersonCard({ person }: { person: Person }) {
           {person.name || <span className="text-gray-500 italic">{t("unknown")}</span>}
         </p>
         <p className="text-xs text-gray-500">
-          {person.asset_count > 0
-            ? `${person.asset_count.toLocaleString("de-AT")} ${t("photos")}`
-            : "–"}
+          {photoCount > 0 ? `${photoCount.toLocaleString("de-AT")} ${t("photos")}` : "–"}
         </p>
         <span className="badge mt-1 inline-block" style={{ backgroundColor: person.account_color }}>
           {person.account_name}
