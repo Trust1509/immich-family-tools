@@ -389,6 +389,21 @@ export default function MatchSuggestions() {
     },
   });
 
+  // Precompute transitive person groups: normalised album-name → Set<person_id>
+  // Same logic as backend _enrich — group albums by name, collect all person_ids.
+  // Used to find the managed album for a match and to count group size.
+  const albumNameGroups = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const album of managedAlbums) {
+      const key = album.album_name.trim().toLowerCase();
+      if (!map.has(key)) map.set(key, new Set());
+      for (const ref of album.person_refs) {
+        map.get(key)!.add(ref.person_id);
+      }
+    }
+    return map;
+  }, [managedAlbums]);
+
   const displayed = useMemo(() => {
     const pool = filters.showDismissed ? matches : pending;
     return pool.filter((m) => {
@@ -446,21 +461,19 @@ export default function MatchSuggestions() {
       ) : (
         <div className="space-y-4">
           {displayed.map((m) => {
-            // Find the best matching album (most person_refs)
+            // Find the album whose name-group contains BOTH persons of this match.
+            // Uses transitive person-ref lookup (same principle as backend _enrich)
+            // so this works even if linked_match_ids is stale or missing.
             const managedAlbum = managedAlbums
-              .filter((a) => a.linked_match_ids?.includes(m.id))
+              .filter((a) => {
+                const group = albumNameGroups.get(a.album_name.trim().toLowerCase());
+                return group?.has(m.person_a.person_id) && group?.has(m.person_b.person_id);
+              })
               .sort((a, b) => b.person_refs.length - a.person_refs.length)[0];
 
-            // Count unique persons across ALL albums with the same name (transitive groups).
-            // Covers the case of two 2-person albums e.g. Manu↔Majo + Majo↔Jojo both
-            // named "Manuel" — together they represent a 3-person connection.
-            const albumName = managedAlbum?.album_name.trim().toLowerCase();
-            const groupPersonCount = albumName
-              ? new Set(
-                  managedAlbums
-                    .filter((a) => a.album_name.trim().toLowerCase() === albumName)
-                    .flatMap((a) => a.person_refs.map((r) => r.person_id))
-                ).size
+            // Total unique persons in this album's name-group
+            const groupPersonCount = managedAlbum
+              ? (albumNameGroups.get(managedAlbum.album_name.trim().toLowerCase())?.size ?? 0)
               : 0;
 
             return (
