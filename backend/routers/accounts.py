@@ -1,0 +1,88 @@
+from fastapi import APIRouter, HTTPException, Request
+from models.account import AccountCreate, Account, AccountStatus
+from services.immich_client import ImmichClient
+
+router = APIRouter(prefix="/api/accounts", tags=["accounts"])
+
+
+@router.get("", response_model=list[Account])
+async def list_accounts(request: Request):
+    return request.app.state.store.list_accounts()
+
+
+@router.post("", response_model=Account, status_code=201)
+async def add_account(data: AccountCreate, request: Request):
+    client = ImmichClient(data.immich_url, data.api_key)
+    try:
+        user_info = await client.validate()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Immich API nicht erreichbar: {exc}")
+    # Store the Immich user UUID — needed for album sharing
+    user_id = user_info.get("id")
+    return request.app.state.store.add_account(data, user_id=user_id)
+
+
+@router.delete("/{account_id}", status_code=204)
+async def delete_account(account_id: str, request: Request):
+    ok = request.app.state.store.delete_account(account_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+
+
+@router.post("/{account_id}/refresh", response_model=Account)
+async def refresh_account(account_id: str, request: Request):
+    """Re-fetch user_id and other metadata from Immich."""
+    account = request.app.state.store.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+    client = ImmichClient(account.immich_url, account.api_key)
+    try:
+        user_info = await client.validate()
+        user_id = user_info.get("id")
+        raw = request.app.state.store._data["accounts"].get(account_id)
+        if raw and user_id:
+            raw["user_id"] = user_id
+            request.app.state.store._save()
+        return request.app.state.store.get_account(account_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/{account_id}/albums")
+async def get_account_albums(account_id: str, request: Request):
+    """List Immich albums for a specific account (for existing-album linking)."""
+    account = request.app.state.store.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+    client = ImmichClient(account.immich_url, account.api_key)
+    try:
+        albums = await client.get_albums()
+        return [{"id": a["id"], "name": a.get("albumName", "?")} for a in albums]
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/{account_id}/status", response_model=AccountStatus)
+async def account_status(account_id: str, request: Request):
+    account = request.app.state.store.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+    client = ImmichClient(account.immich_url, account.api_key)
+    try:
+        user = await client.validate()
+        return AccountStatus(
+            id=account.id,
+            name=account.name,
+            color=account.color,
+            reachable=True,
+            user_name=user.get("name"),
+            user_email=user.get("email"),
+        )
+    except Exception as exc:
+        return AccountStatus(
+            id=account.id,
+            name=account.name,
+            color=account.color,
+            reachable=False,
+            error=str(exc),
+        )

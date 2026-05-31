@@ -1,0 +1,30 @@
+services:
+  immich-family-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: immich-family-tools:latest
+    container_name: immich-family-tools
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      # POSIX ZFS dataset – must be created BEFORE first start:
+      # zfs create -o acltype=posix -o xattr=sa HDDs/Applications/immich-family-tools
+      # zfs create -o acltype=posix -o xattr=sa HDDs/Applications/immich-family-tools/data
+      # chown -R 3006:3006 /mnt/HDDs/Applications/immich-family-tools
+      - /mnt/HDDs/Applications/immich-family-tools/data:/app/data
+    environment:
+      - IMMICH_FAMILY_TOOLS_PORT=3100
+      - IMMICH_FAMILY_TOOLS_SECRET=${IMMICH_FAMILY_TOOLS_SECRET:-changeme}
+      - CONFIG_PATH=/app/data/accounts.json
+      - LOG_LEVEL=info
+    user: "3006:3006"
+    # Internal network only – Caddy should NOT reverse-proxy this to the internet
+    # without adding authentication (e.g. basic auth or Authelia)
+    networks:
+      - default
+
+networks:
+  default:
+    driver: bridge
