@@ -117,19 +117,26 @@ The `docker-compose.yml` is pre-configured for this layout.
 
 ## API Key Permissions
 
-When creating API keys in Immich, only these permissions are required:
+When creating API keys in Immich (**User Settings → API Keys → Create new key**), enable exactly these permissions:
 
 | Permission | Purpose |
 |---|---|
-| `user.read` | Validate API key on add |
-| `person.read` | Load people + thumbnails |
+| `user.read` | Validate API key, fetch user ID for album sharing |
+| `person.read` | Load people list + thumbnails |
 | `person.update` | Rename person (name sync) |
-| `asset.read` | Load person's photos |
+| `person.statistics` | Load photo count per person |
+| `asset.read` | Load person's photos for album population |
 | `asset.view` | Fetch thumbnail bytes |
-| `face.read` | Face embeddings (optional) |
-| `album.read` | Check for existing albums |
-| `album.create` | Create shared album |
+| `face.read` | Face embeddings for matching (experimental) |
+| `album.read` | List existing albums, check current album members |
+| `album.create` | Create new shared album |
+| `album.update` | Update album metadata |
+| `album.share` | Share album with other users |
 | `albumAsset.create` | Add photos to album |
+| `albumUser.create` | Add users as editors to album |
+| `albumUser.update` | Update user roles in album |
+
+> **Note:** All accounts (owner and editors) need the same set of permissions since each account's API key is used to add its own assets to shared albums.
 
 ## Architecture
 
