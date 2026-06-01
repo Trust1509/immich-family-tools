@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
@@ -57,6 +58,42 @@ async def auth_middleware(request: Request, call_next):
 # App state
 # ------------------------------------------------------------------
 
+async def _run_auto_sync(app_state) -> None:
+    """Refresh all managed albums — called by the auto-sync background task."""
+    from services.sync_service import refresh_managed_album
+    store = app_state.store
+    albums = store.get_managed_albums()
+    all_accounts = store.list_accounts()
+    logger.info("Auto-sync: refreshing %d managed albums", len(albums))
+    for album in albums:
+        try:
+            logs = await refresh_managed_album(album, all_accounts, store)
+            store.append_log(logs)
+            logger.info("Auto-sync: album '%s' done (%d log entries)", album.album_name, len(logs))
+        except Exception as exc:
+            logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
+
+
+async def _auto_sync_loop(app_state) -> None:
+    """Check every 60 s whether it is time to run the nightly auto-sync."""
+    last_run_date = None
+    while True:
+        await asyncio.sleep(60)
+        try:
+            cfg = app_state.store.get_auto_sync_config()
+            if not cfg.get("enabled"):
+                continue
+            now = datetime.now()
+            raw_time = cfg.get("time", "01:00")
+            h, m = map(int, raw_time.split(":"))
+            if now.hour == h and now.minute == m and now.date() != last_run_date:
+                last_run_date = now.date()
+                logger.info("Auto-sync triggered at %s", raw_time)
+                await _run_auto_sync(app_state)
+        except Exception as exc:
+            logger.error("Auto-sync loop error: %s", exc)
+
+
 async def _backfill_user_ids(store: ConfigStore) -> None:
     """Fetch and store missing user_ids for accounts added before this feature."""
     for account in store.list_accounts():
@@ -84,6 +121,7 @@ async def startup():
     logger.info("Immich Family Tools started on port %d", settings.port)
     # Backfill user_ids for accounts added before this feature (runs in background)
     asyncio.create_task(_backfill_user_ids(app.state.store))
+    asyncio.create_task(_auto_sync_loop(app.state))
 
 
 # ------------------------------------------------------------------
