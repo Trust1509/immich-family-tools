@@ -200,10 +200,11 @@ function AutoSyncControl() {
     staleTime: 30_000,
   });
 
+  const qc = useQueryClient();
   const mutation = useMutation({
     mutationFn: ({ enabled, time }: { enabled: boolean; time: string }) =>
       api.autoSync.set(enabled, time),
-    onSuccess: () => { /* query will refetch */ },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["autosync-config"] }),
   });
 
   const enabled = cfg?.enabled ?? false;
