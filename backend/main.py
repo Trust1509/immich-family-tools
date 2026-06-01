@@ -75,23 +75,38 @@ async def _run_auto_sync(app_state) -> None:
 
 
 async def _auto_sync_loop(app_state) -> None:
-    """Check every 60 s whether it is time to run the nightly auto-sync."""
-    last_run_date = None
+    """Sleep exactly until the configured sync time, then run; repeat daily."""
+    from datetime import timedelta
     while True:
-        await asyncio.sleep(60)
         try:
             cfg = app_state.store.get_auto_sync_config()
             if not cfg.get("enabled"):
+                # Not enabled — check again in 5 minutes in case user enables it
+                await asyncio.sleep(300)
                 continue
+
             now = datetime.now()
             raw_time = cfg.get("time", "01:00")
             h, m = map(int, raw_time.split(":"))
-            if now.hour == h and now.minute == m and now.date() != last_run_date:
-                last_run_date = now.date()
+
+            # Calculate exact seconds until next occurrence of the configured time
+            target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+
+            seconds_until = (target - now).total_seconds()
+            logger.info("Auto-sync: next run in %.0f s (at %s)", seconds_until, raw_time)
+            await asyncio.sleep(seconds_until)
+
+            # Re-check config after sleep — user might have disabled it
+            cfg = app_state.store.get_auto_sync_config()
+            if cfg.get("enabled"):
                 logger.info("Auto-sync triggered at %s", raw_time)
                 await _run_auto_sync(app_state)
+
         except Exception as exc:
             logger.error("Auto-sync loop error: %s", exc)
+            await asyncio.sleep(60)  # brief pause before retrying on unexpected error
 
 
 async def _backfill_user_ids(store: ConfigStore) -> None:
