@@ -191,6 +191,22 @@ class ConfigStore:
     # Managed albums
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Auto-sync config
+    # ------------------------------------------------------------------
+
+    def get_auto_sync_config(self) -> dict:
+        """Returns {"enabled": bool, "time": "HH:MM"}."""
+        return dict(self._data.setdefault("auto_sync", {"enabled": False, "time": "01:00"}))
+
+    def set_auto_sync_config(self, enabled: bool, time: str) -> None:
+        self._data["auto_sync"] = {"enabled": enabled, "time": time}
+        self._save()
+
+    # ------------------------------------------------------------------
+    # Managed albums
+    # ------------------------------------------------------------------
+
     def get_managed_albums(self) -> list[ManagedAlbum]:
         return [ManagedAlbum(**a) for a in self._data.get("managed_albums", [])]
 

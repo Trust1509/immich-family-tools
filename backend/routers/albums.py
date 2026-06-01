@@ -268,3 +268,27 @@ async def undo_action(body: UndoRequest, request: Request):
 @router.get("/log", response_model=list[SyncLogEntry])
 async def get_sync_log(request: Request):
     return request.app.state.store.get_log()
+
+
+# ── Auto-sync config ───────────────────────────────────────────────────────
+
+class AutoSyncConfig(BaseModel):
+    enabled: bool
+    time: str  # "HH:MM" in server local time
+
+
+@router.get("/autosync-config", response_model=AutoSyncConfig)
+async def get_autosync_config(request: Request):
+    return request.app.state.store.get_auto_sync_config()
+
+
+@router.put("/autosync-config", response_model=AutoSyncConfig)
+async def set_autosync_config(body: AutoSyncConfig, request: Request):
+    # Validate time format
+    try:
+        h, m = map(int, body.time.split(":"))
+        assert 0 <= h <= 23 and 0 <= m <= 59
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid time format. Use HH:MM (e.g. 01:00)")
+    request.app.state.store.set_auto_sync_config(body.enabled, body.time)
+    return request.app.state.store.get_auto_sync_config()

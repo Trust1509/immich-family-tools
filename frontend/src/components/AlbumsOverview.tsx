@@ -1,6 +1,6 @@
 import React from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Trash2, Disc, AlertTriangle, User, Clock } from "lucide-react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Loader2, RefreshCw, Trash2, Disc, AlertTriangle, User, Clock, Timer } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry } from "../api/client";
 import { useT } from "../i18n";
 
@@ -164,6 +164,74 @@ function AlbumGroupCard({ group }: { group: AlbumGroup }) {
   );
 }
 
+function AutoSyncControl() {
+  const { t } = useT();
+
+  const { data: cfg } = useQuery({
+    queryKey: ["autosync-config"],
+    queryFn: api.autoSync.get,
+    staleTime: 30_000,
+  });
+
+  const mutation = useMutation({
+    mutationFn: ({ enabled, time }: { enabled: boolean; time: string }) =>
+      api.autoSync.set(enabled, time),
+    onSuccess: () => { /* query will refetch */ },
+  });
+
+  const enabled = cfg?.enabled ?? false;
+  const time = cfg?.time ?? "01:00";
+
+  // Compute next sync label (client-side, server local time ≈ user local time)
+  const nextSyncLabel = React.useMemo(() => {
+    if (!enabled || !cfg) return null;
+    const [h, m] = time.split(":").map(Number);
+    const now = new Date();
+    const candidate = new Date(now);
+    candidate.setHours(h, m, 0, 0);
+    if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
+    const isToday = candidate.getDate() === now.getDate();
+    const day = isToday ? t("auto_sync_today") : t("auto_sync_tomorrow");
+    return t("auto_sync_next", time, day);
+  }, [enabled, time, cfg, t]);
+
+  if (!cfg) return null;
+
+  return (
+    <div className="flex items-center gap-3 bg-immich-surface border border-immich-border rounded-lg px-3 py-2">
+      <Timer size={14} className={enabled ? "text-immich-primary" : "text-gray-500"} />
+      <span className="text-sm text-gray-300 font-medium">{t("auto_sync_label")}</span>
+
+      {/* Toggle */}
+      <button
+        onClick={() => mutation.mutate({ enabled: !enabled, time })}
+        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none ${
+          enabled ? "bg-immich-primary" : "bg-immich-border"
+        }`}
+        disabled={mutation.isPending}
+      >
+        <span className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${
+          enabled ? "translate-x-4" : "translate-x-0.5"
+        }`} />
+      </button>
+
+      {/* Time picker — only active when enabled */}
+      <input
+        type="time"
+        value={time}
+        disabled={!enabled}
+        onChange={(e) => mutation.mutate({ enabled, time: e.target.value })}
+        className="bg-immich-bg border border-immich-border rounded px-2 py-0.5 text-sm text-gray-200 disabled:opacity-40 focus:outline-none focus:border-immich-primary"
+      />
+
+      {/* Next sync info */}
+      {nextSyncLabel && (
+        <span className="text-xs text-gray-500 hidden sm:block">{nextSyncLabel}</span>
+      )}
+    </div>
+  );
+}
+
 export default function AlbumsOverview() {
   const { t } = useT();
   const { data: albums = [], isLoading } = useQuery({
@@ -187,7 +255,7 @@ export default function AlbumsOverview() {
 
   return (
     <div className="p-6 max-w-2xl">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold">{t("albums_title")}</h1>
           <p className="text-sm text-gray-500 mt-0.5">{t("albums_subtitle", groups.length)}</p>
@@ -198,6 +266,11 @@ export default function AlbumsOverview() {
             {t("sync_all")}
           </button>
         )}
+      </div>
+
+      {/* Auto-sync control */}
+      <div className="mb-6">
+        <AutoSyncControl />
       </div>
 
       {isLoading ? (

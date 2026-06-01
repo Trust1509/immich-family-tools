@@ -181,5 +181,14 @@ export const api = {
     log: () => request<SyncLogEntry[]>("/sync/log"),
   },
 
+  autoSync: {
+    get: () => request<{ enabled: boolean; time: string }>("/sync/autosync-config"),
+    set: (enabled: boolean, time: string) =>
+      request<{ enabled: boolean; time: string }>("/sync/autosync-config", {
+        method: "PUT",
+        body: JSON.stringify({ enabled, time }),
+      }),
+  },
+
   health: () => request<HealthStatus>("/health"),
 };
