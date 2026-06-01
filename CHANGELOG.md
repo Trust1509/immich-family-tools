@@ -7,15 +7,20 @@ All notable changes to Immich Family Tools are documented here.
 ### New Features
 
 **Nightly Auto-Sync**
-- New background task runs every 60 seconds and checks if the configured sync time has been reached (server local time)
-- Fires exactly once per day; refreshes all managed albums automatically
-- `GET/PUT /api/sync/autosync-config` endpoint persists `{enabled, time}` in `accounts.json`
-- Toggle switch + time picker in the Albums view, next to "Sync all"; shows "Next sync: today/tomorrow at HH:MM"
+- Background task checks every 30 seconds if the configured time has been reached (server local time); fires exactly once per day
+- Refreshes all managed albums automatically — no manual interaction needed
+- `GET/PUT /api/sync/autosync-config` endpoint persists `{enabled, time}` in `accounts.json`; survives container restarts
+- Toggle switch + time picker (`<input type="time">`) in the Albums view, next to "Sync all"
+- Shows "Next sync: today/tomorrow at HH:MM"
+- **Timezone:** container must have `TZ` set to your local timezone (default `Europe/Vienna`). Set `TZ=Europe/Berlin` etc. in `.env` for other timezones. Without this, the container runs in UTC and the sync fires at the wrong local time.
 
 **Bulk Sync Results — Visual Feedback**
 - "Sync all" now shows results per album card incrementally as each album finishes
-- Each card displays a spinner while its albums are being processed, then immediately shows log entries (new assets added / no new assets / errors)
+- Each card shows a spinner while its albums are being processed, then immediately displays log entries (new assets / no new assets / errors)
 - Consistent display with the individual "Sync now" button on each card
+
+### Bug Fixes
+- Auto-sync toggle now updates immediately without page refresh (missing `queryClient.invalidateQueries` on mutation success)
 
 ---
 

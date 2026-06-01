@@ -206,6 +206,9 @@ immich-family-tools/
 | `IMMICH_FAMILY_TOOLS_SECRET` | `changeme` | Bearer token for the API. Auth disabled when set to `changeme`. |
 | `CONFIG_PATH` | `/app/data/accounts.json` | Path to the config file inside the container |
 | `LOG_LEVEL` | `info` | uvicorn log level |
+| `TZ` | `Europe/Vienna` | Container timezone. **Required for auto-sync to fire at the correct local time.** Set this to your timezone (e.g. `Europe/Berlin`, `Europe/London`, `America/New_York`). |
+
+> **Auto-Sync timezone note:** The nightly auto-sync compares the configured time against the container's local clock. Without a matching `TZ`, the container defaults to UTC — a sync scheduled for `01:00` would fire at `01:00 UTC`, which is `03:00` in `Europe/Vienna` (CEST). Set `TZ` in your `.env` file or directly in `docker-compose.yml`.
 
 ## Security Notes
 
