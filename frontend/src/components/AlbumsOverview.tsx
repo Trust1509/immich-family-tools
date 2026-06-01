@@ -58,22 +58,57 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
   });
 }
 
-function AlbumGroupCard({ group }: { group: AlbumGroup }) {
+function SyncLogDisplay({ logs, syncing }: { logs: SyncLogEntry[] | null; syncing: boolean }) {
+  if (syncing) return (
+    <div className="flex items-center gap-2 text-xs text-gray-500 py-1">
+      <Loader2 size={12} className="animate-spin" />
+      <span>Synchronisiert…</span>
+    </div>
+  );
+  if (!logs || logs.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {logs.map((entry) => (
+        <p key={entry.id} className={`text-xs border rounded px-2 py-1 ${
+          entry.status === "success"
+            ? "text-emerald-400 bg-emerald-900/20 border-emerald-800"
+            : "text-red-400 bg-red-900/20 border-red-800"
+        }`}>
+          {entry.details}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function AlbumGroupCard({
+  group,
+  externalLogs,
+  externalSyncing,
+}: {
+  group: AlbumGroup;
+  externalLogs?: SyncLogEntry[] | null;   // results pushed from "Alle synchronisieren"
+  externalSyncing?: boolean;
+}) {
   const { t } = useT();
   const qc = useQueryClient();
-  const [syncLogs, setSyncLogs] = React.useState<SyncLogEntry[] | null>(null);
-  const [syncing, setSyncing] = React.useState(false);
+  const [localLogs, setLocalLogs] = React.useState<SyncLogEntry[] | null>(null);
+  const [localSyncing, setLocalSyncing] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
 
+  // External (bulk) results take priority over local results
+  const displayLogs = externalLogs !== undefined ? externalLogs : localLogs;
+  const syncing = externalSyncing || localSyncing;
+
   const handleRefresh = async () => {
-    setSyncing(true);
-    setSyncLogs(null);
+    setLocalSyncing(true);
+    setLocalLogs(null);
     const allLogs: SyncLogEntry[] = [];
     for (const album of group.albums) {
       try { allLogs.push(...(await api.sync.refreshAlbum(album.id))); } catch (_) {}
     }
-    setSyncLogs(allLogs);
-    setSyncing(false);
+    setLocalLogs(allLogs);
+    setLocalSyncing(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["sync-log"] });
   };
@@ -89,7 +124,7 @@ function AlbumGroupCard({ group }: { group: AlbumGroup }) {
     qc.invalidateQueries({ queryKey: ["matches"] });
   };
 
-  const isDeleted = syncLogs?.some((e) => e.error_message === "ALBUM_DELETED");
+  const isDeleted = displayLogs?.some((e) => e.error_message === "ALBUM_DELETED");
 
   return (
     <div className={`card space-y-4 ${isDeleted ? "border-red-800" : ""}`}>
@@ -124,19 +159,7 @@ function AlbumGroupCard({ group }: { group: AlbumGroup }) {
         <span>{t("last_sync", formatDate(group.last_synced_at))}</span>
       </div>
 
-      {syncLogs && (
-        <div className="space-y-1">
-          {syncLogs.map((entry) => (
-            <p key={entry.id} className={`text-xs border rounded px-2 py-1 ${
-              entry.status === "success"
-                ? "text-emerald-400 bg-emerald-900/20 border-emerald-800"
-                : "text-red-400 bg-red-900/20 border-red-800"
-            }`}>
-              {entry.details}
-            </p>
-          ))}
-        </div>
-      )}
+      <SyncLogDisplay logs={displayLogs} syncing={syncing} />
 
       {isDeleted && (
         <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
@@ -146,9 +169,13 @@ function AlbumGroupCard({ group }: { group: AlbumGroup }) {
       )}
 
       <div className="flex gap-2">
-        <button className="btn-primary text-xs flex items-center gap-1.5" onClick={handleRefresh} disabled={syncing}>
-          {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-          {syncing ? t("syncing") : t("sync_now")}
+        <button
+          className="btn-primary text-xs flex items-center gap-1.5"
+          onClick={handleRefresh}
+          disabled={syncing}
+        >
+          {localSyncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          {t("sync_now")}
         </button>
         <button
           className="btn-ghost text-xs flex items-center gap-1.5 text-red-400 hover:text-red-300"
@@ -241,13 +268,26 @@ export default function AlbumsOverview() {
   });
   const qc = useQueryClient();
   const groups = groupAlbums(albums);
+
+  // bulkSyncState: per-group results from "Alle synchronisieren"
+  // null = not started, undefined = currently running (show spinner), [] = done (show logs)
+  const [bulkSyncState, setBulkSyncState] = React.useState<Map<string, SyncLogEntry[] | null>>(new Map());
   const [refreshingAll, setRefreshingAll] = React.useState(false);
 
   const handleRefreshAll = async () => {
     setRefreshingAll(true);
-    for (const album of albums) {
-      try { await api.sync.refreshAlbum(album.id); } catch (_) {}
+    // Mark all groups as "syncing"
+    setBulkSyncState(new Map(groups.map((g) => [g.album_name, null])));
+
+    for (const group of groups) {
+      const groupLogs: SyncLogEntry[] = [];
+      for (const album of group.albums) {
+        try { groupLogs.push(...(await api.sync.refreshAlbum(album.id))); } catch (_) {}
+      }
+      // Update this group's results immediately, keep others in their current state
+      setBulkSyncState((prev) => new Map(prev).set(group.album_name, groupLogs));
     }
+
     setRefreshingAll(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["sync-log"] });
@@ -283,7 +323,20 @@ export default function AlbumsOverview() {
         </div>
       ) : (
         <div className="space-y-4">
-          {groups.map((group) => <AlbumGroupCard key={group.album_name} group={group} />)}
+          {groups.map((group) => {
+            const bulkEntry = bulkSyncState.get(group.album_name);
+            // null in map = currently syncing; array = done with results
+            const externalSyncing = bulkSyncState.has(group.album_name) && bulkEntry === null;
+            const externalLogs = bulkEntry ?? undefined;
+            return (
+              <AlbumGroupCard
+                key={group.album_name}
+                group={group}
+                externalLogs={externalLogs}
+                externalSyncing={externalSyncing}
+              />
+            );
+          })}
         </div>
       )}
     </div>
