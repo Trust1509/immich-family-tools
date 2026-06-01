@@ -13,7 +13,9 @@ RUN npm run build
 # ── Stage 2: Python backend + static files ───────────────────────────────────
 FROM python:3.12-slim
 
-# Non-root user matching TrueNAS convention
+# Timezone support + non-root user matching TrueNAS convention
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
+    rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 3006 appgroup && \
     useradd -u 3006 -g 3006 -s /bin/sh -M appuser
 

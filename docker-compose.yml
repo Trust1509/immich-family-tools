@@ -19,6 +19,7 @@ services:
       - IMMICH_FAMILY_TOOLS_SECRET=${IMMICH_FAMILY_TOOLS_SECRET:-changeme}
       - CONFIG_PATH=/app/data/accounts.json
       - LOG_LEVEL=info
+      - TZ=${TZ:-Europe/Vienna}
     user: "3006:3006"
     # Internal network only – Caddy should NOT reverse-proxy this to the internet
     # without adding authentication (e.g. basic auth or Authelia)
