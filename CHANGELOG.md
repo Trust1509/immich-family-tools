@@ -2,6 +2,23 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.1.3] – 2026-06-01
+
+### New Features
+
+**Nightly Auto-Sync**
+- New background task runs every 60 seconds and checks if the configured sync time has been reached (server local time)
+- Fires exactly once per day; refreshes all managed albums automatically
+- `GET/PUT /api/sync/autosync-config` endpoint persists `{enabled, time}` in `accounts.json`
+- Toggle switch + time picker in the Albums view, next to "Sync all"; shows "Next sync: today/tomorrow at HH:MM"
+
+**Bulk Sync Results — Visual Feedback**
+- "Sync all" now shows results per album card incrementally as each album finishes
+- Each card displays a spinner while its albums are being processed, then immediately shows log entries (new assets added / no new assets / errors)
+- Consistent display with the individual "Sync now" button on each card
+
+---
+
 ## [1.1.2] – 2026-05-31
 
 ### Bug Fixes

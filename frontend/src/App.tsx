@@ -69,7 +69,7 @@ export default function App() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-600 text-center">v1.1.2</p>
+          <p className="text-xs text-gray-600 text-center">v1.1.3</p>
         </div>
       </aside>
 
