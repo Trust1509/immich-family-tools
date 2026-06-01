@@ -75,30 +75,43 @@ async def _run_auto_sync(app_state) -> None:
 
 
 async def _auto_sync_loop(app_state) -> None:
-    """Sleep exactly until the configured sync time, then run; repeat daily."""
+    """Sleep exactly until the configured sync time, then run; repeat daily.
+    Wakes up immediately when config changes (via auto_sync_wakeup Event)."""
     from datetime import timedelta
+    wakeup: asyncio.Event = app_state.auto_sync_wakeup
+
     while True:
+        wakeup.clear()
         try:
             cfg = app_state.store.get_auto_sync_config()
             if not cfg.get("enabled"):
-                # Not enabled — check again in 5 minutes in case user enables it
-                await asyncio.sleep(300)
+                # Disabled — wait up to 5 min for a config change, then re-check
+                try:
+                    await asyncio.wait_for(wakeup.wait(), timeout=300)
+                except asyncio.TimeoutError:
+                    pass
                 continue
 
             now = datetime.now()
             raw_time = cfg.get("time", "01:00")
             h, m = map(int, raw_time.split(":"))
-
-            # Calculate exact seconds until next occurrence of the configured time
             target = now.replace(hour=h, minute=m, second=0, microsecond=0)
             if target <= now:
                 target += timedelta(days=1)
 
             seconds_until = (target - now).total_seconds()
             logger.info("Auto-sync: next run in %.0f s (at %s)", seconds_until, raw_time)
-            await asyncio.sleep(seconds_until)
 
-            # Re-check config after sleep — user might have disabled it
+            # Sleep until target time OR until config changes (wakeup event)
+            try:
+                await asyncio.wait_for(wakeup.wait(), timeout=seconds_until)
+                # Woken early by a config change — restart loop to recompute schedule
+                logger.info("Auto-sync: config changed, recomputing schedule")
+                continue
+            except asyncio.TimeoutError:
+                pass  # Normal — target time reached
+
+            # Re-read config after sleeping (user might have disabled mid-sleep)
             cfg = app_state.store.get_auto_sync_config()
             if cfg.get("enabled"):
                 logger.info("Auto-sync triggered at %s", raw_time)
@@ -106,7 +119,7 @@ async def _auto_sync_loop(app_state) -> None:
 
         except Exception as exc:
             logger.error("Auto-sync loop error: %s", exc)
-            await asyncio.sleep(60)  # brief pause before retrying on unexpected error
+            await asyncio.sleep(60)
 
 
 async def _backfill_user_ids(store: ConfigStore) -> None:
@@ -135,6 +148,7 @@ async def startup():
     app.state.thumbnail_cache = ThumbnailCache(settings.thumbnail_cache_max_bytes)
     logger.info("Immich Family Tools started on port %d", settings.port)
     # Backfill user_ids for accounts added before this feature (runs in background)
+    app.state.auto_sync_wakeup = asyncio.Event()
     asyncio.create_task(_backfill_user_ids(app.state.store))
     asyncio.create_task(_auto_sync_loop(app.state))
 

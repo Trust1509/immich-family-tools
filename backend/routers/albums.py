@@ -291,4 +291,6 @@ async def set_autosync_config(body: AutoSyncConfig, request: Request):
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid time format. Use HH:MM (e.g. 01:00)")
     request.app.state.store.set_auto_sync_config(body.enabled, body.time)
+    # Wake up the auto-sync loop so it immediately recomputes the schedule
+    request.app.state.auto_sync_wakeup.set()
     return request.app.state.store.get_auto_sync_config()
