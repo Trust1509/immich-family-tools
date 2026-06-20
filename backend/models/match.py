@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from enum import Enum
 
@@ -6,7 +6,6 @@ from enum import Enum
 class MatchReason(str, Enum):
     name_similarity = "name_similarity"
     embedding_similarity = "embedding_similarity"
-    shared_assets = "shared_assets"
     manual = "manual"
 
 
@@ -44,10 +43,11 @@ class ManagedAlbum(BaseModel):
     album_name: str
     owner_account_id: str        # account that owns the album
     person_refs: list[dict]      # [{"account_id", "person_id", "person_name", "account_name", "account_color"}]
-    linked_match_ids: list[str] = []  # MD5 IDs for every person-pair in this album
+    linked_match_ids: list[str] = Field(default_factory=list)
     created_at: str
     last_synced_at: Optional[str] = None
     total_assets: int = 0
+    status: str = "active"  # pending | active | partial
 
 
 class SyncNamesRequest(BaseModel):
@@ -91,3 +91,5 @@ class SyncLogEntry(BaseModel):
     status: str  # "success" | "error"
     error_message: Optional[str] = None
     undo_data: Optional[dict] = None
+    undone_at: Optional[str] = None
+    correlation_id: Optional[str] = None

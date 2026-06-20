@@ -63,6 +63,16 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
             "account_color": acc.color,
         })
 
+    # Preflight every selected person before any write is attempted.
+    for acc, person_id in accounts_persons:
+        try:
+            await ImmichClient(acc.immich_url, acc.api_key).get_person(person_id)
+        except Exception:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Person in Account '{acc.name}' konnte nicht validiert werden",
+            )
+
     logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
     store.append_log(logs)
 
@@ -77,6 +87,11 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         if not owner:
             raise HTTPException(status_code=404, detail=f"Owner-Account {owner_id} nicht gefunden")
         match_id = f"manual_{body.canonical_name.lower().replace(' ', '_')}_{owner_id[:8]}"
+        if any(a.match_id == match_id for a in store.get_managed_albums()):
+            raise HTTPException(
+                status_code=409,
+                detail="Für diese manuelle Zuordnung existiert bereits ein verwaltetes Album",
+            )
         all_accounts = store.list_accounts()
         if body.existing_album_id:
             album_name = body.album_name or body.existing_album_id
@@ -251,7 +266,7 @@ async def undo_action(body: UndoRequest, request: Request):
     entry = next((e for e in log if e.id == body.log_entry_id), None)
     if not entry:
         raise HTTPException(status_code=404, detail="Log-Eintrag nicht gefunden")
-    if entry.action != "sync_names" or not entry.undo_data:
+    if entry.action != "sync_names" or not entry.undo_data or entry.undone_at:
         raise HTTPException(status_code=422, detail="Aktion kann nicht rückgängig gemacht werden")
     undo = entry.undo_data
     account = store.get_account(undo["account_id"])
@@ -262,12 +277,20 @@ async def undo_action(body: UndoRequest, request: Request):
         previous_name=undo.get("previous_name", ""),
     )
     store.append_log([result])
+    if result.status == "success":
+        from datetime import datetime, timezone
+        store.mark_log_undone(entry.id, datetime.now(timezone.utc).isoformat())
     return result
 
 
 @router.get("/log", response_model=list[SyncLogEntry])
 async def get_sync_log(request: Request):
     return request.app.state.store.get_log()
+
+
+@router.delete("/log", status_code=204)
+async def clear_sync_log(request: Request):
+    request.app.state.store.clear_log()
 
 
 # ── Auto-sync config ───────────────────────────────────────────────────────

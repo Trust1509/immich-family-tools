@@ -63,15 +63,13 @@ Immich Account B:  "Leonie" (own face DB)
          → Both face DBs remain untouched
 ```
 
-**Match confidence** is calculated from up to three signals:
+**Automatic match suggestions are limited to named people.** Unnamed people
+remain available in Manual Matching. Confidence uses up to two signals:
 
 | Signal | Weight (with embeddings) | Weight (without) |
 |---|---|---|
-| Face embedding cosine similarity | 60% | — |
+| Face embedding cosine similarity | 70% | — |
 | Name similarity (Levenshtein distance) | 30% | 75% |
-| Shared asset IDs | 10% | 25% |
-
-When embeddings are unavailable, the remaining weights are scaled up to 100%.
 
 #### Signal details
 
@@ -81,8 +79,6 @@ When embeddings are unavailable, the remaining weights are scaled up to 100%.
 - Any unnamed person → 0% (no signal)
 
 **Face embeddings** are fetched via `GET /api/faces?id={assetId}` — experimental, not available in all Immich versions. Falls back gracefully to name-only matching.
-
-**Shared assets** — reserved for future use (e.g. partner library sync). Asset IDs differ across accounts even for identical photos.
 
 #### Why does "same name" only score ~75%?
 
@@ -111,8 +107,7 @@ cd immich-family-tools
 
 ```bash
 cp .env.example .env
-# Edit .env if you want to set a bearer token secret
-# Leave as "changeme" for internal-only deployments (auth guard disabled)
+# Set IMMICH_FAMILY_TOOLS_SECRET to a long random token.
 ```
 
 ### 3. Start
@@ -203,7 +198,9 @@ immich-family-tools/
 
 | Variable | Default | Description |
 |---|---|---|
-| `IMMICH_FAMILY_TOOLS_SECRET` | `changeme` | Bearer token for the API. Auth disabled when set to `changeme`. |
+| `IMMICH_FAMILY_TOOLS_SECRET` | required | Shared login token; there is intentionally no user management |
+| `IMMICH_FAMILY_TOOLS_SESSION_TTL_HOURS` | `168` | Session lifetime |
+| `IMMICH_FAMILY_TOOLS_COOKIE_SECURE` | `false` | Set to `true` behind local HTTPS |
 | `CONFIG_PATH` | `/app/data/accounts.json` | Path to the config file inside the container |
 | `LOG_LEVEL` | `info` | uvicorn log level |
 | `TZ` | `Europe/Vienna` | Container timezone. **Required for auto-sync to fire at the correct local time.** Set this to your timezone (e.g. `Europe/Berlin`, `Europe/London`, `America/New_York`). |
@@ -212,10 +209,17 @@ immich-family-tools/
 
 ## Security Notes
 
-- API keys are stored in `accounts.json` on the Docker volume
-- This tool is designed for **internal network use only** (no HTTPS, no user management)
-- Do not expose it to the internet without adding authentication (e.g. Authelia, Caddy basic auth)
+- API keys are stored server-side in `accounts.json` and are never returned to the browser
+- `accounts.json` is written atomically with mode `0600`; the data directory uses `0700`
+- The shared-token login creates an HttpOnly, SameSite=Strict session cookie
+- This tool is designed for **internal network use only** and has no user management
+- Do not expose it to the internet without HTTPS and an authenticated reverse proxy
+- Shared albums are granted only to accounts participating in the selected match
+- Sync logs are retained for 90 days and at most 500 entries
 - All write operations (rename, create album, extend match) require explicit user confirmation in the UI
+
+See [Security Policy](SECURITY.md), [Privacy](PRIVACY.md),
+[Threat Model](docs/THREAT_MODEL.md), and [Backup & Restore](docs/BACKUP_RESTORE.md).
 
 ## Contributing
 

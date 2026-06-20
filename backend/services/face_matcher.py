@@ -4,7 +4,7 @@ Face / person matching logic.
 Strategy (in priority order):
 1. Cosine similarity on face embeddings (if Immich exposes them)
 2. Name similarity via Levenshtein distance
-3. Shared asset IDs (same photo in both accounts)
+Only named people are automatic candidates. Unnamed people are matched manually.
 """
 import logging
 import hashlib
@@ -69,7 +69,6 @@ def _match_id(person_a_id: str, person_b_id: str) -> str:
 def compute_matches(
     people: list[Person],
     embeddings: Optional[dict[str, list[float]]] = None,
-    shared_assets: Optional[dict[tuple[str, str], int]] = None,
     dismissed_ids: Optional[set[str]] = None,
     min_confidence: float = 0.25,
 ) -> list[Match]:
@@ -81,7 +80,6 @@ def compute_matches(
     ----------
     people:         flat list of Person objects from all accounts
     embeddings:     {person_id: embedding_vector}  – optional
-    shared_assets:  {(personA_id, personB_id): count}  – optional
     dismissed_ids:  set of match IDs the user already dismissed
     min_confidence: drop matches below this threshold
     """
@@ -107,9 +105,7 @@ def compute_matches(
                         continue
                     seen.add(mid)
 
-                    confidence, reasons = _score_pair(
-                        pa, pb, embeddings, shared_assets
-                    )
+                    confidence, reasons = _score_pair(pa, pb, embeddings)
                     if confidence < min_confidence:
                         continue
 
@@ -145,11 +141,10 @@ def _score_pair(
     pa: Person,
     pb: Person,
     embeddings: Optional[dict[str, list[float]]],
-    shared_assets: Optional[dict[tuple[str, str], int]],
 ) -> tuple[float, list[MatchReason]]:
     score = 0.0
     reasons: list[MatchReason] = []
-    weights = {"embedding": 0.60, "name": 0.30, "shared": 0.10}
+    weights = {"embedding": 0.70, "name": 0.30}
 
     # 1. Embedding similarity
     if embeddings and pa.id in embeddings and pb.id in embeddings:
@@ -158,7 +153,8 @@ def _score_pair(
         # Normalize: treat 0.5 as 0%, 0.9 as 100%
         emb_score = max(0.0, (cos - 0.5) / 0.4)
         score += weights["embedding"] * emb_score
-        reasons.append(MatchReason.embedding_similarity)
+        if emb_score > 0:
+            reasons.append(MatchReason.embedding_similarity)
 
     # 2. Name similarity
     name_sim = name_similarity(pa.name, pb.name)
@@ -166,19 +162,9 @@ def _score_pair(
         score += weights["name"] * name_sim
         reasons.append(MatchReason.name_similarity)
 
-    # 3. Shared assets
-    if shared_assets:
-        key = (pa.id, pb.id) if pa.id < pb.id else (pb.id, pa.id)
-        count = shared_assets.get(key, 0)
-        if count > 0:
-            shared_score = min(1.0, count / 10)
-            score += weights["shared"] * shared_score
-            reasons.append(MatchReason.shared_assets)
-
-    # If we have no embedding, scale up the remaining weights
+    # Name-only matches deliberately top out at 75%, preventing bulk actions
+    # from treating an identical name as biometric confirmation.
     if not (embeddings and pa.id in embeddings and pb.id in embeddings):
-        remaining = 1.0 - weights["embedding"]
-        if remaining > 0:
-            score = score / remaining  # re-normalise
+        score = 0.75 * name_sim
 
     return min(1.0, score), reasons

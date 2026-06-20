@@ -51,7 +51,7 @@ async def get_people_for_account(account_id: str, request: Request):
         raw_list = await client.get_all_people()
         return [_make_person(p, account) for p in raw_list]
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail="Immich-Anfrage fehlgeschlagen")
 
 
 @router.get("/{account_id}/{person_id}/count")

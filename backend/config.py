@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     thumbnail_cache_max_bytes: int = 50 * 1024 * 1024
     # Match cache TTL in seconds
     match_cache_ttl: int = 300
+    session_ttl_hours: int = 168
+    cookie_secure: bool = False
+    allow_insecure_no_auth: bool = False
+    log_retention_days: int = 90
+    max_request_bytes: int = 1024 * 1024
 
     class Config:
         env_prefix = "IMMICH_FAMILY_TOOLS_"

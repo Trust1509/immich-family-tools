@@ -1,10 +1,10 @@
 import asyncio
 import logging
+import hmac
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -12,7 +12,9 @@ from config import get_settings
 from services.config_store import ConfigStore
 from services.immich_client import ImmichClient
 from services.thumbnail_cache import ThumbnailCache
-from routers import accounts, people, faces, albums
+from routers import accounts, people, faces, albums, auth
+from services.auth_service import verify_session
+from version import APP_VERSION
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -21,37 +23,51 @@ settings = get_settings()
 
 app = FastAPI(
     title="Immich Family Tools",
-    version="1.0.0",
+    version=APP_VERSION,
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ------------------------------------------------------------------
-# Simple bearer token guard (optional – only enforced when secret ≠ default)
+# Single-secret session guard
 # ------------------------------------------------------------------
-UNPROTECTED = {"/api/health", "/api/docs", "/api/redoc", "/api/openapi.json"}
+UNPROTECTED = {"/api/health", "/api/auth/login"}
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if settings.secret == "changeme":
-        return await call_next(request)
-    if request.url.path in UNPROTECTED or not request.url.path.startswith("/api/"):
-        return await call_next(request)
-    auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {settings.secret}":
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    return await call_next(request)
+    if request.url.path.startswith("/api/"):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > settings.max_request_bytes:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+            except ValueError:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
+    if request.url.path not in UNPROTECTED and request.url.path.startswith("/api/"):
+        bearer = request.headers.get("Authorization", "")
+        bearer_ok = bearer.startswith("Bearer ") and hmac.compare_digest(
+            bearer.removeprefix("Bearer "), settings.secret
+        )
+        cookie_ok = verify_session(request.cookies.get("ift_session"), settings.secret)
+        if not (bearer_ok or cookie_ok):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; connect-src 'self'; "
+        "font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    )
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # ------------------------------------------------------------------
@@ -115,8 +131,13 @@ async def _backfill_user_ids(store: ConfigStore) -> None:
 
 @app.on_event("startup")
 async def startup():
+    if settings.secret == "changeme" and not settings.allow_insecure_no_auth:
+        raise RuntimeError(
+            "IMMICH_FAMILY_TOOLS_SECRET must be changed. "
+            "Set IMMICH_FAMILY_TOOLS_ALLOW_INSECURE_NO_AUTH=true only for isolated development."
+        )
     app.state.settings = settings
-    app.state.store = ConfigStore(settings.config_path)
+    app.state.store = ConfigStore(settings.config_path, settings.log_retention_days)
     app.state.thumbnail_cache = ThumbnailCache(settings.thumbnail_cache_max_bytes)
     logger.info("Immich Family Tools started on port %d", settings.port)
     # Backfill user_ids for accounts added before this feature (runs in background)
@@ -132,17 +153,14 @@ app.include_router(accounts.router)
 app.include_router(people.router)
 app.include_router(faces.router)
 app.include_router(albums.router)
+app.include_router(auth.router)
 
 
 @app.get("/api/health")
 async def health():
-    store = app.state.store
-    cache = app.state.thumbnail_cache
     return {
         "status": "ok",
-        "accounts": len(store.list_accounts()),
-        "thumbnail_cache_entries": cache.entry_count,
-        "thumbnail_cache_bytes": cache.size_bytes,
+        "version": APP_VERSION,
     }
 
 

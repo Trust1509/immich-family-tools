@@ -1,12 +1,11 @@
 const BASE = "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const secret = localStorage.getItem("ift_secret") ?? "";
   const res = await fetch(`${BASE}${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
       ...(options?.headers ?? {}),
     },
   });
@@ -24,7 +23,7 @@ export interface Account {
   id: string;
   name: string;
   immich_url: string;
-  api_key: string;
+  api_key_configured: boolean;
   color: string;
   user_id?: string;
 }
@@ -90,6 +89,7 @@ export interface SyncLogEntry {
   status: "success" | "error";
   error_message?: string;
   undo_data?: Record<string, unknown>;
+  undone_at?: string;
 }
 
 export interface HealthStatus {
@@ -102,6 +102,15 @@ export interface HealthStatus {
 // ── API ────────────────────────────────────────────────────────────────────
 
 export const api = {
+  auth: {
+    status: () => request<{ authenticated: boolean }>("/auth/status"),
+    login: (token: string) =>
+      request<{ authenticated: boolean }>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }),
+    logout: () => request<void>("/auth/logout", { method: "POST" }),
+  },
   accounts: {
     list: () => request<Account[]>("/accounts"),
     add: (data: { name: string; immich_url: string; api_key: string }) =>
@@ -179,6 +188,7 @@ export const api = {
         body: JSON.stringify(body),
       }),
     log: () => request<SyncLogEntry[]>("/sync/log"),
+    clearLog: () => request<void>("/sync/log", { method: "DELETE" }),
   },
 
   autoSync: {
