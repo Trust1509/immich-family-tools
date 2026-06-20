@@ -346,6 +346,16 @@ async def _refresh_managed_album_unlocked(
         )]
 
     owner_client = ImmichClient(owner.immich_url, owner.api_key)
+    participant_ids = {ref["account_id"] for ref in managed.person_refs}
+    share_accounts = [
+        account for account in all_accounts
+        if account.id != owner.id and account.id in participant_ids
+    ]
+    logs.extend(
+        await _share_album_if_needed(
+            owner_client, managed.album_id, managed.album_name, share_accounts
+        )
+    )
     try:
         existing_ids = set(await owner_client.get_album_assets(managed.album_id))
     except AlbumNotFoundError:
@@ -388,6 +398,7 @@ async def _refresh_managed_album_unlocked(
     # Update last_synced_at and total_assets
     managed.last_synced_at = _now()
     managed.total_assets = len(existing_ids)
+    managed.status = "partial" if any(entry.status == "error" for entry in logs) else "active"
     store.update_managed_album(managed)
 
     if not logs:
@@ -447,6 +458,17 @@ async def extend_match(
 
     owner_client = ImmichClient(owner.immich_url, owner.api_key)
 
+    # Validate the selected person before sharing or mutating the album.
+    new_client = ImmichClient(new_account.immich_url, new_account.api_key)
+    try:
+        await new_client.get_person(person_id)
+    except Exception:
+        return [SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details=f"Person in '{new_account.name}' konnte nicht validiert werden",
+            status="error", error_message="IMMICH_API_ERROR",
+        )]
+
     # 1. Share album with new account
     share_logs = await _share_album_if_needed(owner_client, managed.album_id, managed.album_name, [new_account])
     logs.extend(share_logs)
@@ -463,7 +485,6 @@ async def extend_match(
         return logs
 
     # 3. Add new person's assets
-    new_client = ImmichClient(new_account.immich_url, new_account.api_key)
     try:
         assets = await new_client.get_person_assets(person_id)
         new_ids = [a["id"] for a in assets if a["id"] not in existing_ids]

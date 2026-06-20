@@ -28,6 +28,8 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
     updates = data.model_dump(exclude_none=True)
+    if updates.get("api_key") == "":
+        updates.pop("api_key")
     # Re-validate if URL or API key changed
     if "immich_url" in updates or "api_key" in updates:
         new_url = updates.get("immich_url", account.immich_url).rstrip("/")
@@ -45,7 +47,6 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
 
 @router.delete("/{account_id}", status_code=204)
 async def delete_account(account_id: str, request: Request):
-    account = request.app.state.store.get_account(account_id)
     ok = request.app.state.store.delete_account(account_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
