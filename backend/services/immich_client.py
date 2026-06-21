@@ -18,7 +18,7 @@ class ImmichClient:
             base_url=self.base_url,
             headers=self._headers,
             timeout=TIMEOUT,
-            follow_redirects=True,
+            follow_redirects=False,
         )
 
     # ------------------------------------------------------------------
@@ -59,6 +59,12 @@ class ImmichClient:
                 break
             page += 1
         return all_people
+
+    async def get_person(self, person_id: str) -> dict:
+        async with self._client() as c:
+            r = await c.get(f"/api/people/{person_id}")
+            r.raise_for_status()
+            return r.json()
 
     async def get_person_asset_count(self, person_id: str) -> int:
         """Fetch asset count for a person via statistics endpoint."""

@@ -66,7 +66,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
   const qc = useQueryClient();
   const [name, setName] = useState(account.name);
   const [url, setUrl] = useState(account.immich_url);
-  const [key, setKey] = useState(account.api_key);
+  const [key, setKey] = useState("");
   const [color, setColor] = useState(account.color);
   const [showKey, setShowKey] = useState(false);
 
@@ -74,7 +74,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
     mutationFn: () => api.accounts.update(account.id, {
       name: name !== account.name ? name : undefined,
       immich_url: url !== account.immich_url ? url : undefined,
-      api_key: key !== account.api_key ? key : undefined,
+      api_key: key.trim() ? key : undefined,
       color: color !== account.color ? color : undefined,
     }),
     onSuccess: () => {
@@ -84,7 +84,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
     },
   });
 
-  const hasChanges = name !== account.name || url !== account.immich_url || key !== account.api_key || color !== account.color;
+  const hasChanges = name !== account.name || url !== account.immich_url || !!key.trim() || color !== account.color;
 
   return (
     <div className="card space-y-3 border-immich-primary">
@@ -110,7 +110,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
           <input
             className="input pr-10"
             type={showKey ? "text" : "password"}
-            placeholder="API Key"
+            placeholder={account.api_key_configured ? "API-Key unverändert" : "API Key"}
             value={key}
             onChange={(e) => setKey(e.target.value)}
           />
@@ -135,7 +135,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
         <button
           className="btn-primary flex items-center gap-2 text-sm"
           onClick={() => mutation.mutate()}
-          disabled={!name || !url || !key || !hasChanges || mutation.isPending}
+          disabled={!name || !url || !hasChanges || mutation.isPending}
         >
           {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
           {mutation.isPending ? t("account_saving") : t("account_save")}

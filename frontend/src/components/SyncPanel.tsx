@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, ScrollText, CheckCircle, XCircle, RotateCcw } from "lucide-react";
+import { Loader2, ScrollText, CheckCircle, XCircle, RotateCcw, Trash2 } from "lucide-react";
 import { api, SyncLogEntry } from "../api/client";
 import { useT } from "../i18n";
 
@@ -11,7 +11,7 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sync-log"] }),
   });
 
-  const canUndo = entry.action === "sync_names" && entry.status === "success" && !!entry.undo_data;
+  const canUndo = entry.action === "sync_names" && entry.status === "success" && !!entry.undo_data && !entry.undone_at;
   const ts = new Date(entry.timestamp).toLocaleString("de-AT");
 
   const actionLabel: Record<string, string> = {
@@ -69,12 +69,27 @@ export default function SyncPanel() {
   });
 
   const sorted = [...log].reverse();
+  const qc = useQueryClient();
+  const clearMutation = useMutation({
+    mutationFn: api.sync.clearLog,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sync-log"] }),
+  });
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-bold">{t("nav_log")}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{t("log_subtitle", log.length)}</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold">{t("nav_log")}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{t("log_subtitle", log.length)}</p>
+        </div>
+        {log.length > 0 && (
+          <button
+            className="btn-ghost text-xs text-red-400 flex items-center gap-1"
+            onClick={() => confirm("Sync-Log wirklich löschen?") && clearMutation.mutate()}
+          >
+            <Trash2 size={13} /> Log löschen
+          </button>
+        )}
       </div>
 
       {isLoading ? (

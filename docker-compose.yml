@@ -16,11 +16,19 @@ services:
       - /mnt/HDDs/Applications/immich-family-tools/data:/app/data
     environment:
       - IMMICH_FAMILY_TOOLS_PORT=3100
-      - IMMICH_FAMILY_TOOLS_SECRET=${IMMICH_FAMILY_TOOLS_SECRET:-changeme}
+      - IMMICH_FAMILY_TOOLS_SECRET=${IMMICH_FAMILY_TOOLS_SECRET:?Set IMMICH_FAMILY_TOOLS_SECRET in .env}
+      - IMMICH_FAMILY_TOOLS_SESSION_TTL_HOURS=${IMMICH_FAMILY_TOOLS_SESSION_TTL_HOURS:-168}
+      - IMMICH_FAMILY_TOOLS_COOKIE_SECURE=${IMMICH_FAMILY_TOOLS_COOKIE_SECURE:-false}
       - CONFIG_PATH=/app/data/accounts.json
       - LOG_LEVEL=info
       - TZ=${TZ:-Europe/Vienna}
     user: "3006:3006"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3100/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     # Internal network only – Caddy should NOT reverse-proxy this to the internet
     # without adding authentication (e.g. basic auth or Authelia)
     networks:

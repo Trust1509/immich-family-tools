@@ -34,6 +34,11 @@ class ThumbnailCache:
             _, evicted = self._cache.popitem(last=False)
             self._size -= len(evicted)
 
+    def clear_account(self, account_id: str) -> None:
+        prefix = f"{account_id}:"
+        for key in [k for k in self._cache if k.startswith(prefix)]:
+            self._size -= len(self._cache.pop(key))
+
     @property
     def size_bytes(self) -> int:
         return self._size

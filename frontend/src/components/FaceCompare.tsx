@@ -13,7 +13,6 @@ interface Props {
 const REASON_LABELS: Record<string, string> = {
   name_similarity: "Namensähnlichkeit",
   embedding_similarity: "Gesichtserkennung",
-  shared_assets: "Gemeinsame Fotos",
   manual: "Manuell",
 };
 

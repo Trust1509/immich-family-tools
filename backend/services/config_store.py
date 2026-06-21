@@ -5,6 +5,10 @@ Backed by a JSON file on the Docker volume.
 import hashlib
 import json
 import logging
+import os
+import shutil
+import tempfile
+from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from pathlib import Path
 from typing import Optional
@@ -16,9 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigStore:
-    def __init__(self, path: str):
+    SCHEMA_VERSION = 2
+
+    def __init__(self, path: str, log_retention_days: int = 90):
         self._path = Path(path)
+        self._log_retention_days = log_retention_days
         self._data: dict = {
+            "schema_version": self.SCHEMA_VERSION,
             "accounts": {},
             "dismissed_match_ids": [],
             "sync_log": [],
@@ -57,17 +65,30 @@ class ConfigStore:
         if self._path.exists():
             try:
                 self._data = json.loads(self._path.read_text(encoding="utf-8"))
+                if not isinstance(self._data, dict) or not isinstance(self._data.get("accounts", {}), dict):
+                    raise ValueError("invalid configuration schema")
                 self._data.setdefault("managed_albums", [])
                 logger.info("Config loaded from %s", self._path)
                 self._migrate()
             except Exception as exc:
-                logger.error("Failed to load config: %s – starting fresh", exc)
+                raise RuntimeError(
+                    f"Configuration {self._path} is invalid and was left untouched. "
+                    f"Restore {self._path}.bak or a ZFS snapshot."
+                ) from exc
 
     def _migrate(self) -> None:
         """One-time repair of managed_albums: fill missing fields from live account data."""
         accounts = self._data.get("accounts", {})
         albums = self._data.get("managed_albums", [])
         changed = False
+        if self._data.get("schema_version") != self.SCHEMA_VERSION:
+            self._data["schema_version"] = self.SCHEMA_VERSION
+            changed = True
+        self._data.setdefault("accounts", {})
+        self._data.setdefault("dismissed_match_ids", [])
+        self._data.setdefault("synced_name_match_ids", [])
+        self._data.setdefault("sync_log", [])
+        self._data.setdefault("auto_sync", {"enabled": False, "time": "01:00"})
 
         for album in albums:
             album_name = album.get("album_name", "")
@@ -99,10 +120,26 @@ class ConfigStore:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(self._data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        try:
+            os.chmod(self._path.parent, 0o700)
+        except OSError:
+            logger.warning("Could not enforce 0700 on %s", self._path.parent)
+        payload = json.dumps(self._data, indent=2, ensure_ascii=False)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{self._path.name}.", dir=self._path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_name, 0o600)
+            if self._path.exists():
+                shutil.copy2(self._path, f"{self._path}.bak")
+                os.chmod(f"{self._path}.bak", 0o600)
+            os.replace(temp_name, self._path)
+            os.chmod(self._path, 0o600)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
 
     # ------------------------------------------------------------------
     # Accounts
@@ -133,7 +170,25 @@ class ConfigStore:
     def delete_account(self, account_id: str) -> bool:
         if account_id not in self._data["accounts"]:
             return False
+        account_name = self._data["accounts"][account_id].get("name", "")
         del self._data["accounts"][account_id]
+        cleaned_albums = []
+        for album in self._data.get("managed_albums", []):
+            album["person_refs"] = [
+                ref for ref in album.get("person_refs", [])
+                if ref.get("account_id") != account_id
+            ]
+            if len(album["person_refs"]) >= 2:
+                album["linked_match_ids"] = self.compute_linked_match_ids(album["person_refs"])
+                cleaned_albums.append(album)
+        self._data["managed_albums"] = cleaned_albums
+        self._data["dismissed_match_ids"] = []
+        self._data["synced_name_match_ids"] = []
+        self._data["sync_log"] = [
+            entry for entry in self._data.get("sync_log", [])
+            if (entry.get("undo_data") or {}).get("account_id") != account_id
+            and (not account_name or account_name not in entry.get("details", ""))
+        ]
         self._save()
         return True
 
@@ -181,11 +236,31 @@ class ConfigStore:
     def append_log(self, entries: list[SyncLogEntry]) -> None:
         log = self._data.setdefault("sync_log", [])
         log.extend(e.model_dump() for e in entries)
-        self._data["sync_log"] = log[-500:]
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._log_retention_days)
+        retained = []
+        for entry in log:
+            try:
+                timestamp = datetime.fromisoformat(entry["timestamp"])
+                if timestamp >= cutoff:
+                    retained.append(entry)
+            except (KeyError, TypeError, ValueError):
+                continue
+        self._data["sync_log"] = retained[-500:]
         self._save()
 
     def get_log(self) -> list[SyncLogEntry]:
         return [SyncLogEntry(**e) for e in self._data.get("sync_log", [])]
+
+    def clear_log(self) -> None:
+        self._data["sync_log"] = []
+        self._save()
+
+    def mark_log_undone(self, entry_id: str, undone_at: str) -> None:
+        for entry in self._data.get("sync_log", []):
+            if entry.get("id") == entry_id:
+                entry["undone_at"] = undone_at
+                self._save()
+                return
 
     # ------------------------------------------------------------------
     # Managed albums

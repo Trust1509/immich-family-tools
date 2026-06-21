@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Users, GitMerge, Grid, ScrollText, Activity, Disc, Shuffle, UserPlus } from "lucide-react";
+import { Users, GitMerge, Grid, ScrollText, Activity, Disc, Shuffle, UserPlus, LogOut } from "lucide-react";
+import { api } from "./api/client";
+import { APP_VERSION } from "./version";
 import AccountManager from "./components/AccountManager";
 import PeopleGrid from "./components/PeopleGrid";
 import MatchSuggestions from "./components/MatchSuggestions";
@@ -53,6 +55,12 @@ export default function App() {
           ))}
         </nav>
         <div className="p-3 border-t border-immich-border space-y-2">
+          <button
+            className="w-full text-xs text-gray-500 hover:text-gray-200 flex items-center justify-center gap-1"
+            onClick={async () => { await api.auth.logout(); window.location.reload(); }}
+          >
+            <LogOut size={12} /> Sperren
+          </button>
           {/* Language toggle */}
           <div className="flex gap-1">
             {(["de", "en"] as const).map((l) => (
@@ -69,7 +77,7 @@ export default function App() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-600 text-center">v1.1.3</p>
+          <p className="text-xs text-gray-600 text-center">v{APP_VERSION}</p>
         </div>
       </aside>
 

@@ -2,6 +2,29 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.2.0] – 2026-06-20
+
+### Security
+- Added shared-token login with signed HttpOnly sessions, logout and login rate limiting
+- Immich API keys never leave the backend; account responses expose only configuration status
+- Restricted album sharing to accounts participating in the selected match
+- Disabled HTTP redirects for Immich API requests and validated configured URLs
+- Added Same-Origin browser policy, security headers and no-store caching for sensitive API data
+- Hardened `accounts.json` with schema validation, atomic writes, backups and restrictive permissions
+
+### Reliability
+- Fixed name-sync undo by reading and storing the previous name before mutation
+- Added preflight validation, duplicate protection, partial state and per-album synchronization locks
+- Account removal now clears local references and caches without modifying Immich
+- Automatic matching now covers all named people with bounded embedding concurrency; unnamed people remain manual
+- Sync logs are retained for 90 days / 500 entries and can be cleared
+- Added consistent application versioning and a minimal Docker health check
+
+### Engineering
+- Added backend and frontend tests, GitHub Actions CI, Dependabot and security scans
+- Added reproducible frontend installs through a committed lockfile
+- Added security, privacy, threat-model and backup/restore documentation
+
 ## [1.1.3] – 2026-06-01
 
 ### New Features
