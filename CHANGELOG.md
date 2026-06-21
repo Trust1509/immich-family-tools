@@ -2,6 +2,21 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.2.1] – 2026-06-21
+
+### Maintenance
+- Updated backend runtime dependencies to their tested current minor/patch releases
+- Updated React and React DOM together to 19.2.7 with matching type packages
+- Updated Lucide, pytest and pytest-asyncio after compatibility testing
+- Updated GitHub checkout and Node setup actions
+- Fixed Gitleaks authentication for Dependabot pull requests
+- Grouped and limited Dependabot updates to reduce pull-request noise
+
+### Verification
+- Backend tests, frontend tests, production build and container build pass
+- npm audit, pip-audit and Gitleaks report no known findings
+- No application features, persisted data or Immich API behavior changed
+
 ## [1.2.0] – 2026-06-20
 
 ### Security
