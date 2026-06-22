@@ -6,15 +6,19 @@ Strategy (in priority order):
 2. Name similarity via Levenshtein distance
 Only named people are automatic candidates. Unnamed people are matched manually.
 """
+import asyncio
 import logging
 import hashlib
 from collections import defaultdict
 from itertools import combinations
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import numpy as np
 
 from models.person import Person
 from models.match import Match, ManagedAlbum, MatchReason, MatchStatus, PersonRef
+
+if TYPE_CHECKING:
+    from services.immich_client import ImmichClient
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +174,50 @@ def _score_pair(
         score = 0.75 * name_sim
 
     return min(1.0, score), reasons
+
+
+async def get_embeddings(
+    people: list[Person],
+    clients: dict[str, "ImmichClient"],
+    max_concurrency: int = 5,
+) -> dict[str, list[float]]:
+    """Fetch face embeddings for named people via the Immich API.
+
+    Parameters
+    ----------
+    people:          list of Person objects (all accounts)
+    clients:         {account_id: ImmichClient} — pre-built by the router
+    max_concurrency: max simultaneous Immich requests
+
+    Returns a dict mapping person_id → embedding vector.
+    """
+    embeddings: dict[str, list[float]] = {}
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def _fetch(person: Person) -> None:
+        client = clients.get(person.account_id)
+        if not client:
+            return
+        async with semaphore:
+            try:
+                assets = await client.get_person_assets(person.id)
+                if not assets:
+                    return
+                faces = await client.get_faces(assets[0]["id"])
+                for face in faces:
+                    if face.get("personId") == person.id and face.get("embedding"):
+                        embeddings[person.id] = face["embedding"]
+                        return
+            except Exception as exc:
+                logger.warning(
+                    "Embedding unavailable for account %s person %s: %s",
+                    person.account_id,
+                    person.id,
+                    type(exc).__name__,
+                )
+
+    await asyncio.gather(*(_fetch(p) for p in people))
+    return embeddings
 
 
 def enrich_matches(

@@ -7,11 +7,10 @@ POST /api/matches/{id}/dismiss – Mark a match as dismissed
 """
 import time
 import logging
-import asyncio
 from fastapi import APIRouter, Request
 
 from models.match import Match
-from services.face_matcher import compute_matches, enrich_matches
+from services.face_matcher import compute_matches, enrich_matches, get_embeddings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -43,36 +42,14 @@ async def _build_matches(request: Request) -> list[Match]:
     people = await _load_people(request)
     dismissed = request.app.state.store.get_dismissed_ids()
 
-    embeddings: dict[str, list[float]] = {}
     accounts = request.app.state.store.list_accounts()
-    account_map = {a.id: a for a in accounts}
     named_people = [person for person in people if person.name]
-    semaphore = asyncio.Semaphore(5)
 
-    async def fetch_embedding(person):
-        account = account_map.get(person.account_id)
-        if not account:
-            return
-        async with semaphore:
-            try:
-                client = request.app.state.client_pool.get_for_account(account)
-                assets = await client.get_person_assets(person.id)
-                if not assets:
-                    return
-                faces = await client.get_faces(assets[0]["id"])
-                for face in faces:
-                    if face.get("personId") == person.id and face.get("embedding"):
-                        embeddings[person.id] = face["embedding"]
-                        return
-            except Exception as exc:
-                logger.warning(
-                    "Embedding unavailable for account %s person %s: %s",
-                    person.account_id,
-                    person.id,
-                    type(exc).__name__,
-                )
+    # Build a {account_id: ImmichClient} map for face_matcher
+    pool = request.app.state.client_pool
+    clients = {a.id: pool.get_for_account(a) for a in accounts}
 
-    await asyncio.gather(*(fetch_embedding(person) for person in named_people))
+    embeddings = await get_embeddings(named_people, clients)
     return compute_matches(
         named_people,
         embeddings=embeddings or None,
