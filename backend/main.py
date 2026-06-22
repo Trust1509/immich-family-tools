@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 
 from config import get_settings
 from services.config_store import ConfigStore
-from services.immich_client import ImmichClient
+from services.immich_client import ClientPool
 from services.thumbnail_cache import ThumbnailCache
 from routers import accounts, people, faces, albums, auth
 from services.auth_service import verify_session
@@ -110,13 +110,13 @@ async def _auto_sync_loop(app_state) -> None:
             logger.error("Auto-sync loop error: %s", exc)
 
 
-async def _backfill_user_ids(store: ConfigStore) -> None:
+async def _backfill_user_ids(store: ConfigStore, pool: ClientPool) -> None:
     """Fetch and store missing user_ids for accounts added before this feature."""
     for account in store.list_accounts():
         if account.user_id:
             continue
         try:
-            client = ImmichClient(account.immich_url, account.api_key)
+            client = pool.get_for_account(account)
             user_info = await client.validate()
             user_id = user_info.get("id")
             if user_id:
@@ -136,9 +136,10 @@ async def startup():
     app.state.settings = settings
     app.state.store = ConfigStore(settings.config_path, settings.log_retention_days)
     app.state.thumbnail_cache = ThumbnailCache(settings.thumbnail_cache_max_bytes)
+    app.state.client_pool = ClientPool()
     logger.info("Immich Family Tools started on port %d", settings.port)
     # Backfill user_ids for accounts added before this feature (runs in background)
-    asyncio.create_task(_backfill_user_ids(app.state.store))
+    asyncio.create_task(_backfill_user_ids(app.state.store, app.state.client_pool))
     asyncio.create_task(_auto_sync_loop(app.state))
 
 

@@ -190,3 +190,29 @@ class AlbumNotFoundError(Exception):
     def __init__(self, album_id: str):
         self.album_id = album_id
         super().__init__(f"Album {album_id} not found in Immich (deleted?)")
+
+
+class ClientPool:
+    """Lazy per-account ImmichClient cache.
+
+    Clients are created on first access and cached by account_id.
+    Call invalidate(account_id) when an account's credentials change or the
+    account is deleted so the next request gets a fresh client.
+    """
+
+    def __init__(self):
+        self._pool: dict[str, ImmichClient] = {}
+
+    def get(self, account_id: str, url: str, api_key: str) -> ImmichClient:
+        """Return a cached client, creating it if necessary."""
+        if account_id not in self._pool:
+            self._pool[account_id] = ImmichClient(url, api_key)
+        return self._pool[account_id]
+
+    def get_for_account(self, account) -> ImmichClient:
+        """Convenience wrapper — pass an Account model directly."""
+        return self.get(account.id, account.immich_url, account.api_key)
+
+    def invalidate(self, account_id: str) -> None:
+        """Remove the cached client for account_id (if present)."""
+        self._pool.pop(account_id, None)

@@ -1,7 +1,6 @@
 import asyncio
 from fastapi import APIRouter, HTTPException, Request, Response
 from models.person import Person
-from services.immich_client import ImmichClient
 
 router = APIRouter(prefix="/api/people", tags=["people"])
 
@@ -27,7 +26,7 @@ async def get_all_people(request: Request):
         return []
 
     async def fetch(account):
-        client = ImmichClient(account.immich_url, account.api_key)
+        client = request.app.state.client_pool.get_for_account(account)
         try:
             raw_list = await client.get_all_people()
             return [_make_person(p, account) for p in raw_list]
@@ -46,7 +45,7 @@ async def get_people_for_account(account_id: str, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
-    client = ImmichClient(account.immich_url, account.api_key)
+    client = request.app.state.client_pool.get_for_account(account)
     try:
         raw_list = await client.get_all_people()
         return [_make_person(p, account) for p in raw_list]
@@ -60,7 +59,7 @@ async def get_person_count(account_id: str, person_id: str, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
-    client = ImmichClient(account.immich_url, account.api_key)
+    client = request.app.state.client_pool.get_for_account(account)
     count = await client.get_person_asset_count(person_id)
     return {"count": count}
 
@@ -77,7 +76,7 @@ async def get_thumbnail(account_id: str, person_id: str, request: Request):
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
 
-    client = ImmichClient(account.immich_url, account.api_key)
+    client = request.app.state.client_pool.get_for_account(account)
     data = await client.get_person_thumbnail(person_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Kein Thumbnail vorhanden")

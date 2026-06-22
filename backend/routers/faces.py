@@ -14,7 +14,6 @@ from itertools import combinations
 from fastapi import APIRouter, Request
 
 from models.match import Match
-from services.immich_client import ImmichClient
 from services.face_matcher import compute_matches
 
 logger = logging.getLogger(__name__)
@@ -54,7 +53,7 @@ async def _build_matches(request: Request) -> list[Match]:
             return
         async with semaphore:
             try:
-                client = ImmichClient(account.immich_url, account.api_key)
+                client = request.app.state.client_pool.get_for_account(account)
                 assets = await client.get_person_assets(person.id)
                 if not assets:
                     return

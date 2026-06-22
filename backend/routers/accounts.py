@@ -41,6 +41,7 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
             updates["user_id"] = user_info.get("id")
         except Exception as exc:
             raise HTTPException(status_code=422, detail="Immich API nicht erreichbar oder Token ungültig")
+        request.app.state.client_pool.invalidate(account_id)
     updated = request.app.state.store.update_account(account_id, updates)
     return AccountPublic.from_account(updated)
 
@@ -51,6 +52,7 @@ async def delete_account(account_id: str, request: Request):
     if not ok:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
     request.app.state.thumbnail_cache.clear_account(account_id)
+    request.app.state.client_pool.invalidate(account_id)
     from routers.faces import invalidate_match_cache
     invalidate_match_cache()
 
@@ -61,7 +63,7 @@ async def refresh_account(account_id: str, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
-    client = ImmichClient(account.immich_url, account.api_key)
+    client = request.app.state.client_pool.get_for_account(account)
     try:
         user_info = await client.validate()
         user_id = user_info.get("id")
@@ -78,7 +80,7 @@ async def get_account_albums(account_id: str, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
-    client = ImmichClient(account.immich_url, account.api_key)
+    client = request.app.state.client_pool.get_for_account(account)
     try:
         albums = await client.get_albums()
         return [{"id": a["id"], "name": a.get("albumName", "?")} for a in albums]
@@ -91,7 +93,7 @@ async def account_status(account_id: str, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
-    client = ImmichClient(account.immich_url, account.api_key)
+    client = request.app.state.client_pool.get_for_account(account)
     try:
         user = await client.validate()
         return AccountStatus(

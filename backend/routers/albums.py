@@ -4,7 +4,6 @@ from pydantic import BaseModel
 
 from models.match import SyncNamesRequest, SyncAlbumRequest, SyncLogEntry, ManagedAlbum, SyncNamesMultiRequest, ExtendMatchRequest
 from services import sync_service
-from services.immich_client import ImmichClient
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -66,7 +65,7 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     # Preflight every selected person before any write is attempted.
     for acc, person_id in accounts_persons:
         try:
-            await ImmichClient(acc.immich_url, acc.api_key).get_person(person_id)
+            await request.app.state.client_pool.get_for_account(acc).get_person(person_id)
         except Exception:
             raise HTTPException(
                 status_code=422,
