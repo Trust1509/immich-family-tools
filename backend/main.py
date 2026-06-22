@@ -120,11 +120,8 @@ async def _backfill_user_ids(store: ConfigStore) -> None:
             user_info = await client.validate()
             user_id = user_info.get("id")
             if user_id:
-                raw = store._data["accounts"].get(account.id)
-                if raw:
-                    raw["user_id"] = user_id
-                    store._save()
-                    logger.info("Backfilled user_id for account '%s'", account.name)
+                store.update_account(account.id, {"user_id": user_id})
+                logger.info("Backfilled user_id for account '%s'", account.name)
         except Exception as exc:
             logger.warning("Could not backfill user_id for '%s': %s", account.name, exc)
 

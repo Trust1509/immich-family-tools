@@ -65,10 +65,8 @@ async def refresh_account(account_id: str, request: Request):
     try:
         user_info = await client.validate()
         user_id = user_info.get("id")
-        raw = request.app.state.store._data["accounts"].get(account_id)
-        if raw and user_id:
-            raw["user_id"] = user_id
-            request.app.state.store._save()
+        if user_id:
+            request.app.state.store.update_account(account_id, {"user_id": user_id})
         return AccountPublic.from_account(request.app.state.store.get_account(account_id))
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Immich-Anfrage fehlgeschlagen")
