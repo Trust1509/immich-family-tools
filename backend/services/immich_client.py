@@ -115,7 +115,7 @@ class ImmichClient:
         return all_assets
 
     # ------------------------------------------------------------------
-    # Face embeddings (experimental – may not be in all Immich versions)
+    # Face embeddings
     # ------------------------------------------------------------------
 
     async def get_faces(self, asset_id: str) -> list[dict]:
