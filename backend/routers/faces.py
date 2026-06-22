@@ -16,13 +16,18 @@ from services.face_matcher import compute_matches, enrich_matches
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/matches", tags=["matches"])
 
-_cache: dict = {"matches": None, "ts": 0.0}
-_refresh_lock = asyncio.Lock()
-
 
 def invalidate_match_cache() -> None:
-    _cache["matches"] = None
-    _cache["ts"] = 0.0
+    """Legacy shim — kept for callers that import this by name.
+
+    Prefer request.app.state.match_cache.invalidate() in new code.
+    The module-level function cannot reach app.state, so callers that still
+    use this path (e.g. albums.py line 39) must migrate to the state-based call.
+    This shim is intentionally a no-op stub to avoid import errors; the real
+    invalidation is done in-line via request.app.state.match_cache.invalidate().
+    """
+    # NOTE: actual invalidation is performed via request.app.state.match_cache
+    pass
 
 
 def _ttl(request: Request) -> int:
@@ -86,30 +91,30 @@ def _enrich(matches: list[Match], request: Request) -> list[Match]:
 
 @router.get("", response_model=list[Match])
 async def get_matches(request: Request):
+    cache = request.app.state.match_cache
     now = time.monotonic()
-    if _cache["matches"] is not None and (now - _cache["ts"]) < _ttl(request):
-        return _enrich(list(_cache["matches"]), request)
-    async with _refresh_lock:
+    if cache.matches is not None and (now - cache.ts) < _ttl(request):
+        return _enrich(list(cache.matches), request)
+    async with cache.lock:
         now = time.monotonic()
-        if _cache["matches"] is not None and (now - _cache["ts"]) < _ttl(request):
-            return _enrich(list(_cache["matches"]), request)
+        if cache.matches is not None and (now - cache.ts) < _ttl(request):
+            return _enrich(list(cache.matches), request)
         matches = await _build_matches(request)
-        _cache["matches"] = matches
-        _cache["ts"] = time.monotonic()
+        cache.set(matches, time.monotonic())
     return _enrich(list(matches), request)
 
 
 @router.post("/refresh", response_model=list[Match])
 async def refresh_matches(request: Request):
-    async with _refresh_lock:
-        invalidate_match_cache()
+    cache = request.app.state.match_cache
+    async with cache.lock:
+        cache.invalidate()
         matches = await _build_matches(request)
-        _cache["matches"] = matches
-        _cache["ts"] = time.monotonic()
+        cache.set(matches, time.monotonic())
     return _enrich(list(matches), request)
 
 
 @router.post("/{match_id}/dismiss", status_code=204)
 async def dismiss_match(match_id: str, request: Request):
     request.app.state.store.dismiss_match(match_id)
-    invalidate_match_cache()
+    request.app.state.match_cache.invalidate()

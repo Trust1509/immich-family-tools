@@ -53,8 +53,7 @@ async def delete_account(account_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
     request.app.state.thumbnail_cache.clear_account(account_id)
     request.app.state.client_pool.invalidate(account_id)
-    from routers.faces import invalidate_match_cache
-    invalidate_match_cache()
+    request.app.state.match_cache.invalidate()
 
 
 @router.post("/{account_id}/refresh", response_model=AccountPublic)

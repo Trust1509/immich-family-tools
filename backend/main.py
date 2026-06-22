@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from config import get_settings
 from services.config_store import ConfigStore
 from services.immich_client import ClientPool
+from services.match_cache import MatchCache
 from services.thumbnail_cache import ThumbnailCache
 from routers import accounts, people, faces, albums, auth
 from services.auth_service import verify_session
@@ -137,6 +138,7 @@ async def startup():
     app.state.store = ConfigStore(settings.config_path, settings.log_retention_days)
     app.state.thumbnail_cache = ThumbnailCache(settings.thumbnail_cache_max_bytes)
     app.state.client_pool = ClientPool()
+    app.state.match_cache = MatchCache()
     logger.info("Immich Family Tools started on port %d", settings.port)
     # Backfill user_ids for accounts added before this feature (runs in background)
     asyncio.create_task(_backfill_user_ids(app.state.store, app.state.client_pool))

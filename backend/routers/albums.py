@@ -34,8 +34,7 @@ async def sync_names(body: SyncNamesRequest, request: Request):
     store.append_log(entries)
     if all(e.status == "success" for e in entries):
         store.mark_names_synced(body.match_id)
-    from routers.faces import _cache
-    _cache["matches"] = None
+    request.app.state.match_cache.invalidate()
     return entries
 
 
