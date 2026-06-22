@@ -5,16 +5,13 @@ GET  /api/matches              – Return cached match list (recompute if stale)
 POST /api/matches/refresh      – Invalidate cache and recompute
 POST /api/matches/{id}/dismiss – Mark a match as dismissed
 """
-import hashlib
 import time
 import logging
 import asyncio
-from collections import defaultdict
-from itertools import combinations
 from fastapi import APIRouter, Request
 
 from models.match import Match
-from services.face_matcher import compute_matches
+from services.face_matcher import compute_matches, enrich_matches
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -79,31 +76,12 @@ async def _build_matches(request: Request) -> list[Match]:
 
 
 def _enrich(matches: list[Match], request: Request) -> list[Match]:
-    """Add has_album and names_synced flags (always fresh, never cached)."""
-    managed_albums = request.app.state.store.get_managed_albums()
-    synced_name_ids = request.app.state.store.get_synced_name_ids()
-
-    # Group albums by normalised name and collect all unique person_ids per group.
-    # This handles the case where the same person is covered by multiple 2-person
-    # albums (e.g. Manu↔Majo + Majo↔Jojo both named "Manuel") — the transitive
-    # pair Manu↔Jojo is then also considered to have an album.
-    by_name: dict[str, set[str]] = defaultdict(set)
-    for ma in managed_albums:
-        key = ma.album_name.strip().lower()
-        for ref in ma.person_refs:
-            by_name[key].add(ref["person_id"])
-
-    all_linked_ids: set[str] = set()
-    for person_ids in by_name.values():
-        for a, b in combinations(sorted(person_ids), 2):
-            k = "_".join(sorted([a, b]))
-            all_linked_ids.add(hashlib.md5(k.encode()).hexdigest())
-
-    for m in matches:
-        m.has_album = m.id in all_linked_ids
-        same_name = bool(m.person_a.person_name) and m.person_a.person_name == m.person_b.person_name
-        m.names_synced = m.id in synced_name_ids or same_name
-    return matches
+    """Delegate to enrich_matches() with store data (always fresh, never cached)."""
+    return enrich_matches(
+        matches,
+        managed_albums=request.app.state.store.get_managed_albums(),
+        synced_name_ids=request.app.state.store.get_synced_name_ids(),
+    )
 
 
 @router.get("", response_model=list[Match])

@@ -8,11 +8,13 @@ Only named people are automatic candidates. Unnamed people are matched manually.
 """
 import logging
 import hashlib
+from collections import defaultdict
+from itertools import combinations
 from typing import Optional
 import numpy as np
 
 from models.person import Person
-from models.match import Match, MatchReason, MatchStatus, PersonRef
+from models.match import Match, ManagedAlbum, MatchReason, MatchStatus, PersonRef
 
 logger = logging.getLogger(__name__)
 
@@ -168,3 +170,34 @@ def _score_pair(
         score = 0.75 * name_sim
 
     return min(1.0, score), reasons
+
+
+def enrich_matches(
+    matches: list[Match],
+    managed_albums: list[ManagedAlbum],
+    synced_name_ids: set[str],
+) -> list[Match]:
+    """Add has_album and names_synced flags (always fresh, never cached).
+
+    Pure business logic — no HTTP, no request object.
+    """
+    # Group albums by normalised name and collect all unique person_ids per group.
+    # Transitive album membership: if the same person appears in multiple albums
+    # with the same name, all pairwise combinations are considered to have an album.
+    by_name: dict[str, set[str]] = defaultdict(set)
+    for ma in managed_albums:
+        key = ma.album_name.strip().lower()
+        for ref in ma.person_refs:
+            by_name[key].add(ref["person_id"])
+
+    all_linked_ids: set[str] = set()
+    for person_ids in by_name.values():
+        for a, b in combinations(sorted(person_ids), 2):
+            k = "_".join(sorted([a, b]))
+            all_linked_ids.add(hashlib.md5(k.encode()).hexdigest())
+
+    for m in matches:
+        m.has_album = m.id in all_linked_ids
+        same_name = bool(m.person_a.person_name) and m.person_a.person_name == m.person_b.person_name
+        m.names_synced = m.id in synced_name_ids or same_name
+    return matches
