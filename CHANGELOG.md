@@ -2,6 +2,31 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.3.0] – 2026-08-02
+
+### Immich v3 compatibility
+- Added tested compatibility with Immich v3.1
+- Migrated person asset discovery to the paginated `POST /api/search/metadata` API
+- Updated people pagination to use Immich v3's `size` parameter
+- Updated Name Sync to modify people through `PATCH`
+- Deduplicated paginated asset IDs and prevented assets already present in an album from being added again
+
+### Auto-Sync reliability
+- Auto-Sync now records the executed date and configured time as one slot
+- Changing the configured time allows one intentional additional run on the same day
+- An unchanged time slot remains protected against duplicate runs during the polling window
+
+### Maintenance and verification
+- Updated tested backend, frontend and GitHub Actions dependencies
+- Added regression coverage for Immich v3 album search, people pagination, Name Sync and scheduled synchronization
+- Verified manual and automatic album synchronization against Immich v3.1 in production
+- Backend tests, frontend tests, typecheck, production build, audits, secret scan and container build pass
+
+### Upgrade notes
+- No persisted-data migration is required
+- Existing `.env`, accounts, managed albums and sync history remain compatible
+- Rebuild the container from this release so the backend and frontend both report version `1.3.0`
+
 ## [1.2.1] – 2026-06-21
 
 ### Maintenance

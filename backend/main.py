@@ -93,8 +93,8 @@ async def _run_auto_sync(app_state) -> None:
 
 async def _auto_sync_loop(app_state) -> None:
     """Check every 30 s if it is time to run the nightly auto-sync.
-    Fires exactly once per day at the configured local time."""
-    last_run_date = None
+    Fires exactly once per configured local-time slot."""
+    last_run_slot = None
     while True:
         await asyncio.sleep(30)
         try:
@@ -103,8 +103,9 @@ async def _auto_sync_loop(app_state) -> None:
                 continue
             now = datetime.now()
             h, m = map(int, cfg.get("time", "01:00").split(":"))
-            if now.hour == h and now.minute == m and now.date() != last_run_date:
-                last_run_date = now.date()
+            current_slot = (now.date(), h, m)
+            if now.hour == h and now.minute == m and current_slot != last_run_slot:
+                last_run_slot = current_slot
                 logger.info("Auto-sync triggered at %02d:%02d", h, m)
                 await _run_auto_sync(app_state)
         except Exception as exc:
