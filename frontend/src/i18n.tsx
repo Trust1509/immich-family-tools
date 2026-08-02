@@ -14,6 +14,7 @@ const translations = {
   nav_log:            { de: "Sync Log",           en: "Sync Log" },
   nav_extend:         { de: "Match erweitern",    en: "Extend Match" },
   app_subtitle:       { de: "Immich Multi-Account", en: "Immich Multi-Account" },
+  support_project:    { de: "Projekt unterstützen", en: "Support this project" },
 
   // ── Common ────────────────────────────────────────────────────────────
   cancel:             { de: "Abbrechen",          en: "Cancel" },

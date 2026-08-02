@@ -238,6 +238,12 @@ PRs welcome! Some ideas for future improvements:
 - [Immich GitHub Discussions – Cross-account face recognition](https://github.com/immich-app/immich/discussions)
 - [Immich API Documentation](https://immich.app/docs/api)
 
+## Support
+
+I build and maintain open-source tools for self-hosted software. If this project helps you, consider [buying me a coffee](https://buymeacoffee.com/trust1509) to support continued development and maintenance.
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_me_a_coffee-support-FFDD00?logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/trust1509)
+
 ## License
 
 MIT — see [LICENSE](LICENSE)
