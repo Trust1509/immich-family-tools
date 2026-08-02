@@ -78,7 +78,7 @@ remain available in Manual Matching. Confidence uses up to two signals:
 - `"Manuel"` vs `"Manu"` → 67%
 - Any unnamed person → 0% (no signal)
 
-**Face embeddings** are fetched via `GET /api/faces?id={assetId}` — experimental, not available in all Immich versions. Falls back gracefully to name-only matching.
+**Face embeddings** are fetched via `GET /api/faces?id={assetId}` — experimental and not exposed by the public Immich v3.1 response schema. When embeddings are unavailable, matching falls back gracefully to names.
 
 #### Why does "same name" only score ~75%?
 
@@ -95,6 +95,8 @@ The minimum threshold to appear as a suggestion is **25%**.
 - Docker + Docker Compose
 - A running Immich instance
 - API keys for each Immich account (User Settings → API Keys in Immich)
+
+Album synchronization, people pagination, and Name Sync are covered for Immich v3.1. Because Immich does not backport fixes to older major versions, the latest stable Immich release is recommended.
 
 ### 1. Clone
 
