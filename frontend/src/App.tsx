@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, GitMerge, Grid, ScrollText, Activity, Disc, Shuffle, UserPlus, LogOut } from "lucide-react";
+import { Users, GitMerge, Grid, ScrollText, Activity, Disc, Shuffle, UserPlus, LogOut, Coffee } from "lucide-react";
 import { api } from "./api/client";
 import { APP_VERSION } from "./version";
 import AccountManager from "./components/AccountManager";
@@ -77,6 +77,14 @@ export default function App() {
               </button>
             ))}
           </div>
+          <a
+            href="https://buymeacoffee.com/trust1509"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full text-xs text-gray-500 hover:text-amber-300 flex items-center justify-center gap-1 transition-colors"
+          >
+            <Coffee size={12} /> {t("support_project")}
+          </a>
           <p className="text-xs text-gray-600 text-center">v{APP_VERSION}</p>
         </div>
       </aside>
