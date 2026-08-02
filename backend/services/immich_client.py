@@ -1,7 +1,7 @@
 """Async Immich REST API client."""
 import httpx
 import logging
-from typing import Optional, Any
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -9,9 +9,15 @@ TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 class ImmichClient:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self._headers = {"x-api-key": api_key, "Accept": "application/json"}
+        self._transport = transport
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -19,6 +25,7 @@ class ImmichClient:
             headers=self._headers,
             timeout=TIMEOUT,
             follow_redirects=False,
+            transport=self._transport,
         )
 
     # ------------------------------------------------------------------
@@ -41,7 +48,7 @@ class ImmichClient:
         async with self._client() as c:
             r = await c.get(
                 "/api/people",
-                params={"page": page, "pageSize": page_size, "withHidden": False},
+                params={"page": page, "size": page_size, "withHidden": False},
             )
             r.raise_for_status()
             return r.json()
@@ -90,7 +97,7 @@ class ImmichClient:
     async def update_person(self, person_id: str, payload: dict) -> dict:
         """Update a person (e.g. rename)."""
         async with self._client() as c:
-            r = await c.put(f"/api/people/{person_id}", json=payload)
+            r = await c.patch(f"/api/people/{person_id}", json=payload)
             r.raise_for_status()
             return r.json()
 
@@ -170,8 +177,28 @@ class ImmichClient:
 
     async def get_album_assets(self, album_id: str) -> list[str]:
         """Return asset IDs already in an album. Raises AlbumNotFoundError if deleted."""
-        data = await self.get_album_info(album_id)
-        return [a["id"] for a in data.get("assets", [])]
+        await self.get_album_info(album_id)
+        asset_ids: list[str] = []
+        seen_ids: set[str] = set()
+        page = 1
+        while True:
+            async with self._client() as c:
+                r = await c.post(
+                    "/api/search/metadata",
+                    json={"albumIds": [album_id], "size": 1000, "page": page},
+                )
+                r.raise_for_status()
+                assets = r.json().get("assets", {})
+            for asset in assets.get("items", []):
+                asset_id = asset["id"]
+                if asset_id not in seen_ids:
+                    seen_ids.add(asset_id)
+                    asset_ids.append(asset_id)
+            next_page = assets.get("nextPage")
+            if not next_page:
+                break
+            page = int(next_page)
+        return asset_ids
 
     async def get_album_user_ids(self, album_id: str) -> set[str]:
         """Return set of user IDs already in the album (any role)."""
