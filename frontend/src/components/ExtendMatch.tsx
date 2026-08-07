@@ -1,8 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Loader2, User, Clock, Disc, CheckCircle, XCircle, ChevronRight, Plus,
-} from "lucide-react";
+import { Loader2, User, Clock, Disc, CheckCircle, XCircle, ChevronRight, Plus } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry, Account, Person } from "../api/client";
 import { useT } from "../i18n";
 
@@ -31,7 +29,10 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
     for (const album of group) {
       for (const ref of album.person_refs) {
         const key = `${ref.account_id}::${ref.person_id}`;
-        if (!seen.has(key)) { seen.add(key); personRefs.push(ref); }
+        if (!seen.has(key)) {
+          seen.add(key);
+          personRefs.push(ref);
+        }
       }
     }
     const dates = group.map((a) => a.last_synced_at).filter(Boolean) as string[];
@@ -58,8 +59,11 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
 function formatDate(iso?: string) {
   if (!iso) return "–";
   return new Date(iso).toLocaleString("de-AT", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -97,8 +101,10 @@ function SearchablePersonPicker({
     return people
       .filter((p) => !q || (p.name ?? "").toLowerCase().includes(q))
       .sort((a, b) => {
-        const na = a.name ?? ""; const nb = b.name ?? "";
-        if (na && !nb) return -1; if (!na && nb) return 1;
+        const na = a.name ?? "";
+        const nb = b.name ?? "";
+        if (na && !nb) return -1;
+        if (!na && nb) return 1;
         return na.localeCompare(nb);
       })
       .slice(0, 50);
@@ -117,8 +123,15 @@ function SearchablePersonPicker({
         className={`w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary ${disabled ? "opacity-40 pointer-events-none" : ""}`}
         placeholder={placeholder}
         value={open ? query : (selectedPerson?.name ?? (value ? value.slice(0, 8) + "…" : ""))}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange(""); }}
-        onFocus={() => { setQuery(""); setOpen(true); }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+          if (!e.target.value) onChange("");
+        }}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+        }}
         disabled={disabled}
       />
       {open && filtered.length > 0 && (
@@ -127,18 +140,25 @@ function SearchablePersonPicker({
             <button
               key={p.id}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-immich-border text-left"
-              onMouseDown={(e) => { e.preventDefault(); select(p); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                select(p);
+              }}
             >
               <img
                 src={api.people.thumbnailUrl(p.account_id, p.id)}
                 className="w-6 h-6 rounded-full object-cover shrink-0"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
               />
               <span className="truncate flex-1">
                 {p.name || <span className="text-gray-500 italic">Unbekannt</span>}
               </span>
               {p.asset_count > 0 && (
-                <span className="text-xs text-gray-500 shrink-0">{p.asset_count.toLocaleString()}</span>
+                <span className="text-xs text-gray-500 shrink-0">
+                  {p.asset_count.toLocaleString()}
+                </span>
               )}
             </button>
           ))}
@@ -164,9 +184,7 @@ function AlbumGroupCard({
     <button
       onClick={onSelect}
       className={`w-full text-left card space-y-3 transition-colors ${
-        selected
-          ? "border-immich-primary bg-immich-primary/10"
-          : "hover:border-gray-500"
+        selected ? "border-immich-primary bg-immich-primary/10" : "hover:border-gray-500"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -174,12 +192,19 @@ function AlbumGroupCard({
           <Disc size={16} className={selected ? "text-immich-primary" : "text-blue-400"} />
           <div>
             <p className="font-semibold text-sm">{group.album_name}</p>
-            <p className="text-xs text-gray-500">{t("owner")}: {group.owner_name}</p>
+            <p className="text-xs text-gray-500">
+              {t("owner")}: {group.owner_name}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-gray-400">{group.total_assets.toLocaleString()} {t("photos")}</span>
-          <ChevronRight size={14} className={`text-gray-500 transition-transform ${selected ? "rotate-90" : ""}`} />
+          <span className="text-xs text-gray-400">
+            {group.total_assets.toLocaleString()} {t("photos")}
+          </span>
+          <ChevronRight
+            size={14}
+            className={`text-gray-500 transition-transform ${selected ? "rotate-90" : ""}`}
+          />
         </div>
       </div>
 
@@ -189,7 +214,10 @@ function AlbumGroupCard({
           <div key={i} className="flex items-center gap-1 text-xs">
             <User size={10} className="text-gray-600" />
             <span className="text-gray-300">{ref.person_name}</span>
-            <span className="badge" style={{ backgroundColor: ref.account_color, fontSize: "0.65rem", padding: "0 4px" }}>
+            <span
+              className="badge"
+              style={{ backgroundColor: ref.account_color, fontSize: "0.65rem", padding: "0 4px" }}
+            >
               {ref.account_name}
             </span>
           </div>
@@ -207,7 +235,7 @@ function AlbumGroupCard({
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function ExtendMatch() {
-  const { t } = useT();
+  const { t, logMessage } = useT();
   const qc = useQueryClient();
 
   const { data: rawAlbums = [], isLoading: loadingAlbums } = useQuery({
@@ -289,7 +317,9 @@ export default function ExtendMatch() {
       <div className="space-y-2">
         <p className="text-xs text-gray-400 uppercase tracking-wide">{t("extend_pick_album")}</p>
         {loadingAlbums ? (
-          <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-500" /></div>
+          <div className="flex justify-center py-8">
+            <Loader2 size={24} className="animate-spin text-gray-500" />
+          </div>
         ) : groups.length === 0 ? (
           <p className="text-sm text-gray-500">{t("extend_no_albums")}</p>
         ) : (
@@ -299,9 +329,9 @@ export default function ExtendMatch() {
                 key={g.album_name}
                 group={g}
                 selected={selectedGroupName === g.album_name}
-                onSelect={() => setSelectedGroupName(
-                  selectedGroupName === g.album_name ? null : g.album_name
-                )}
+                onSelect={() =>
+                  setSelectedGroupName(selectedGroupName === g.album_name ? null : g.album_name)
+                }
               />
             ))}
           </div>
@@ -319,22 +349,31 @@ export default function ExtendMatch() {
             <>
               {/* Account select */}
               <div className="space-y-1">
-                <label className="text-xs text-gray-400 uppercase tracking-wide">{t("extend_new_account")}</label>
+                <label className="text-xs text-gray-400 uppercase tracking-wide">
+                  {t("extend_new_account")}
+                </label>
                 <select
                   className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
                   value={newAccountId}
-                  onChange={(e) => { setNewAccountId(e.target.value); setNewPersonId(""); }}
+                  onChange={(e) => {
+                    setNewAccountId(e.target.value);
+                    setNewPersonId("");
+                  }}
                 >
                   <option value="">— {t("account_select_ph")} —</option>
                   {availableAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
 
               {/* Person picker (searchable) */}
               <div className="space-y-1">
-                <label className="text-xs text-gray-400 uppercase tracking-wide">{t("extend_new_person")}</label>
+                <label className="text-xs text-gray-400 uppercase tracking-wide">
+                  {t("extend_new_person")}
+                </label>
                 {loadingPeople ? (
                   <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
                     <Loader2 size={14} className="animate-spin" /> {t("loading")}
@@ -361,27 +400,36 @@ export default function ExtendMatch() {
                 <div>
                   <span className="text-sm text-gray-300">{t("extend_sync_name")}</span>
                   {syncName && canonicalName && (
-                    <p className="text-xs text-gray-500 mt-0.5">{t("extend_sync_name_hint", canonicalName)}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {t("extend_sync_name_hint", canonicalName)}
+                    </p>
                   )}
                 </div>
               </label>
 
               {/* Submit */}
               <button
-                onClick={() => { setResult(null); mutation.mutate(); }}
+                onClick={() => {
+                  setResult(null);
+                  mutation.mutate();
+                }}
                 disabled={!isValid || mutation.isPending}
                 className="flex items-center gap-2 px-5 py-2.5 bg-immich-primary text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-40 transition-colors"
               >
-                {mutation.isPending
-                  ? <Loader2 size={15} className="animate-spin" />
-                  : <Plus size={15} />}
+                {mutation.isPending ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Plus size={15} />
+                )}
                 {mutation.isPending ? t("running") : t("extend_submit")}
               </button>
             </>
           ) : null}
 
           {mutation.isError && (
-            <p className="text-sm text-red-400">{t("error_prefix")} {(mutation.error as Error).message}</p>
+            <p className="text-sm text-red-400">
+              {t("error_prefix")} {(mutation.error as Error).message}
+            </p>
           )}
 
           {/* Result — shown regardless of availableAccounts */}
@@ -392,13 +440,17 @@ export default function ExtendMatch() {
                 <div
                   key={e.id}
                   className={`flex items-start gap-2 p-2 rounded text-sm ${
-                    e.status === "success" ? "bg-green-900/20 text-green-300" : "bg-red-900/20 text-red-300"
+                    e.status === "success"
+                      ? "bg-green-900/20 text-green-300"
+                      : "bg-red-900/20 text-red-300"
                   }`}
                 >
-                  {e.status === "success"
-                    ? <CheckCircle size={15} className="shrink-0 mt-0.5" />
-                    : <XCircle size={15} className="shrink-0 mt-0.5" />}
-                  <span>{e.details}</span>
+                  {e.status === "success" ? (
+                    <CheckCircle size={15} className="shrink-0 mt-0.5" />
+                  ) : (
+                    <XCircle size={15} className="shrink-0 mt-0.5" />
+                  )}
+                  <span>{logMessage(e)}</span>
                 </div>
               ))}
             </div>

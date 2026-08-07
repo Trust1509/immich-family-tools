@@ -150,10 +150,12 @@ async def test_refresh_adds_only_new_assets_and_updates_the_total(monkeypatch):
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
 
-    await sync_service.refresh_managed_album(managed, [owner], Store())
+    entries = await sync_service.refresh_managed_album(managed, [owner], Store())
 
     assert add_calls == [["asset-2"]]
     assert managed.total_assets == 2
+    assert entries[0].message_key == "log_assets_added_to_album"
+    assert entries[0].message_params == {"count": 1, "account": owner.name, "album": managed.album_name}
 
 
 @pytest.mark.asyncio

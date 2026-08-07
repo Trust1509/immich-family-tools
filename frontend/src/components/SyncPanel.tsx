@@ -4,24 +4,28 @@ import { api, SyncLogEntry } from "../api/client";
 import { useT } from "../i18n";
 
 function LogRow({ entry }: { entry: SyncLogEntry }) {
-  const { t } = useT();
+  const { t, logMessage } = useT();
   const qc = useQueryClient();
   const undoMutation = useMutation({
     mutationFn: () => api.sync.undo(entry.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sync-log"] }),
   });
 
-  const canUndo = entry.action === "sync_names" && entry.status === "success" && !!entry.undo_data && !entry.undone_at;
+  const canUndo =
+    entry.action === "sync_names" &&
+    entry.status === "success" &&
+    !!entry.undo_data &&
+    !entry.undone_at;
   const ts = new Date(entry.timestamp).toLocaleString("de-AT");
 
   const actionLabel: Record<string, string> = {
-    sync_names:       t("action_sync_names"),
-    create_album:     t("action_create_album"),
-    undo_sync_names:  t("action_undo_names"),
-    share_album:      t("action_share_album"),
+    sync_names: t("action_sync_names"),
+    create_album: t("action_create_album"),
+    undo_sync_names: t("action_undo_names"),
+    share_album: t("action_share_album"),
     album_add_assets: t("action_add_assets"),
-    refresh_album:    t("action_refresh"),
-    link_album:       t("action_link"),
+    refresh_album: t("action_refresh"),
+    link_album: t("action_link"),
   };
 
   return (
@@ -32,14 +36,16 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
           {actionLabel[entry.action] ?? entry.action}
         </span>
       </td>
-      <td className="py-3 px-4 text-sm text-gray-300 max-w-xs truncate" title={entry.details}>
-        {entry.details}
+      <td className="py-3 px-4 text-sm text-gray-300 max-w-xs truncate" title={logMessage(entry)}>
+        {logMessage(entry)}
       </td>
       <td className="py-3 px-4">
         {entry.status === "success" ? (
           <CheckCircle size={14} className="text-emerald-400" />
         ) : (
-          <span title={entry.error_message}><XCircle size={14} className="text-red-400" /></span>
+          <span title={entry.error_message}>
+            <XCircle size={14} className="text-red-400" />
+          </span>
         )}
       </td>
       <td className="py-3 px-4">
@@ -50,7 +56,11 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
             className="text-xs text-gray-500 hover:text-gray-200 flex items-center gap-1 transition-colors"
             title={t("undo_tip")}
           >
-            {undoMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+            {undoMutation.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <RotateCcw size={12} />
+            )}
             {t("undo")}
           </button>
         )}
@@ -93,7 +103,9 @@ export default function SyncPanel() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-gray-500" /></div>
+        <div className="flex justify-center py-16">
+          <Loader2 size={28} className="animate-spin text-gray-500" />
+        </div>
       ) : sorted.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <ScrollText size={40} className="mx-auto mb-3 opacity-30" />
@@ -112,7 +124,9 @@ export default function SyncPanel() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((entry) => <LogRow key={entry.id} entry={entry} />)}
+              {sorted.map((entry) => (
+                <LogRow key={entry.id} entry={entry} />
+              ))}
             </tbody>
           </table>
         </div>

@@ -45,8 +45,10 @@ function SearchablePersonPicker({
     return people
       .filter((p) => !q || (p.name ?? "").toLowerCase().includes(q))
       .sort((a, b) => {
-        const na = a.name ?? ""; const nb = b.name ?? "";
-        if (na && !nb) return -1; if (!na && nb) return 1;
+        const na = a.name ?? "";
+        const nb = b.name ?? "";
+        if (na && !nb) return -1;
+        if (!na && nb) return 1;
         return na.localeCompare(nb);
       })
       .slice(0, 60);
@@ -60,9 +62,9 @@ function SearchablePersonPicker({
 
   const displayValue = open
     ? query
-    : (selectedPerson
-        ? `${selectedPerson.name || "?"}${selectedPerson.asset_count > 0 ? ` (${selectedPerson.asset_count.toLocaleString()})` : ""}`
-        : "");
+    : selectedPerson
+      ? `${selectedPerson.name || "?"}${selectedPerson.asset_count > 0 ? ` (${selectedPerson.asset_count.toLocaleString()})` : ""}`
+      : "";
 
   return (
     <div ref={ref} className="relative flex-1">
@@ -71,8 +73,15 @@ function SearchablePersonPicker({
         className={`w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary ${disabled ? "opacity-40 pointer-events-none" : ""}`}
         placeholder={loading ? "Lade…" : placeholder}
         value={displayValue}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange(""); }}
-        onFocus={() => { setQuery(""); setOpen(true); }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+          if (!e.target.value) onChange("");
+        }}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+        }}
         disabled={disabled || loading}
       />
       {open && filtered.length > 0 && (
@@ -81,18 +90,25 @@ function SearchablePersonPicker({
             <button
               key={p.id}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-immich-border text-left"
-              onMouseDown={(e) => { e.preventDefault(); select(p); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                select(p);
+              }}
             >
               <img
                 src={api.people.thumbnailUrl(p.account_id, p.id)}
                 className="w-6 h-6 rounded-full object-cover shrink-0"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
               />
               <span className="truncate flex-1">
                 {p.name || <span className="text-gray-500 italic">Unbekannt</span>}
               </span>
               {p.asset_count > 0 && (
-                <span className="text-xs text-gray-500 shrink-0">{p.asset_count.toLocaleString()}</span>
+                <span className="text-xs text-gray-500 shrink-0">
+                  {p.asset_count.toLocaleString()}
+                </span>
               )}
             </button>
           ))}
@@ -105,7 +121,13 @@ function SearchablePersonPicker({
 // ── Person row ─────────────────────────────────────────────────────────────
 
 function PersonRow({
-  accounts, usedAccountIds, selection, index, onUpdate, onRemove, canRemove,
+  accounts,
+  usedAccountIds,
+  selection,
+  index,
+  onUpdate,
+  onRemove,
+  canRemove,
 }: {
   accounts: Account[];
   usedAccountIds: string[];
@@ -136,7 +158,8 @@ function PersonRow({
           const taken = usedAccountIds.includes(a.id);
           return (
             <option key={a.id} value={a.id} disabled={taken}>
-              {a.name}{taken ? " ✓" : ""}
+              {a.name}
+              {taken ? " ✓" : ""}
             </option>
           );
         })}
@@ -201,87 +224,102 @@ function AlbumSection({
 
   return (
     <div className="space-y-3">
-      <label className="text-xs text-gray-400 uppercase tracking-wide">{t("create_shared_album")}</label>
+      <label className="text-xs text-gray-400 uppercase tracking-wide">
+        {t("create_shared_album")}
+      </label>
       <div className="space-y-3">
-          {/* Mode toggle */}
-          <div className="flex gap-1 bg-immich-surface rounded-lg p-1 w-fit">
-            {(["new", "existing"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => onAlbumModeChange(m)}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                  albumMode === m ? "bg-immich-primary text-white" : "text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                {m === "new" ? t("album_new") : t("album_link_existing")}
-              </button>
-            ))}
-          </div>
-
-          {/* Owner */}
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">{t("manual_album_owner")}</label>
-            <select
-              className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
-              value={ownerAccountId}
-              onChange={(e) => { onOwnerChange(e.target.value); onExistingAlbumIdChange(""); }}
+        {/* Mode toggle */}
+        <div className="flex gap-1 bg-immich-surface rounded-lg p-1 w-fit">
+          {(["new", "existing"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => onAlbumModeChange(m)}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                albumMode === m
+                  ? "bg-immich-primary text-white"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
             >
-              <option value="">— {t("account_select_ph")} —</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+              {m === "new" ? t("album_new") : t("album_link_existing")}
+            </button>
+          ))}
+        </div>
+
+        {/* Owner */}
+        <div className="space-y-1">
+          <label className="text-xs text-gray-500">{t("manual_album_owner")}</label>
+          <select
+            className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
+            value={ownerAccountId}
+            onChange={(e) => {
+              onOwnerChange(e.target.value);
+              onExistingAlbumIdChange("");
+            }}
+          >
+            <option value="">— {t("account_select_ph")} —</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* New album name */}
+        {albumMode === "new" && (
+          <input
+            type="text"
+            placeholder={t("album_name_label")}
+            value={albumName}
+            onChange={(e) => onAlbumNameChange(e.target.value)}
+            className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
+          />
+        )}
+
+        {/* Existing album picker */}
+        {albumMode === "existing" &&
+          (loadingAlbums ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500 py-1">
+              <Loader2 size={13} className="animate-spin" /> {t("loading")}
+            </div>
+          ) : (
+            <select
+              className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary disabled:opacity-40"
+              value={existingAlbumId}
+              disabled={!ownerAccountId}
+              onChange={(e) => onExistingAlbumIdChange(e.target.value)}
+            >
+              <option value="">{t("album_select_ph")}</option>
+              {existingAlbums.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
               ))}
             </select>
-          </div>
+          ))}
 
-          {/* New album name */}
-          {albumMode === "new" && (
-            <input
-              type="text"
-              placeholder={t("album_name_label")}
-              value={albumName}
-              onChange={(e) => onAlbumNameChange(e.target.value)}
-              className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
-            />
-          )}
-
-          {/* Existing album picker */}
-          {albumMode === "existing" && (
-            loadingAlbums ? (
-              <div className="flex items-center gap-2 text-sm text-gray-500 py-1">
-                <Loader2 size={13} className="animate-spin" /> {t("loading")}
-              </div>
-            ) : (
-              <select
-                className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary disabled:opacity-40"
-                value={existingAlbumId}
-                disabled={!ownerAccountId}
-                onChange={(e) => onExistingAlbumIdChange(e.target.value)}
-              >
-                <option value="">{t("album_select_ph")}</option>
-                {existingAlbums.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
-            )
-          )}
-
-          <p className="text-xs text-gray-600">
-            {albumMode === "new" ? t("album_new_desc") : t("album_existing_desc")}
-          </p>
+        <p className="text-xs text-gray-600">
+          {albumMode === "new" ? t("album_new_desc") : t("album_existing_desc")}
+        </p>
       </div>
     </div>
   );
 }
 
 function LogEntryRow({ entry }: { entry: SyncLogEntry }) {
+  const { logMessage } = useT();
   return (
-    <div className={`flex items-start gap-2 p-2 rounded text-sm ${
-      entry.status === "success" ? "bg-green-900/20 text-green-300" : "bg-red-900/20 text-red-300"
-    }`}>
-      {entry.status === "success"
-        ? <CheckCircle size={15} className="shrink-0 mt-0.5" />
-        : <XCircle size={15} className="shrink-0 mt-0.5" />}
-      <span>{entry.details}</span>
+    <div
+      className={`flex items-start gap-2 p-2 rounded text-sm ${
+        entry.status === "success" ? "bg-green-900/20 text-green-300" : "bg-red-900/20 text-red-300"
+      }`}
+    >
+      {entry.status === "success" ? (
+        <CheckCircle size={15} className="shrink-0 mt-0.5" />
+      ) : (
+        <XCircle size={15} className="shrink-0 mt-0.5" />
+      )}
+      <span>{logMessage(entry)}</span>
     </div>
   );
 }
@@ -333,12 +371,12 @@ export default function ManualMatch() {
   const addRow = () => setSelections((prev) => [...prev, { account_id: "", person_id: "" }]);
   const updateRow = (i: number, s: PersonSelection) =>
     setSelections((prev) => prev.map((x, idx) => (idx === i ? s : x)));
-  const removeRow = (i: number) =>
-    setSelections((prev) => prev.filter((_, idx) => idx !== i));
+  const removeRow = (i: number) => setSelections((prev) => prev.filter((_, idx) => idx !== i));
 
-  const albumReady = albumMode === "new"
-    ? true  // album_name falls back to canonicalName
-    : !!existingAlbumId;
+  const albumReady =
+    albumMode === "new"
+      ? true // album_name falls back to canonicalName
+      : !!existingAlbumId;
 
   const isValid =
     canonicalName.trim().length > 0 &&
@@ -361,12 +399,17 @@ export default function ManualMatch() {
 
       {/* Personen */}
       <div className="space-y-2">
-        <label className="text-xs text-gray-400 uppercase tracking-wide">{t("manual_people")}</label>
+        <label className="text-xs text-gray-400 uppercase tracking-wide">
+          {t("manual_people")}
+        </label>
         {selections.map((sel, i) => (
           <PersonRow
             key={i}
             accounts={accounts}
-            usedAccountIds={selections.filter((_, idx) => idx !== i).map((s) => s.account_id).filter(Boolean)}
+            usedAccountIds={selections
+              .filter((_, idx) => idx !== i)
+              .map((s) => s.account_id)
+              .filter(Boolean)}
             selection={sel}
             index={i}
             onUpdate={(s) => updateRow(i, s)}
@@ -392,8 +435,7 @@ export default function ManualMatch() {
           value={canonicalName}
           onChange={(e) => {
             setCanonicalName(e.target.value);
-            if (albumMode === "new" && !albumName)
-              setAlbumName(e.target.value);
+            if (albumMode === "new" && !albumName) setAlbumName(e.target.value);
           }}
           className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
         />
@@ -414,7 +456,10 @@ export default function ManualMatch() {
 
       {/* Submit */}
       <button
-        onClick={() => { setResult(null); mutation.mutate(); }}
+        onClick={() => {
+          setResult(null);
+          mutation.mutate();
+        }}
         disabled={!isValid || mutation.isPending}
         className="flex items-center gap-2 px-5 py-2.5 bg-immich-primary text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-40 transition-colors"
       >
@@ -423,13 +468,17 @@ export default function ManualMatch() {
       </button>
 
       {mutation.isError && (
-        <p className="text-sm text-red-400">{t("error_prefix")} {(mutation.error as Error).message}</p>
+        <p className="text-sm text-red-400">
+          {t("error_prefix")} {(mutation.error as Error).message}
+        </p>
       )}
 
       {result && (
         <div className="space-y-1.5">
           <p className="text-xs text-gray-400 uppercase tracking-wide">{t("result")}</p>
-          {result.map((e) => <LogEntryRow key={e.id} entry={e} />)}
+          {result.map((e) => (
+            <LogEntryRow key={e.id} entry={e} />
+          ))}
         </div>
       )}
     </div>

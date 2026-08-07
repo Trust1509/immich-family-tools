@@ -41,6 +41,7 @@ async def _share_album_if_needed(
             id=str(uuid.uuid4()), timestamp=_now(), action="share_album",
             details="Album-Mitglieder konnten nicht abgerufen werden",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_album_members_fetch_failed", message_params={},
         ))
         return logs
 
@@ -61,12 +62,16 @@ async def _share_album_if_needed(
             id=str(uuid.uuid4()), timestamp=_now(), action="share_album",
             details=f"Album '{album_name}' geteilt mit: {', '.join(a.name for a in to_add)}",
             status="success",
+            message_key="log_album_shared",
+            message_params={"album": album_name, "names": ", ".join(a.name for a in to_add)},
         ))
     except Exception as exc:
         logs.append(SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="share_album",
             details=f"Sharing mit {', '.join(a.name for a in to_add)} fehlgeschlagen",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_share_failed",
+            message_params={"names": ", ".join(a.name for a in to_add)},
         ))
     return logs
 
@@ -100,6 +105,8 @@ async def sync_names(
                         "person_id": person_id,
                         "previous_name": previous_name,
                     },
+                    message_key="log_name_synced",
+                    message_params={"account": account.name, "person": person_id, "name": canonical_name},
                 )
             )
         except Exception as exc:
@@ -112,6 +119,8 @@ async def sync_names(
                     details=f"Account '{account.name}' – person {person_id}",
                     status="error",
                     error_message="IMMICH_API_ERROR",
+                    message_key="log_name_sync_failed",
+                    message_params={"account": account.name, "person": person_id},
                 )
             )
     return results
@@ -140,6 +149,8 @@ async def sync_names_multi(
                     "person_id": person_id,
                     "previous_name": previous_name,
                 },
+                message_key="log_name_synced",
+                message_params={"account": account.name, "person": person_id, "name": canonical_name},
             ))
         except Exception as exc:
             logger.error("sync_names_multi failed for account %s: %s", account.name, exc)
@@ -147,6 +158,8 @@ async def sync_names_multi(
                 id=entry_id, timestamp=_now(), action="sync_names",
                 details=f"Account '{account.name}' – person {person_id}",
                 status="error", error_message="IMMICH_API_ERROR",
+                message_key="log_name_sync_failed",
+                message_params={"account": account.name, "person": person_id},
             ))
     return results
 
@@ -186,12 +199,16 @@ async def create_shared_album(
             details=f"Album '{album_name}' in '{owner_account.name}' mit {len(initial_asset_ids)} Assets erstellt",
             status="success",
             undo_data={"account_id": owner_account.id, "album_id": album_id},
+            message_key="log_album_created",
+            message_params={"album": album_name, "account": owner_account.name, "count": len(initial_asset_ids)},
         ))
     except Exception as exc:
         logs.append(SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="create_album",
             details=f"Album '{album_name}' konnte nicht erstellt werden",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_album_create_failed",
+            message_params={"album": album_name},
         ))
         return None, logs
 
@@ -224,12 +241,16 @@ async def create_shared_album(
                     id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
                     details=f"{len(asset_ids)} Assets von '{account.name}' hinzugefügt",
                     status="success",
+                    message_key="log_assets_added",
+                    message_params={"count": len(asset_ids), "account": account.name},
                 ))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
                 details=f"Assets von '{account.name}' konnten nicht hinzugefügt werden",
                 status="error", error_message="IMMICH_API_ERROR",
+                message_key="log_assets_add_failed",
+                message_params={"account": account.name},
             ))
 
     # ── 4. Save managed album record ──────────────────────────────────
@@ -280,6 +301,8 @@ async def link_existing_album(
             id=str(uuid.uuid4()), timestamp=_now(), action="link_album",
             details=f"Album '{album_name}' existiert nicht in Immich.",
             status="error", error_message="ALBUM_DELETED",
+            message_key="log_album_not_found",
+            message_params={"album": album_name},
         ))
         return None, logs
     except Exception:
@@ -304,12 +327,16 @@ async def link_existing_album(
                     id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
                     details=f"{len(new_ids)} Assets von '{account.name}' zu '{album_name}' hinzugefügt",
                     status="success",
+                    message_key="log_assets_linked",
+                    message_params={"count": len(new_ids), "account": account.name, "album": album_name},
                 ))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
                 details=f"Assets von '{account.name}' fehlgeschlagen",
                 status="error", error_message="IMMICH_API_ERROR",
+                message_key="log_assets_link_failed",
+                message_params={"account": account.name},
             ))
 
     managed = ManagedAlbum(
@@ -343,6 +370,7 @@ async def _refresh_managed_album_unlocked(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
             details="Owner-Account nicht mehr vorhanden",
             status="error",
+            message_key="log_owner_account_missing", message_params={},
         )]
 
     owner_client = ImmichClient(owner.immich_url, owner.api_key)
@@ -363,12 +391,15 @@ async def _refresh_managed_album_unlocked(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
             details=f"Album '{managed.album_name}' wurde in Immich gelöscht. Eintrag kann über die Alben-Übersicht entfernt werden.",
             status="error", error_message="ALBUM_DELETED",
+            message_key="log_album_deleted",
+            message_params={"album": managed.album_name},
         )]
     except Exception as exc:
         return [SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
             details="Album nicht abrufbar",
             status="error",
+            message_key="log_album_unreachable", message_params={},
         )]
 
     for ref in managed.person_refs:
@@ -387,12 +418,16 @@ async def _refresh_managed_album_unlocked(
                     id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
                     details=f"{len(new_ids)} neue Assets von '{account.name}' zum Album '{managed.album_name}' hinzugefügt",
                     status="success",
+                    message_key="log_assets_added_to_album",
+                    message_params={"count": len(new_ids), "account": account.name, "album": managed.album_name},
                 ))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
                 details=f"Sync von '{account.name}' fehlgeschlagen",
                 status="error", error_message="IMMICH_API_ERROR",
+                message_key="log_sync_failed",
+                message_params={"account": account.name},
             ))
 
     # Update last_synced_at and total_assets
@@ -406,6 +441,8 @@ async def _refresh_managed_album_unlocked(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
             details=f"Album '{managed.album_name}': Keine neuen Assets gefunden",
             status="success",
+            message_key="log_no_new_assets",
+            message_params={"album": managed.album_name},
         ))
     return logs
 
@@ -444,6 +481,8 @@ async def extend_match(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
             details=f"Person {person_id} aus '{new_account.name}' ist bereits in Album '{managed.album_name}' enthalten.",
             status="error",
+            message_key="log_person_already_in_album",
+            message_params={"person": person_id, "account": new_account.name, "album": managed.album_name},
         ))
         return logs
 
@@ -453,6 +492,7 @@ async def extend_match(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
             details="Owner-Account nicht mehr vorhanden.",
             status="error",
+            message_key="log_owner_account_missing", message_params={},
         ))
         return logs
 
@@ -467,6 +507,8 @@ async def extend_match(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
             details=f"Person in '{new_account.name}' konnte nicht validiert werden",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_person_validation_failed",
+            message_params={"account": new_account.name},
         )]
 
     # 1. Share album with new account
@@ -481,6 +523,7 @@ async def extend_match(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
             details="Album-Assets konnten nicht abgerufen werden",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_album_assets_fetch_failed", message_params={},
         ))
         return logs
 
@@ -494,12 +537,16 @@ async def extend_match(
                 id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
                 details=f"{len(new_ids)} Assets von '{new_account.name}' zu '{managed.album_name}' hinzugefügt",
                 status="success",
+                message_key="log_assets_linked",
+                message_params={"count": len(new_ids), "account": new_account.name, "album": managed.album_name},
             ))
         else:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
                 details=f"Keine neuen Assets von '{new_account.name}' (alle bereits im Album)",
                 status="success",
+                message_key="log_no_new_assets_from_account",
+                message_params={"account": new_account.name},
             ))
         total = len(existing_ids) + len(new_ids)
     except Exception as exc:
@@ -507,6 +554,8 @@ async def extend_match(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
             details=f"Assets von '{new_account.name}' konnten nicht hinzugefügt werden",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_assets_add_failed",
+            message_params={"account": new_account.name},
         ))
         total = len(existing_ids)
 
@@ -526,12 +575,16 @@ async def extend_match(
                     "person_id": person_id,
                     "previous_name": previous_name,
                 },
+                message_key="log_name_synced",
+                message_params={"account": new_account.name, "person": person_id, "name": canonical_name},
             ))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="sync_names",
                 details=f"Umbenennung in '{new_account.name}' fehlgeschlagen",
                 status="error", error_message="IMMICH_API_ERROR",
+                message_key="log_rename_failed",
+                message_params={"account": new_account.name},
             ))
 
     # 5. Update managed album record
@@ -560,10 +613,14 @@ async def undo_sync_name(account: Account, person_id: str, previous_name: str) -
             id=entry_id, timestamp=_now(), action="undo_sync_names",
             details=f"Reverted person {person_id} in '{account.name}' to '{previous_name}'",
             status="success",
+            message_key="log_undo_name_reverted",
+            message_params={"person": person_id, "account": account.name, "name": previous_name},
         )
     except Exception as exc:
         return SyncLogEntry(
             id=entry_id, timestamp=_now(), action="undo_sync_names",
             details=f"Undo failed for person {person_id}",
             status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_undo_failed",
+            message_params={"person": person_id},
         )

@@ -74,7 +74,13 @@ export interface ManagedAlbum {
   album_id: string;
   album_name: string;
   owner_account_id: string;
-  person_refs: { account_id: string; person_id: string; person_name: string; account_name: string; account_color: string }[];
+  person_refs: {
+    account_id: string;
+    person_id: string;
+    person_name: string;
+    account_name: string;
+    account_color: string;
+  }[];
   linked_match_ids: string[];
   created_at: string;
   last_synced_at?: string;
@@ -90,6 +96,8 @@ export interface SyncLogEntry {
   error_message?: string;
   undo_data?: Record<string, unknown>;
   undone_at?: string;
+  message_key?: string;
+  message_params?: Record<string, string | number>;
 }
 
 export interface HealthStatus {
@@ -115,8 +123,10 @@ export const api = {
     list: () => request<Account[]>("/accounts"),
     add: (data: { name: string; immich_url: string; api_key: string }) =>
       request<Account>("/accounts", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: string, data: { name?: string; immich_url?: string; api_key?: string; color?: string }) =>
-      request<Account>(`/accounts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    update: (
+      id: string,
+      data: { name?: string; immich_url?: string; api_key?: string; color?: string }
+    ) => request<Account>(`/accounts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     remove: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
     status: (id: string) => request<AccountStatus>(`/accounts/${id}/status`),
     albums: (accountId: string) =>
@@ -135,8 +145,7 @@ export const api = {
   matches: {
     list: () => request<Match[]>("/matches"),
     refresh: () => request<Match[]>("/matches/refresh", { method: "POST" }),
-    dismiss: (matchId: string) =>
-      request<void>(`/matches/${matchId}/dismiss`, { method: "POST" }),
+    dismiss: (matchId: string) => request<void>(`/matches/${matchId}/dismiss`, { method: "POST" }),
   },
 
   sync: {

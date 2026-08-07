@@ -7,8 +7,11 @@ import { useT } from "../i18n";
 function formatDate(iso?: string) {
   if (!iso) return "–";
   return new Date(iso).toLocaleString("de-AT", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -35,7 +38,10 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
     for (const album of group) {
       for (const ref of album.person_refs) {
         const key = `${ref.account_id}::${ref.person_id}`;
-        if (!seen.has(key)) { seen.add(key); personRefs.push(ref); }
+        if (!seen.has(key)) {
+          seen.add(key);
+          personRefs.push(ref);
+        }
       }
     }
     const dates = group.map((a) => a.last_synced_at).filter(Boolean) as string[];
@@ -59,22 +65,27 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
 }
 
 function SyncLogDisplay({ logs, syncing }: { logs: SyncLogEntry[] | null; syncing: boolean }) {
-  if (syncing) return (
-    <div className="flex items-center gap-2 text-xs text-gray-500 py-1">
-      <Loader2 size={12} className="animate-spin" />
-      <span>Synchronisiert…</span>
-    </div>
-  );
+  const { t, logMessage } = useT();
+  if (syncing)
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-500 py-1">
+        <Loader2 size={12} className="animate-spin" />
+        <span>{t("syncing")}</span>
+      </div>
+    );
   if (!logs || logs.length === 0) return null;
   return (
     <div className="space-y-1">
       {logs.map((entry) => (
-        <p key={entry.id} className={`text-xs border rounded px-2 py-1 ${
-          entry.status === "success"
-            ? "text-emerald-400 bg-emerald-900/20 border-emerald-800"
-            : "text-red-400 bg-red-900/20 border-red-800"
-        }`}>
-          {entry.details}
+        <p
+          key={entry.id}
+          className={`text-xs border rounded px-2 py-1 ${
+            entry.status === "success"
+              ? "text-emerald-400 bg-emerald-900/20 border-emerald-800"
+              : "text-red-400 bg-red-900/20 border-red-800"
+          }`}
+        >
+          {logMessage(entry)}
         </p>
       ))}
     </div>
@@ -87,7 +98,7 @@ function AlbumGroupCard({
   externalSyncing,
 }: {
   group: AlbumGroup;
-  externalLogs?: SyncLogEntry[] | null;   // results pushed from "Alle synchronisieren"
+  externalLogs?: SyncLogEntry[] | null; // results pushed from "Alle synchronisieren"
   externalSyncing?: boolean;
 }) {
   const { t } = useT();
@@ -105,7 +116,9 @@ function AlbumGroupCard({
     setLocalLogs(null);
     const allLogs: SyncLogEntry[] = [];
     for (const album of group.albums) {
-      try { allLogs.push(...(await api.sync.refreshAlbum(album.id))); } catch (_) {}
+      try {
+        allLogs.push(...(await api.sync.refreshAlbum(album.id)));
+      } catch (_) {}
     }
     setLocalLogs(allLogs);
     setLocalSyncing(false);
@@ -117,7 +130,9 @@ function AlbumGroupCard({
     if (!confirm(t("album_remove_confirm", group.album_name, group.albums.length))) return;
     setDeleting(true);
     for (const album of group.albums) {
-      try { await api.sync.deleteAlbum(album.id); } catch (_) {}
+      try {
+        await api.sync.deleteAlbum(album.id);
+      } catch (_) {}
     }
     setDeleting(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
@@ -133,7 +148,9 @@ function AlbumGroupCard({
           <Disc size={18} className={isDeleted ? "text-red-400" : "text-blue-400"} />
           <div>
             <h3 className="font-semibold">{group.album_name}</h3>
-            <p className="text-xs text-gray-500">{t("owner")}: {group.owner_name}</p>
+            <p className="text-xs text-gray-500">
+              {t("owner")}: {group.owner_name}
+            </p>
           </div>
         </div>
         <span className="text-sm font-medium text-gray-300 shrink-0">
@@ -238,9 +255,11 @@ function AutoSyncControl() {
         }`}
         disabled={mutation.isPending}
       >
-        <span className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${
-          enabled ? "translate-x-4" : "translate-x-0.5"
-        }`} />
+        <span
+          className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${
+            enabled ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
       </button>
 
       {/* Time picker — only active when enabled */}
@@ -272,7 +291,9 @@ export default function AlbumsOverview() {
 
   // bulkSyncState: per-group results from "Alle synchronisieren"
   // null = not started, undefined = currently running (show spinner), [] = done (show logs)
-  const [bulkSyncState, setBulkSyncState] = React.useState<Map<string, SyncLogEntry[] | null>>(new Map());
+  const [bulkSyncState, setBulkSyncState] = React.useState<Map<string, SyncLogEntry[] | null>>(
+    new Map()
+  );
   const [refreshingAll, setRefreshingAll] = React.useState(false);
 
   const handleRefreshAll = async () => {
@@ -283,7 +304,9 @@ export default function AlbumsOverview() {
     for (const group of groups) {
       const groupLogs: SyncLogEntry[] = [];
       for (const album of group.albums) {
-        try { groupLogs.push(...(await api.sync.refreshAlbum(album.id))); } catch (_) {}
+        try {
+          groupLogs.push(...(await api.sync.refreshAlbum(album.id)));
+        } catch (_) {}
       }
       // Update this group's results immediately, keep others in their current state
       setBulkSyncState((prev) => new Map(prev).set(group.album_name, groupLogs));
@@ -302,8 +325,16 @@ export default function AlbumsOverview() {
           <p className="text-sm text-gray-500 mt-0.5">{t("albums_subtitle", groups.length)}</p>
         </div>
         {groups.length > 0 && (
-          <button className="btn-primary text-sm flex items-center gap-1.5" onClick={handleRefreshAll} disabled={refreshingAll}>
-            {refreshingAll ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          <button
+            className="btn-primary text-sm flex items-center gap-1.5"
+            onClick={handleRefreshAll}
+            disabled={refreshingAll}
+          >
+            {refreshingAll ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} />
+            )}
             {t("sync_all")}
           </button>
         )}
@@ -315,7 +346,9 @@ export default function AlbumsOverview() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-gray-500" /></div>
+        <div className="flex justify-center py-16">
+          <Loader2 size={28} className="animate-spin text-gray-500" />
+        </div>
       ) : groups.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <Disc size={40} className="mx-auto mb-3 opacity-30" />

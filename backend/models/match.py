@@ -93,3 +93,7 @@ class SyncLogEntry(BaseModel):
     undo_data: Optional[dict] = None
     undone_at: Optional[str] = None
     correlation_id: Optional[str] = None
+    # Structured message for localized frontend rendering. `details` (German)
+    # remains the fallback for entries persisted before this was introduced.
+    message_key: Optional[str] = None
+    message_params: Optional[dict] = None
