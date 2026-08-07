@@ -113,9 +113,9 @@ async def test_all_people_are_combined_across_pages():
 
 
 @pytest.mark.asyncio
-async def test_name_sync_updates_a_person_with_patch():
+async def test_name_sync_updates_a_person_with_put():
     def handle(request: httpx.Request) -> httpx.Response:
-        assert request.method == "PATCH"
+        assert request.method == "PUT"
         assert request.url.path == "/api/people/person-1"
         assert json.loads(request.read()) == {"name": "Unified Name"}
         return httpx.Response(200, json={"id": "person-1", "name": "Unified Name"})

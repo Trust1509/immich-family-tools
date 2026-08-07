@@ -95,9 +95,13 @@ class ImmichClient:
             return r.content
 
     async def update_person(self, person_id: str, payload: dict) -> dict:
-        """Update a person (e.g. rename)."""
+        """Update a person (e.g. rename).
+
+        Uses PUT: it is the documented primary endpoint in Immich v3.1
+        (PATCH exists but is @ApiExcludeEndpoint) and also works on v2.
+        """
         async with self._client() as c:
-            r = await c.patch(f"/api/people/{person_id}", json=payload)
+            r = await c.put(f"/api/people/{person_id}", json=payload)
             r.raise_for_status()
             return r.json()
 

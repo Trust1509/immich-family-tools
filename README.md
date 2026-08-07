@@ -18,6 +18,7 @@ This tool bridges that gap.
 ## Features
 
 ### Core
+
 - **People overview** — All recognized faces from all accounts in one unified view, loaded per-account in parallel with progress indicator
 - **Match suggestions** — Automatically detects the same person across accounts using name similarity, face embeddings (if available), and shared assets
 - **Name sync** — Set a canonical name across all matched persons with one click; bulk-sync for high-confidence matches
@@ -25,30 +26,33 @@ This tool bridges that gap.
 - **Sync log** — Full history of all actions with undo support for name syncs
 
 ### Manual Matching
+
 - **Manuelles Matching** — Pick one person per account from searchable dropdowns, assign a shared name, and optionally create a shared album in one step — for cases the automatic matcher missed
 - **Match erweitern** — Add a new account/person to an existing shared album (e.g. when a new family member joins); shares the album, adds photos, and optionally renames the person
 
 ### Account Management
+
 - **Account bearbeiten** — Edit name, Immich URL, API key and colour for any account; changes re-validate the connection automatically
 - **Custom colours** — Each account has an assignable colour (10 presets + custom picker) shown consistently as badges everywhere in the UI
 
 ### UI & Internationalisation
+
 - **DE / EN language toggle** — Full German and English UI, persisted in localStorage
 - **Album grouping** — Albums with the same name are merged into one card in the overview, showing all linked persons across accounts
-- **Smart badges** — "Names synced" and "Album linked" badges on match cards now correctly detect matches extended via *Match erweitern*
+- **Smart badges** — "Names synced" and "Album linked" badges on match cards now correctly detect matches extended via _Match erweitern_
 
 ## Screenshots
 
-| Accounts & Colour Picker | Match Suggestions |
-|:---:|:---:|
+|         Accounts & Colour Picker         |                     Match Suggestions                      |
+| :--------------------------------------: | :--------------------------------------------------------: |
 | ![Accounts](screenshots/01-accounts.png) | ![Match Suggestions](screenshots/02-match-suggestions.png) |
 
-| Manual Matching | Extend Match |
-|:---:|:---:|
+|                 Manual Matching                  |                   Extend Match                   |
+| :----------------------------------------------: | :----------------------------------------------: |
 | ![Manual Match](screenshots/03-manual-match.png) | ![Extend Match](screenshots/04-extend-match.png) |
 
-| Albums Overview |
-|:---:|
+|                    Albums Overview                     |
+| :----------------------------------------------------: |
 | ![Albums Overview](screenshots/05-albums-overview.png) |
 
 ## How It Works
@@ -67,14 +71,15 @@ Immich Account B:  "Leonie" (own face DB)
 **Automatic match suggestions are limited to named people.** Unnamed people
 remain available in Manual Matching. Confidence uses up to two signals:
 
-| Signal | Weight (with embeddings) | Weight (without) |
-|---|---|---|
-| Face embedding cosine similarity | 70% | — |
-| Name similarity (Levenshtein distance) | 30% | 75% |
+| Signal                                 | Weight (with embeddings) | Weight (without) |
+| -------------------------------------- | ------------------------ | ---------------- |
+| Face embedding cosine similarity       | 70%                      | —                |
+| Name similarity (Levenshtein distance) | 30%                      | 75%              |
 
 #### Signal details
 
 **Name similarity** uses Levenshtein distance normalized to 0–1:
+
 - `"Leonie"` vs `"Leonie"` → 100%
 - `"Manuel"` vs `"Manu"` → 67%
 - Any unnamed person → 0% (no signal)
@@ -85,7 +90,7 @@ remain available in Manual Matching. Confidence uses up to two signals:
 
 Same name, no embeddings → **~75%** (correct match likely, unconfirmed)  
 Same name, embeddings match → **~85–95%** (high confidence)  
-Same name, different person → mark as *"Not the same person"* to dismiss permanently
+Same name, different person → mark as _"Not the same person"_ to dismiss permanently
 
 The minimum threshold to appear as a suggestion is **25%**.
 
@@ -94,10 +99,10 @@ The minimum threshold to appear as a suggestion is **25%**.
 ### Prerequisites
 
 - Docker + Docker Compose
-- A running Immich instance
+- A running Immich instance, **version 3.x required** (tested against v3.1)
 - API keys for each Immich account (User Settings → API Keys in Immich)
 
-Album synchronization, people pagination, and Name Sync are covered for Immich v3.1. Because Immich does not backport fixes to older major versions, the latest stable Immich release is recommended.
+> **Immich v2 or older is not supported** since v1.3.0: album synchronization and people pagination rely on v3 API behavior (`size` pagination parameter, album inventory via `POST /api/search/metadata`). Because Immich does not backport fixes to older major versions, the latest stable Immich release is recommended.
 
 ### 1. Clone
 
@@ -140,22 +145,22 @@ The `docker-compose.yml` is pre-configured for this layout.
 
 When creating API keys in Immich (**User Settings → API Keys → Create new key**), enable exactly these permissions:
 
-| Permission | Purpose |
-|---|---|
-| `user.read` | Validate API key, fetch user ID for album sharing |
-| `person.read` | Load people list + thumbnails |
-| `person.update` | Rename person (name sync) |
-| `person.statistics` | Load photo count per person |
-| `asset.read` | Load person's photos for album population |
-| `asset.view` | Fetch thumbnail bytes |
-| `face.read` | Face embeddings for matching (experimental) |
-| `album.read` | List existing albums, check current album members |
-| `album.create` | Create new shared album |
-| `album.update` | Update album metadata |
-| `album.share` | Share album with other users |
-| `albumAsset.create` | Add photos to album |
-| `albumUser.create` | Add users as editors to album |
-| `albumUser.update` | Update user roles in album |
+| Permission          | Purpose                                           |
+| ------------------- | ------------------------------------------------- |
+| `user.read`         | Validate API key, fetch user ID for album sharing |
+| `person.read`       | Load people list + thumbnails                     |
+| `person.update`     | Rename person (name sync)                         |
+| `person.statistics` | Load photo count per person                       |
+| `asset.read`        | Load person's photos for album population         |
+| `asset.view`        | Fetch thumbnail bytes                             |
+| `face.read`         | Face embeddings for matching (experimental)       |
+| `album.read`        | List existing albums, check current album members |
+| `album.create`      | Create new shared album                           |
+| `album.update`      | Update album metadata                             |
+| `album.share`       | Share album with other users                      |
+| `albumAsset.create` | Add photos to album                               |
+| `albumUser.create`  | Add users as editors to album                     |
+| `albumUser.update`  | Update user roles in album                        |
 
 > **Note:** All accounts (owner and editors) need the same set of permissions since each account's API key is used to add its own assets to shared albums.
 
@@ -199,14 +204,14 @@ immich-family-tools/
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `IMMICH_FAMILY_TOOLS_SECRET` | required | Shared login token; there is intentionally no user management |
-| `IMMICH_FAMILY_TOOLS_SESSION_TTL_HOURS` | `168` | Session lifetime |
-| `IMMICH_FAMILY_TOOLS_COOKIE_SECURE` | `false` | Set to `true` behind local HTTPS |
-| `CONFIG_PATH` | `/app/data/accounts.json` | Path to the config file inside the container |
-| `LOG_LEVEL` | `info` | uvicorn log level |
-| `TZ` | `Europe/Vienna` | Container timezone. **Required for auto-sync to fire at the correct local time.** Set this to your timezone (e.g. `Europe/Berlin`, `Europe/London`, `America/New_York`). |
+| Variable                                | Default                   | Description                                                                                                                                                              |
+| --------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `IMMICH_FAMILY_TOOLS_SECRET`            | required                  | Shared login token; there is intentionally no user management                                                                                                            |
+| `IMMICH_FAMILY_TOOLS_SESSION_TTL_HOURS` | `168`                     | Session lifetime                                                                                                                                                         |
+| `IMMICH_FAMILY_TOOLS_COOKIE_SECURE`     | `false`                   | Set to `true` behind local HTTPS                                                                                                                                         |
+| `CONFIG_PATH`                           | `/app/data/accounts.json` | Path to the config file inside the container                                                                                                                             |
+| `LOG_LEVEL`                             | `info`                    | uvicorn log level                                                                                                                                                        |
+| `TZ`                                    | `Europe/Vienna`           | Container timezone. **Required for auto-sync to fire at the correct local time.** Set this to your timezone (e.g. `Europe/Berlin`, `Europe/London`, `America/New_York`). |
 
 > **Auto-Sync timezone note:** The nightly auto-sync compares the configured time against the container's local clock. Without a matching `TZ`, the container defaults to UTC — a sync scheduled for `01:00` would fire at `01:00 UTC`, which is `03:00` in `Europe/Vienna` (CEST). Set `TZ` in your `.env` file or directly in `docker-compose.yml`.
 
