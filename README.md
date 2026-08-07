@@ -69,12 +69,14 @@ Immich Account B:  "Leonie" (own face DB)
 ```
 
 **Automatic match suggestions are limited to named people.** Unnamed people
-remain available in Manual Matching. Confidence uses up to two signals:
+remain available in Manual Matching. Name similarity is the primary signal;
+face embeddings — where the Immich instance still exposes them — add a
+secondary boost on top:
 
-| Signal                                 | Weight (with embeddings) | Weight (without) |
-| -------------------------------------- | ------------------------ | ---------------- |
-| Face embedding cosine similarity       | 70%                      | —                |
-| Name similarity (Levenshtein distance) | 30%                      | 75%              |
+| Signal                                                | Weight    |
+| ----------------------------------------------------- | --------- |
+| Name similarity (Levenshtein distance)                | up to 75% |
+| Face embedding cosine similarity (legacy, if exposed) | up to 25% |
 
 #### Signal details
 
@@ -84,12 +86,12 @@ remain available in Manual Matching. Confidence uses up to two signals:
 - `"Manuel"` vs `"Manu"` → 67%
 - Any unnamed person → 0% (no signal)
 
-**Face embeddings** are fetched via `GET /api/faces?id={assetId}` — experimental and not exposed by the public Immich v3.1 response schema. When embeddings are unavailable, matching falls back gracefully to names.
+**Face embeddings** are fetched via `GET /api/faces?id={assetId}`, on Immich versions that still expose embeddings through this endpoint. **Immich v3.1 no longer returns embeddings here**, so on current instances matching relies on name similarity alone; when embeddings are unavailable, matching falls back gracefully to names.
 
 #### Why does "same name" only score ~75%?
 
-Same name, no embeddings → **~75%** (correct match likely, unconfirmed)  
-Same name, embeddings match → **~85–95%** (high confidence)  
+Same name → **~75%** (correct match likely, unconfirmed) — this is the practical ceiling on Immich v3.1, since embeddings are no longer exposed there.  
+Same name, embeddings also match (older Immich versions that still expose embeddings) → **~85–95%** (high confidence)  
 Same name, different person → mark as _"Not the same person"_ to dismiss permanently
 
 The minimum threshold to appear as a suggestion is **25%**.
