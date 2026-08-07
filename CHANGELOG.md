@@ -2,6 +2,16 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.4.1] – 2026-08-07
+
+- Version guard for Immich <3 on account add/update (#45)
+- CI now builds the frontend with Node 22, matching the shipped image (#48)
+- README confidence documentation reflects embedding unavailability on Immich v3.1 (#49)
+
+### Upgrade notes
+
+- No data migration; rebuild the container
+
 ## [1.4.0] – 2026-08-07
 
 ### Localization (#39)
