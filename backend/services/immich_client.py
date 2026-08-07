@@ -39,6 +39,16 @@ class ImmichClient:
             r.raise_for_status()
             return r.json()
 
+    async def get_server_version(self) -> dict:
+        """Fetch the Immich server version. Unauthenticated endpoint.
+
+        Returns e.g. {"major": 3, "minor": 1, "patch": 0}.
+        """
+        async with self._client() as c:
+            r = await c.get("/api/server/version")
+            r.raise_for_status()
+            return r.json()
+
     # ------------------------------------------------------------------
     # People
     # ------------------------------------------------------------------

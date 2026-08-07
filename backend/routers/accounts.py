@@ -1,8 +1,47 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from models.account import AccountCreate, AccountPublic, AccountStatus, AccountUpdate
 from services.immich_client import ImmichClient
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
+
+MIN_SUPPORTED_IMMICH_MAJOR = 3
+
+
+def _reject_unsupported_version(version: dict) -> None:
+    """Raise HTTPException(422) if the Immich server major version is too old.
+
+    version is the JSON payload from GET /api/server/version, e.g.
+    {"major": 3, "minor": 1, "patch": 0}.
+    """
+    major = version.get("major")
+    minor = version.get("minor")
+    if major is not None and major < MIN_SUPPORTED_IMMICH_MAJOR:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Immich-Version {major}.{minor} wird nicht unterstützt — dieses Tool "
+                "benötigt Immich v3.x (Server meldet Version über /api/server/version)."
+            ),
+        )
+
+
+async def _check_immich_version(client: ImmichClient) -> None:
+    """Fetch and enforce the minimum supported Immich version.
+
+    Fails open: if the version endpoint itself can't be reached (e.g. an
+    older Immich instance without it), we only log a warning instead of
+    blocking the account — we don't want to lock out exotic setups.
+    """
+    try:
+        version = await client.get_server_version()
+    except Exception as exc:
+        logger.warning("Could not fetch Immich server version: %s", exc)
+        return
+    _reject_unsupported_version(version)
 
 
 @router.get("", response_model=list[AccountPublic])
@@ -17,6 +56,7 @@ async def add_account(data: AccountCreate, request: Request):
         user_info = await client.validate()
     except Exception as exc:
         raise HTTPException(status_code=422, detail="Immich API nicht erreichbar oder Token ungültig")
+    await _check_immich_version(client)
     # Store the Immich user UUID — needed for album sharing
     user_id = user_info.get("id")
     return AccountPublic.from_account(request.app.state.store.add_account(data, user_id=user_id))
@@ -41,6 +81,7 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
             updates["user_id"] = user_info.get("id")
         except Exception as exc:
             raise HTTPException(status_code=422, detail="Immich API nicht erreichbar oder Token ungültig")
+        await _check_immich_version(client)
         request.app.state.client_pool.invalidate(account_id)
     updated = request.app.state.store.update_account(account_id, updates)
     return AccountPublic.from_account(updated)

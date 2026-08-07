@@ -129,3 +129,34 @@ async def test_name_sync_updates_a_person_with_put():
     person = await client.update_person("person-1", {"name": "Unified Name"})
 
     assert person["name"] == "Unified Name"
+
+
+@pytest.mark.asyncio
+async def test_get_server_version_returns_the_parsed_payload():
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/server/version"
+        return httpx.Response(200, json={"major": 3, "minor": 1, "patch": 0})
+
+    client = ImmichClient(
+        "http://immich.test",
+        "api-key",
+        transport=httpx.MockTransport(handle),
+    )
+
+    assert await client.get_server_version() == {"major": 3, "minor": 1, "patch": 0}
+
+
+@pytest.mark.asyncio
+async def test_get_server_version_raises_on_http_error():
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    client = ImmichClient(
+        "http://immich.test",
+        "api-key",
+        transport=httpx.MockTransport(handle),
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_server_version()
