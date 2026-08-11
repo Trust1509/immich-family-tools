@@ -2,6 +2,15 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.4.3] – 2026-08-07
+
+- TypeScript migrated staged 5.9.3 → 6.0.3 → 7.0.2 (nativer Compiler), tracked in #50; the PR #44 build failure was `noUncheckedSideEffectImports` (new default `true` since 6.0) catching a missing `vite/client` type reference, not a tsconfig incompatibility with 7.0
+- `frontend/tsconfig.json` modernized for the new TS 6.0/7.0 defaults: added `frontend/src/vite-env.d.ts`, plus explicit `esModuleInterop`, `noUncheckedSideEffectImports`, `types: []`
+
+### Upgrade notes
+
+- No data migration; rebuild the container
+
 ## [1.4.2] – 2026-08-07
 
 - Per-item results of album asset additions are now evaluated — totals count real successes, real failures are logged, duplicates are ignored silently (#46)
