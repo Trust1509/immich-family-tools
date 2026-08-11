@@ -190,6 +190,33 @@ async def test_person_assets_pagination_stops_on_a_non_numeric_next_page():
 
 
 @pytest.mark.asyncio
+async def test_add_assets_to_album_returns_the_per_item_results():
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.method == "PUT"
+        assert json.loads(request.read()) == {"ids": ["asset-1", "asset-2"]}
+        return httpx.Response(
+            200,
+            json=[
+                {"id": "asset-1", "success": True},
+                {"id": "asset-2", "success": False, "error": "duplicate"},
+            ],
+        )
+
+    client = ImmichClient(
+        "http://immich.test",
+        "api-key",
+        transport=httpx.MockTransport(handle),
+    )
+
+    result = await client.add_assets_to_album("album-1", ["asset-1", "asset-2"])
+
+    assert result == [
+        {"id": "asset-1", "success": True},
+        {"id": "asset-2", "success": False, "error": "duplicate"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_person_assets_pagination_terminates_when_the_server_repeats_a_page():
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.read())

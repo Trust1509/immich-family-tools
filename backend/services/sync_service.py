@@ -18,6 +18,33 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _split_add_results(result: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split add_assets_to_album's per-item results into (added, failed).
+
+    "duplicate" errors are semantically harmless — the asset was already in
+    the album — so they land in neither list and are silently ignored.
+    """
+    added = [r for r in result if r.get("success")]
+    failed = [
+        r for r in result
+        if not r.get("success") and r.get("error") != "duplicate"
+    ]
+    return added, failed
+
+
+def _partial_failure_log(action: str, account_name: str, failed: list[dict]) -> SyncLogEntry:
+    return SyncLogEntry(
+        id=str(uuid.uuid4()), timestamp=_now(), action=action,
+        details=(
+            f"{len(failed)} Assets von '{account_name}' konnten nicht hinzugefügt werden "
+            "(z. B. Duplikate oder fehlende Berechtigung)"
+        ),
+        status="error", error_message="IMMICH_API_ERROR",
+        message_key="log_assets_partial_failure",
+        message_params={"count": len(failed), "account": account_name},
+    )
+
+
 async def _share_album_if_needed(
     owner_client: ImmichClient,
     album_id: str,
@@ -235,15 +262,19 @@ async def create_shared_album(
             assets = await client.get_person_assets(ref["person_id"])
             asset_ids = [a["id"] for a in assets]
             if asset_ids:
-                await client.add_assets_to_album(album_id, asset_ids)
-                total_assets += len(asset_ids)
-                logs.append(SyncLogEntry(
-                    id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
-                    details=f"{len(asset_ids)} Assets von '{account.name}' hinzugefügt",
-                    status="success",
-                    message_key="log_assets_added",
-                    message_params={"count": len(asset_ids), "account": account.name},
-                ))
+                result = await client.add_assets_to_album(album_id, asset_ids)
+                added, failed = _split_add_results(result)
+                total_assets += len(added)
+                if added:
+                    logs.append(SyncLogEntry(
+                        id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
+                        details=f"{len(added)} Assets von '{account.name}' hinzugefügt",
+                        status="success",
+                        message_key="log_assets_added",
+                        message_params={"count": len(added), "account": account.name},
+                    ))
+                if failed:
+                    logs.append(_partial_failure_log("album_add_assets", account.name, failed))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
@@ -320,16 +351,21 @@ async def link_existing_album(
             assets = await client.get_person_assets(ref["person_id"])
             new_ids = [a["id"] for a in assets if a["id"] not in existing_ids]
             if new_ids:
-                await client.add_assets_to_album(album_id, new_ids)
-                existing_ids.update(new_ids)
-                total_assets += len(new_ids)
-                logs.append(SyncLogEntry(
-                    id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
-                    details=f"{len(new_ids)} Assets von '{account.name}' zu '{album_name}' hinzugefügt",
-                    status="success",
-                    message_key="log_assets_linked",
-                    message_params={"count": len(new_ids), "account": account.name, "album": album_name},
-                ))
+                result = await client.add_assets_to_album(album_id, new_ids)
+                added, failed = _split_add_results(result)
+                added_ids = {r["id"] for r in added}
+                existing_ids.update(added_ids)
+                total_assets += len(added)
+                if added:
+                    logs.append(SyncLogEntry(
+                        id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
+                        details=f"{len(added)} Assets von '{account.name}' zu '{album_name}' hinzugefügt",
+                        status="success",
+                        message_key="log_assets_linked",
+                        message_params={"count": len(added), "account": account.name, "album": album_name},
+                    ))
+                if failed:
+                    logs.append(_partial_failure_log("album_add_assets", account.name, failed))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="album_add_assets",
@@ -411,16 +447,21 @@ async def _refresh_managed_album_unlocked(
             assets = await client.get_person_assets(ref["person_id"])
             new_ids = [a["id"] for a in assets if a["id"] not in existing_ids]
             if new_ids:
-                await client.add_assets_to_album(managed.album_id, new_ids)
-                existing_ids.update(new_ids)
-                new_total += len(new_ids)
-                logs.append(SyncLogEntry(
-                    id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
-                    details=f"{len(new_ids)} neue Assets von '{account.name}' zum Album '{managed.album_name}' hinzugefügt",
-                    status="success",
-                    message_key="log_assets_added_to_album",
-                    message_params={"count": len(new_ids), "account": account.name, "album": managed.album_name},
-                ))
+                result = await client.add_assets_to_album(managed.album_id, new_ids)
+                added, failed = _split_add_results(result)
+                added_ids = {r["id"] for r in added}
+                existing_ids.update(added_ids)
+                new_total += len(added)
+                if added:
+                    logs.append(SyncLogEntry(
+                        id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
+                        details=f"{len(added)} neue Assets von '{account.name}' zum Album '{managed.album_name}' hinzugefügt",
+                        status="success",
+                        message_key="log_assets_added_to_album",
+                        message_params={"count": len(added), "account": account.name, "album": managed.album_name},
+                    ))
+                if failed:
+                    logs.append(_partial_failure_log("refresh_album", account.name, failed))
         except Exception as exc:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
@@ -531,15 +572,20 @@ async def extend_match(
     try:
         assets = await new_client.get_person_assets(person_id)
         new_ids = [a["id"] for a in assets if a["id"] not in existing_ids]
+        added: list[dict] = []
         if new_ids:
-            await new_client.add_assets_to_album(managed.album_id, new_ids)
-            logs.append(SyncLogEntry(
-                id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
-                details=f"{len(new_ids)} Assets von '{new_account.name}' zu '{managed.album_name}' hinzugefügt",
-                status="success",
-                message_key="log_assets_linked",
-                message_params={"count": len(new_ids), "account": new_account.name, "album": managed.album_name},
-            ))
+            result = await new_client.add_assets_to_album(managed.album_id, new_ids)
+            added, failed = _split_add_results(result)
+            if added:
+                logs.append(SyncLogEntry(
+                    id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+                    details=f"{len(added)} Assets von '{new_account.name}' zu '{managed.album_name}' hinzugefügt",
+                    status="success",
+                    message_key="log_assets_linked",
+                    message_params={"count": len(added), "account": new_account.name, "album": managed.album_name},
+                ))
+            if failed:
+                logs.append(_partial_failure_log("extend_match", new_account.name, failed))
         else:
             logs.append(SyncLogEntry(
                 id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
@@ -548,7 +594,7 @@ async def extend_match(
                 message_key="log_no_new_assets_from_account",
                 message_params={"account": new_account.name},
             ))
-        total = len(existing_ids) + len(new_ids)
+        total = len(existing_ids) + len(added)
     except Exception as exc:
         logs.append(SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",

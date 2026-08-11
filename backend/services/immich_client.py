@@ -188,14 +188,24 @@ class ImmichClient:
             r.raise_for_status()
             return r.json()
 
-    async def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> dict:
+    async def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> list[dict]:
+        """Add assets to an album and return the per-item results.
+
+        Immich responds with a list of
+        `{"id": ..., "success": bool, "error": "duplicate" | ...}` — one entry
+        per requested asset ID — even though the HTTP status is 200
+        regardless of individual outcomes.
+        """
         async with self._client() as c:
             r = await c.put(
                 f"/api/albums/{album_id}/assets",
                 json={"ids": asset_ids},
             )
             r.raise_for_status()
-            return r.json()
+            result = r.json()
+            if isinstance(result, dict):
+                return [result]
+            return result
 
     async def share_album_with_users(self, album_id: str, user_entries: list[dict]) -> dict:
         """Share album with other users. user_entries = [{"userId": "...", "role": "editor"}]"""

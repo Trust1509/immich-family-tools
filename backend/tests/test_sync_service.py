@@ -129,6 +129,7 @@ async def test_refresh_adds_only_new_assets_and_updates_the_total(monkeypatch):
 
         async def add_assets_to_album(self, _album_id, asset_ids):
             add_calls.append(asset_ids)
+            return [{"id": asset_id, "success": True} for asset_id in asset_ids]
 
     async def skip_sharing(*_args):
         return []
@@ -159,6 +160,64 @@ async def test_refresh_adds_only_new_assets_and_updates_the_total(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refresh_reports_partial_failures_and_ignores_duplicates(monkeypatch):
+    class Client:
+        def __init__(self, *_):
+            pass
+
+        async def get_album_assets(self, _album_id):
+            return ["asset-1"]
+
+        async def get_person_assets(self, _person_id):
+            return [{"id": "asset-1"}, {"id": "asset-2"}, {"id": "asset-3"}, {"id": "asset-4"}]
+
+        async def add_assets_to_album(self, _album_id, asset_ids):
+            return [
+                {"id": "asset-2", "success": True},
+                {"id": "asset-3", "success": False, "error": "duplicate"},
+                {"id": "asset-4", "success": False, "error": "permission"},
+            ]
+
+    async def skip_sharing(*_args):
+        return []
+
+    class Store:
+        def update_managed_album(self, _album):
+            pass
+
+    owner = account("owner")
+    managed = ManagedAlbum(
+        id="managed-1",
+        match_id="match-1",
+        album_id="album-1",
+        album_name="Family",
+        owner_account_id=owner.id,
+        person_refs=[{"account_id": owner.id, "person_id": "person-1"}],
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
+
+    entries = await sync_service.refresh_managed_album(managed, [owner], Store())
+
+    # Only the real success counts toward the total.
+    assert managed.total_assets == 2
+
+    success_entries = [e for e in entries if e.status == "success"]
+    failure_entries = [e for e in entries if e.status == "error"]
+
+    assert len(success_entries) == 1
+    assert success_entries[0].message_key == "log_assets_added_to_album"
+    assert success_entries[0].message_params["count"] == 1
+
+    # Exactly one failure entry — the duplicate is silently ignored.
+    assert len(failure_entries) == 1
+    assert failure_entries[0].message_key == "log_assets_partial_failure"
+    assert failure_entries[0].message_params == {"count": 1, "account": owner.name}
+    assert "1 Assets von 'owner' konnten nicht hinzugefügt werden" in failure_entries[0].details
+
+
+@pytest.mark.asyncio
 async def test_extend_match_adds_only_assets_missing_from_the_album(monkeypatch):
     add_calls: list[list[str]] = []
 
@@ -177,6 +236,7 @@ async def test_extend_match_adds_only_assets_missing_from_the_album(monkeypatch)
 
         async def add_assets_to_album(self, _album_id, asset_ids):
             add_calls.append(asset_ids)
+            return [{"id": asset_id, "success": True} for asset_id in asset_ids]
 
     async def skip_sharing(*_args):
         return []

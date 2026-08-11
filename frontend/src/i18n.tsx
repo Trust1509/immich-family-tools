@@ -296,6 +296,11 @@ const logMessages: Record<string, { de: LogMessageFn; en: LogMessageFn }> = {
     de: (p) => `Assets von '${p.account}' konnten nicht hinzugefügt werden`,
     en: (p) => `Could not add assets from '${p.account}'`,
   },
+  log_assets_partial_failure: {
+    de: (p) =>
+      `${p.count} Assets von '${p.account}' konnten nicht hinzugefügt werden (z. B. Duplikate oder fehlende Berechtigung)`,
+    en: (p) => `${p.count} assets from '${p.account}' could not be added (e.g. missing permission)`,
+  },
   log_assets_linked: {
     de: (p) => `${p.count} Assets von '${p.account}' zu '${p.album}' hinzugefügt`,
     en: (p) => `${p.count} assets from '${p.account}' added to '${p.album}'`,
