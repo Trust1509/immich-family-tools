@@ -156,6 +156,8 @@ class ImmichClient:
                 )
                 break
             page = next_page_num
+        else:
+            logger.warning("search/metadata pagination stopped at the 500-page safety cap")
         return all_items
 
     async def get_person_assets(self, person_id: str) -> list[dict]:
@@ -204,7 +206,14 @@ class ImmichClient:
             r.raise_for_status()
             result = r.json()
             if isinstance(result, dict):
-                return [result]
+                # Unknown response shape (older Immich?). Preserve the
+                # pre-per-item behavior: treat all sent IDs as added.
+                logger.warning(
+                    "add_assets_to_album returned a dict instead of per-item results; "
+                    "treating all %d sent assets as added",
+                    len(asset_ids),
+                )
+                return [{"id": i, "success": True} for i in asset_ids]
             return result
 
     async def share_album_with_users(self, album_id: str, user_entries: list[dict]) -> dict:

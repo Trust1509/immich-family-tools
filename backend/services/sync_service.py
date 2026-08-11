@@ -37,7 +37,7 @@ def _partial_failure_log(action: str, account_name: str, failed: list[dict]) -> 
         id=str(uuid.uuid4()), timestamp=_now(), action=action,
         details=(
             f"{len(failed)} Assets von '{account_name}' konnten nicht hinzugefügt werden "
-            "(z. B. Duplikate oder fehlende Berechtigung)"
+            "(z. B. fehlende Berechtigung)"
         ),
         status="error", error_message="IMMICH_API_ERROR",
         message_key="log_assets_partial_failure",
