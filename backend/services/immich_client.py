@@ -115,25 +115,52 @@ class ImmichClient:
             r.raise_for_status()
             return r.json()
 
-    async def get_person_assets(self, person_id: str) -> list[dict]:
-        """Fetch assets belonging to a person via search/metadata (works in all recent Immich versions)."""
-        all_assets: list[dict] = []
+    async def _search_metadata_all_pages(self, filters: dict) -> list[dict]:
+        """Paginate POST /api/search/metadata and collect assets.items across all pages.
+
+        Handles the pagination quirks of the endpoint uniformly:
+        - missing/empty nextPage ends pagination normally.
+        - a non-numeric nextPage is logged and treated as the end (no crash).
+        - a nextPage that doesn't advance past the current page is logged and
+          treated as the end (guards against an endless loop on a server bug).
+        - a hard cap of 500 pages guards against runaway pagination.
+        """
+        all_items: list[dict] = []
         page = 1
-        while True:
+        for _ in range(500):
             async with self._client() as c:
                 r = await c.post(
                     "/api/search/metadata",
-                    json={"personIds": [person_id], "size": 1000, "page": page},
+                    json={**filters, "size": 1000, "page": page},
                 )
                 r.raise_for_status()
                 data = r.json()
-            items = data.get("assets", {}).get("items", [])
-            all_assets.extend(items)
-            next_page = data.get("assets", {}).get("nextPage")
+            assets = data.get("assets", {})
+            all_items.extend(assets.get("items", []))
+            next_page = assets.get("nextPage")
             if not next_page:
                 break
-            page += 1
-        return all_assets
+            try:
+                next_page_num = int(next_page)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "search/metadata returned a non-numeric nextPage (%r); stopping pagination",
+                    next_page,
+                )
+                break
+            if next_page_num <= page:
+                logger.warning(
+                    "search/metadata nextPage (%r) did not advance past page %r; stopping pagination",
+                    next_page,
+                    page,
+                )
+                break
+            page = next_page_num
+        return all_items
+
+    async def get_person_assets(self, person_id: str) -> list[dict]:
+        """Fetch assets belonging to a person via search/metadata (works in all recent Immich versions)."""
+        return await self._search_metadata_all_pages({"personIds": [person_id]})
 
     # ------------------------------------------------------------------
     # Face embeddings
@@ -192,26 +219,14 @@ class ImmichClient:
     async def get_album_assets(self, album_id: str) -> list[str]:
         """Return asset IDs already in an album. Raises AlbumNotFoundError if deleted."""
         await self.get_album_info(album_id)
+        items = await self._search_metadata_all_pages({"albumIds": [album_id]})
         asset_ids: list[str] = []
         seen_ids: set[str] = set()
-        page = 1
-        while True:
-            async with self._client() as c:
-                r = await c.post(
-                    "/api/search/metadata",
-                    json={"albumIds": [album_id], "size": 1000, "page": page},
-                )
-                r.raise_for_status()
-                assets = r.json().get("assets", {})
-            for asset in assets.get("items", []):
-                asset_id = asset["id"]
-                if asset_id not in seen_ids:
-                    seen_ids.add(asset_id)
-                    asset_ids.append(asset_id)
-            next_page = assets.get("nextPage")
-            if not next_page:
-                break
-            page = int(next_page)
+        for asset in items:
+            asset_id = asset["id"]
+            if asset_id not in seen_ids:
+                seen_ids.add(asset_id)
+                asset_ids.append(asset_id)
         return asset_ids
 
     async def get_album_user_ids(self, album_id: str) -> set[str]:

@@ -160,3 +160,58 @@ async def test_get_server_version_raises_on_http_error():
 
     with pytest.raises(httpx.HTTPStatusError):
         await client.get_server_version()
+
+
+@pytest.mark.asyncio
+async def test_person_assets_pagination_stops_on_a_non_numeric_next_page():
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.read())
+        if body["page"] == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "assets": {
+                        "items": [{"id": "asset-1"}],
+                        "nextPage": "not-a-number",
+                    }
+                },
+            )
+        raise AssertionError("should not request a page beyond the malformed nextPage")
+
+    client = ImmichClient(
+        "http://immich.test",
+        "api-key",
+        transport=httpx.MockTransport(handle),
+    )
+
+    assets = await client.get_person_assets("person-1")
+
+    assert [a["id"] for a in assets] == ["asset-1"]
+
+
+@pytest.mark.asyncio
+async def test_person_assets_pagination_terminates_when_the_server_repeats_a_page():
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.read())
+        if body["page"] == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "assets": {
+                        "items": [{"id": "asset-1"}],
+                        # Server bug: nextPage doesn't advance.
+                        "nextPage": "1",
+                    }
+                },
+            )
+        raise AssertionError("should not request a page beyond the non-advancing nextPage")
+
+    client = ImmichClient(
+        "http://immich.test",
+        "api-key",
+        transport=httpx.MockTransport(handle),
+    )
+
+    assets = await client.get_person_assets("person-1")
+
+    assert [a["id"] for a in assets] == ["asset-1"]
