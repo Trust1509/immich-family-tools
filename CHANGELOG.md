@@ -2,6 +2,15 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.4.2] – 2026-08-07
+
+- Per-item results of album asset additions are now evaluated — totals count real successes, real failures are logged, duplicates are ignored silently (#46)
+- Unified pagination contract for search/metadata with progress guard against endless loops (#47)
+
+### Upgrade notes
+
+- No data migration; rebuild the container
+
 ## [1.4.1] – 2026-08-07
 
 - Version guard for Immich <3 on account add/update (#45)
