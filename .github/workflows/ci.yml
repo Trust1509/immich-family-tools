@@ -3,11 +3,23 @@ name: CI
 on:
   push:
     branches: [main, "release/**"]
-  pull_request:
+  # `pull_request` bewusst entfernt (Notbremse 14.08.2026):
+  # Dies ist ein Trunk-Workflow ohne menschliche PRs — der Trigger bediente
+  # ausschliesslich Dependabot und verdoppelte dessen Kosten (ein Lauf am PR,
+  # ein zweiter am Push nach dem Merge). Belegt am 11.08.: zwei PR-Laeufe fuer
+  # zwei Bot-PRs, die inhaltlich schon auf main geprueft worden waeren.
+  # Kommen je menschliche PRs dazu, gehoert der Trigger zurueck.
+  workflow_dispatch:
+
+# Ein neuer Push bricht den noch laufenden Lauf desselben Zweigs ab.
+# Tag-Refs bekommen eine eigene Gruppe OHNE Abbruch — ein Release-Lauf darf
+# nicht von einem Folge-Push gekillt werden.
+concurrency:
+  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.run_id || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   backend:

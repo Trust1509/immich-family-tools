@@ -1,26 +1,42 @@
+# ── NOTBREMSE bis 01.09.2026 ────────────────────────────────────────────────
+# Portfolio-Kontingent für GitHub Actions war am 14.08. zu 90 % verbraucht
+# (2701/3000 Minuten am Tag 14). Owner-Entscheidung: kein Overage-Budget.
+#
+# Deshalb sind die VERSIONS-Updates stillgelegt:
+#   - interval: monthly            (statt weekly)
+#   - open-pull-requests-limit: 0  (GitHub legt dann keine Versions-PRs an)
+#
+# SICHERHEITS-Updates laufen davon unberührt weiter — die schaltet dieses
+# Limit nicht ab, sie hängen an den Repo-Einstellungen.
+#
+# RÜCKDREHEN nach dem Reset am 01.09.: limit zurück auf 2/2/1/1 und
+# interval auf weekly. Ohne diese Zeile bleibt der Bot stumm und niemand
+# merkt es — ein stiller Ausfall der Aktualisierung ist genau die Klasse,
+# die wir sonst bei Sicherungen fürchten.
+# ────────────────────────────────────────────────────────────────────────────
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /frontend
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 2
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
     groups:
       frontend-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
   - package-ecosystem: pip
     directory: /backend
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 2
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
     groups:
       backend-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
   - package-ecosystem: docker
     directory: /
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 1
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 1
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
