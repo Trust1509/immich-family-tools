@@ -1,3 +1,160 @@
+# CLAUDE.md — Projektanweisungen
+
+**Prozess-Stand: v1.3.0** — Stand der Vorlage, aus der dieses Projekt stammt.
+Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
+in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
+(dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
+gebraucht wird, nicht im laufenden Betrieb). Diese Zeile bleibt im Projekt
+stehen.
+
+Immich Family Tools ist eine Companion-Web-App für selbst gehostetes Immich:
+ein FastAPI-Backend und ein React/TS-Frontend in einem gemeinsamen Container,
+für kontenübergreifendes Gesichts-Matching und geteilte Alben über die
+Immich-REST-API. Es gibt keine eigene Datenbank — die gesamte Persistenz ist
+eine einzige JSON-Datei (`accounts.json`) auf einem ZFS-Volume. Das Projekt
+**erfordert Immich v3.x**.
+
+## Vor dem ersten Slice
+
+**`docs/agents/lehren.md` lesen.** Fehlerklassen, die real getroffen haben —
+Wächter, die grün sind ohne etwas zu beweisen; Seitenkanäle; Datenmigrationen,
+deren Fehler kein Update mehr heilt; „weniger Abfragen", das langsamer ist —
+plus ein eigener Abschnitt mit Funden aus diesem Projekt. Kostet fünf Minuten
+und hat schon mehrfach einen Prod-Fund verhindert.
+
+## Arbeitsweise
+
+**Issues sind der Arbeitsspeicher.** Jeder Fund, jede Entscheidung, jeder
+zurückgestellte Punkt wird ein Issue — nicht eine Notiz im Chat. Siehe
+`docs/agents/issue-tracker.md` und `docs/agents/triage-labels.md`.
+
+**Ein Slice nach dem anderen.** Parallel nur, was sich nachweislich nicht
+überschneidet (verschiedene Dateien, verschiedene Schichten). Sonst arbeiten zwei
+Bauläufe im selben Arbeitsbaum und niemand weiß mehr, wem welche Änderung gehört.
+
+**Der Hauptagent baut nicht selbst, er arbitriert.** Bauen macht ein Subagent mit
+einem Bau-Brief (`docs/agents/bau-brief.md`), prüfen macht das Panel
+(`docs/agents/panel.md`), entscheiden macht der Hauptagent — **und reproduziert
+jeden Blocker am Code**, statt der Konvergenz der Prüfer zu glauben.
+
+**Technisches selbst entscheiden, Fachliches fragen.** Bibliothekswahl,
+Schnittstellen-Zuschnitt, Testform: selbst. Ob eine Zahlung auf eine
+abgeschlossene Rechnung möglich sein soll: fragen. Im Zweifel: eine Annahme
+formulieren, weiterbauen, die Annahme sichtbar machen.
+
+## Review-Panel — verbindlich nach jedem nicht-trivialen Slice
+
+Drei Stimmen, Details und Kommandos in `docs/agents/panel.md`:
+
+1. **Blinde Erststimme** — frischer Reviewer-Subagent, bekommt **nur Diff und
+   Repo**, nicht den Bau-Brief. Liefert erfahrungsgemäß die schwersten Funde,
+   weil er den Code liest statt der Absicht.
+2. **Zweite Stimme** (GPT über Codex-CLI) über denselben Diff, unabhängiges
+   Modell.
+3. **Dritte Stimme** (DeepSeek, günstig, diff-only) als Ergänzung.
+
+Der Panel-Kommentar hat eine **feste Form** (`docs/agents/panel-kommentar.md`):
+eine Überschrift je Stimme, auch bei „keine Funde". Fällt eine Stimme aus
+(Werkzeug nicht verfügbar, kein Guthaben), steht unter ihrer Überschrift der
+**Grund** — mit zweien weitermachen **und es dem Owner sagen**, nie
+stillschweigend reduzieren. Ein Slice ohne vollständiges oder
+vermerkt-verkürztes Panel gilt als **nicht geprüft**.
+
+Konfigurations- und Doku-Slices dürfen ohne volles Panel landen; die Reduktion
+wird dann im Issue vermerkt (siehe „Verhältnismäßigkeit" in `panel.md`).
+
+## Bau-Brief: die Pflichtfragen
+
+In **jeden** Bau-Auftrag gehören (Details in `docs/agents/bau-brief.md`):
+
+- **„Wer ruft den geänderten Code auf?"** Konsumenten aller Türen und des
+  Frontends ins Material. Die teuersten Fehler entstanden durch ungesehene
+  Aufrufer.
+- **„Ändert der Slice sichtbares Verhalten?"** Wenn ja: Doku im selben Slice
+  oder eine Begründung im Report.
+- **„Rot-Beweis für jeden neuen Test."** Den Fix sabotieren, zeigen dass der Test
+  fällt. Auch die _Verdrahtung_ sabotieren, nicht nur die Logik. Ein Test ohne
+  Rot-Beweis ist eine Behauptung.
+- **Alle** Prüf-Kommandos nennen, die die CI fährt — nicht nur die naheliegenden
+  (Liste siehe „Prüfschritte" unten).
+- Läufe im Vordergrund, Zeitlimits explizit, keine Hintergrundprozesse.
+- Lokal committen, **nicht** pushen. Landen entscheidet der Hauptagent nach dem Panel.
+
+## Release
+
+Siehe `docs/agents/release-ritual.md`. Kurz: Version und Notizen im selben
+Commit (`backend/version.py`, `frontend/src/version.ts`, `frontend/package.json`,
+`CHANGELOG.md` — alle vier), Risiko ehrlich kennzeichnen (Migration ⇒ Backup
+empfohlen), Tag erst nach grüner CI — und **der Tag ist eine Owner-Entscheidung**,
+nicht die des Agenten, sofern nicht ausdrücklich vorab freigegeben. Seit Scheibe 1
+lösen Tags CI aus (`tags: ["v*"]`), damit ist „Tag erst nach grüner CI"
+überhaupt überprüfbar; für gefahrlose Patch-Releases mit grüner CI gilt eine
+stehende Owner-Freigabe, Riskantes bleibt Owner-Sache.
+
+## Prüfschritte
+
+Ein Prüfschritt, den nur die CI kennt, wird lokal nie gefahren und meldet sich
+zum ungünstigsten Zeitpunkt — genau so ist `npm audit` in diesem Repo einmal
+rot geworden, mitten in einem Release, ohne dass sich eine Zeile geändert
+hatte. Deshalb hier **alle** Kommandos, die die CI fährt:
+
+**Push-Pfad (`.github/workflows/ci.yml`, bei jedem Push auf `main`/`release/**`
+und bei Tags):\*\*
+
+- Backend: `pytest -q backend/tests`
+- Backend: `python -m compileall -q backend`
+- Frontend (in `frontend/`): `npm ci`
+- Frontend (in `frontend/`): `npm test`
+- Frontend (in `frontend/`): `npm run build` (enthält `tsc`)
+- Container: `docker build` des Gesamt-Images (`push: false`, reiner Bau-Test)
+- Secrets: `gitleaks` gegen den vollen Verlauf
+
+Zusätzlich lokal vor jedem Commit (Husky-Pre-Commit-Hook, nicht Teil der CI,
+aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
+
+- `npx lint-staged` (prettier)
+- Frontend (in `frontend/`): `npm run typecheck` (= `npx tsc --noEmit`)
+- Backend: `pytest backend/tests/ --basetemp=/tmp/pytest-immich -q`
+
+**Wochen-Prüfung (`.github/workflows/wochen-pruefung.yml`, montags 04:00 +
+`workflow_dispatch`, bewusst **nicht** auf dem Push-Pfad):**
+
+- Backend: `pip-audit -r backend/requirements.txt`
+- Frontend (in `frontend/`): `npm audit --audit-level=high`
+
+## Produktivinstanz
+
+Sonden gegen die laufende Immich-Instanz **nur lesend**. Schreibpfade
+ausschließlich gegen Testdaten. Das ist ein Minimum, keine Lösung — die
+strukturelle Lösung ist ein Immich-API-Key mit ausschließlich lesenden
+Rechten (Immich kann granulare Rechte je Key vergeben, siehe Issue #53). Bis
+dieser Read-Only-Key im Agenten-Kontext hinterlegt ist, gilt die Regel oben als
+das, was tatsächlich durchsetzbar ist.
+
+## Projektspezifisches
+
+**Zweisprachigkeit.** Nutzersichtbare UI-Texte sind zweisprachig (DE/EN) über
+`frontend/src/i18n.tsx` mit Typ-Parität — jeder neue Text in **beiden**
+Sprachen, echte Umlaute, kein ASCII-Ersatz.
+
+**Sync-Log.** Einträge tragen `message_key` + `message_params`; das deutsche
+`details`-Feld bleibt als Fallback für Alt-Einträge bestehen, nicht für neue
+Einträge verwenden.
+
+**JSON-Migration.** Die Migration in `backend/services/config_store.py`
+(`SCHEMA_VERSION`) ist rein additiv und schreibt in die einzige persistente
+Datei des Projekts. Änderungen dort brauchen einen Test gegen das Alt-Format
+(vorhandenes Muster: Auffüllen der Felder UND Datenerhalt, siehe
+`backend/tests/test_config_store.py`).
+
+## Betrieb
+
+Sobald echte Menschen echte Daten in der Anwendung haben, gilt
+`docs/agents/betrieb.md`: Sicherung **mit Rückspiel-Probe**, Totmann-Schalter,
+Erreichbarkeits-Wächter. Grundsatz: Ein Erfolgssignal, das in der Anwendung
+selbst lebt, schweigt genau dann, wenn der Rechner stirbt. Offene Punkte laufen
+als Issue #54.
+
 ## Agent skills
 
 ### Issue tracker
