@@ -131,6 +131,20 @@ Rechten (Immich kann granulare Rechte je Key vergeben, siehe Issue #53). Bis
 dieser Read-Only-Key im Agenten-Kontext hinterlegt ist, gilt die Regel oben als
 das, was tatsächlich durchsetzbar ist.
 
+## Umgang mit Geheimnissen
+
+Der Agent trägt **keine** Schlüssel, Tokens oder Passwörter ein — auch nicht auf
+Zuruf und auch nicht in eine private Datei. Er darf Platzhalter setzen, das
+Format erklären und die Stelle vorbereiten; eingetragen wird vom Menschen.
+`.env.example` zeigt, welche Werte gebraucht werden.
+
+**Und die Gegenrichtung, hier real passiert:** Ein Geheimnis, das zum Sondieren
+in ein Agenten-Gespräch kopiert wird, liegt danach in einem System, das es
+speichert — es gilt als offengelegt und gehört rotiert, unabhängig davon, ob es
+je missbraucht wurde. Deshalb gehört in den Kontext nur ein Schlüssel, dessen
+Offenlegung verkraftbar ist: der Read-Only-Key aus dem Abschnitt oben, nie der
+schreibberechtigte.
+
 ## Projektspezifisches
 
 **Zweisprachigkeit.** Nutzersichtbare UI-Texte sind zweisprachig (DE/EN) über
