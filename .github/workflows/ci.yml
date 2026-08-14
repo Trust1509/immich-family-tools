@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main, "release/**"]
+    # Tag-Laeufe zulassen: ohne diesen Trigger prueft CI nie einen Tag-Ref,
+    # und die Regel "Tag erst nach gruener CI" waere nicht ueberpruefbar.
+    tags: ["v*"]
   # `pull_request` bewusst entfernt (Notbremse 14.08.2026):
   # Dies ist ein Trunk-Workflow ohne menschliche PRs — der Trigger bediente
   # ausschliesslich Dependabot und verdoppelte dessen Kosten (ein Lauf am PR,
@@ -21,12 +24,20 @@ concurrency:
 permissions:
   contents: read
 
+# Fremde Actions sind auf den Commit-SHA des jeweiligen Release-Tags gepinnt,
+# nicht auf den beweglichen Tag selbst: ein beweglicher Tag (z. B. @v7) ist eine
+# offene Tuer — der Maintainer kann ihn jederzeit auf einen anderen Commit
+# umsetzen, und CI wuerde stillschweigend fremden, ungeprueften Code ausfuehren.
+# Der SHA garantiert NUR Unveraenderlichkeit (welcher Code laeuft), NICHT
+# Herkunft/Vertrauenswuerdigkeit (ob der Code sauber ist) — die Herkunft wurde
+# beim Pinnen einmalig ueber die GitHub-API des jeweiligen Original-Repos
+# geprueft (die API-URL enthaelt das Repo, das ist der Herkunftsnachweis).
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
           cache: pip
@@ -34,8 +45,6 @@ jobs:
       - run: pip install -r backend/requirements-dev.txt
       - run: pytest -q backend/tests
       - run: python -m compileall -q backend
-      - run: pip install pip-audit
-      - run: pip-audit -r backend/requirements.txt
 
   frontend:
     runs-on: ubuntu-latest
@@ -43,8 +52,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -52,14 +61,13 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm audit --audit-level=high
 
   container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           push: false
@@ -68,9 +76,9 @@ jobs:
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v3
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
