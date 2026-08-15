@@ -1,5 +1,9 @@
 # Backup and Restore
 
+> Betriebs-Bausatz (terminierte Rückspiel-Probe, Totmann-Schalter,
+> Erreichbarkeits-Wächter) siehe `docs/betrieb/` — vorbereitet, noch nicht
+> installiert (Issue #54).
+
 ## Backup
 
 1. Snapshot the ZFS dataset containing `/app/data`.
