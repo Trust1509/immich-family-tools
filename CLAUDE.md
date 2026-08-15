@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.3.0** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.3.1** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -130,6 +130,17 @@ strukturelle Lösung ist ein Immich-API-Key mit ausschließlich lesenden
 Rechten (Immich kann granulare Rechte je Key vergeben, siehe Issue #53). Bis
 dieser Read-Only-Key im Agenten-Kontext hinterlegt ist, gilt die Regel oben als
 das, was tatsächlich durchsetzbar ist.
+
+**Kein technischer Wächter — bewusst.** Ein Hook, der Werkzeugaufrufe abfängt,
+liefe hier ins Leere: Die Zugriffe gehen per `curl` aus einer Shell, nicht über
+einen MCP-Server. Sollte Immich je als MCP angebunden werden, gilt die Fassung
+aus Vorlage v1.3.1 — und zwar mit ihren beiden Korrekturen: Der Präfix
+`mcp__<schlüssel>__<tool>` stammt aus der **Client**-Konfiguration und ist frei
+gewählt (ein geratener Präfix passt auf nichts), und der Wächter muss in dem
+Client liegen, der die Aufrufe tatsächlich macht. Vor dem Scharfschalten die
+**Echtprobe**: einen echten Aufruf auslösen und nachweisen, dass der Wächter ihn
+überhaupt sieht. Ohne diesen Nachweis prüfen die Testfälle nur selbst erzeugte
+Eingaben und beweisen nichts über die, die das System wirklich produziert.
 
 ## Umgang mit Geheimnissen
 
