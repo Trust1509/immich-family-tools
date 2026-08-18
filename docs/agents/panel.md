@@ -158,8 +158,8 @@ Beispiel). Ein zugelieferter Zweig war fachlich unauffällig, tauschte aber eine
 dokumentierten Endpunkt gegen einen ausdrücklich undokumentierten; alle
 mitgelieferten Tests waren grün — sie stammten vom selben Autor und prüften
 dessen Annahme. Herkunft ist ein Risiko eigener Art, unabhängig vom Thema.
-Dieser Punkt stammt aus diesem Projekt (Vorlagen-Issue #2, der zugelieferte
-Zweig, der einen dokumentierten Endpunkt gegen einen undokumentierten tauschte).
+(Der Fall stammt aus diesem Projekt und wurde als Vorlagen-Issue #2
+zurückgemeldet.)
 
 In diesem Repo fallen **Konfigurations- und Doku-Slices ohne Verhaltensänderung**
 unter Punkt 2 der Liste oben (Doku-Korrektur) bzw. sinngemäß Punkt 1 (reine
