@@ -112,3 +112,37 @@ Im Nachtrag:
 - **Widerlegte Befunde ausdrücklich abräumen.** Prüfer irren; ein unkommentierter
   Fehlbefund kostet eine Runde.
 - Je Punkt: Schwere, Fundstelle, **Nachweis**. „Wirkt unsauber" ist kein Auftrag.
+
+---
+
+## Fixtures werden erfunden, nie aus dem Kontext übernommen
+
+**Pflichtzeile in jeden Bau-Brief.** Ohne ausdrückliche Regel nimmt der Bauer die
+Beispiele, die im Gespräch herumliegen — und das sind die echten.
+
+Realer Verlauf, zweistufig, und die zweite Stufe ist der eigentliche Befund:
+Ein Bau-Subagent brauchte einen Namen für ein Testszenario, erfand keinen,
+sondern nahm den echten Namen einer realen Person aus dem Gesprächskontext und
+schrieb ihn in einen committeten Seed. Beim Verifizieren gefunden und vor dem
+Push ersetzt. **Danach** wurde daraus eine Regel formuliert — und in die Regel
+selbst schrieb der Hauptagent denselben echten Namen als Beleg.
+
+Die Klasse trifft also nicht nur den Bauer: Wer den Vorfall dokumentiert,
+wiederholt ihn. Fälle anonymisieren, bis nur die Klasse übrig bleibt — im Code,
+im Issue und in der Lehre.
+
+**Für dieses Projekt besonders relevant:** Testdaten enthalten Personennamen aus
+Gesichtserkennung. Ein Name aus einem echten Gesichtserkennungs-Match gehört
+nicht in eine Fixture — auch nicht als „nur ein Beispiel".
+
+## Rot-Beweis gilt auch für ganze Suiten
+
+Der Rot-Beweis für einzelne Tests reicht nicht, wenn eine ganze Suite als
+Sicherheitsnetz gemeldet wird (Rauchtests, Vor-Release-Sets). Vor der Meldung
+**zwei bekannte Fehler absichtlich wieder einbauen** und beobachten.
+
+Der Fall, der **nicht** rot wird, ist der lehrreichere: In einem realen Versuch
+fing die Suite die eine Regression und die andere nicht — weil der Zugangsschutz
+an zwei unabhängigen Strängen hing und der Test nur einen berührte. Was die
+Suite **nicht** behauptet, gehört in den Test geschrieben, nicht in die
+Erinnerung.

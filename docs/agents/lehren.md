@@ -238,7 +238,100 @@ am Code reproduzieren** — Prüfer-Konvergenz ersetzt keine Reproduktion.
 
 ---
 
-## 8. Eigene Funde (Immich Family Tools)
+## 8. Wächter: was sie schützen, ist enger als ihr Name
+
+Fünf Wächter aus drei Projekten waren **grün und schützten nicht**. Jedes Mal
+schätzte der Wächter seine eigene Reichweite falsch ein. Die fünf Fragen, die
+das aufdecken:
+
+- **Prüft er dasselbe Prädikat wie der Mechanismus, den er absichert?** Einer
+  suchte „schreibbar und nicht lesbar", der abgesicherte Filter maskierte auf
+  „personenbezogen **oder** nicht lesbar" — die Lücke dazwischen war unsichtbar.
+  Ein Wächter, der sich darauf verlässt, dass ein _anderer_ Test die Eigenschaft
+  hält, ist keine Sicherung.
+- **Zählt er die Ausnahme-Mechanik als Schutz?** Einer verlangte, dass jede
+  Schreibfunktion die Sperre „erwähnt" — womit der Ausnahme-Guard selbst als
+  geschützt galt und genau die Klasse verdeckte, die er finden soll.
+- **Hängt er an einer Kennung, die der Client vergibt?** Bei Werkzeug-Namen kommt
+  der Präfix aus der **Client**-Konfiguration und ist frei gewählt. Ein geratener
+  Präfix passt auf nichts, und der Wächter lässt alles durch.
+- **Schützt er einen AUFRUFER oder eine RESSOURCE?** Ein Hook im Agenten-Client
+  schützt den Agenten. Andere Clients erreichen dieselbe Tür ungehindert.
+  „Produktion ist schreibgeschützt" ist dann falsch, „dieser Agent kann nicht
+  schreiben" richtig — und der Unterschied fällt in keinem Test auf.
+- **Vererbt seine Wirkung nach unten auf das Schutzobjekt?** Eine Sperre auf dem
+  Container legte den zu schützenden Dialog mit still. „Wirkt die Sperre?" war
+  grün; „wirkt sie auch auf das, was sie schützen soll?" fehlte.
+
+Dazu die Fehlerrichtung: **Ein manueller Auslöser, der immer die riskante Aktion
+ausführt, macht die harmlose unmöglich.** Vergessen muss _nicht ausführen_
+heißen.
+
+**Der Nachweis ist immer eine Echtprobe:** einen echten Aufruf auslösen und
+prüfen, dass der Wächter ihn überhaupt SIEHT. Konstruierte Testfälle bestätigen
+die Annahme des Autors — sie erzeugen ihre eigenen Eingaben.
+
+**Konsequenz für die Bauweise:** Nicht „alle Schreibzugriffe blocken", sondern
+**die Schreibtüren aufzählen** und je Tür festhalten, ob sie gewollt ist und wer
+sie bewacht. Derselbe technische Sachverhalt war in einem Projekt ein Loch und
+im anderen ein gewolltes Feature; eine pauschale Regel tut immer einem von
+beiden unrecht.
+
+---
+
+## 9. Belegen statt annehmen
+
+Vier Fälle aus vier Projekten, eine Klasse: **Was nicht gemessen wurde, gilt als
+in Ordnung.**
+
+- **Das Vorhandensein einer Prüfung ist nicht ihr Bestehen.** Eine CI war seit
+  ihrer Einrichtung nie grün; aufgefallen ist es erst, als jemand zum ersten Mal
+  auf das _Ergebnis_ statt auf die Existenz des Workflows sah. Im selben Repo
+  eine zweite, wöchentliche Prüfung: ebenfalls seit Tag eins rot, nach 77
+  Sekunden abgebrochen — sie hat nie etwas geprüft.
+- **Eine Suite, die nie rot war, ist unbewiesen** — und die Mutation, die
+  **nicht** rot wird, ist die lehrreichere: Sie zeigt, was der Test _nicht_
+  behauptet. Das gehört in den Test, nicht in die Erinnerung.
+- **Erst messen, wo der Verbrauch entsteht.** Ein Optimierungsauftrag kam mit
+  fertigen Maßnahmen für das Repo, in dem gerade gearbeitet wurde: Es
+  verursachte 0,5 %, ein anderes 78 %. Die Maßnahmen waren richtig und
+  wirkungslos.
+- **Ein widerlegter Prüfer-Befund ist selbst ein Fund**, wenn er eine unbelegte
+  Annahme trifft. Greifen zwei unabhängige Stimmen dieselbe Annahme an, gehört
+  sie belegt — nicht verteidigt.
+
+Dieser Punkt stammt aus Immich Family Tools (Vorlagen-Issue #3).
+
+---
+
+## 10. Zwei Umgebungen, eine geprüft
+
+Wer lokal im Container prüft und in der CI ohne, hat **zwei** Umgebungen und
+testet eine.
+
+- **Konfigurations-Defaults, die auf Container-Pfade zeigen**, brechen auf dem
+  nackten Runner — lokal unsichtbar, weil die Pfade dort existieren.
+- **Pflicht-Umgebungsvariablen, die nur an einem Schritt hängen**, fehlen dem
+  Migrationsschritt, sobald der die Anwendung importiert.
+- **Prüf-Abhängigkeiten aus zwei Quellen driften still.** Ein lokales Gate
+  installierte sein Test-Werkzeug hartkodiert, die CI las die
+  Entwicklungs-Abhängigkeiten; sichtbar wurde es erst, als ein zweites
+  Prüfwerkzeug dazukam und lokal nie lief. Gate und CI müssen **dieselbe Quelle**
+  benutzen.
+
+---
+
+## 11. Notmaßnahmen ohne Rückdreh-Datum werden dauerhaft
+
+Vier Repos bekamen gleichzeitig eine Laufzeit-Notbremse (Prüfungen reduziert,
+Bot stillgelegt). Keines trug ein Datum für den Rückbau — und keines hat es
+gemeldet, weil die Lücke erst in der Portfolio-Sicht sichtbar wird. **Jede
+Notmaßnahme bekommt beim Einbau ein Issue mit konkretem Datum im Titel**, nicht
+„nach dem Reset".
+
+---
+
+## 12. Eigene Funde (Immich Family Tools)
 
 **Fremd-API-Annahmen gehören belegt, nicht geglaubt.** Ein zugelieferter Zweig
 tauschte einen dokumentierten Endpunkt gegen einen undokumentierten (in der

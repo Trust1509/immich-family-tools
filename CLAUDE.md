@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.3.2** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.7.1** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -14,6 +14,15 @@ Immich-REST-API. Es gibt keine eigene Datenbank — die gesamte Persistenz ist
 eine einzige JSON-Datei (`accounts.json`) auf einem ZFS-Volume. Das Projekt
 **erfordert Immich v3.x**.
 
+**Profil: Anwendung ohne Datenbank.** Die gesamte Persistenz ist eine JSON-Datei;
+es gibt kein Migrations-Framework, keinen Datenbank-Dienst und keine öffentlich
+erreichbare Schnittstelle. Der **Prozess-Kern** (Panel, Bau-Brief, Rot-Beweis,
+Release-Ritual, Betrieb) gilt vollständig. Die **Stack-Maschine**
+(Migrationsköpfe, Roundtrips gegen eine echte Zieldatenbank,
+Schnittstellen-Fuzzing) hat hier keinen Gegenstand — mit einer Ausnahme, die
+zählt: Die Datenerhalt-Probe gilt sehr wohl, nur framework-frei, als Test gegen
+das JSON-Alt-Format (`backend/tests/test_config_store.py`).
+
 ## Vor dem ersten Slice
 
 **`docs/agents/lehren.md` lesen.** Fehlerklassen, die real getroffen haben —
@@ -21,6 +30,9 @@ Wächter, die grün sind ohne etwas zu beweisen; Seitenkanäle; Datenmigrationen
 deren Fehler kein Update mehr heilt; „weniger Abfragen", das langsamer ist —
 plus ein eigener Abschnitt mit Funden aus diesem Projekt. Kostet fünf Minuten
 und hat schon mehrfach einen Prod-Fund verhindert.
+
+Für die meisten Schritte gibt es fertige Methoden-Anleitungen — welche, woher
+und wann welche passt: `docs/agents/skills.md`.
 
 ## Arbeitsweise
 

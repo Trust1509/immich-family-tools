@@ -26,6 +26,11 @@ kostet fast nichts, und die Treffer sind echt.
 
 ## Ablauf
 
+**Schritt 0 — Erreichbarkeit der externen Stimmen vor dem Start prüfen**, nicht
+mittendrin. Stimme 2 braucht ein lauffähiges `codex.sh` und den gepushten
+Review-Zweig; Stimme 3 braucht Guthaben hinter `ask-api.py`. Beide Ausfälle
+melden sich sonst erst, wenn der Slice schon als „gleich fertig" gilt.
+
 Die drei Stimmen dieses Setups, mit den konkreten Kommandos:
 
 **Stimme 1 (blind):** frischer Reviewer-Subagent, bekommt **nur Diff + Repo-Pfad**,
@@ -134,12 +139,31 @@ einmal ein Seitenkanal gefunden, den die anderen beiden übersehen hatten.
 
 ## Verhältnismäßigkeit
 
-Nicht jeder Slice braucht drei Stimmen. Eine Änderung an der Testinfrastruktur,
-eine Doku-Korrektur, ein Ein-Zeilen-Fix mit offensichtlichem Test: eigene
-Prüfung reicht. **Immer volles Panel** bei: Datenmigrationen, Datenschutz- und
-Berechtigungslogik, allem was Geld oder Steuern berührt, und allem, was über eine
-Schnittstelle nach außen geht.
+Nicht jeder Slice braucht drei Stimmen. **Die folgende Liste ist ABSCHLIESSEND,
+nicht beispielhaft** — nur diese drei Fälle dürfen ohne Panel landen:
 
-In diesem Repo dürfen zusätzlich **Konfigurations- und Doku-Slices** ohne volles
-Panel landen — die Reduktion wird dann im Issue vermerkt, nicht stillschweigend
+1. reine Testinfrastruktur ohne Verhaltensänderung,
+2. Doku-Korrektur,
+3. Typisierung ohne Verhaltensänderung.
+
+Der Grund für die Geschlossenheit: „Ist das trivial?" ist genau der Punkt, an dem
+der Ausführende unter Zeitdruck sich selbst freispricht. Eine Aufzählung, die
+sich als Beispiel liest, macht mit der Zeit jeden Slice trivial.
+
+**Immer volles Panel** bei: Datenmigrationen, Datenschutz- und
+Berechtigungslogik, allem was Geld oder Steuern berührt, allem, was über eine
+Schnittstelle nach außen geht — **und allem, was HERKUNFT hat**: Code, den
+niemand aus dem Team gebaut hat (Fremdmodell, zugelieferter Zweig, übernommenes
+Beispiel). Ein zugelieferter Zweig war fachlich unauffällig, tauschte aber einen
+dokumentierten Endpunkt gegen einen ausdrücklich undokumentierten; alle
+mitgelieferten Tests waren grün — sie stammten vom selben Autor und prüften
+dessen Annahme. Herkunft ist ein Risiko eigener Art, unabhängig vom Thema.
+Dieser Punkt stammt aus diesem Projekt (Vorlagen-Issue #2, der zugelieferte
+Zweig, der einen dokumentierten Endpunkt gegen einen undokumentierten tauschte).
+
+In diesem Repo fallen **Konfigurations- und Doku-Slices ohne Verhaltensänderung**
+unter Punkt 2 der Liste oben (Doku-Korrektur) bzw. sinngemäß Punkt 1 (reine
+Infrastruktur) — das ist eine Konkretisierung der Liste, keine zusätzliche
+Ausnahme. Ändert ein Konfigurations-Slice sichtbares Verhalten, gehört er nicht
+mehr hierher. Die Reduktion wird im Issue vermerkt, nicht stillschweigend
 angewandt.
