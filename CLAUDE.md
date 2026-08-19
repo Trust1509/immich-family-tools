@@ -72,6 +72,12 @@ eine Überschrift je Stimme, auch bei „keine Funde". Fällt eine Stimme aus
 stillschweigend reduzieren. Ein Slice ohne vollständiges oder
 vermerkt-verkürztes Panel gilt als **nicht geprüft**.
 
+**Immer volles Panel bei Code, den niemand aus dem Team gebaut hat** —
+zugelieferter Zweig, fremdes Modell, übernommenes Beispiel. Unabhängig vom
+Thema, auch wenn er fachlich unauffällig aussieht: Die mitgelieferten Tests
+stammen vom selben Autor wie die Annahme, die sie prüfen sollen. Dieses Projekt
+hat den Fall real getroffen (siehe `docs/agents/panel.md` › Verhältnismäßigkeit).
+
 Konfigurations- und Doku-Slices dürfen ohne volles Panel landen; die Reduktion
 wird dann im Issue vermerkt (siehe „Verhältnismäßigkeit" in `panel.md`).
 
