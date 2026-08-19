@@ -2,6 +2,20 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.4.4] – 2026-08-19
+
+### Sync log retention (#56)
+
+- The retention rule (90 days, at most 500 entries) now applies on **read** as well, not only as a side effect of writing. Previously entries only aged out when a sync action happened to write — with auto-sync off, nothing ever expired.
+- Entries whose timestamp cannot be parsed are **kept** instead of silently discarded: a broken clock is not evidence that an entry is old.
+- Naive (timezone-less) timestamps are interpreted as UTC instead of raising.
+- Entries that cannot be turned into a log record at all (e.g. after a hand-restored `accounts.json`) are skipped on read **with a warning**, and removed on the next write — the store heals itself again.
+
+### Upgrade notes
+
+- No data migration. Sync-log entries older than 90 days disappear from the UI after the update; they are removed from disk on the next write.
+- Rebuild the container so backend and frontend both report version `1.4.4`.
+
 ## [1.4.3] – 2026-08-07
 
 - TypeScript migrated staged 5.9.3 → 6.0.3 → 7.0.2 (nativer Compiler), tracked in #50; the PR #44 build failure was `noUncheckedSideEffectImports` (new default `true` since 6.0) catching a missing `vite/client` type reference, not a tsconfig incompatibility with 7.0
