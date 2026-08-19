@@ -233,23 +233,45 @@ class ConfigStore:
     # Sync log
     # ------------------------------------------------------------------
 
+    def _apply_log_retention(self, entries: list[dict]) -> list[dict]:
+        """Apply the configured retention window (`log_retention_days`) and the
+        500-entry cap to a list of raw sync-log dicts. Used by both the write
+        path (`append_log`) and the read path (`get_log`) so the rule holds
+        regardless of whether a write ever happens.
+
+        An entry with a missing or unparseable timestamp is kept rather than
+        dropped — a broken timestamp is not evidence the entry is old, and
+        silently discarding a log entry because we can't read its clock is
+        exactly the kind of quiet data loss this store avoids elsewhere.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._log_retention_days)
+        retained = []
+        for entry in entries:
+            try:
+                timestamp = datetime.fromisoformat(entry["timestamp"])
+            except (KeyError, TypeError, ValueError):
+                retained.append(entry)
+                continue
+            if timestamp >= cutoff:
+                retained.append(entry)
+        return retained[-500:]
+
     def append_log(self, entries: list[SyncLogEntry]) -> None:
         log = self._data.setdefault("sync_log", [])
         log.extend(e.model_dump() for e in entries)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self._log_retention_days)
-        retained = []
-        for entry in log:
-            try:
-                timestamp = datetime.fromisoformat(entry["timestamp"])
-                if timestamp >= cutoff:
-                    retained.append(entry)
-            except (KeyError, TypeError, ValueError):
-                continue
-        self._data["sync_log"] = retained[-500:]
+        self._data["sync_log"] = self._apply_log_retention(log)
         self._save()
 
     def get_log(self) -> list[SyncLogEntry]:
-        return [SyncLogEntry(**e) for e in self._data.get("sync_log", [])]
+        # Retention is enforced on read too, not just as a side effect of
+        # append_log — otherwise entries only age out when something is
+        # written, which is not what "retained for 90 days" promises. This
+        # does NOT persist the filtered result: get_log() backs GET
+        # /api/sync/log, which the frontend polls every 30s, and rewriting
+        # the project's one JSON file on every poll would be a bad trade for
+        # pruning a handful of already-invisible, already-capped rows.
+        filtered = self._apply_log_retention(self._data.get("sync_log", []))
+        return [SyncLogEntry(**e) for e in filtered]
 
     def clear_log(self) -> None:
         self._data["sync_log"] = []

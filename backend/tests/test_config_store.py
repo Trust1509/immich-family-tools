@@ -1,9 +1,11 @@
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from models.account import AccountCreate
+from models.match import SyncLogEntry
 from services.config_store import ConfigStore
 
 
@@ -64,7 +66,12 @@ LEGACY_ACCOUNTS = {
 
 LEGACY_SYNC_LOG_ENTRY = {
     "id": "log-1",
-    "timestamp": "2026-01-01T00:00:00+00:00",
+    # Deliberately recent (not a fixed past date): this fixture is about
+    # migration preserving data, not about retention — a fixed old date
+    # would eventually fall outside the retention window and make this
+    # test fail for an unrelated reason. See the sync-log retention tests
+    # below for retention-window behaviour.
+    "timestamp": datetime.now(timezone.utc).isoformat(),
     "action": "album_sync",
     "details": "Altbestand-Eintrag, der die Migration ueberleben muss",
     "status": "success",
@@ -156,3 +163,89 @@ def test_migrate_preserves_existing_data(tmp_path):
     payload_on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert payload_on_disk["dismissed_match_ids"] == [LEGACY_DISMISSED_ID]
     assert payload_on_disk["sync_log"] == [LEGACY_SYNC_LOG_ENTRY]
+
+
+# ----------------------------------------------------------------------
+# Sync-log retention (Issue #56)
+# ----------------------------------------------------------------------
+#
+# `log_retention_days` (default 90, plus a 500-entry cap) must hold no
+# matter how the log is reached — not only as a side effect of append_log().
+
+
+def _log_entry(entry_id: str, *, days_old: float = 0, timestamp: str | None = None) -> dict:
+    ts = timestamp if timestamp is not None else (
+        datetime.now(timezone.utc) - timedelta(days=days_old)
+    ).isoformat()
+    return {
+        "id": entry_id,
+        "timestamp": ts,
+        "action": "album_sync",
+        "details": f"Testeintrag {entry_id}",
+        "status": "success",
+    }
+
+
+def test_get_log_filters_expired_entries_without_a_write(tmp_path):
+    """get_log() must apply the retention window on its own — an entry that
+    is already outside the window must not show up just because nothing was
+    ever written after it aged out."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path), log_retention_days=90)
+
+    fresh = _log_entry("fresh", days_old=1)
+    expired = _log_entry("expired", days_old=91)
+    store._data["sync_log"] = [expired, fresh]
+    # Deliberately not calling _save() / append_log(): get_log() must filter
+    # purely on read, with no write having happened since the data was set.
+    mtime_before = path.stat().st_mtime if path.exists() else None
+
+    log = store.get_log()
+
+    assert [e.id for e in log] == ["fresh"]
+    # get_log() must not persist the filtered result (see docstring in
+    # config_store.py for why): the file on disk is untouched.
+    assert (path.stat().st_mtime if path.exists() else None) == mtime_before
+
+
+def test_get_log_caps_at_500_entries_without_a_write(tmp_path):
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path))
+    store._data["sync_log"] = [_log_entry(f"e{i}", days_old=0) for i in range(510)]
+
+    log = store.get_log()
+
+    assert len(log) == 500
+    assert [e.id for e in log[:2]] == ["e10", "e11"]
+    assert log[-1].id == "e509"
+
+
+def test_get_log_keeps_entries_with_unparseable_timestamp(tmp_path):
+    """A broken timestamp is not a reason to lose a log entry — it should be
+    kept (and left for a human/future fix), not silently dropped.
+
+    (An entirely *missing* "timestamp" key is a different failure: the
+    SyncLogEntry model requires the field, so such an entry already can't
+    round-trip through get_log() regardless of retention — that is a
+    pre-existing model constraint, not something this slice changes.)"""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path))
+    broken = _log_entry("broken", timestamp="not-a-real-timestamp")
+    fresh = _log_entry("fresh", days_old=1)
+    store._data["sync_log"] = [broken, fresh]
+
+    log = store.get_log()
+
+    assert {e.id for e in log} == {"broken", "fresh"}
+
+
+def test_append_log_still_prunes_expired_entries_on_write(tmp_path):
+    """append_log() keeps enforcing retention itself (unchanged behaviour) —
+    this is the write-path counterpart of the read-path tests above."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path), log_retention_days=90)
+    store._data["sync_log"] = [_log_entry("expired", days_old=91)]
+
+    store.append_log([SyncLogEntry(**_log_entry("new", days_old=0))])
+
+    assert [e.id for e in store.get_log()] == ["new"]
