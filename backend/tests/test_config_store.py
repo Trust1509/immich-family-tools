@@ -221,13 +221,15 @@ def test_get_log_caps_at_500_entries_without_a_write(tmp_path):
 
 
 def test_get_log_keeps_entries_with_unparseable_timestamp(tmp_path):
-    """A broken timestamp is not a reason to lose a log entry — it should be
-    kept (and left for a human/future fix), not silently dropped.
+    """A broken timestamp is not a reason to lose a log entry — SyncLogEntry
+    stores `timestamp` as a plain str, so a garbled-but-present value still
+    builds a valid model and is kept (and left for a human/future fix), not
+    silently dropped.
 
-    (An entirely *missing* "timestamp" key is a different failure: the
-    SyncLogEntry model requires the field, so such an entry already can't
-    round-trip through get_log() regardless of retention — that is a
-    pre-existing model constraint, not something this slice changes.)"""
+    (An entirely *missing* "timestamp" key is a different failure — see
+    test_get_log_skips_unbuildable_entries_without_crashing below: that one
+    IS a corrupt entry, because the model requires the field, and is handled
+    by the self-healing path instead.)"""
     path = tmp_path / "accounts.json"
     store = ConfigStore(str(path))
     broken = _log_entry("broken", timestamp="not-a-real-timestamp")
@@ -237,6 +239,66 @@ def test_get_log_keeps_entries_with_unparseable_timestamp(tmp_path):
     log = store.get_log()
 
     assert {e.id for e in log} == {"broken", "fresh"}
+
+
+def test_get_log_treats_naive_timestamp_as_utc(tmp_path):
+    """A timestamp without a UTC offset (no tzinfo) must not crash the
+    comparison against the timezone-aware retention cutoff — it is
+    interpreted as UTC, since every timestamp this app writes is UTC, and
+    then filtered like any other."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path), log_retention_days=90)
+    old_naive = _log_entry(
+        "old-naive",
+        timestamp=(datetime.now(timezone.utc) - timedelta(days=91))
+        .replace(tzinfo=None)
+        .isoformat(),
+    )
+    fresh_naive = _log_entry(
+        "fresh-naive",
+        timestamp=(datetime.now(timezone.utc) - timedelta(days=1))
+        .replace(tzinfo=None)
+        .isoformat(),
+    )
+    store._data["sync_log"] = [old_naive, fresh_naive]
+
+    log = store.get_log()  # must not raise TypeError
+
+    assert [e.id for e in log] == ["fresh-naive"]
+
+
+def test_get_log_skips_unbuildable_entries_without_crashing(tmp_path):
+    """An entry missing a required field entirely (e.g. after a manual/
+    partial recovery of accounts.json) is genuinely corrupt — not just
+    clock-less — and must not take down the whole log. get_log() skips it
+    and still returns everything else."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path))
+    unbuildable = {"id": "corrupt", "action": "album_sync", "status": "success"}
+    fresh = _log_entry("fresh", days_old=1)
+    store._data["sync_log"] = [unbuildable, fresh]
+
+    log = store.get_log()  # must not raise ValidationError
+
+    assert [e.id for e in log] == ["fresh"]
+
+
+def test_append_log_self_heals_unbuildable_entries_on_next_write(tmp_path):
+    """Unlike a merely-bad timestamp, a structurally corrupt entry (missing a
+    required field) is dropped for good the next time append_log() persists
+    — the store finds its way out of the state instead of being stuck with a
+    permanently broken get_log() call."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path))
+    unbuildable = {"id": "corrupt", "action": "album_sync", "status": "success"}
+    store._data["sync_log"] = [unbuildable]
+    store._save()
+
+    store.append_log([SyncLogEntry(**_log_entry("new", days_old=0))])
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))["sync_log"]
+    assert [e["id"] for e in on_disk] == ["new"]
+    assert [e.id for e in store.get_log()] == ["new"]
 
 
 def test_append_log_still_prunes_expired_entries_on_write(tmp_path):
@@ -249,3 +311,89 @@ def test_append_log_still_prunes_expired_entries_on_write(tmp_path):
     store.append_log([SyncLogEntry(**_log_entry("new", days_old=0))])
 
     assert [e.id for e in store.get_log()] == ["new"]
+
+
+def test_append_log_persists_pruned_result_to_disk(tmp_path):
+    """The pruned/healed result must actually reach the file on disk, not
+    just self._data in memory — checking through get_log() on the same
+    instance would not catch a regression here, because get_log() re-filters
+    from whatever is in memory regardless of what append_log() persisted."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path), log_retention_days=90)
+    store._data["sync_log"] = [_log_entry("expired", days_old=91)]
+    store._save()
+
+    store.append_log([SyncLogEntry(**_log_entry("new", days_old=0))])
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))["sync_log"]
+    assert [e["id"] for e in on_disk] == ["new"]
+
+
+def test_append_log_writes_are_visible_to_a_freshly_reopened_store(tmp_path):
+    """Proves _save() actually ran (not just that self._data was updated):
+    a second ConfigStore instance reading the same file must see the
+    pruned+appended result."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path), log_retention_days=90)
+    store._data["sync_log"] = [_log_entry("expired", days_old=91)]
+    store._save()
+
+    store.append_log([SyncLogEntry(**_log_entry("new", days_old=0))])
+
+    reopened = ConfigStore(str(path), log_retention_days=90)
+    assert [e.id for e in reopened.get_log()] == ["new"]
+
+
+def test_append_log_does_not_mutate_stored_list_before_success(tmp_path, monkeypatch):
+    """If something inside append_log() raises after the list would have
+    been extended, self._data["sync_log"] must still hold its old value —
+    not a grown-but-unfiltered list waiting to leak into disk in full via
+    some later, unrelated _save() call (e.g. from add_account()).
+
+    IMPORTANT: `expected_snapshot` is a deliberately separate list/dict copy,
+    not just another name for the same object append_log() might mutate in
+    place — comparing a mutated list to itself via a shared reference would
+    always pass regardless of the bug."""
+    path = tmp_path / "accounts.json"
+    store = ConfigStore(str(path))
+    store._data["sync_log"] = [_log_entry("original", days_old=0)]
+    expected_snapshot = [dict(e) for e in store._data["sync_log"]]
+    store._save()
+
+    def boom(self, entries):
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(ConfigStore, "_apply_log_retention", boom)
+
+    with pytest.raises(RuntimeError):
+        store.append_log([SyncLogEntry(**_log_entry("new", days_old=0))])
+
+    assert store._data["sync_log"] == expected_snapshot
+
+    monkeypatch.undo()
+    store._save()  # an unrelated save must not leak a bloated list either
+    on_disk = json.loads(path.read_text(encoding="utf-8"))["sync_log"]
+    assert on_disk == expected_snapshot
+
+
+def test_expired_entries_on_disk_disappear_from_get_log_without_any_write(tmp_path):
+    """The scenario the issue is actually about: an entry that has been
+    sitting on disk since before the retention window, with no sync having
+    run since. A freshly loaded store must not show it — purely from
+    reading the file, no append_log()/_save() involved at all."""
+    path = tmp_path / "accounts.json"
+    payload = {
+        "schema_version": ConfigStore.SCHEMA_VERSION,
+        "accounts": {},
+        "dismissed_match_ids": [],
+        "managed_albums": [],
+        "sync_log": [
+            _log_entry("stale-on-disk", days_old=91),
+            _log_entry("fresh-on-disk", days_old=1),
+        ],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    store = ConfigStore(str(path), log_retention_days=90)
+
+    assert [e.id for e in store.get_log()] == ["fresh-on-disk"]

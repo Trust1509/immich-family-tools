@@ -13,6 +13,8 @@ from itertools import combinations
 from pathlib import Path
 from typing import Optional
 
+from pydantic import ValidationError
+
 from models.account import Account, AccountCreate
 from models.match import ManagedAlbum, SyncLogEntry
 
@@ -233,33 +235,88 @@ class ConfigStore:
     # Sync log
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _parse_log_timestamp(entry: dict) -> Optional[datetime]:
+        """Best-effort parse of a raw log entry's timestamp. Returns None if
+        the entry has no usable clock (missing key, not a string, not valid
+        ISO-8601) — that is a signal to the caller to treat the entry as
+        "can't prove it's old", not an error.
+
+        A timestamp without a UTC offset (e.g. from data written before
+        timezone-awareness was consistent) is interpreted as UTC, since every
+        timestamp this app writes itself is UTC — otherwise comparing it
+        against the (timezone-aware) retention cutoff raises TypeError.
+        """
+        try:
+            timestamp = datetime.fromisoformat(entry["timestamp"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return timestamp
+
     def _apply_log_retention(self, entries: list[dict]) -> list[dict]:
         """Apply the configured retention window (`log_retention_days`) and the
         500-entry cap to a list of raw sync-log dicts. Used by both the write
         path (`append_log`) and the read path (`get_log`) so the rule holds
         regardless of whether a write ever happens.
 
-        An entry with a missing or unparseable timestamp is kept rather than
-        dropped — a broken timestamp is not evidence the entry is old, and
-        silently discarding a log entry because we can't read its clock is
-        exactly the kind of quiet data loss this store avoids elsewhere.
+        An entry whose timestamp can't be read is kept rather than dropped —
+        a broken/missing clock is not evidence the entry is old, and silently
+        discarding a log entry because we can't read its clock is exactly the
+        kind of quiet data loss this store avoids elsewhere. (Entries that
+        are corrupted in some other way — e.g. missing a different required
+        field entirely — are handled separately by `_build_log_entries`,
+        which is the actual self-healing step; see there.)
         """
         cutoff = datetime.now(timezone.utc) - timedelta(days=self._log_retention_days)
         retained = []
         for entry in entries:
-            try:
-                timestamp = datetime.fromisoformat(entry["timestamp"])
-            except (KeyError, TypeError, ValueError):
-                retained.append(entry)
+            timestamp = self._parse_log_timestamp(entry)
+            if timestamp is not None and timestamp < cutoff:
                 continue
-            if timestamp >= cutoff:
-                retained.append(entry)
+            retained.append(entry)
         return retained[-500:]
 
+    @staticmethod
+    def _build_log_entries(entries: list[dict]) -> list[SyncLogEntry]:
+        """Turn raw sync-log dicts into SyncLogEntry models, skipping (and
+        logging) any entry that cannot be built at all — e.g. one missing a
+        required field such as `id`, which can happen after a manual/partial
+        recovery of accounts.json.
+
+        This is deliberately distinct from `_apply_log_retention`'s "keep an
+        unreadable timestamp" rule: a bad timestamp is still a *valid* entry
+        (SyncLogEntry.timestamp is a plain str, so any string round-trips),
+        but an entry a model can't be constructed from at all is genuinely
+        corrupt, not just clock-less. Both `append_log` and `get_log` call
+        this, so a single corrupt entry can never take down the whole log —
+        and because `append_log` persists its result, such an entry is
+        dropped for good on the next write, the same self-healing the store
+        already had before this method existed.
+        """
+        result = []
+        for entry in entries:
+            try:
+                result.append(SyncLogEntry(**entry))
+            except ValidationError as exc:
+                logger.warning(
+                    "Sync log: dropping entry %r that could not be built: %s",
+                    entry.get("id", "?"), exc,
+                )
+        return result
+
     def append_log(self, entries: list[SyncLogEntry]) -> None:
-        log = self._data.setdefault("sync_log", [])
+        # Work on a copy — self._data["sync_log"] must stay untouched until
+        # retention + validation have both succeeded. Mutating the live list
+        # in place (the previous `setdefault(...).extend(...)` did exactly
+        # that) meant a failure partway through this method left the growing,
+        # not-yet-pruned list sitting in self._data, ready to be flushed to
+        # disk in full by any *unrelated* future _save() call.
+        log = list(self._data.get("sync_log", []))
         log.extend(e.model_dump() for e in entries)
-        self._data["sync_log"] = self._apply_log_retention(log)
+        retained = self._apply_log_retention(log)
+        self._data["sync_log"] = [e.model_dump() for e in self._build_log_entries(retained)]
         self._save()
 
     def get_log(self) -> list[SyncLogEntry]:
@@ -271,7 +328,7 @@ class ConfigStore:
         # the project's one JSON file on every poll would be a bad trade for
         # pruning a handful of already-invisible, already-capped rows.
         filtered = self._apply_log_retention(self._data.get("sync_log", []))
-        return [SyncLogEntry(**e) for e in filtered]
+        return self._build_log_entries(filtered)
 
     def clear_log(self) -> None:
         self._data["sync_log"] = []
