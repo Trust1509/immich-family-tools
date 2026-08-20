@@ -6,8 +6,27 @@ Lesen ist nicht „was ist damals passiert", sondern „welche dieser Fallen lie
 in meinem Slice".
 
 Die Einzelfälle stehen in den GitHub-Issues (dort auch die Messwerte); dieses
-Dokument hält fest, was übertragbar ist. Prozessregeln stehen in `CLAUDE.md`,
-Mess-Zahlen zum Modell-Panel in `model-panel/messungen.md`.
+Dokument hält fest, was übertragbar ist.
+
+## Vor jedem Slice: fünf Fragen
+
+Zwölf Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
+zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
+vor den Slice gehört:
+
+1. **Womit beweist dieser Slice, dass er wirkt** — und war dieser Beweis je rot?
+2. **Wer ruft den geänderten Code auf?** Jeden Aufrufer, nicht die naheliegenden.
+3. **Welche Aussage im Repo wird durch diesen Diff falsch?** (Doku, Kommentare,
+   Anweisungen für später — in einem Projekt lagen ALLE bestätigten Funde dort.)
+4. **Beruht ein Schutz hier auf einer Angabe, die das Geprüfte über sich selbst
+   macht?**
+5. **Was kann ich nicht prüfen** — und wo steht das, damit es nicht still zur
+   Schuldenliste wird?
+
+Wer diese fünf beantwortet, hat die teuersten Klassen unten abgedeckt.
+Prozessregeln stehen in `CLAUDE.md`, Mess-Zahlen zum Modell-Panel in
+`model-panel/messungen.md`.
 
 ---
 

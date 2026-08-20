@@ -21,8 +21,29 @@ Migration, einen Testaufbau, der den eigenen Fix nie berührt.
 Fehler-Intuition mit. Kennt den lokalen Arbeitsbaum nicht, arbeitet über einen
 gepushten Review-Branch.
 
-**Stimme 3 — günstige Drittstimme**, nur der Diff, kurze Antwort. Trifft seltener,
-kostet fast nichts, und die Treffer sind echt.
+**Stimme 3 — günstige Drittstimme**, nur der Diff, kurze Antwort. Kostet fast
+nichts. **Erwartung realistisch halten** (Messreihe über fünf Projekte): ein
+exklusiver bestätigter Fund insgesamt, dem rund ein Dutzend Fehl- und
+Überbefunde gegenüberstehen, zweimal aktiv irreführend zur Kernfrage. Der Grund
+ist strukturell: **Die schweren Funde liegen in der Beziehung zwischen Diff und
+Umgebung** — ein Bezeichner, der in einer nicht mitgelieferten Datei anders
+lautet; eine Zusicherung in einer Datei, die der Diff nicht berührt. Diese
+Klasse ist diff-only **prinzipiell** unsichtbar.
+
+Daraus drei Regeln:
+
+- **Sie zählt mit ihren FUNDEN, nie mit ihrer Freigabe.** Ein „landen" von einer
+  Stimme, die nichts prüfen konnte, ist kein Gegengewicht zu einem Blocker —
+  sonst steht im Panel-Kommentar eine dritte Überschrift, die wie eine zweite
+  Meinung aussieht und keine ist.
+- **Große Diffs schneiden.** Auf einem 85-KB-Diff wurde alles widerlegt, auf
+  27 KB war dieselbe Stimme scharf.
+- **Bei reinen Konfigurations-Diffs ohne Logik nicht einsetzen.** Dort produziert
+  sie Inversionen, weil sie nichts hat, woran sie sich prüfen könnte — real
+  behauptete sie exakt die Umkehrung des Sachverhalts.
+
+Behalten lohnt trotzdem: Sie liefert **Konvergenz**, die einen Fund von einer
+Meinung unterscheidet, und kostet Bruchteile eines Cents.
 
 ## Ablauf
 
@@ -72,6 +93,48 @@ einen längst gefixten Zustand.
 
 **4. Nacharbeit** an denselben Subagenten, der gebaut hat (Kontext bleibt) — mit
 dem, was **bestätigt** wurde, und mit ausdrücklich **abgeräumten** Fehlbefunden.
+
+**Die Regel hängt am GELANDETEN ZUSTAND, nicht am Slice.** Was am Ende auf dem
+Hauptzweig liegt, ist geprüft — egal in wie vielen Anläufen es dorthin kam.
+Damit ist Nacharbeit automatisch erfasst, ohne eine zweite Regel. Zwei Projekte
+haben das Panel bei der Nacharbeit weggelassen mit der Begründung „setzt nur
+bestätigte Befunde um"; beide Male entstand der neue Defekt genau dort. Eine
+verkürzte zweite Runde (nur die blinde Stimme, zugeschnittener Auftrag) reicht —
+in einem Fall fand sie sechs weitere Punkte, alle exklusiv.
+
+## Arbitrieren: die Sonde, die verwirft, braucht den stärkeren Nachweis
+
+Ein bestätigter Fund wird gefixt und nachgeprüft. Ein **verworfener verschwindet
+für immer** — niemand sieht ihn je wieder an. Die Ad-hoc-Sonde des Arbiters ist
+damit die gefährlichste Prüfung im ganzen Verfahren, und sie hatte bisher kein
+Gegenstück zum Rot-Beweis.
+
+Zweimal an einem Tag geschehen: Die Sonde prüfte die **bestätigende** statt der
+widerlegenden Richtung, war technisch korrekt, grün — und die Schlussfolgerung
+falsch. Einmal hätte das den schwersten Fund des Tages abgeräumt.
+
+**Vor dem Verwerfen die Gegenfrage stellen: „Welche Eingabe würde der Stimme
+recht geben?"** Wer sie nicht beantworten kann, hat nicht widerlegt, sondern
+nicht reproduziert. Erwartungswerte VOR der Sonde festlegen — eine Sonde kann
+ihre eigenen Befunde erzeugen.
+
+**Drei Urteile statt zwei.** Zwischen „bestätigt" und „Fehlbefund" fehlt der
+häufigste Fall:
+
+- **bestätigt** — reproduziert, kommt in die Nacharbeit
+- **richtiger Instinkt, falsche Begründung** — die Stimme zeigt auf eine echte
+  Stelle und begründet sie falsch. **Der Fund bleibt**, die Begründung wird
+  ersetzt. Ohne diese Kategorie wurden in einem Projekt zwei echte Befunde als
+  Fehlbefunde abgeräumt.
+- **widerlegt** — mit Nachweis, und mit beantworteter Gegenfrage oben.
+
+**Schwere-Umstufung ist erlaubt und wird gekennzeichnet.** Der Arbiter darf hoch-
+und herunterstufen (die Konsumenten-Frage macht aus einem Anzeigefehler regelmäßig
+einen Schreibpfad-Fehler). Die Umstufung wird im Panel-Kommentar als solche
+markiert, z. B. `P2 → P1 (arb.)`, sonst ist sie stille Meinung.
+
+**Widersprechen sich zwei Stimmen, entscheidet die Reproduktion**, nicht die
+Mehrheit und nicht die Plausibilität der Begründung.
 
 ## Prüfaufträge, die sich bewährt haben
 
@@ -142,7 +205,8 @@ einmal ein Seitenkanal gefunden, den die anderen beiden übersehen hatten.
 Nicht jeder Slice braucht drei Stimmen. **Die folgende Liste ist ABSCHLIESSEND,
 nicht beispielhaft** — nur diese drei Fälle dürfen ohne Panel landen:
 
-1. reine Testinfrastruktur ohne Verhaltensänderung,
+1. reine Testinfrastruktur ohne Verhaltensänderung — **ein neuer Test ist das
+   NICHT**: Er behauptet etwas über das Verhalten und kann falsch behaupten,
 2. Doku-Korrektur,
 3. Typisierung ohne Verhaltensänderung.
 

@@ -27,6 +27,12 @@ das mal so und mal so gemeint ist, wird ignoriert.
 „tag-fertig"; getaggt wird auf Ansage — sofern nicht ausdrücklich vorab
 freigegeben.
 
+**Modell-Stempel am Release-Commit.** Wie an jedem Bau-Commit (siehe
+`docs/agents/bau-brief.md`) hängt auch der Release-Commit
+`Built-With: <modell> (<datum>)` an. Ohne das ist die Herkunfts-Regel nach
+vier Wochen nicht mehr durchsetzbar, und jede Aussage über Modellverhalten
+bleibt Anekdote.
+
 Seit Scheibe 1 lösen Tags in diesem Repo überhaupt CI aus (`tags: ["v*"]` im
 Trigger von `ci.yml`) — vorher konnte „Tag erst nach grüner CI" gar nicht
 geprüft werden, weil ein Tag-Ref nie einen Lauf erzeugte. Damit ist die

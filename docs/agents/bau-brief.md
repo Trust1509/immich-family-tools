@@ -1,35 +1,90 @@
 # Bau-Brief: Vorlage für Aufträge an Bau-Subagenten
 
+> **Der Bau-Brief ist die einzige Leitplanke, die den Bauer erreicht.**
+> Regeln im Repo erreichen ihn nicht: Ein Bau-Subagent arbeitet den Brief ab,
+> nicht `docs/agents/`. In fünf Projekten gemeldet, zweimal ist genau daran
+> eine Pflichtregel gescheitert — sie stand im Repo und fehlte im Brief.
+>
+> Deshalb hat der Brief ein **Pflicht-Gerüst**. Fehlt ein Block, ist der Brief
+> nicht fertig; das ist prüfbar — vor jedem Absenden verbindlich:
+> `sh scripts/bau-brief-pruefen.sh <brief.md>`.
+
+## Pflicht-Gerüst (alle acht Blöcke, keiner leer)
+
+```markdown
+## 1 Auftrag ⟨was gebaut wird, in zwei Sätzen⟩
+
+## 2 Befund ⟨bereits verifiziert — NICHT neu recherchieren⟩
+
+## 3 Konsumenten ⟨WER RUFT DEN GEÄNDERTEN CODE AUF? Jeden nennen.⟩
+
+## 4 Sichtbares ⟨ändert der Slice sichtbares Verhalten? Doku-Folge?⟩
+
+## 5 Nachweis ⟨Rot-Beweis je neuem Test, inkl. Verdrahtung;
+
+                          bei ganzen Suiten zwei Mutationen⟩
+
+## 6 Prüf-Kommandos ⟨ALLE, die die CI fährt — nicht nur die naheliegenden⟩
+
+## 7 Fixtures ⟨erfunden, nie aus dem Kontext übernommen⟩
+
+## 8 Randbedingungen ⟨Vordergrund, lokal committen, nicht pushen,
+
+                          Umfang nicht erweitern⟩
+```
+
+**Block 3 ist der teuerste, wenn er fehlt** — in vier von fünf Projekten kam
+darüber ein Fund, den sonst niemand hatte.
+
+**Zuschnitt:** Betrifft ein Slice keine Testsuite (reine Doku, reine
+Konfiguration, keine Code-Änderung), haben die Blöcke 5 (Nachweis) und 7
+(Fixtures) keinen Gegenstand. Dann steht dort **eine Zeile Begründung** —
+z. B. „Kein Gegenstand: der Slice ändert keinen ausführbaren Code der
+Anwendung" — nicht nichts. `scripts/bau-brief-pruefen.sh` prüft nur
+Anwesenheit von Inhalt, keine Qualität; ein leerer Block besteht die Prüfung
+nicht, eine Begründungszeile schon.
+
+**Was NICHT in den Brief gehört: Bewegungsverbote.** Ein Brief liefert Befunde,
+keine gesperrten Zonen. Real passiert: Der Brief verbot, eine bestimmte Funktion
+anzufassen — genau dort saß die Ein-Zeilen-Behebung eines Panel-Funds.
+
 Ein Bau-Brief ist der Unterschied zwischen einem Slice, der beim ersten Panel
 durchgeht, und einem, der drei Runden braucht. Die Punkte unten stehen alle,
 weil ihr Fehlen einmal Geld gekostet hat.
 
+**Modell-Stempel:** Der Bauer hängt an seinen Commit `Built-With: <modell>
+(<datum>)` an — sonst ist die Herkunfts-Regel nach vier Wochen nicht mehr
+durchsetzbar, und jede Aussage über Modellverhalten bleibt Anekdote.
+
 ---
 
-## Gerüst
+## Gerüst (ausformuliert)
 
 ```
 Repo: ⟨Pfad⟩. Branch ⟨…⟩, HEAD ⟨…⟩. Baue Issue #⟨…⟩.
 
-## Befund (bereits verifiziert, nicht neu recherchieren)
+## 2 Befund (bereits verifiziert, nicht neu recherchieren)
 ⟨Was schon gemessen/geprüft ist — mit Datei:Zeile. Erspart dem Bauer die
 Sucharbeit und verhindert, dass er zu einem anderen Schluss kommt als die
 Vorarbeit.⟩
 
-## Auftrag
+## 1 Auftrag
 ⟨Was gebaut werden soll. Bei mehreren Teilen: Reihenfolge und warum.⟩
 
 ## Fallen, die ich kenne
 ⟨Jede bekannte Stolperstelle explizit. Siehe „Typische Fallen" unten.⟩
 
-## Pflichtfragen
+## 3 Konsumenten
 - Wer ruft den geänderten Code auf?
+
+## 4 Sichtbares
 - Ändert der Slice sichtbares Verhalten? (dann Doku im selben Slice)
 
-## Abnahme
-⟨Prüfbare Punkte, kein Fließtext. Je Punkt: womit belegt.⟩
+## 5 Nachweis / 7 Fixtures
+⟨Prüfbare Punkte, kein Fließtext. Je Punkt: womit belegt. Ohne Testsuite:
+eine Zeile Begründung statt nichts.⟩
 
-## Randbedingungen
+## 6 Prüf-Kommandos / 8 Randbedingungen
 ⟨Test-Kommandos VOLLSTÄNDIG, Zeitlimits, Vordergrund, nicht pushen, …⟩
 ```
 
@@ -37,17 +92,17 @@ Vorarbeit.⟩
 
 ## Die Pflichtfragen — warum sie drinstehen
 
-**„Wer ruft den geänderten Code auf?"**
+**„Wer ruft den geänderten Code auf?" (Block 3)**
 Die teuersten Fehler entstanden durch ungesehene Aufrufer: vier Auswahlfelder,
 die nach einer Listen-Umstellung leer blieben; ein Frontend, das ein Feld noch
 erwartete; ein Cockpit, dessen Hauptablauf durch eine neue Sperre starb. Der
 Bauer soll die Konsumenten **auflisten**, nicht behaupten, es gäbe keine.
 
-**„Ändert der Slice sichtbares Verhalten?"**
+**„Ändert der Slice sichtbares Verhalten?" (Block 4)**
 Wenn ja, gehört die Doku in denselben Slice. Sonst driftet sie, und der nächste
 Agent glaubt ihr.
 
-**„Rot-Beweis für jeden neuen Test."**
+**„Rot-Beweis für jeden neuen Test." (Block 5)**
 Den Fix sabotieren und zeigen, dass der Test fällt. **Auch die Verdrahtung
 sabotieren** — die Frage lautet: „Welche einzelne Zeile könnte ich löschen, ohne
 dass etwas rot wird?" Drei reale Fälle, in denen ein grüner Test nichts bewies,
@@ -55,9 +110,10 @@ stehen in `lehren.md`.
 
 ---
 
-## Randbedingungen, die immer mitmüssen
+## Randbedingungen (Block 8), die immer mitmüssen
 
-- **Alle** Prüf-Kommandos nennen, die die CI fährt. In diesem Projekt sind das:
+- **Alle** Prüf-Kommandos (Block 6) nennen, die die CI fährt. In diesem
+  Projekt sind das:
   - `pytest -q backend/tests`
   - `python -m compileall -q backend`
   - im `frontend/`: `npm test`
@@ -113,6 +169,36 @@ Im Nachtrag:
   Fehlbefund kostet eine Runde.
 - Je Punkt: Schwere, Fundstelle, **Nachweis**. „Wirkt unsauber" ist kein Auftrag.
 
+Die Panel-Pflicht hängt am **gelandeten Zustand**, nicht am Slice — auch die
+Nacharbeit selbst ist neuer Code und braucht ein eigenes (ggf. verkürztes)
+Panel, siehe `panel.md`.
+
+---
+
+## Der Nacharbeits-Brief ist ein Bau-Brief
+
+Panel-Auflagen sind **Anforderungen, keine Implementierungen** — die Freiheit,
+die eine Auflage offenlässt, ist genau die Stelle, an der der nächste Defekt
+entsteht (zweimal belegt, einmal _nachdem_ der erste Fall dokumentiert war).
+
+Deshalb: Nacharbeit bekommt dasselbe Pflicht-Gerüst, plus zwei Blöcke:
+
+```markdown
+## 9 Bestätigt ⟨arbitrierte Auflagen, nummeriert, je mit Nachweis⟩
+
+## 10 Ausdrücklich abgeräumt — hier ist NICHTS zu tun
+
+                       ⟨widerlegte Fehlbefunde, damit der Bauer nicht sucht⟩
+```
+
+Block 10 wurde in einem anderen Projekt erfunden, weil `panel.md` zwar
+„ausdrücklich abgeräumt" verlangt, aber nicht sagt, wo das steht. Ohne ihn
+sucht der Bauer nach Fehlern, die es nicht gibt.
+
+**Frischer Bauer statt desselben:** Bewährt hat sich auch, die Nacharbeit an
+einen _anderen_ Subagenten zu geben. In einem Fall widersprach der frische
+Bauer der arbitrierten Auflage produktiv und fand dabei einen Folgefehler.
+
 ---
 
 ## Fixtures werden erfunden, nie aus dem Kontext übernommen
@@ -146,3 +232,19 @@ fing die Suite die eine Regression und die andere nicht — weil der Zugangsschu
 an zwei unabhängigen Strängen hing und der Test nur einen berührte. Was die
 Suite **nicht** behauptet, gehört in den Test geschrieben, nicht in die
 Erinnerung.
+
+---
+
+## Wenn ein Bauer mitten im Rot-Beweis stirbt
+
+Der Rot-Beweis ist das einzige Ritual, das den Code **absichtlich kaputt macht**.
+Bricht die Sitzung dabei ab, beschreibt der letzte Bericht den Zustand _davor_
+(„alle Tests bestehen, jetzt der Rot-Beweis") — wer das liest und nicht
+nachsieht, übernimmt Sabotage als fertige Arbeit.
+
+**Wiederaufnahme-Protokoll, immer in dieser Reihenfolge:**
+
+1. `git status` und `git diff` lesen, **bevor** irgendetwas gebaut wird.
+2. `git log --oneline origin/main..HEAD` — was ist lokal, was gepusht?
+3. Den letzten Bericht als **Absichtserklärung** lesen, nicht als Zustand.
+4. Erst dann weiterbauen — und nichts doppelt.

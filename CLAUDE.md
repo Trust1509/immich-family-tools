@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.7.1** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.8.0** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -54,60 +54,26 @@ Schnittstellen-Zuschnitt, Testform: selbst. Ob eine Zahlung auf eine
 abgeschlossene Rechnung möglich sein soll: fragen. Im Zweifel: eine Annahme
 formulieren, weiterbauen, die Annahme sichtbar machen.
 
-## Review-Panel — verbindlich nach jedem nicht-trivialen Slice
+## Review-Panel
 
-Drei Stimmen, Details und Kommandos in `docs/agents/panel.md`:
+Verbindlich nach **jedem nicht-trivialen Slice**, vor dem Landen. Drei
+Stimmen (blinde Erststimme, unabhängiges Modell, günstige Drittstimme),
+Ablauf, Arbitrierung, Panel-Kommentar-Form und Verhältnismäßigkeit stehen
+vollständig in `docs/agents/panel.md` — keine Kurzfassung hier, um
+Doppelpflege zu vermeiden. Modellnamen und Aufrufkommandos der Stimmen 2 und
+3 für dieses Projekt stehen ebenfalls dort.
 
-1. **Blinde Erststimme** — frischer Reviewer-Subagent, bekommt **nur Diff und
-   Repo**, nicht den Bau-Brief. Liefert erfahrungsgemäß die schwersten Funde,
-   weil er den Code liest statt der Absicht.
-2. **Zweite Stimme** (GPT über Codex-CLI) über denselben Diff, unabhängiges
-   Modell.
-3. **Dritte Stimme** (DeepSeek, günstig, diff-only) als Ergänzung.
+## Bau-Brief
 
-Der Panel-Kommentar hat eine **feste Form** (`docs/agents/panel-kommentar.md`):
-eine Überschrift je Stimme, auch bei „keine Funde". Fällt eine Stimme aus
-(Werkzeug nicht verfügbar, kein Guthaben), steht unter ihrer Überschrift der
-**Grund** — mit zweien weitermachen **und es dem Owner sagen**, nie
-stillschweigend reduzieren. Ein Slice ohne vollständiges oder
-vermerkt-verkürztes Panel gilt als **nicht geprüft**.
-
-**Immer volles Panel bei Code, den niemand aus dem Team gebaut hat** —
-zugelieferter Zweig, fremdes Modell, übernommenes Beispiel. Unabhängig vom
-Thema, auch wenn er fachlich unauffällig aussieht: Die mitgelieferten Tests
-stammen vom selben Autor wie die Annahme, die sie prüfen sollen. Dieses Projekt
-hat den Fall real getroffen (siehe `docs/agents/panel.md` › Verhältnismäßigkeit).
-
-Konfigurations- und Doku-Slices dürfen ohne volles Panel landen; die Reduktion
-wird dann im Issue vermerkt (siehe „Verhältnismäßigkeit" in `panel.md`).
-
-## Bau-Brief: die Pflichtfragen
-
-In **jeden** Bau-Auftrag gehören (Details in `docs/agents/bau-brief.md`):
-
-- **„Wer ruft den geänderten Code auf?"** Konsumenten aller Türen und des
-  Frontends ins Material. Die teuersten Fehler entstanden durch ungesehene
-  Aufrufer.
-- **„Ändert der Slice sichtbares Verhalten?"** Wenn ja: Doku im selben Slice
-  oder eine Begründung im Report.
-- **„Rot-Beweis für jeden neuen Test."** Den Fix sabotieren, zeigen dass der Test
-  fällt. Auch die _Verdrahtung_ sabotieren, nicht nur die Logik. Ein Test ohne
-  Rot-Beweis ist eine Behauptung.
-- **Alle** Prüf-Kommandos nennen, die die CI fährt — nicht nur die naheliegenden
-  (Liste siehe „Prüfschritte" unten).
-- Läufe im Vordergrund, Zeitlimits explizit, keine Hintergrundprozesse.
-- Lokal committen, **nicht** pushen. Landen entscheidet der Hauptagent nach dem Panel.
+Jeder Bau-Auftrag folgt dem Pflicht-Gerüst aus `docs/agents/bau-brief.md` —
+acht Blöcke, keiner leer. **Vor jedem Absenden verbindlich:**
+`sh scripts/bau-brief-pruefen.sh <brief.md>`. Details, Begründungen und
+projektspezifische Prüf-Kommandos stehen dort, nicht hier.
 
 ## Release
 
-Siehe `docs/agents/release-ritual.md`. Kurz: Version und Notizen im selben
-Commit (`backend/version.py`, `frontend/src/version.ts`, `frontend/package.json`,
-`CHANGELOG.md` — alle vier), Risiko ehrlich kennzeichnen (Migration ⇒ Backup
-empfohlen), Tag erst nach grüner CI — und **der Tag ist eine Owner-Entscheidung**,
-nicht die des Agenten, sofern nicht ausdrücklich vorab freigegeben. Seit Scheibe 1
-lösen Tags CI aus (`tags: ["v*"]`), damit ist „Tag erst nach grüner CI"
-überhaupt überprüfbar; für gefahrlose Patch-Releases mit grüner CI gilt eine
-stehende Owner-Freigabe, Riskantes bleibt Owner-Sache.
+Siehe `docs/agents/release-ritual.md` — Ablauf, Risikostufen, welche Dateien
+die Version führen, Owner-Freigabe für Tags. Keine Kurzfassung hier.
 
 ## Prüfschritte
 
