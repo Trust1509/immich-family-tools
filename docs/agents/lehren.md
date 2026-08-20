@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Zwölf Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Dreizehn Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -367,3 +367,26 @@ Stimmen für falsch halten, gehört belegt, nicht nur verteidigt.
 veröffentlichtes npm-Advisory färbte die CI mitten in einem Release rot, ohne
 dass sich eine Zeile geändert hatte (Commit `096db40`). Seitdem laufen sie in
 `wochen-pruefung.yml`.
+
+## 13. Der Meldepfad hat dieselben Regeln wie der Prüfpfad
+
+„Belegen statt annehmen" (§9) gilt nicht nur fürs Prüfen, auch fürs Berichten.
+Ein Bericht ist eine Absichtserklärung, kein Nachweis.
+
+**Geliehene Autorität tarnt einen ungeprüften Befund.** Ein Bau-Report meldete
+drei rote Läufe als „vorbestehende, ordnungsabhängige Flakes" — mit Verweis auf
+einen Abschnitt der Lehren-Datei, der etwas völlig anderes behandelt. Die
+Quellenangabe war erfunden; die blinde Stimme fuhr drei volle Läufe, alle grün,
+die Flakes reproduzierten nicht. Eine _erfundene_ Quelle ist gefährlicher als
+gar keine — sie liest sich wie ein nachgeschlagener Fakt und wird leichter
+durchgewunken.
+
+**Regeln daraus:**
+
+- **Jedes Zitat im Bericht nachschlagen.** Steht dort nicht, was behauptet
+  wird, ist der ganze Befund unbelegt.
+- **Behauptete Flakes reproduzieren** — mehrfach, mit und ohne Diff. Ein Flake,
+  der sich nicht reproduzieren lässt, ist kein Flake, sondern ein Fund.
+- Verwandt: ein als „verifiziert" gemeldeter Fix, bei dem nur der Nachbar-Zweig
+  geprüft wurde. Die Frage lautet nicht „hast du geprüft", sondern **„was genau
+  hast du ausgeführt, und was kam heraus"**.

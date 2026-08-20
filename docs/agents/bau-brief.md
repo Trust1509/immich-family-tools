@@ -160,8 +160,8 @@ _hausübliche_ Änderungsmuster oder nur die naive Form?
 
 ## Nacharbeit nach dem Panel
 
-Denselben Subagenten weiterbeauftragen, nicht einen neuen — er hat den Kontext.
-Im Nachtrag:
+Wer die Nacharbeit baut, entscheidet die **Art der Auflage** — siehe unten bei
+„Der Nacharbeits-Brief ist ein Bau-Brief", nicht eine Vorliebe. Im Nachtrag:
 
 - **Was bestätigt wurde**, nicht nur was zu tun ist. Sonst sucht der Bauer nach
   Problemen, die geprüft und in Ordnung sind.
@@ -195,9 +195,23 @@ Block 10 wurde in einem anderen Projekt erfunden, weil `panel.md` zwar
 „ausdrücklich abgeräumt" verlangt, aber nicht sagt, wo das steht. Ohne ihn
 sucht der Bauer nach Fehlern, die es nicht gibt.
 
-**Frischer Bauer statt desselben:** Bewährt hat sich auch, die Nacharbeit an
-einen _anderen_ Subagenten zu geben. In einem Fall widersprach der frische
-Bauer der arbitrierten Auflage produktiv und fand dabei einen Folgefehler.
+**Wer die Nacharbeit baut — nach der Art der Auflage, nicht nach Vorliebe:**
+
+- **Mechanische Auflage** (benannter Fix an benannter Stelle, kein Entwurf
+  berührt) → **derselbe Bauer.** Sein Kontext spart die Einarbeitung, und es
+  gibt nichts zu hinterfragen.
+- **Auflage, die den ENTWURF berührt** (eine Vorgabe wird umgekehrt, eine
+  Struktur kommt dazu) → **frischer Bauer.** Der bisherige verteidigt seine
+  eigene Konstruktion; ein frischer widerspricht produktiv. Real belegt: Der
+  frische Bauer widersprach der arbitrierten Auflage und fand dabei einen
+  Folgefehler.
+
+_Verworfen wurde die pauschale Regel „immer derselbe, er hat den Kontext" —
+Kontext ist bei Entwurfs-Auflagen genau das Hindernis. Und die pauschale Regel
+„immer frisch" kostet bei Ein-Zeilen-Fixes mehr, als sie bringt. Beide
+Varianten standen zuvor gleichzeitig in diesem Dokument, 60 Zeilen
+auseinander — das war der eigentliche Fehler: Wer oben las, machte es anders
+als wer unten las._
 
 ---
 
@@ -232,6 +246,31 @@ fing die Suite die eine Regression und die andere nicht — weil der Zugangsschu
 an zwei unabhängigen Strängen hing und der Test nur einen berührte. Was die
 Suite **nicht** behauptet, gehört in den Test geschrieben, nicht in die
 Erinnerung.
+
+---
+
+## Was im Bericht des Bauers zu prüfen ist
+
+Ein Bericht ist eine Absichtserklärung, kein Nachweis. Zwei Muster haben sich als
+gefährlich erwiesen, beide **nicht böswillig** — Modelle vervollständigen
+plausibel:
+
+- **Erfundene Quellenangaben.** Ein Report meldete drei rote Läufe als
+  „vorbestehende, ordnungsabhängige Flakes" — **mit Verweis auf einen Abschnitt
+  der Lehren-Datei, der etwas völlig anderes behandelt.** Die blinde Stimme fuhr
+  drei volle Läufe: alle grün, die Flakes reproduzierten nicht. Geliehene
+  Autorität tarnt einen ungeprüften Befund, und die _erfundene_ Quelle ist
+  gefährlicher als gar keine — sie liest sich wie ein nachgeschlagener Fakt und
+  wird leichter durchgewunken.
+  → **Jedes Zitat im Bericht nachschlagen.** Steht dort nicht, was behauptet wird,
+  ist der ganze Befund unbelegt.
+- **Behauptete Flakes.** Wer einen roten Lauf als Flake abtut, muss ihn
+  **reproduzieren** — mehrfach, mit und ohne Diff. Ein Flake, der sich nicht
+  reproduzieren lässt, ist kein Flake, sondern ein Fund.
+
+Verwandt: Ein als „verifiziert" gemeldeter Fix, bei dem nur der Nachbar-Zweig
+geprüft wurde. Die Frage lautet nicht „hast du geprüft", sondern **„was genau hast
+du ausgeführt, und was kam heraus"**.
 
 ---
 

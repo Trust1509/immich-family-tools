@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.8.0** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.8.2** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -56,12 +56,20 @@ formulieren, weiterbauen, die Annahme sichtbar machen.
 
 ## Review-Panel
 
-Verbindlich nach **jedem nicht-trivialen Slice**, vor dem Landen. Drei
-Stimmen (blinde Erststimme, unabhängiges Modell, günstige Drittstimme),
-Ablauf, Arbitrierung, Panel-Kommentar-Form und Verhältnismäßigkeit stehen
-vollständig in `docs/agents/panel.md` — keine Kurzfassung hier, um
-Doppelpflege zu vermeiden. Modellnamen und Aufrufkommandos der Stimmen 2 und
-3 für dieses Projekt stehen ebenfalls dort.
+Verbindlich nach **jedem nicht-trivialen Slice**, vor dem Landen. **Trivial ist
+abschließend nur:** reine Testinfrastruktur ohne Verhaltensänderung (ein neuer
+Test zählt NICHT dazu — er behauptet etwas über Verhalten), Doku-Korrektur ohne
+ausgelieferten Inhalt, Typisierung ohne Verhaltensänderung. **Immer volles
+Panel** bei Datenmigrationen, Datenschutz-/Berechtigungslogik, allem mit
+Geld-/Steuerbezug, allem über eine Schnittstelle nach außen — und allem mit
+**Herkunft**: Code, den niemand aus dem Team gebaut hat (Fremdmodell,
+zugelieferter Zweig, übernommenes Beispiel).
+
+Drei Stimmen (blinde Erststimme, unabhängiges Modell, günstige Drittstimme),
+Ablauf, Arbitrierung und Panel-Kommentar-Form stehen vollständig in
+`docs/agents/panel.md` — keine Kurzfassung darüber hinaus, um Doppelpflege zu
+vermeiden. Modellnamen und Aufrufkommandos der Stimmen 2 und 3 für dieses
+Projekt stehen ebenfalls dort.
 
 ## Bau-Brief
 
@@ -72,8 +80,12 @@ projektspezifische Prüf-Kommandos stehen dort, nicht hier.
 
 ## Release
 
-Siehe `docs/agents/release-ritual.md` — Ablauf, Risikostufen, welche Dateien
-die Version führen, Owner-Freigabe für Tags. Keine Kurzfassung hier.
+**Schwelle „gefahrlos":** nur Code, keine Migration — dafür gilt bei grüner CI
+eine stehende Owner-Freigabe zum Taggen; jede Migration (Stufe backup oder
+breaking) bleibt Owner-Sache und wird vor dem Tag gefragt, im Zweifel die
+vorsichtigere Stufe. Ablauf, welche Dateien die Version führen und alle
+Details stehen in `docs/agents/release-ritual.md` — keine weitere
+Kurzfassung hier.
 
 ## Prüfschritte
 

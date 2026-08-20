@@ -91,8 +91,10 @@ ersetzt keine Reproduktion: Zwei Stimmen können denselben Fehler machen, und di
 diff-only-Stimme liest gelegentlich die Vorher-Seite eines Diffs und meldet
 einen längst gefixten Zustand.
 
-**4. Nacharbeit** an denselben Subagenten, der gebaut hat (Kontext bleibt) — mit
-dem, was **bestätigt** wurde, und mit ausdrücklich **abgeräumten** Fehlbefunden.
+**4. Nacharbeit** nach `bau-brief.md` — mit dem, was **bestätigt** wurde, und mit
+ausdrücklich **abgeräumten** Fehlbefunden. Wer sie baut (derselbe Bauer oder ein
+frischer), entscheidet die **Art der Auflage**, nicht eine Vorliebe — siehe
+`bau-brief.md`, Abschnitt „Der Nacharbeits-Brief ist ein Bau-Brief".
 
 **Die Regel hängt am GELANDETEN ZUSTAND, nicht am Slice.** Was am Ende auf dem
 Hauptzweig liegt, ist geprüft — egal in wie vielen Anläufen es dorthin kam.
