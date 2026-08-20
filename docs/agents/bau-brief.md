@@ -36,6 +36,14 @@
 **Block 3 ist der teuerste, wenn er fehlt** — in vier von fünf Projekten kam
 darüber ein Fund, den sonst niemand hatte.
 
+**Baut der Hauptagent selbst, entfällt der Empfänger — nicht das Gerüst.** Die
+acht Themen werden dann vor dem ersten Commit durchgegangen, auch ohne
+Bau-Subagenten. Eine gekürzte Eigenliste („nur die drei, die mir fehlen") ist
+die falsche Antwort — sie schreibt den nächsten blinden Fleck fest, derselbe
+Kurzfassung/Langfassung-Fehler eine Ebene tiefer. Ein gegenstandsloses Thema
+kostet eine Zeile Begründung, und die ist billiger als eine selbst
+zurechtgeschnittene Liste.
+
 **Zuschnitt:** Betrifft ein Slice keine Testsuite (reine Doku, reine
 Konfiguration, keine Code-Änderung), haben die Blöcke 5 (Nachweis) und 7
 (Fixtures) keinen Gegenstand. Dann steht dort **eine Zeile Begründung** —
@@ -52,9 +60,12 @@ Ein Bau-Brief ist der Unterschied zwischen einem Slice, der beim ersten Panel
 durchgeht, und einem, der drei Runden braucht. Die Punkte unten stehen alle,
 weil ihr Fehlen einmal Geld gekostet hat.
 
-**Modell-Stempel:** Der Bauer hängt an seinen Commit `Built-With: <modell>
-(<datum>)` an — sonst ist die Herkunfts-Regel nach vier Wochen nicht mehr
-durchsetzbar, und jede Aussage über Modellverhalten bleibt Anekdote.
+**Modell-Stempel:** Der Bauer hängt an seinen Commit den mehrteiligen Stempel
+`Built-With: bau=<modell>; nacharbeit=<modell>; arbitriert=<modell> (<datum>)`
+an — nicht besetzte Rollen weglassen. Eine Welle hat oft mehrere Akteure (Bau,
+Nacharbeit, Arbitrierung); ohne das feste Mehrteil-Format ist die
+Herkunfts-Regel nach vier Wochen nicht mehr durchsetzbar, und jede Aussage über
+Modellverhalten bleibt Anekdote.
 
 ---
 

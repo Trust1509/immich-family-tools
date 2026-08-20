@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Dreizehn Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Fünfzehn Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -213,7 +213,12 @@ Real getroffen hat es uns dreimal:
   die strikte laufen lässt, sieht Fehler in Dateien nicht, die dort nicht
   gelistet sind.
 - **CI-Wachen nur run-id-gepinnt** (`gh run watch <id> --exit-status`), nie über
-  eine Listenposition — sonst wartet man auf den falschen Lauf.
+  eine Listenposition — sonst wartet man auf den falschen Lauf. **Die Falle ist
+  schärfer als sie klingt:** `gh run list --limit 1` unmittelbar nach dem Push
+  liefert den Lauf des VORGÄNGER-Commits, weil der eigene noch nicht existiert.
+  Real passiert: Ein Issue wurde gegen fremdes Grün geschlossen, der rote Lauf
+  fiel erst im nächsten Slice auf. Richtig: über `headSha` des eigenen Commits
+  filtern, dann auf die gefundene ID warten.
 - **SQLite ≠ PostgreSQL.** Negative `LIMIT`/`OFFSET` sind auf SQLite folgenlos
   und auf PG ein Fehler; `ILIKE` ist auf SQLite ASCII-only. Ein Test, der die DB
   durch SQLite ersetzt, prüft im PG-Job **nicht** PostgreSQL.
@@ -390,3 +395,50 @@ durchgewunken.
 - Verwandt: ein als „verifiziert" gemeldeter Fix, bei dem nur der Nachbar-Zweig
   geprüft wurde. Die Frage lautet nicht „hast du geprüft", sondern **„was genau
   hast du ausgeführt, und was kam heraus"**.
+
+## 14. Ein Widerspruch über zwei Dateien ist unsichtbarer als einer in derselben
+
+In einem Dokument fällt er beim Lesen auf. Über zwei Dateien verteilt sieht ihn
+kein Leser beisammen — **jeder befolgt die Fassung, die er zuerst findet**, und
+der Ausführende ist meist ein Subagent, dem genau eine der beiden Dateien
+zitiert wurde.
+
+Real: Ein Projekt übernahm ein neues Kriterium in die eine Datei; die andere trug
+weiter die alte Pauschalregel. Geändert wurde die Stelle, die im Auftrag benannt
+war. Aufgefallen ist es nur, weil ausdrücklich nach Widersprüchen gefragt wurde.
+
+**Regel:** Wer eine Regel ändert, sucht sie in **allen** Dateien
+(`grep -rn` über das Repo), nicht nur an der genannten Stelle. Und: eine Regel
+hat genau einen Eigentümer, alle anderen Stellen verweisen.
+
+**Die Art der Datei bestimmt, WIE die Drift behoben wird** — nicht jede
+veraltete Stelle wird korrigiert:
+
+- **Anleitende Datei** (Skript, Anweisung, Checkliste) → **umschreiben.** Sie
+  soll den Ausführenden lenken; eine veraltete Fassung lenkt falsch.
+- **Dokumentierende Datei** (Architektur-Entscheidung, Protokoll, Release-Notiz)
+  → **datierter Nachtrag statt Korrektur.** Sie hält fest, was _damals_
+  entschieden wurde. Wer sie umschreibt, löscht die Historie und macht die
+  Entscheidung unnachvollziehbar.
+
+Gemessen an einem realen Fall: Zwei Stellen beschrieben ein Auslieferungs-Regime,
+das drei Tage später gewechselt hatte. Beide entstanden am selben Tag wie die
+Regel und blieben liegen. **Keine Prüfung hätte sie gefunden**, weil beide
+Dateien nie ausgeführt werden — eine Entscheidungsakte und ein Skript, das seit
+dem Umzug nicht mehr lief. Die Suche kostete zwei Minuten, die Korrektur zehn.
+
+## 15. Die Vorlage als Autorität unterdrückt die Messung
+
+Zwei Projekte machten dieselbe Messung an demselben Werkzeug. Eines schloss
+daraus „das Werkzeug ist falsch" und löste eine Korrektur aus. Das andere schloss
+„dann heißen meine Überschriften eben falsch" und plante, die eigenen Briefe
+umzubenennen.
+
+Die Selbstauskunft des zweiten trifft den Kern: _„Das Skript kam aus der Vorlage,
+und ich habe die Vorlage als Autorität behandelt. Meine Messung widersprach ihr,
+und ich habe die Messung umgedeutet statt das Werkzeug in Frage zu stellen."_
+
+**Regel: Eine Messung, die der Vorlage widerspricht, ist zuerst ein Befund über
+die Vorlage.** Sie umzudeuten ist erlaubt — aber erst, nachdem der umgekehrte
+Schluss ausdrücklich geprüft und verworfen wurde. Wer eine Vorlage baut, muss
+das ausdrücklich einladen; wer sie benutzt, darf es nicht abwarten.

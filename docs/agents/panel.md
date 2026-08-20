@@ -204,32 +204,27 @@ einmal ein Seitenkanal gefunden, den die anderen beiden übersehen hatten.
 
 ## Verhältnismäßigkeit
 
-Nicht jeder Slice braucht drei Stimmen. **Die folgende Liste ist ABSCHLIESSEND,
-nicht beispielhaft** — nur diese drei Fälle dürfen ohne Panel landen:
+Nicht jeder Slice braucht drei Stimmen. Welche Fälle ohne Panel landen dürfen
+(abschließende Liste) und wann immer das volle Panel gilt — einschließlich
+Herkunft — steht in `CLAUDE.md`, Abschnitt „Review-Panel". Diese Datei
+wiederholt die Schwelle nicht, um Doppelpflege zu vermeiden; eine Schwelle hat
+genau einen Eigentümer.
 
-1. reine Testinfrastruktur ohne Verhaltensänderung — **ein neuer Test ist das
-   NICHT**: Er behauptet etwas über das Verhalten und kann falsch behaupten,
-2. Doku-Korrektur,
-3. Typisierung ohne Verhaltensänderung.
+Der Grund für die Geschlossenheit der Trivial-Liste: „Ist das trivial?" ist
+genau der Punkt, an dem der Ausführende unter Zeitdruck sich selbst freispricht.
+Eine Aufzählung, die sich als Beispiel liest, macht mit der Zeit jeden Slice
+trivial.
 
-Der Grund für die Geschlossenheit: „Ist das trivial?" ist genau der Punkt, an dem
-der Ausführende unter Zeitdruck sich selbst freispricht. Eine Aufzählung, die
-sich als Beispiel liest, macht mit der Zeit jeden Slice trivial.
-
-**Immer volles Panel** bei: Datenmigrationen, Datenschutz- und
-Berechtigungslogik, allem was Geld oder Steuern berührt, allem, was über eine
-Schnittstelle nach außen geht — **und allem, was HERKUNFT hat**: Code, den
-niemand aus dem Team gebaut hat (Fremdmodell, zugelieferter Zweig, übernommenes
-Beispiel). Ein zugelieferter Zweig war fachlich unauffällig, tauschte aber einen
-dokumentierten Endpunkt gegen einen ausdrücklich undokumentierten; alle
-mitgelieferten Tests waren grün — sie stammten vom selben Autor und prüften
-dessen Annahme. Herkunft ist ein Risiko eigener Art, unabhängig vom Thema.
-(Der Fall stammt aus diesem Projekt und wurde als Vorlagen-Issue #2
-zurückgemeldet.)
+Beispiel für Herkunft als Pflichtfall: Ein zugelieferter Zweig war fachlich
+unauffällig, tauschte aber einen dokumentierten Endpunkt gegen einen
+ausdrücklich undokumentierten; alle mitgelieferten Tests waren grün — sie
+stammten vom selben Autor und prüften dessen Annahme. Herkunft ist ein Risiko
+eigener Art, unabhängig vom Thema. (Der Fall stammt aus diesem Projekt und
+wurde als Vorlagen-Issue #2 zurückgemeldet.)
 
 In diesem Repo fallen **Konfigurations- und Doku-Slices ohne Verhaltensänderung**
-unter Punkt 2 der Liste oben (Doku-Korrektur) bzw. sinngemäß Punkt 1 (reine
-Infrastruktur) — das ist eine Konkretisierung der Liste, keine zusätzliche
-Ausnahme. Ändert ein Konfigurations-Slice sichtbares Verhalten, gehört er nicht
-mehr hierher. Die Reduktion wird im Issue vermerkt, nicht stillschweigend
-angewandt.
+unter die Doku-Korrektur-Ausnahme aus `CLAUDE.md` bzw. sinngemäß unter reine
+Testinfrastruktur — das ist eine Konkretisierung der dortigen Liste, keine
+zusätzliche Ausnahme. Ändert ein Konfigurations-Slice sichtbares Verhalten,
+gehört er nicht mehr hierher. Die Reduktion wird im Issue vermerkt, nicht
+stillschweigend angewandt.

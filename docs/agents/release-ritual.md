@@ -28,22 +28,27 @@ das mal so und mal so gemeint ist, wird ignoriert.
 freigegeben.
 
 **Modell-Stempel am Release-Commit.** Wie an jedem Bau-Commit (siehe
-`docs/agents/bau-brief.md`) hängt auch der Release-Commit
-`Built-With: <modell> (<datum>)` an. Ohne das ist die Herkunfts-Regel nach
-vier Wochen nicht mehr durchsetzbar, und jede Aussage über Modellverhalten
-bleibt Anekdote.
+`docs/agents/bau-brief.md`) hängt auch der Release-Commit den mehrteiligen
+Stempel an: `Built-With: bau=<modell>; nacharbeit=<modell>;
+arbitriert=<modell> (<datum>)` — nicht besetzte Rollen weglassen. Ohne das ist
+die Herkunfts-Regel nach vier Wochen nicht mehr durchsetzbar, und jede Aussage
+über Modellverhalten bleibt Anekdote.
 
 Seit Scheibe 1 lösen Tags in diesem Repo überhaupt CI aus (`tags: ["v*"]` im
 Trigger von `ci.yml`) — vorher konnte „Tag erst nach grüner CI" gar nicht
 geprüft werden, weil ein Tag-Ref nie einen Lauf erzeugte. Damit ist die
-Bedingung jetzt tatsächlich überprüfbar. Für **gefahrlose Patch-Releases mit
-grüner CI** gilt eine stehende Owner-Freigabe; **Riskantes** (Stufe backup oder
-breaking) bleibt Owner-Sache und wird vor dem Tag gefragt.
+Bedingung jetzt tatsächlich überprüfbar. Welche Risikostufe eine stehende
+Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
+(Schwelle „gefahrlos") — diese Datei wiederholt sie nicht.
 
 ## Ablauf
 
 1. **Alles gelandet**, CI grün (jeden Lauf **run-id-gepinnt** beobachten, nie über
-   eine Listenposition — sonst wartet man auf den falschen Lauf).
+   eine Listenposition — sonst wartet man auf den falschen Lauf). **Falle:**
+   `gh run list --limit 1` direkt nach dem Push liefert oft den Lauf des
+   **Vorgänger-Commits**, weil der eigene noch nicht existiert — real wurde so
+   ein Issue gegen fremdes Grün geschlossen. Über den eigenen `headSha` filtern,
+   dann auf die gefundene Lauf-ID warten. Details in `docs/agents/lehren.md` §6.
 2. **Version bumpen** an allen Stellen, die sie führen.
 3. **Notizen-Eintrag** ganz oben: Titel, Risiko, „Neu", „Bitte testen".
    In der Sprache des Nutzers, nicht in der des Codes: _was er merkt_, nicht

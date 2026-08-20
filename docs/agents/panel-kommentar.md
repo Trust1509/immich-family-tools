@@ -14,6 +14,11 @@ geprüft" steht nirgends — und jede Aussage über Modellverhalten bleibt
 Anekdote, solange das einzelne Ergebnis den Modellstand nicht trägt. Anbieter
 ziehen still nach, deshalb das Datum.
 
+Das ist getrennt vom Modell-Stempel am **Commit**: Der trägt den mehrteiligen
+Stempel `Built-With: bau=<modell>; nacharbeit=<modell>; arbitriert=<modell>
+(<datum>)` (siehe `docs/agents/bau-brief.md`) — die Arbitrierung dieses Panels
+liefert den Wert für `arbitriert=`.
+
 ---
 
 ```markdown
