@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Fünfzehn Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Achtzehn Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -218,7 +218,24 @@ Real getroffen hat es uns dreimal:
   liefert den Lauf des VORGÄNGER-Commits, weil der eigene noch nicht existiert.
   Real passiert: Ein Issue wurde gegen fremdes Grün geschlossen, der rote Lauf
   fiel erst im nächsten Slice auf. Richtig: über `headSha` des eigenen Commits
-  filtern, dann auf die gefundene ID warten.
+  filtern, dann auf die gefundene ID warten. **Und: die Zählung je SHA ist
+  ZEITABHÄNGIG** (Vorlage v1.10.0) — Tage später liefert dieselbe Abfrage auch
+  Zeitplan-Läufe, die zufällig auf demselben Stand liefen; ein korrekt
+  gemeldetes „0 Läufe" wird so später zu „1 Lauf". Beweisführung braucht
+  **Lauf-ID und Zeitpunkt**, nicht die spätere Neuabfrage der Zahl.
+  **SHA-gebunden zu warten reicht außerdem nicht** (Vorlage v1.10.1) — zwei
+  weitere Wege führen zu „grün gemeldet, rot gewesen": **Der Exit-Code stirbt
+  in der Pipe** — `gh run watch <id> --exit-status | tail -3` liefert den
+  Exit-Code von `tail`, nicht den des Laufs; das bleibt bei grünen Läufen
+  unsichtbar und fällt erst beim ersten roten auf, also genau dann, wenn es
+  zählt. **Und „nicht gestartet" ist auch ein Fehlschlag** — ein Lauf kann rot
+  sein, weil die Jobs nie starteten (erschöpftes Laufzeit-Budget,
+  Zahlungsproblem, fehlende Rechte — null Schritte, Annotation statt
+  Testausgabe); wer nur auf grün/rot schaut, verwechselt „Code kaputt" mit
+  „Infrastruktur weg", und die Reaktionen sind gegensätzlich. **Die
+  vollständige Regel:** über den eigenen `headSha` filtern, das
+  `conclusion`-Feld lesen (nie den Exit-Code einer Pipe), und bei `failure`
+  zuerst prüfen, ob überhaupt Schritte gelaufen sind.
 - **SQLite ≠ PostgreSQL.** Negative `LIMIT`/`OFFSET` sind auf SQLite folgenlos
   und auf PG ein Fehler; `ILIKE` ist auf SQLite ASCII-only. Ein Test, der die DB
   durch SQLite ersetzt, prüft im PG-Job **nicht** PostgreSQL.
@@ -427,6 +444,34 @@ Regel und blieben liegen. **Keine Prüfung hätte sie gefunden**, weil beide
 Dateien nie ausgeführt werden — eine Entscheidungsakte und ein Skript, das seit
 dem Umzug nicht mehr lief. Die Suche kostete zwei Minuten, die Korrektur zehn.
 
+**Wie man sucht — vier Heuristiken (Vorlage v1.10.0):**
+
+- **Nach dem GELTUNGSBEREICH fragen, nicht nach dem Regelnamen.** Zwei Stellen
+  können dasselbe Wort benutzen und trotzdem Verschiedenes meinen, weil die
+  eine für JEDEN Fall gilt und die andere nur für einen Sonderfall — die
+  Dopplung findet `grep`, die Divergenz steckt im Nebensatz: **„Sagen beide
+  Stellen dasselbe darüber, WANN und FÜR WEN die Regel gilt?"**
+- **Wortgleiche Duplikate sind die gefährlicheren.** Divergente Fassungen
+  fallen auf, sobald jemand beide nebeneinanderhält; wortgleiche sehen bei
+  jeder Prüfung korrekt aus — bis eine geändert wird, ohne die andere
+  mitzuführen. Sie sind kein Fehler, sondern ein **wartender**.
+- **Die Handsuche findet, woran man sich erinnert.** Gezielt nach den Stellen
+  zu suchen, die man selbst bewusst verschoben hat, übersieht die, die man im
+  selben Arbeitsgang unbewusst *mit*verschoben hat. Ein zweiter Leser mit dem
+  **Muster** statt der Liste („suche nach demselben Muster weiter") findet
+  mehr als eine Checkliste.
+- **Nicht jede doppelt genannte Formulierung ist ein Schwellen-Duplikat.** Eine
+  Tatsachenaussage ohne Entscheidungscharakter darf mehrfach stehen — sie kann
+  nicht divergent _entscheiden_.
+
+**Die schärfste Form der Klasse ist Quelle vs. ausgeführte Kopie** — eine Regel,
+die als Repo-Datei UND als installierte Kopie in einem Agenten- oder
+Client-Verzeichnis existiert. Keine der beiden Dateien wird beim Lesen der
+anderen je mit angesehen, und nur ein Mensch kann synchronisieren. Für dieses
+Projekt hat das (noch) keinen konkreten Gegenstand — es gibt keine solche
+doppelte Kopie —, aber es ist der Fall, an den bei jeder neuen Automatisierung
+zu denken ist, die eine Repo-Regel irgendwo außerhalb des Repos nachbildet.
+
 ## 15. Die Vorlage als Autorität unterdrückt die Messung
 
 Zwei Projekte machten dieselbe Messung an demselben Werkzeug. Eines schloss
@@ -442,3 +487,160 @@ und ich habe die Messung umgedeutet statt das Werkzeug in Frage zu stellen."_
 die Vorlage.** Sie umzudeuten ist erlaubt — aber erst, nachdem der umgekehrte
 Schluss ausdrücklich geprüft und verworfen wurde. Wer eine Vorlage baut, muss
 das ausdrücklich einladen; wer sie benutzt, darf es nicht abwarten.
+
+## 16. Eine Prüfung rutscht zu dem, was leichter zu messen ist
+
+Aus Vorlage v1.10.1 (§19 dort). Zwei Fälle aus einem Projekt, an einem Tag,
+beide gegen den Prüfenden selbst:
+
+- **Präsenz geprüft, Struktur nicht.** Nach einem abgebrochenen Bauer wurde per
+  Textsuche kontrolliert, ob ein Schutz _existiert_ — er tat es. Was er
+  **umschloss**, wurde nicht geprüft: Die Sabotage hatte die geschützte
+  Zuweisung aus dem Schutz herausgeschoben. Gefunden hat es erst der Gate-Lauf
+  (441 Tests, einer rot — genau der, den die Sabotage kippen sollte).
+- **Aufruf geprüft, Wirkung nicht.** Ein selbst geschriebener Test blieb ohne
+  den zugehörigen Fix grün, weil jede Hilfsfunktion ihren Namen **vor** der
+  geprüften Anweisung protokollierte. Der Test belegte, dass etwas aufgerufen
+  wurde — nicht, dass es wirkte.
+
+**Die Diagnose ist beide Male dieselbe: Die Prüfung maß etwas, das leichter zu
+messen war als das Gemeinte.** Das ist keine Nachlässigkeit im Einzelfall,
+sondern die Richtung, in die eine Prüfung von selbst rutscht — von der Wirkung
+zur Präsenz, von der Struktur zum Vorkommen, vom Ergebnis zum Aufruf.
+
+Die Gegenfrage vor jeder eigenen Prüfung: **„Messe ich die Wirkung oder nur ihr
+Anzeichen?"** Und wenn nur das Anzeichen: Was müsste kaputt sein, damit mein
+Maß es NICHT bemerkt?
+
+_(Verwandt mit §1 und §9, aber eigenständig: Dort geht es um Prüfungen, die
+nichts beweisen. Hier beweisen sie etwas — nur nicht das Gesuchte.)_
+
+## 17. Eine Fähigkeitsgrenze, die still verwirft, macht die Metadaten-Karte zur Lüge
+
+Aus Vorlage v1.11.0 (§20 dort). Ein Feld war in der Metadaten-Schicht als
+schreibbar deklariert — die ist ausdrücklich als **Karte für Modelle** gedacht.
+An zwei von drei Türen verwarf der gemeinsame Eingabe-Mapper das Feld **still**:
+Der Aufruf gelingt, der Datensatz ist falsch, niemand erfährt es. Zwei Fehler,
+die einander verdecken: **die Karte lügt** (deklarierte ≠ tatsächliche
+Fähigkeit der Tür) und **die Grenze schweigt** (verwerfen statt ablehnen).
+
+Bei menschlichen Aufrufern ist das ärgerlich; bei Modell-Aufrufern ein
+Datenintegritäts-Risiko — zwischen Aufruf und Ergebnis sieht niemand mehr hin,
+und das Modell behandelt die Karte als verlässlich. Der bittere Teil: Der
+richtige Mechanismus existierte (ein Gate, dokumentiert mit „das Gate hält, was
+die Metadaten versprechen") — die echte Grenze war **an ihm vorbei** im Mapper
+verdrahtet. Der Wächter war nicht blind, er war zuständig für etwas anderes.
+
+**Regeln:** Eine Fähigkeitsgrenze wird DEKLARIERT und ABGELEHNT, nie still
+verworfen. Prüfsatz: **„Wenn ein Aufrufer dieses Feld ausdrücklich mitschickt —
+erfährt er, was damit passiert ist — auch wenn der Wert dabei seine BEDEUTUNG
+wechselt?"** Nein = Fehler, egal wie gut die Grenze begründet ist.
+
+**Verwerfen ist nur die eine Hälfte; die andere ist UMDEUTEN.** Belegt an der
+Behebung dieses Falls selbst (im Vorlagen-Repo): Nach der Freischaltung drehte
+eine Tür den String `"nein"` per `bool()` zu `True` — nichts wurde verworfen,
+der Wert wurde still ins Gegenteil verkehrt, und ein Beleg wäre mit falschem
+Betrag zum Kunden gegangen. Dieselbe Klasse in Gegenrichtung, gefunden von der
+blinden Erststimme im selben Slice, in dem diese Lehre geschrieben wurde. Wer
+eine Grenze begradigt, prüft beide Richtungen: **kommt der Wert an — und kommt
+er als DASSELBE an?** Für dieses Projekt konkret: Der PUT-Endpunkt für Konten
+und die JSON-Migration in `backend/services/config_store.py` sind die Stellen
+mit genau diesem Muster — ein Feld, das den Client-Aufruf übersteht, aber die
+Bedeutung wechselt (z. B. eine leere Zeichenkette, die still als „unverändert"
+statt als „gelöscht" interpretiert wird), ist derselbe Fehler wie oben. Kein
+Feld darf gleichzeitig als schreibbar deklariert und in einem Tür-Mapper
+verworfen werden — belegt durch einen Test, der die Tür wirklich benutzt.
+
+## 18. Ein Wächter, dessen Lauf niemand erzwingt, macht die Abdeckungszahl zur Beruhigung
+
+Aus Vorlage v1.11.0 (§21 dort). Ein guter Layout-Wächter meldete einen echten
+Fehler nicht — aus drei Gründen in aufsteigender Wichtigkeit: Er lief an 5 von
+59 Fenstern (**Abdeckung**); der Auslöser war ein persistierter Bedien-Zustand,
+den kein Testfall je einschaltet (**Zustand**); und seine Suite lief **gar
+nicht in der Pipeline** — sie wurde von Hand gestartet (**Ausführung**). Punkt
+drei entwertet die ersten beiden: _Ein Projekt kann über Monate seine Wächter
+ausbauen und dabei stetig weniger geschützt sein, ohne dass es irgendwo rot
+wird._ (§1 beschreibt eine Prüfung, die nie grün war — hier läuft sie schlicht
+nicht.)
+
+**Regeln:**
+
+- **Pflichtfrage beim Anlegen jeder Prüfung: „Was macht sie rot, ohne dass
+  jemand daran denkt?"** Ohne Antwort ist sie eine Notiz, kein Wächter.
+- Geht der automatische Lauf (noch) nicht: ausdrücklich und **terminiert**
+  ersetzen (Pflichtlauf im Release-Ritual, mit Datum und Rückdreh-Bedingung,
+  Muster §11). Kein stiller Verzicht.
+- **Abdeckung hat zwei Achsen:** welche Objekte UND in welchen Zuständen.
+  Persistierte Bedien-Zustände sind eigene Fälle, keine Varianten.
+- Ein **Sicherheitsnetz kann den Fehler unsichtbar machen** — wer eines
+  einzieht, lässt den Wächter dahinter messen.
+
+### Angewendet auf dieses Projekt: was macht welche Prüf-Suite rot, ohne dass jemand daran denkt?
+
+Die Pflichtfrage oben, einmal durch alle Prüf-Suiten dieses Repos
+durchgestellt — zwei Fälle sind bereits real eingetreten (a, b), die übrigen
+sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
+
+- **`pytest backend/tests`** — **(b), real eingetreten:** Auf diesem
+  Windows-Rechner bricht der Lauf an einer kaputten ACL im `%TEMP%`-Verzeichnis
+  ab, nicht am Code — `tmp_path` legt seine Verzeichnisse dort standardmäßig
+  an. Deshalb `--basetemp=/tmp/pytest-immich` in `CLAUDE.md` und im
+  Husky-Hook. Zweiter, unbelegter Kandidat: `test_config_store.py` überspringt
+  die Prüfung des Datei-Modus `0o600` mit `if os.name != "nt"` — auf Windows
+  läuft die Suite grün, ohne die Zugriffsrechte-Regel je zu prüfen; bricht sie
+  auf Linux (der tatsächlichen CI-Plattform), sieht das kein lokaler Lauf.
+- **`npm test` (Vitest)** — **kein Kandidat, sondern eine bestehende Lücke:**
+  Der Husky-Pre-Commit-Hook fährt `npx lint-staged`, den Frontend-Typecheck und
+  die Backend-Suite — **aber nicht `npm test`**. Die Vitest-Suite läuft
+  ausschließlich in der CI. Ein Regressionsfund erreicht den Bauer also nie am
+  Commit, sondern frühestens nach dem Push — und wenn der CI-Lauf aus einem der
+  in §6 genannten Gründe nicht startet, unter Umständen gar nicht.
+- **`npx tsc --noEmit`** — Der lokale Husky-Lauf typprüft gegen das, was gerade
+  in `frontend/node_modules` liegt. Führt jemand dort `npm install` statt
+  `npm ci` aus (z. B. nach einem manuellen Paket-Test), driftet die lokal
+  installierte TypeScript-Version von der durch `package-lock.json`
+  gepinnten — der Hook meldet grün gegen einen Stand, den `npm ci` in der CI
+  nie erzeugen würde.
+- **`npm run build`** — Windows/NTFS ist standardmäßig case-insensitiv, der
+  Ubuntu-CI-Runner nicht. Ein Import mit falscher Groß-/Kleinschreibung (z. B.
+  `./Button` statt `./button`) baut auf diesem Windows-Rechner anstandslos und
+  bricht ausschließlich in der CI — ohne dass sich am Quellcode zwischen den
+  Läufen etwas geändert hat.
+- **Husky-Pre-Commit-Hook** — er prüft **das ganze Repo, nicht den Diff**: Eine
+  vorbestehende, unberührte Baustelle in `frontend/` blockiert einen
+  reinen Backend-Commit, und umgekehrt. Das ist im Kern gewollt (dieselbe
+  Klasse von „muss laufen, sonst meldet es sich zu spät"), aber es bedeutet:
+  Wer den Hook wegen eines als „unrelated" empfundenen Rots einmal mit
+  `--no-verify` umgeht, hat exakt den Zustand aus §21 hergestellt — einen
+  Wächter, dessen Lauf niemand mehr erzwingt.
+- **`gitleaks` (CI, Secrets-Job)** — **(a)-verwandt:** Der Job checkt mit
+  `fetch-depth: 0` die **volle Git-Historie** aus und scannt sie komplett bei
+  jedem Lauf, nicht nur den aktuellen Diff. Ein Regel-Update im gitleaks-Projekt
+  selbst kann damit einen längst gelandeten, unveränderten Commit neu als Fund
+  markieren — CI wird rot, ohne dass in diesem Repo eine Zeile angefasst wurde.
+  Konkret erhöht: Mehrere Testdateien (u. a. `test_auth_service.py`,
+  `test_immich_client.py`, `test_config_store.py`) enthalten Literale wie
+  `api_key`, `token`, `secret` für erfundene Konten — aktuell niedrige Entropie
+  (`"secret"`, `"a-long-secret"`), aber ein künftiger Fixture-Wert, der wie ein
+  echter Schlüssel _aussieht_ (lang, zufällig wirkend), würde bei einem
+  schärferen Entropie-Ruleset genau hier zuschlagen, an einer Stelle, die
+  niemand als Sicherheitsproblem gebaut hat.
+- **Container-Bau (CI, `docker build`)** — **(a)-verwandt, Owner-Hinweis
+  „fremde Basis-Images":** `Dockerfile` zieht `node:22-alpine` und
+  `python:3.12-slim` über **bewegliche Tags**, nicht über einen Digest, und die
+  zweite Stufe fährt zusätzlich `apt-get update && apt-get install tzdata`
+  gegen die live Debian-Paketquellen. Jede der drei Stellen kann bei
+  unverändertem Repo-Stand rot werden: ein neu veröffentlichtes Basis-Image
+  unter demselben Tag, ein kurzzeitig inkonsistenter Debian-Mirror, oder ein
+  entferntes Paket. Der Bau-Test (`push: false`) prüft dann eine Umgebung, die
+  es beim nächsten Lauf schon nicht mehr gibt.
+- **Wochen-Prüfung (`pip-audit` / `npm audit`)** — **(a), real eingetreten:**
+  Ein neu veröffentlichtes npm-Advisory (`nanoid`, Commit `096db40`) färbte die
+  CI mitten in einem Release rot, ohne dass sich eine Zeile geändert hatte —
+  siehe §12. Deshalb laufen beide Scans seit diesem Fund **nicht** mehr auf dem
+  Push-Pfad, sondern wöchentlich in `wochen-pruefung.yml`. Der verbleibende
+  Rest-Fall: Läuft der wöchentliche Job selbst nicht durch (Budget, Rechte,
+  `workflow_dispatch` vergessen), meldet das niemand aktiv — die einzige
+  Prüfung dafür ist ein Mensch, der das Grün des letzten Laufs von Hand
+  nachsieht (vgl. §9, „das Vorhandensein einer Prüfung ist nicht ihr
+  Bestehen").

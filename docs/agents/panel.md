@@ -1,6 +1,7 @@
 # Review-Panel: drei Stimmen über denselben Diff
 
-Nach **jedem nicht-trivialen Slice**, vor dem Landen. Das Panel hat in der Praxis
+Nach **jedem Slice mit Klasse R2 oder höher** (siehe `CLAUDE.md`, „Risikoklasse
+je Slice"), vor dem Landen. Das Panel hat in der Praxis
 jeden zweiten Erstbau gestoppt — nicht wegen Kleinigkeiten, sondern wegen Funden,
 die in Produktion wehgetan hätten.
 
@@ -44,6 +45,26 @@ Daraus drei Regeln:
 
 Behalten lohnt trotzdem: Sie liefert **Konvergenz**, die einen Fund von einer
 Meinung unterscheidet, und kostet Bruchteile eines Cents.
+
+### PII-Grenze
+
+Stimme 2 (GPT über Codex) und Stimme 3 (DeepSeek über API) sind **fremde
+Dienste**. Gesichts- und Personendaten aus den Immich-Fotobeständen — Namen,
+die aus einem Gesichtserkennungs-Match stammen, e-Mail-Adressen echter Nutzer,
+alles, was eine reale Person identifiziert — sind PII und gehen **nie** in
+einem Diff an eine dieser beiden Stimmen. Erlaubt sind nur Code und **erfundene**
+Fixtures (siehe `bau-brief.md`, Abschnitt „Fixtures werden erfunden"). Das ist
+hier keine Theorie: Ein Personenname aus der Gesichtserkennung könnte über
+Testdaten oder ein Log-Beispiel unbemerkt in einen Diff geraten, der dann an
+Stimme 2 oder 3 geht.
+
+Praktisch heißt das: Vor dem Push des Review-Zweigs (Stimme 2) und vor dem
+Zusammenstellen des Diffs für Stimme 3 **den Diff selbst gegen diese Klasse
+lesen** — nicht nur den Code, der ihn erzeugt hat. Im Zweifelsfall (ein
+Fixture-Wert könnte ein echter Treffer sein): nicht schicken, sondern die
+Stimme mit einem anonymisierten Ersatzwert im Diff weglassen oder auf die
+zweite blinde Claude-Repo-Stimme (siehe „Verfahren je Risikoklasse", R3)
+ausweichen — die bleibt lokal und verlässt den eigenen Agenten-Kontext nie.
 
 ## Ablauf
 
@@ -202,29 +223,41 @@ und es dem Owner sagen.** Nicht stillschweigend reduzieren — und die fehlende
 Stimme nachholen, solange der Slice noch nicht ausgeliefert ist. Genau so wurde
 einmal ein Seitenkanal gefunden, den die anderen beiden übersehen hatten.
 
-## Verhältnismäßigkeit
+## Verfahren je Risikoklasse
 
-Nicht jeder Slice braucht drei Stimmen. Welche Fälle ohne Panel landen dürfen
-(abschließende Liste) und wann immer das volle Panel gilt — einschließlich
-Herkunft — steht in `CLAUDE.md`, Abschnitt „Review-Panel". Diese Datei
-wiederholt die Schwelle nicht, um Doppelpflege zu vermeiden; eine Schwelle hat
-genau einen Eigentümer.
+**Die Auslöser-Tabelle besitzt `../../CLAUDE.md`** — dort wird entschieden,
+welche Klasse ein Slice hat. Diese Datei wiederholt die Schwelle nicht, um
+Doppelpflege zu vermeiden; eine Schwelle hat genau einen Eigentümer. Hier
+steht nur, was je Klasse zu tun ist:
 
-Der Grund für die Geschlossenheit der Trivial-Liste: „Ist das trivial?" ist
-genau der Punkt, an dem der Ausführende unter Zeitdruck sich selbst freispricht.
-Eine Aufzählung, die sich als Beispiel liest, macht mit der Zeit jeden Slice
-trivial.
+- **R0** — lokale Gates genügen. Kein Panel-Kommentar nötig; der Commit nennt
+  den R0-Auslöser. Konfigurations- und Doku-Slices ohne Verhaltensänderung
+  fallen hierunter.
+- **R2** (Normalfall) — blinde Erststimme + unabhängige Zweitstimme (Stimme 2),
+  fester Panel-Kommentar. Die Drittstimme ist bei R2 optional (ihr gemessenes
+  Profil: Konvergenz-Lieferant, kaum exklusive Funde); wird sie weggelassen,
+  steht der Grund unter ihrer Überschrift.
+  _Verkürzung „R1":_ Nacharbeit mit ausschließlich mechanischen Auflagen darf
+  mit der blinden Erststimme allein geprüft werden — Begründung unter den
+  Überschriften der ausgelassenen Stimmen.
+- **R3** — volles Panel **plus eine risikospezifische Probe durch die echte
+  Tür** (Datenerhalt-Probe für die JSON-Migration, Berechtigungs-Sonde,
+  Schnittstellen-Aufruf von außen — je nach Auslöser). **Stimme 3 wird bei R3
+  durch eine zweite blinde Claude-Repo-Stimme ersetzt** — ein zweiter frischer
+  Subagent mit vollem Repo-Zugriff wie Stimme 1, aber **adversarial gerahmt**:
+  Sein Auftrag lautet ausdrücklich, den Befund der ersten blinden Stimme zu
+  **widerlegen**, nicht zu bestätigen. Grund: R3-Auslöser sind die Fälle mit
+  dem größten Schaden bei Fehleinschätzung — dort zählt Repo-Kontext mehr als
+  eine dritte, aber blinde Meinung, und die PII-Grenze oben schließt ohnehin
+  aus, einen R3-Diff (typischerweise die JSON-Migration oder Personendaten-Pfade)
+  an die günstige Fremdstimme zu schicken.
+- **R4** — wie R3, und der Slice landet erst nach ausdrücklicher
+  Owner-Freigabe. Version/Release bleiben bis dahin unangetastet.
 
-Beispiel für Herkunft als Pflichtfall: Ein zugelieferter Zweig war fachlich
+Beispiel für Fremdcode als R3-Auslöser: Ein zugelieferter Zweig war fachlich
 unauffällig, tauschte aber einen dokumentierten Endpunkt gegen einen
 ausdrücklich undokumentierten; alle mitgelieferten Tests waren grün — sie
-stammten vom selben Autor und prüften dessen Annahme. Herkunft ist ein Risiko
-eigener Art, unabhängig vom Thema. (Der Fall stammt aus diesem Projekt und
-wurde als Vorlagen-Issue #2 zurückgemeldet.)
-
-In diesem Repo fallen **Konfigurations- und Doku-Slices ohne Verhaltensänderung**
-unter die Doku-Korrektur-Ausnahme aus `CLAUDE.md` bzw. sinngemäß unter reine
-Testinfrastruktur — das ist eine Konkretisierung der dortigen Liste, keine
-zusätzliche Ausnahme. Ändert ein Konfigurations-Slice sichtbares Verhalten,
-gehört er nicht mehr hierher. Die Reduktion wird im Issue vermerkt, nicht
-stillschweigend angewandt.
+stammten vom selben Autor und prüften dessen Annahme. Fremdcode ist ein Risiko
+eigener Art, unabhängig vom Thema — **nicht** der eigene Bau-Subagent, siehe
+Tabelle in `CLAUDE.md`. (Der Fall stammt aus diesem Projekt und wurde als
+Vorlagen-Issue #2 zurückgemeldet.)

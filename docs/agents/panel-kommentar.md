@@ -7,6 +7,13 @@ ausgefallen ist.
 
 Nicht kürzen, nicht zu Fließtext zusammenfassen, keine Stimme weglassen.
 
+**Klasse und Diff-Typ gehören in die Kopfzeile.** Risikoklasse (aus Block 0
+des Bau-Briefs) und Diff-Typ (Erstbau oder Nacharbeit) bestimmen, welches
+Verfahren (`docs/agents/panel.md`, „Verfahren je Risikoklasse") tatsächlich
+angewendet wurde — ohne diese Angabe lässt sich im Nachhinein nicht mehr
+prüfen, ob z. B. bei R3 wirklich die zweite blinde Claude-Repo-Stimme statt
+der Drittstimme lief.
+
 **Modell und Stand gehören in jede Stimmen-Überschrift**, z. B.
 `### Stimme 2 — GPT über Codex (gpt-5.5, 2026-08-19)`. Sonst ist die
 Herkunfts-Regel nach vier Wochen nicht mehr durchsetzbar — „wer hat das
@@ -25,6 +32,8 @@ liefert den Wert für `arbitriert=`.
 ## Panel ⟨Slice / Issue⟩
 
 Basis: `⟨commit-a⟩..⟨commit-b⟩` · Umfang: ⟨was geprüft wurde⟩
+Risiko: R⟨n⟩ — Auslöser: ⟨aus Block 0 des Bau-Briefs⟩ · Diff-Typ:
+⟨Erstbau | Nacharbeit⟩
 
 ### Stimme 1 — blinde Erststimme (⟨modell⟩, ⟨datum⟩)
 

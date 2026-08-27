@@ -9,9 +9,14 @@
 > nicht fertig; das ist prüfbar — vor jedem Absenden verbindlich:
 > `sh scripts/bau-brief-pruefen.sh <brief.md>`.
 
-## Pflicht-Gerüst (alle acht Blöcke, keiner leer)
+## Pflicht-Gerüst (Block 0 plus acht Themen-Blöcke, keiner leer)
 
 ```markdown
+## 0 Risiko Risiko: R<n> — Auslöser: ⟨welcher Auslöser aus der
+
+                       Tabelle in CLAUDE.md; bei R0/R2 genügt „kein
+                       R3/R4-Auslöser"⟩
+
 ## 1 Auftrag ⟨was gebaut wird, in zwei Sätzen⟩
 
 ## 2 Befund ⟨bereits verifiziert — NICHT neu recherchieren⟩
@@ -36,9 +41,9 @@
 **Block 3 ist der teuerste, wenn er fehlt** — in vier von fünf Projekten kam
 darüber ein Fund, den sonst niemand hatte.
 
-**Baut der Hauptagent selbst, entfällt der Empfänger — nicht das Gerüst.** Die
-acht Themen werden dann vor dem ersten Commit durchgegangen, auch ohne
-Bau-Subagenten. Eine gekürzte Eigenliste („nur die drei, die mir fehlen") ist
+**Baut der Hauptagent selbst, entfällt der Empfänger — nicht das Gerüst.** Block
+0 und die acht Themen werden dann vor dem ersten Commit durchgegangen, auch
+ohne Bau-Subagenten. Eine gekürzte Eigenliste („nur die drei, die mir fehlen") ist
 die falsche Antwort — sie schreibt den nächsten blinden Fleck fest, derselbe
 Kurzfassung/Langfassung-Fehler eine Ebene tiefer. Ein gegenstandsloses Thema
 kostet eine Zeile Begründung, und die ist billiger als eine selbst
@@ -73,6 +78,9 @@ Modellverhalten bleibt Anekdote.
 
 ```
 Repo: ⟨Pfad⟩. Branch ⟨…⟩, HEAD ⟨…⟩. Baue Issue #⟨…⟩.
+
+## 0 Risiko
+Risiko: R<n> — Auslöser: ⟨welcher Auslöser aus der Tabelle in CLAUDE.md⟩
 
 ## 2 Befund (bereits verifiziert, nicht neu recherchieren)
 ⟨Was schon gemessen/geprüft ist — mit Datei:Zeile. Erspart dem Bauer die

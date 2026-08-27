@@ -38,7 +38,8 @@ BRIEF="$1"
 [ -f "$BRIEF" ] || { echo "Nicht gefunden: $BRIEF"; exit 2; }
 
 # Thema|Suchmuster (erweiterte Regex, case-insensitive, ganzes Dokument)
-THEMEN="Auftrag|auftrag|zu bauen|gebaut wird|umzusetzen
+THEMEN="Risiko|risiko: r[0-9]|risiko r[0-9]
+Auftrag|auftrag|zu bauen|gebaut wird|umzusetzen
 Befund|befund|beleg|verifiziert|festgestellt|gemessen|ausgangslage
 Konsumenten|konsument|ruft .* auf|aufrufer|caller|wer ruft
 Sichtbares|sichtbares verhalten|verhalten aender|verhalten änder|handbuch|nutzer-doku|sichtbar
@@ -94,13 +95,13 @@ if [ -n "$VERBOTE" ]; then
 fi
 
 if [ "$OHNE" -gt 0 ]; then
-  echo "$OHNE von 8 Themen kommen im Brief NIRGENDS vor."
+  echo "$OHNE von 9 Themen kommen im Brief NIRGENDS vor."
   echo "Das ist der belastbare Teil dieser Pruefung: entweder gegenstandslos"
   echo "(dann eine Zeile Begruendung in den Brief) oder vergessen."
   exit 1
 fi
 
-echo "Zu allen 8 Themen gibt es Kandidaten."
+echo "Zu allen 9 Themen gibt es Kandidaten."
 echo "Ob sie das Thema BEHANDELN, entscheidest du an den Zeilen oben —"
 echo "das Skript kann Erwaehnung, Verneinung und Floskel nicht unterscheiden."
 exit 0

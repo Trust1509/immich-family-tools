@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.9.1** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.11.3** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -54,19 +54,47 @@ Schnittstellen-Zuschnitt, Testform: selbst. Ob eine Zahlung auf eine
 abgeschlossene Rechnung möglich sein soll: fragen. Im Zweifel: eine Annahme
 formulieren, weiterbauen, die Annahme sichtbar machen.
 
+## Risikoklasse je Slice — hier wird entschieden, was geprüft wird
+
+Jeder Slice bekommt im Bau-Brief eine Risikoklasse mit Auslöser (Block 0:
+`Risiko: R<n> — Auslöser: …`). **Die Klasse wird aus Auslösern abgeleitet,
+nicht frei vergeben** — kleine Diff-Größe stuft einen R3-Auslöser nie herunter
+(sechs Zeilen an einer Berechtigungsgrenze sind R3). Im Zweifel gilt die
+höhere Klasse; **die Abstufung nach unten braucht die Begründung, nicht die
+nach oben.**
+
+| Klasse | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                         | Mindestprüfung                                                                                           |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **R0** | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                  | lokale Gates                                                                                             |
+| **R2** | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                           | blinde Erststimme + unabhängige Zweitstimme                                                              |
+| **R3** | Datenmigration; Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel + risikospezifische Probe durch die echte Tür                                               |
+| **R4** | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                       | R3 + ausdrückliche Owner-Freigabe (das bestehende Riskant-Gate — kein neuer Mechanismus, ein Name dafür) |
+
+**R1 ist keine frei vergebbare Klasse**, sondern eine definierte Verkürzung
+innerhalb von R2 für genau einen enumerierten Fall: **Nacharbeit mit
+ausschließlich mechanischen Auflagen** → blinde Erststimme allein, Begründung
+unter der Stimmen-Überschrift. „Klein" und „gut rückrollbar" sind Urteile,
+keine Auslöser — und Urteile sind der Punkt, an dem sich der Ausführende unter
+Druck freispricht.
+
+**Projektspezifisch — der Auslöser „Datenmigration" gilt framework-frei:**
+Dieses Projekt hat kein Alembic, aber `backend/services/config_store.py` führt
+beim Start eine selbstheilende JSON-Schema-Migration aus (`SCHEMA_VERSION`,
+`_migrate()`), die ungeprüft in die einzige persistente Datei des Projekts
+(`accounts.json`) schreibt. **Das fällt unter R3.** Einmal hier festgelegt,
+damit es nicht erneut diskutiert werden muss.
+
+Das Verfahren je Klasse beschreibt `docs/agents/panel.md`; diese Tabelle ist
+der einzige Eigentümer der Auslöser.
+
 ## Review-Panel
 
-Verbindlich nach **jedem nicht-trivialen Slice**, vor dem Landen. **Trivial ist
-abschließend nur:** reine Testinfrastruktur ohne Verhaltensänderung (ein neuer
-Test zählt NICHT dazu — er behauptet etwas über Verhalten), Doku-Korrektur ohne
-ausgelieferten Inhalt, Typisierung ohne Verhaltensänderung. **Immer volles
-Panel** bei Datenmigrationen, Datenschutz-/Berechtigungslogik, allem mit
-Geld-/Steuerbezug, allem über eine Schnittstelle nach außen — und allem mit
-**Herkunft**: Code, den niemand aus dem Team gebaut hat (Fremdmodell,
-zugelieferter Zweig, übernommenes Beispiel).
+Verbindlich nach **jedem Slice mit Klasse R2 oder höher** (siehe „Risikoklasse
+je Slice" oben), vor dem Landen. Nur R0-Slices landen ohne Panel.
 
-Drei Stimmen (blinde Erststimme, unabhängiges Modell, günstige Drittstimme),
-Ablauf, Arbitrierung und Panel-Kommentar-Form stehen vollständig in
+Drei Stimmen (blinde Erststimme, unabhängiges Modell, günstige Drittstimme —
+bei R3 durch eine zweite blinde Claude-Repo-Stimme ersetzt), Ablauf,
+Arbitrierung und Panel-Kommentar-Form stehen vollständig in
 `docs/agents/panel.md` — keine Kurzfassung darüber hinaus, um Doppelpflege zu
 vermeiden. Modellnamen und Aufrufkommandos der Stimmen 2 und 3 für dieses
 Projekt stehen ebenfalls dort.
@@ -74,9 +102,10 @@ Projekt stehen ebenfalls dort.
 ## Bau-Brief
 
 Jeder Bau-Auftrag folgt dem Pflicht-Gerüst aus `docs/agents/bau-brief.md` —
-acht Blöcke, keiner leer. **Vor jedem Absenden verbindlich:**
-`sh scripts/bau-brief-pruefen.sh <brief.md>`. Details, Begründungen und
-projektspezifische Prüf-Kommandos stehen dort, nicht hier.
+Block 0 (`Risiko: R<n> — Auslöser: …`) plus acht Themen-Blöcke, keiner leer.
+**Vor jedem Absenden verbindlich:** `sh scripts/bau-brief-pruefen.sh <brief.md>`.
+Details, Begründungen und projektspezifische Prüf-Kommandos stehen dort, nicht
+hier.
 
 ## Release
 
@@ -164,8 +193,9 @@ Einträge verwenden.
 
 **JSON-Migration.** Die Migration in `backend/services/config_store.py`
 (`SCHEMA_VERSION`) ist rein additiv und schreibt in die einzige persistente
-Datei des Projekts. Änderungen dort brauchen einen Test gegen das Alt-Format
-(vorhandenes Muster: Auffüllen der Felder UND Datenerhalt, siehe
+Datei des Projekts. Sie fällt unter **R3** (siehe „Risikoklasse je Slice"
+oben). Änderungen dort brauchen einen Test gegen das Alt-Format (vorhandenes
+Muster: Auffüllen der Felder UND Datenerhalt, siehe
 `backend/tests/test_config_store.py`).
 
 ## Betrieb
