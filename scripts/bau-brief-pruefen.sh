@@ -1,5 +1,5 @@
 #!/bin/sh
-# Zeigt, WO in einem Bau-Brief die acht Pflicht-Themen behandelt sein koennten.
+# Zeigt, WO in einem Bau-Brief die neun Pflicht-Themen behandelt sein koennten.
 #
 #   sh scripts/bau-brief-pruefen.sh <brief.md>
 #

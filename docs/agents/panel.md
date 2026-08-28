@@ -218,6 +218,31 @@ geprüft** und wird nicht ausgeliefert.
 
 ## Wenn eine Stimme ausfällt
 
+**Klumpenrisiko bei R3:** Seit der Zweitblind-Regel hängen zwei von drei
+Stimmen am selben Kontingent. Drei Antworten darauf:
+
+1. Bei knappem Kontingent laufen die beiden Claude-Stimmen ZUERST, die
+   Fremdstimmen danach.
+2. **Ersatzregel:** Fällt die Zweitblind-Stimme am Kontingent, übernimmt die
+   GPT-Stimme die adversariale Rahmung in einem zweiten Lauf **mit vollem
+   Quelltext-Zugriff**. Die Regel schreibt das ERGEBNIS vor, nicht den
+   Transport — Review-Branch, Commit-Snapshot oder Quelltext inline sind
+   gleichwertig, solange die Quelle `git show HEAD:`-Stand ist (Quellen-Regel
+   gilt unverändert). Real belegt: In einer Sandbox ohne Datei-Zugriff trug
+   die Inline-Variante den einzigen echten Treffer der Runde. Teurer, aber
+   definiert statt improvisiert. **Bei uns gilt dazu ausdrücklich:** Der
+   Transport „Quelltext inline" schickt Quelltext an die GPT-Stimme, also an
+   einen fremden Dienst — die PII-Grenze oben gilt für diesen Transport
+   unverändert weiter. Diese Ersatzregel ist eine Aussage über den Transport,
+   keine Ausnahme von der PII-Grenze.
+3. Die bestehende Regel „Panel nie auf den letzten Moment" wiegt bei R3
+   doppelt.
+
+Bei uns ist das Klumpenrisiko nicht theoretisch: Unsere R3-Besetzung ist seit
+v1.11.3 blinde Erststimme + GPT-Stimme + zweite blinde Claude-Repo-Stimme
+(siehe „Verfahren je Risikoklasse" unten) — auch bei uns hängen zwei von drei
+Stimmen am selben Claude-Kontingent.
+
 Werkzeug nicht verfügbar, kein Guthaben, Dienst down: **mit zweien weitermachen
 und es dem Owner sagen.** Nicht stillschweigend reduzieren — und die fehlende
 Stimme nachholen, solange der Slice noch nicht ausgeliefert ist. Genau so wurde

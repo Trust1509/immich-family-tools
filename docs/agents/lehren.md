@@ -236,6 +236,13 @@ Real getroffen hat es uns dreimal:
   vollständige Regel:** über den eigenen `headSha` filtern, das
   `conclusion`-Feld lesen (nie den Exit-Code einer Pipe), und bei `failure`
   zuerst prüfen, ob überhaupt Schritte gelaufen sind.
+- **Bei Aufrufen fremder Stimmen ist das Erfolgskriterium die SYNTHESE, nie
+  der Exit-Code.** Ein Aufruf, der an einer Werkzeuggrenze scheitert (zu lange
+  Argumentliste, abgeschnittene Eingabe), kann trotzdem Exit 0 melden; wer nur
+  den Exit-Code liest, verbucht einen Ausfall als leeres Ergebnis — und ein
+  leeres Ergebnis liest sich im Panel-Kommentar wie „keine Funde". Das ist
+  dieselbe Struktur wie die Pipe-Lehre oben: Der Erfolgskanal und der
+  Ergebniskanal sind zwei verschiedene Kanäle.
 - **SQLite ≠ PostgreSQL.** Negative `LIMIT`/`OFFSET` sind auf SQLite folgenlos
   und auf PG ein Fehler; `ILIKE` ist auf SQLite ASCII-only. Ein Test, der die DB
   durch SQLite ersetzt, prüft im PG-Job **nicht** PostgreSQL.

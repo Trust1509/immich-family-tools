@@ -7,6 +7,10 @@ in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 gebraucht wird, nicht im laufenden Betrieb). Diese Zeile bleibt im Projekt
 stehen.
 
+**Vorgezogen übernommen:** Die Korrekturen aus v1.11.4 und v1.12.1 sind bereits
+eingearbeitet, ohne die Zahl oben hochzusetzen — der volle Abgleich auf
+v1.12.0 steht noch aus.
+
 Immich Family Tools ist eine Companion-Web-App für selbst gehostetes Immich:
 ein FastAPI-Backend und ein React/TS-Frontend in einem gemeinsamen Container,
 für kontenübergreifendes Gesichts-Matching und geteilte Alben über die
@@ -63,12 +67,12 @@ nicht frei vergeben** — kleine Diff-Größe stuft einen R3-Auslöser nie herun
 höhere Klasse; **die Abstufung nach unten braucht die Begründung, nicht die
 nach oben.**
 
-| Klasse | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                         | Mindestprüfung                                                                                           |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| **R0** | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                  | lokale Gates                                                                                             |
-| **R2** | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                           | blinde Erststimme + unabhängige Zweitstimme                                                              |
-| **R3** | Datenmigration; Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel + risikospezifische Probe durch die echte Tür                                               |
-| **R4** | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                       | R3 + ausdrückliche Owner-Freigabe (das bestehende Riskant-Gate — kein neuer Mechanismus, ein Name dafür) |
+| Klasse | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                         | Mindestprüfung                                                                                                                                                                                                                        |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R0** | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                  | lokale Gates                                                                                                                                                                                                                          |
+| **R2** | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                           | blinde Erststimme + unabhängige Zweitstimme                                                                                                                                                                                           |
+| **R3** | Datenmigration; Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel + risikospezifische Probe durch die echte Tür                                                                                                                                                                            |
+| **R4** | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                       | R3 + ausdrückliche Owner-Freigabe. **Ein projekteigenes Release-Gate mit breiteren Auslösern bleibt davon unberührt** — diese Spalte sagt, ab wann die VORLAGE eine Freigabe verlangt, nicht, ab wann euer Projekt sie verlangen darf |
 
 **R1 ist keine frei vergebbare Klasse**, sondern eine definierte Verkürzung
 innerhalb von R2 für genau einen enumerierten Fall: **Nacharbeit mit
@@ -76,6 +80,17 @@ ausschließlich mechanischen Auflagen** → blinde Erststimme allein, Begründun
 unter der Stimmen-Überschrift. „Klein" und „gut rückrollbar" sind Urteile,
 keine Auslöser — und Urteile sind der Punkt, an dem sich der Ausführende unter
 Druck freispricht.
+
+**Hinweis für den Abgleich (Owner-vorlagepflichtig):** Die Tabelle besitzt die
+PRÜFTIEFE (wer prüft, wie tief). Das RELEASE-GATE — wer vor einem Release
+freigibt — ist eine eigene, projekteigene Größe: Ein Projekt darf breitere
+Freigabe-Auslöser haben als R4 (etwa „jede Migration braucht Owner-OK"), und
+die Tabelle ersetzt so ein Gate NICHT. Wer sein breiteres Gate zugunsten der
+R4-Zeile aufgeben will, tut das als ausdrückliche, veto-fähige
+Owner-Entscheidung — nie als Nebenwirkung der Übernahme. Real passiert: Eine
+frühere Fassung dieser Zeile erklärte sich zum „Namen für" das bestehende
+Riskant-Gate und verengte damit in einem Projekt sechs Freigabe-Auslöser
+stillschweigend auf einen; bemerkt hat es der Abgleich, nicht die Übernahme.
 
 **Projektspezifisch — der Auslöser „Datenmigration" gilt framework-frei:**
 Dieses Projekt hat kein Alembic, aber `backend/services/config_store.py` führt
@@ -85,7 +100,9 @@ beim Start eine selbstheilende JSON-Schema-Migration aus (`SCHEMA_VERSION`,
 damit es nicht erneut diskutiert werden muss.
 
 Das Verfahren je Klasse beschreibt `docs/agents/panel.md`; diese Tabelle ist
-der einzige Eigentümer der Auslöser.
+der einzige Eigentümer der PRÜFTIEFEN-Auslöser. (Über Release-Freigaben
+entscheidet sie nur bis R4 hinauf — projekteigene, breitere Gates siehe
+Hinweis oben.)
 
 ## Review-Panel
 
@@ -112,7 +129,27 @@ hier.
 **Schwelle „gefahrlos":** nur Code, keine Migration — dafür gilt bei grüner CI
 eine stehende Owner-Freigabe zum Taggen; jede Migration (Stufe backup oder
 breaking) bleibt Owner-Sache und wird vor dem Tag gefragt, im Zweifel die
-vorsichtigere Stufe. Ablauf, welche Dateien die Version führen und alle
+vorsichtigere Stufe.
+
+Diese Schwelle ist das Release-Gate — und sie ist **breiter als R4**: Die
+Risikoklassen-Tabelle oben hat sie nie ersetzt und ersetzt sie nicht. Dass
+diese Schwelle hier überlebt hat, obwohl eine ältere Fassung der R4-Zeile sich
+zum „Namen dafür" erklärte, liegt an der Ein-Eigentümer-Regel: Eine Schwelle
+hat bei uns genau einen Eigentümer, und der Eigentümer dieser Schwelle ist
+dieser Abschnitt, nicht die Tabelle. Diese Regel hat hier einen realen Schaden
+verhindert, den ein anderes Projekt erlitten hat (siehe „Hinweis für den
+Abgleich" bei der Risikoklassen-Tabelle oben).
+
+**Folgerung aus unserer eigenen v1.11.3-Festlegung (dem Owner vorgelegt,
+veto-fähig):** Weil der Auslöser „Datenmigration" bei uns framework-frei gilt,
+zählt eine Änderung an der selbstheilenden JSON-Schema-Migration
+(`backend/services/config_store.py`, `SCHEMA_VERSION`, `_migrate()`) als
+Migration auch für diese Release-Schwelle — ein Release mit einer solchen
+Änderung ist nicht „gefahrlos" und wird vor dem Tag gefragt. Dieser Punkt
+folgt zwar aus einer bereits getroffenen Festlegung, ist aber selbst eine
+Aussage über das Release-Gate und damit Owner-Gebiet.
+
+Ablauf, welche Dateien die Version führen und alle
 Details stehen in `docs/agents/release-ritual.md` — keine weitere
 Kurzfassung hier.
 
