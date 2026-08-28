@@ -1,15 +1,11 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.11.3** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.12.1** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
 gebraucht wird, nicht im laufenden Betrieb). Diese Zeile bleibt im Projekt
 stehen.
-
-**Vorgezogen übernommen:** Die Korrekturen aus v1.11.4 und v1.12.1 sind bereits
-eingearbeitet, ohne die Zahl oben hochzusetzen — der volle Abgleich auf
-v1.12.0 steht noch aus.
 
 Immich Family Tools ist eine Companion-Web-App für selbst gehostetes Immich:
 ein FastAPI-Backend und ein React/TS-Frontend in einem gemeinsamen Container,
@@ -67,19 +63,16 @@ nicht frei vergeben** — kleine Diff-Größe stuft einen R3-Auslöser nie herun
 höhere Klasse; **die Abstufung nach unten braucht die Begründung, nicht die
 nach oben.**
 
-| Klasse | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                         | Mindestprüfung                                                                                                                                                                                                                        |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **R0** | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                  | lokale Gates                                                                                                                                                                                                                          |
-| **R2** | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                           | blinde Erststimme + unabhängige Zweitstimme                                                                                                                                                                                           |
-| **R3** | Datenmigration; Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel + risikospezifische Probe durch die echte Tür                                                                                                                                                                            |
-| **R4** | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                       | R3 + ausdrückliche Owner-Freigabe. **Ein projekteigenes Release-Gate mit breiteren Auslösern bleibt davon unberührt** — diese Spalte sagt, ab wann die VORLAGE eine Freigabe verlangt, nicht, ab wann euer Projekt sie verlangen darf |
+| Klasse | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Mindestprüfung                                                                                                                                                                                                                        |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R0** | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                                                                                                                                                                                                                    | lokale Gates                                                                                                                                                                                                                          |
+| _R1_   | **keine frei vergebbare Klasse** — benannte Verkürzung innerhalb von R2 für genau einen Fall: Nacharbeit mit ausschließlich mechanischen Auflagen                                                                                                                                                                                                                                                                                                                                                                                                                 | blinde Erststimme allein; Begründung unter den ausgelassenen Stimmen                                                                                                                                                                  |
+| **R2** | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | blinde Erststimme + unabhängige Zweitstimme                                                                                                                                                                                           |
+| **R3** | Datenmigration — unabhängig davon, ob ein Migrations-Framework beteiligt ist: Gemeint ist der VORGANG, bestehende Daten werden unumkehrbar umgewandelt (auch eine selbstheilende JSON-Schema-Wanderung ist eine); Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel + risikospezifische Probe durch die echte Tür                                                                                                                                                                            |
+| **R4** | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | R3 + ausdrückliche Owner-Freigabe. **Ein projekteigenes Release-Gate mit breiteren Auslösern bleibt davon unberührt** — diese Spalte sagt, ab wann die VORLAGE eine Freigabe verlangt, nicht, ab wann euer Projekt sie verlangen darf |
 
-**R1 ist keine frei vergebbare Klasse**, sondern eine definierte Verkürzung
-innerhalb von R2 für genau einen enumerierten Fall: **Nacharbeit mit
-ausschließlich mechanischen Auflagen** → blinde Erststimme allein, Begründung
-unter der Stimmen-Überschrift. „Klein" und „gut rückrollbar" sind Urteile,
-keine Auslöser — und Urteile sind der Punkt, an dem sich der Ausführende unter
-Druck freispricht.
+„Klein" und „gut rückrollbar" sind Urteile, keine Auslöser — und Urteile sind
+der Punkt, an dem sich der Ausführende unter Druck freispricht.
 
 **Hinweis für den Abgleich (Owner-vorlagepflichtig):** Die Tabelle besitzt die
 PRÜFTIEFE (wer prüft, wie tief). Das RELEASE-GATE — wer vor einem Release
@@ -92,12 +85,13 @@ frühere Fassung dieser Zeile erklärte sich zum „Namen für" das bestehende
 Riskant-Gate und verengte damit in einem Projekt sechs Freigabe-Auslöser
 stillschweigend auf einen; bemerkt hat es der Abgleich, nicht die Übernahme.
 
-**Projektspezifisch — der Auslöser „Datenmigration" gilt framework-frei:**
-Dieses Projekt hat kein Alembic, aber `backend/services/config_store.py` führt
-beim Start eine selbstheilende JSON-Schema-Migration aus (`SCHEMA_VERSION`,
+**Projektspezifisch — Anwendung des Auslösers „Datenmigration":** Dieses
+Projekt hat kein Alembic, aber `backend/services/config_store.py` führt beim
+Start eine selbstheilende JSON-Schema-Migration aus (`SCHEMA_VERSION`,
 `_migrate()`), die ungeprüft in die einzige persistente Datei des Projekts
-(`accounts.json`) schreibt. **Das fällt unter R3.** Einmal hier festgelegt,
-damit es nicht erneut diskutiert werden muss.
+(`accounts.json`) schreibt — und fällt damit unter den Auslöser
+„Datenmigration" der Tabelle oben (R3). Einmal hier festgelegt, damit es nicht
+erneut diskutiert werden muss.
 
 Das Verfahren je Klasse beschreibt `docs/agents/panel.md`; diese Tabelle ist
 der einzige Eigentümer der PRÜFTIEFEN-Auslöser. (Über Release-Freigaben

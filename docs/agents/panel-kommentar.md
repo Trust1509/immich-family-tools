@@ -45,7 +45,7 @@ gültiges Ergebnis und wird hingeschrieben.⟩
 
 ⟨Über denselben Diff, eigener Review-Zweig.⟩
 
-### Stimme 3 — Drittstimme (diff-only) (⟨modell⟩, ⟨datum⟩)
+### Stimme 3 — ⟨R2: Drittstimme (diff-only) / R3: zweite blinde Repo-Stimme (adversarial)⟩ (⟨modell⟩, ⟨datum⟩)
 
 ⟨Kurz. Bekanntes Muster: irrt Richtung zu-streng, liest gelegentlich die
 Vorher-Seite eines Diffs.⟩
@@ -66,7 +66,7 @@ Prüfer-Konvergenz ersetzt keine Reproduktion.⟩
 Überschrift **stehen lassen**, Grund darunter:
 
 ```markdown
-### Stimme 3 — Drittstimme (diff-only)
+### Stimme 3 — ⟨R2: Drittstimme (diff-only) / R3: zweite blinde Repo-Stimme (adversarial)⟩
 
 Ausgefallen: kein Guthaben. Owner informiert am ⟨Datum⟩. Nachzuholen, solange
 der Slice nicht ausgeliefert ist.

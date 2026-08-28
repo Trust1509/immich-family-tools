@@ -22,14 +22,19 @@ Migration, einen Testaufbau, der den eigenen Fix nie berührt.
 Fehler-Intuition mit. Kennt den lokalen Arbeitsbaum nicht, arbeitet über einen
 gepushten Review-Branch.
 
-**Stimme 3 — günstige Drittstimme**, nur der Diff, kurze Antwort. Kostet fast
-nichts. **Erwartung realistisch halten** (Messreihe über fünf Projekte): ein
-exklusiver bestätigter Fund insgesamt, dem rund ein Dutzend Fehl- und
-Überbefunde gegenüberstehen, zweimal aktiv irreführend zur Kernfrage. Der Grund
-ist strukturell: **Die schweren Funde liegen in der Beziehung zwischen Diff und
-Umgebung** — ein Bezeichner, der in einer nicht mitgelieferten Datei anders
-lautet; eine Zusicherung in einer Datei, die der Diff nicht berührt. Diese
-Klasse ist diff-only **prinzipiell** unsichtbar.
+**Stimme 3 — abhängig von der Risikoklasse.** Bei R2 (wenn besetzt): die
+günstige diff-only-Fremdstimme, nur der Diff, kurze Antwort, kostet fast
+nichts. **Bei R3: eine zweite blinde Claude-Repo-Stimme mit adversarialer
+Rahmung** — Begründung und Beleg unter „Verfahren je Risikoklasse". Zur
+diff-only-Stimme: **Erwartung realistisch halten** (Messreihe über fünf
+Projekte): ein exklusiver bestätigter Fund insgesamt, dem rund ein Dutzend
+Fehl- und Überbefunde gegenüberstehen, zweimal aktiv irreführend zur
+Kernfrage.
+
+Der Grund ist strukturell, nicht modellabhängig: **Die schweren Funde liegen
+in der Beziehung zwischen Diff und Umgebung** — ein Bezeichner, der in einer
+nicht mitgelieferten Datei anders lautet; eine Zusicherung in einer Datei, die
+der Diff nicht berührt. Diese Klasse ist diff-only **prinzipiell** unsichtbar.
 
 Daraus drei Regeln:
 
@@ -45,6 +50,55 @@ Daraus drei Regeln:
 
 Behalten lohnt trotzdem: Sie liefert **Konvergenz**, die einen Fund von einer
 Meinung unterscheidet, und kostet Bruchteile eines Cents.
+
+## Der Fragetyp bestimmt, was ein Panel wert ist
+
+Der stärkste Zahlenbefund der Messreihe betrifft nicht die Stimmen, sondern die
+Frage: Bei Annahmen über **fremde Systeme** (eine API, ein SDK, ein Dienst) waren
+3 von 4 schweren Funden falsch; bei **eigener Semantik** 5 von 7 richtig.
+
+Modelle beurteilen eigenen Code zuverlässig und fremde Systeme nicht — **und
+Konvergenz hilft dort nicht**, weil zwei Stimmen denselben veralteten Quellstand
+heranziehen. Geht es um ein fremdes System, ersetzt die Primärquelle das Panel
+nicht, sondern geht ihm voraus.
+
+## Die Stimmen einrichten
+
+Auf diesem Rechner bereits eingerichtet — hier die konkreten Kommandos für
+dieses Projekt, damit sie kopierbar bleiben.
+
+### Stimme 1 — blinde Erststimme
+
+**Woher:** aus der Agenten-CLI selbst, die ohnehin benutzt wird. Kein Konto,
+keine Kosten, keine Installation.
+
+**Aufsetzen:** frischer Reviewer-Subagent, bekommt **nur Diff + Repo-Pfad**,
+nie den Bau-Brief, nie den Bericht des Bauers. Ein zweites Fenster derselben
+Sitzung ist **kein** Ersatz — es sieht die Historie.
+
+### Stimme 2 (GPT über Codex-CLI) — unabhängiges Modell mit Repo-Zugriff
+
+```bash
+sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check --sandbox read-only -c 'model_reasoning_effort="high"' '<Prüfauftrag>'
+```
+
+Kennt den lokalen Arbeitsbaum nicht — sie braucht den gepushten Review-Zweig.
+
+Zwei Fallstricke, die real zwei Anläufe gekostet haben:
+
+- **Muss aus dem zu prüfenden Arbeitsverzeichnis heraus laufen** — der Wrapper
+  mountet das aktuelle Verzeichnis.
+- **Ohne `--skip-git-repo-check` bricht sie ab**, wenn das Verzeichnis kein
+  Git-Repo ist.
+
+### Stimme 3 (DeepSeek über API, R2-Besetzung) — günstige diff-only-Stimme
+
+```bash
+python /c/Users/manue/.claude/Immich/model-panel/ask-api.py --model deepseek/deepseek-v4-pro --max-tokens 32768 --stdin-anhang '<Prüfauftrag>' < diff.patch
+```
+
+Bei R3 ersetzt durch eine zweite blinde Claude-Repo-Stimme mit adversarialer
+Rahmung, keine diff-only-Fremdstimme — siehe „Verfahren je Risikoklasse".
 
 ### PII-Grenze
 
@@ -68,41 +122,16 @@ ausweichen — die bleibt lokal und verlässt den eigenen Agenten-Kontext nie.
 
 ## Ablauf
 
-**Schritt 0 — Erreichbarkeit der externen Stimmen vor dem Start prüfen**, nicht
-mittendrin. Stimme 2 braucht ein lauffähiges `codex.sh` und den gepushten
-Review-Zweig; Stimme 3 braucht Guthaben hinter `ask-api.py`. Beide Ausfälle
-melden sich sonst erst, wenn der Slice schon als „gleich fertig" gilt.
-
-Die drei Stimmen dieses Setups, mit den konkreten Kommandos:
-
-**Stimme 1 (blind):** frischer Reviewer-Subagent, bekommt **nur Diff + Repo-Pfad**,
-nie den Bau-Brief.
-
-**Stimme 2 (GPT über Codex-CLI):**
-
-```bash
-sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check --sandbox read-only -c 'model_reasoning_effort="high"' '<Prüfauftrag>'
-```
-
-Zwei Fallstricke, die real zwei Anläufe gekostet haben:
-
-- **Muss aus dem zu prüfenden Arbeitsverzeichnis heraus laufen** — der Wrapper
-  mountet das aktuelle Verzeichnis.
-- **Ohne `--skip-git-repo-check` bricht sie ab**, wenn das Verzeichnis kein
-  Git-Repo ist.
-
-**Stimme 3 (DeepSeek, diff-only):**
-
-```bash
-python /c/Users/manue/.claude/Immich/model-panel/ask-api.py --model deepseek/deepseek-v4-pro --max-tokens 32768 --stdin-anhang '<Prüfauftrag>' < diff.patch
-```
-
-Ablauf in Reihenfolge:
-
 ```bash
 # 1. Review-Branch pushen (die externen Stimmen brauchen ihn)
 git push -f origin <commit>:refs/heads/review/<issue>-<kurzname>
 ```
+
+**Schritt 0 — Erreichbarkeit der externen Stimmen vor dem Start prüfen**, nicht
+mittendrin — Kommandos und Fallstricke siehe „Die Stimmen einrichten" oben,
+Hintergrund (Sitzungslimits, Puffer vor dem Release) siehe „Verfügbarkeit ist
+Teil der Planung" unten. Beide Ausfälle melden sich sonst erst, wenn der Slice
+schon als „gleich fertig" gilt.
 
 **2. Alle drei parallel starten**, nicht nacheinander — sie brauchen zusammen
 20–40 Minuten, sequenziell wäre das ein Vielfaches.
@@ -196,7 +225,7 @@ hat:
 
 ### Stimme 2 — unabhängiges Modell
 
-### Stimme 3 — Drittstimme (diff-only)
+### Stimme 3 — ⟨R2: Drittstimme (diff-only) / R3: zweite blinde Repo-Stimme (adversarial)⟩
 
 ### Arbitrierung
 
@@ -215,6 +244,32 @@ Deshalb: **Fällt eine Stimme aus, steht unter ihrer Überschrift der Grund** �
 „kein Guthaben, Owner informiert am ⟨Datum⟩" — und nie einfach nichts. Ein Slice
 ohne vollständiges oder ausdrücklich vermerkt-verkürztes Panel gilt als **nicht
 geprüft** und wird nicht ausgeliefert.
+
+## Eine Stimme bewusst weglassen — erlaubt, wenn begründet
+
+„Nie stillschweigend reduzieren" heißt nicht „nie reduzieren". Ein Projekt hat
+in zwei Nacharbeits-Runden die Stimmen 2 und 3 **nicht** eingesetzt und das im
+Panel-Kommentar begründet: Der Gegenstand war Sitzungs- und
+Transaktionsverhalten über vier Aufrufe — also die Beziehung zwischen Diff und
+Umgebung, für diff-only prinzipiell unsichtbar, und kein Feld, in dem die zweite
+Stimme in der Erstrunde stark gewesen war.
+
+Das ist die richtige Anwendung: **Die Begründung steht unter der Überschrift der
+Stimme, nicht die Auslassung.** Wer eine Stimme weglässt, weil sie am Gegenstand
+nichts leisten kann, trifft eine Entscheidung; wer sie weglässt, ohne es zu
+sagen, verliert sie.
+
+## Verfügbarkeit ist Teil der Planung
+
+**Ein Panel, das an einem fremden Limit hängt, ist keine verlässlich verfügbare
+Prüfung.** Gemessen: Zwei Subagenten starben an Sitzungslimits — einer mitten im
+Rot-Beweis (die Sabotage stand danach zwei Tage im Code), einer mitten im Panel
+(eine komplette Runde musste wiederholt werden).
+
+Verkraftbar war das nur, weil nichts ausgeliefert war. **Wer zwischen Panel und
+Release wenig Puffer hat, plant das Panel nicht auf den letzten Moment** — und
+behandelt einen abgebrochenen Prüflauf wie einen abgebrochenen Bau: erst
+Zustand feststellen, dann fortsetzen.
 
 ## Wenn eine Stimme ausfällt
 
@@ -286,3 +341,49 @@ stammten vom selben Autor und prüften dessen Annahme. Fremdcode ist ein Risiko
 eigener Art, unabhängig vom Thema — **nicht** der eigene Bau-Subagent, siehe
 Tabelle in `CLAUDE.md`. (Der Fall stammt aus diesem Projekt und wurde als
 Vorlagen-Issue #2 zurückgemeldet.)
+
+## Stimmen-Besetzung nach Diff-Typ
+
+Der Panel-UMFANG folgt der Risikoklasse; die STIMMEN-BESETZUNG folgt dem
+Diff-Typ. Gemessen über sieben Slices in zwei Projekten:
+
+- **Backend-Logik** — Zweit- und Drittstimme tragen (exklusive Funde,
+  unabhängige Konvergenz). Volle Besetzung nach Klasse.
+- **Frontend/Anzeige-Text** — die blinde Erststimme ist die einzige tragend
+  gemessene Stimme (drei exklusive Funde bei einem „nur Labels"-Diff) und
+  genügt allein; diff-only-Fremdstimmen sind hier nachweislich stumm.
+
+Wer von der Klassen-Besetzung nach Diff-Typ abweicht, schreibt den Diff-Typ
+und den Grund unter die Überschrift der ausgelassenen Stimme — und nennt
+beides in der Bilanz, damit die Messreihe weiterwächst.
+
+**Für uns unmittelbar relevant:** Unser Repo ist gemischt (FastAPI-Backend +
+React-Frontend), die Regel entscheidet also bei jedem Produkt-Slice mit, ob
+ein R2-Slice zwei Stimmen bekommt oder eine — ein frontend-lastiger R2-Slice
+bekommt danach eine Stimme statt zwei.
+
+## Quellen-Regel: Keine Stimme sieht den Arbeitsbaum
+
+Der Kontext jeder Stimme kommt aus `git show HEAD:<pfad>` oder einem
+Commit-Diff — NIE aus dem Arbeitsbaum. Sobald irgendeine Stimme oder ein
+Prüflauf mutieren darf (Mutationstests!), ist der Arbeitsbaum kein definierter
+Zustand mehr. Gemessen: Eine Fremdstimme meldete ihren schwersten Befund gegen
+eine Zeile, die in Wahrheit ein Mutations-Marker (`# MUT2`) war — der Befund
+las sich völlig plausibel und verschwand erst beim Neulauf gegen
+`git show HEAD:`. Der Fehler ist von außen unsichtbar; nur die Quelle schützt.
+
+## Fremdstimmen: kein Netz, und Ausfall heißt Ausfall
+
+Der Auftrag an jede Fremdmodell-Stimme enthält ein ausdrückliches
+**Suchverbot** (kein Web-Zugriff, keine Recherche nach Repo, Commit oder
+Namen). Gemessen: Eine Stimme, deren Sandbox ausfiel, erfand nichts — suchte
+aber selbstständig im Netz nach Commit-Hash und Repo-Name. In einem Repo mit
+sprechenden Namen wäre das ein Abfluss. Und ein Werkzeug-/Sandbox-Ausfall wird
+als AUSFALL gemeldet, nie als Stimme mit dünnem Ergebnis.
+
+**Bei uns scharf:** Unser Repo ist öffentlich (`Trust1509/immich-family-tools`
+auf GitHub). Eine Fremdstimme, die bei einem Werkzeugausfall im Netz
+nachsieht, findet das Repo und den Commit — und liest dann einen anderen
+Stand als den geprüften, ohne dass das im Ergebnis sichtbar wird. Das
+Suchverbot ist deshalb keine allgemeine Vorsicht, sondern verhindert hier
+einen konkreten, erreichbaren Fehlerpfad.

@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Achtzehn Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Zwanzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -143,6 +143,16 @@ Migration (#346) brauchte drei Anläufe, jeder mit echtem Fund:
   Rückwärts-Skript kann fehlerfrei sein und trotzdem Zeilen verlieren — deshalb
   im Roundtrip-Test einen bekannten Datensatz schreiben und danach wieder
   auslesen.
+- **Die Datenerhalt-Stichprobe deckt die Tabellen, die die geprüfte Migration
+  anfasst.** Eine Stichprobe in einer unbeteiligten Tabelle ist SCHLECHTER als
+  keine, weil sie ein Urteil erzeugt (Vorlage: ein Roundtrip-Job schrieb seinen
+  eigenen Datenverlust ins Log und lief trotzdem grün, weil seine Stichprobe in
+  der falschen Tabelle säte). **Framework-frei auf uns übersetzt:** Bei einer
+  Änderung an `_migrate()` in `backend/services/config_store.py` deckt die
+  Datenerhalt-Probe die **von dieser Änderung angefassten Schlüssel** von
+  `accounts.json` — nicht irgendwelche vorhandenen Felder, sondern genau die,
+  die die Migration liest oder schreibt (vorhandenes Muster:
+  `test_migrate_preserves_existing_data` in `backend/tests/test_config_store.py`).
 - Roundtrip **kurz** halten (vorwärts → einen Schritt zurück → vorwärts). Der
   Voll-Roundtrip bis zum Anfang prüft Rückwärts-Skripte, die nie jemand
   ausführt, wenn der Rückweg im Ernstfall „Sicherung + altes Abbild" ist.
@@ -235,9 +245,16 @@ Real getroffen hat es uns dreimal:
   „Infrastruktur weg", und die Reaktionen sind gegensätzlich. **Die
   vollständige Regel:** über den eigenen `headSha` filtern, das
   `conclusion`-Feld lesen (nie den Exit-Code einer Pipe), und bei `failure`
-  zuerst prüfen, ob überhaupt Schritte gelaufen sind.
+  zuerst prüfen, ob überhaupt Schritte gelaufen sind. **Strukturell dahinter,
+  nicht nur für diesen Fall:** Eine Prüfung nie im selben verketteten Kommando
+  wie die Entscheidung — dieselbe Regel wie beim Exit-Code in der Pipe, hier
+  nur einmal ausgesprochen statt an das eine Werkzeug (`gh run watch`)
+  gebunden zu bleiben (dieselbe Klasse wie §19 unten: eine als Spezialfall
+  formulierte Regel wird beim strukturgleichen Fall nicht wiedererkannt).
 - **Bei Aufrufen fremder Stimmen ist das Erfolgskriterium die SYNTHESE, nie
-  der Exit-Code.** Ein Aufruf, der an einer Werkzeuggrenze scheitert (zu lange
+  der Exit-Code** (Vorlage, Fund eines anderen Projekts — nicht dieses Repos;
+  eigene Funde stehen in §12). Ein Aufruf, der an einer Werkzeuggrenze
+  scheitert (zu lange
   Argumentliste, abgeschnittene Eingabe), kann trotzdem Exit 0 melden; wer nur
   den Exit-Code liest, verbucht einen Ausfall als leeres Ergebnis — und ein
   leeres Ergebnis liest sich im Panel-Kommentar wie „keine Funde". Das ist
@@ -651,3 +668,55 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
   Prüfung dafür ist ein Mensch, der das Grün des letzten Laufs von Hand
   nachsieht (vgl. §9, „das Vorhandensein einer Prüfung ist nicht ihr
   Bestehen").
+
+## 19. Eine als Spezialfall formulierte Regel wird beim strukturgleichen Fall nicht wiedererkannt
+
+**Vorlage §22.** Drei unabhängige Belege, einer vom Autor der Regel selbst:
+Der Autor der Pipe-Exit-Code-Lehre (unser §6 oben, „Der Exit-Code stirbt in
+der Pipe") verletzte sie selbst — im nächsten strukturgleichen Fall
+(`tsc | tail; echo $?` statt `gh run watch | tail`). Wissen war nachweislich
+nicht das Problem: **Die Formulierung band die Regel an EIN Werkzeug statt an
+die Form** (Pipe frisst Exit-Code, egal was links steht). Zwei weitere
+Projekte fanden dasselbe Muster unabhängig voneinander: „Datenmigration"
+wurde von einem framework-losen Projekt als gegenstandslos gelesen, obwohl
+seine JSON-Schema-Wanderung exakt der gemeinte Vorgang war.
+
+**Regel: Jede neue Lehre wird beim Schreiben auf ihre Struktur abgeklopft —
+„gilt das nur für dieses Werkzeug, oder für die Form?"** Wenn für die Form:
+die Form benennen, das Werkzeug als Beispiel führen. Verwandt mit §16 (die
+Prüfung rutscht zum leichter Messbaren), aber eigenständig: Hier rutscht die
+REGEL zum konkreteren Fall.
+
+**Bei uns bereits angewendet:** Die Pipe-Lehre in §6 trägt seit diesem
+Abgleich den Zusatz „Eine Prüfung nie im selben verketteten Kommando wie die
+Entscheidung" — wir kannten die Regel und befolgten sie (§17-Suche vor jedem
+Commit läuft als eigenes Kommando, nie verkettet), aber sie stand bei uns
+nirgends als Form, nur als Spezialfall (Exit-Code in der Pipe). Genau die
+Klasse, die dieser Paragraph beschreibt.
+
+## 20. Ein Hook deckt nur, was er nennt — und er nennt seine Auslassungen nicht
+
+**Vorlage §23 — verallgemeinert aus einem eigenen Fund dieses Projekts.**
+Herkunft: Bei der §21-Inventur im v1.11.3-Abgleich fiel auf, dass unser
+Husky-Pre-Commit-Hook Lint, `tsc --noEmit` und die Backend-Tests fährt, aber
+**nicht** die Frontend-Tests (Vitest, `npm test`) — die laufen ausschließlich
+in der CI. Die Vorlage hat daraus die allgemeine Form gemacht: **Eine Suite,
+die man für lokal gedeckt hält, weil ein Hook existiert, ist damit nicht
+gedeckt** — ein Hook deckt nur, was er nennt, und nennt seine Auslassungen
+nicht von selbst.
+
+Unter einer CI-Sperre (`[skip ci]`-Phase, wie sie bis 01.09. bei uns läuft)
+wird die Lücke scharf: Ein gebrochener Frontend-Test wäre erst Tage später
+aufgefallen, einem anderen Bauer zugeordnet.
+
+**Regel:** Wer sich auf „der Hook fängt das" beruft, hat die Hook-Definition
+gelesen, nicht vermutet — und ein Wegfall der zweiten Verteidigungslinie
+(CI-Pause!) ist der Moment, die Auslassungsliste des Hooks zu prüfen, nicht
+der Moment, ihr zu vertrauen. (§18 fragt, was eine Prüfung rot macht; dieser
+Paragraph fragt, wer überhaupt prüft.)
+
+**Der konkrete Fall ist bei uns nicht behoben.** Er liegt als **Issue #59**
+(„Pre-Commit-Hook fährt die Frontend-Tests nicht (Vitest nur in der CI)"),
+Status offen. Eine Lehre, die den eigenen offenen Fall verschweigt, liest sich
+wie erledigt — deshalb steht das hier ausdrücklich: Diese Lücke besteht in
+diesem Repo weiterhin, sie ist nur benannt, nicht geschlossen.

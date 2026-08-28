@@ -12,10 +12,10 @@
 ## Pflicht-Gerüst (Block 0 plus acht Themen-Blöcke, keiner leer)
 
 ```markdown
-## 0 Risiko Risiko: R<n> — Auslöser: ⟨welcher Auslöser aus der
+## 0 Risiko Risiko: R<n> — Auslöser: ⟨bei R3/R4 der Auslöser aus der
 
-                       Tabelle in CLAUDE.md; bei R0/R2 genügt „kein
-                       R3/R4-Auslöser"⟩
+                       Tabelle in CLAUDE.md; bei R0 der R0-Auslöser; bei
+                       R2 „Normalfall, gegen die Auslöser-Tabelle geprüft"⟩
 
 ## 1 Auftrag ⟨was gebaut wird, in zwei Sätzen⟩
 
@@ -291,6 +291,46 @@ Verwandt: Ein als „verifiziert" gemeldeter Fix, bei dem nur der Nachbar-Zweig
 geprüft wurde. Die Frage lautet nicht „hast du geprüft", sondern **„was genau hast
 du ausgeführt, und was kam heraus"**.
 
+## Das Hintergrund-Warte-Muster
+
+Ein wiederkehrendes Bauer-Verhalten, **elf dokumentierte Fälle über zwei
+Projektgenerationen**: Der Bauer legt die Gates in den Hintergrund und endet mit
+„warte auf das Ergebnis des Hintergrundlaufs" — obwohl die Randbedingung im
+Brief das ausdrücklich untersagt. **Die Brief-Zeile allein verhindert es
+nicht.** Zwei Mechanismen wirken:
+
+**Inzwischen 10 von 10 Fällen, und die Deutung hat sich geschärft: Die
+Brief-Zeile kann nicht wirken, weil der Empfänger sie nicht befolgen KANN.** Das
+Bau-Modell legt lange Läufe strukturell in den Hintergrund und wartet auf ein
+Signal, das seine Ausführungsumgebung nie liefert. Auch doppelte, ausdrückliche
+Formulierung im Brief ändert daran nichts (getestet).
+
+**Deshalb gehört das nicht in den Bau-Brief, sondern eine Ebene höher:**
+
+1. **In die Systeminstruktion des Bauers** (nicht in den Auftrag): Gates
+   blockierend im Vordergrund, keine Hintergrundläufe. Das nimmt den Anlass an
+   der Stelle, an der er entsteht.
+2. **Als fester Ablaufschritt des Orchestrators**, nicht als Brief-Auflage: Der
+   Nachstoß („Ergebnis selbst prüfen, Report abliefern") wird **eingeplant**,
+   nicht als Reaktion auf ein Versäumnis improvisiert. Er wirkt zuverlässig
+   (10/10), die Brief-Zeile nachweislich nicht.
+
+Der Zustand „wartet auf Ergebnis" ist **kein Report** — er wird nie als
+Abschluss akzeptiert.
+
+_Die allgemeine Lehre dahinter: Eine Regel an einen Empfänger, der ihr
+strukturell nicht folgen kann, ist keine Regel, sondern eine Beschwerde. Sie
+gehört dorthin, wo das Verhalten entsteht._
+
+**Damit ist die frühere Randbedingung „Vordergrund, keine
+Hintergrundprozesse" (Block 8) als VERTAGT-MIT-BEDINGUNG aufgehoben.** Beim
+v1.11.3-Abgleich stand hier nur die eine Zeile „Läufe im Vordergrund,
+Zeitlimits explizit. Keine Hintergrundprozesse, keine eigenen Subagenten." —
+diese Sektion sagt mehr: warum die Brief-Zeile allein nicht wirkt und wohin
+die Regel gehört (Systeminstruktion + fester Orchestrator-Schritt statt
+Brief-Auflage). Die Zeile in Block 8 bleibt als Randbedingung stehen; diese
+Sektion ist die Begründung dahinter, die vorher fehlte.
+
 ---
 
 ## Wenn ein Bauer mitten im Rot-Beweis stirbt
@@ -306,3 +346,57 @@ nachsieht, übernimmt Sabotage als fertige Arbeit.
 2. `git log --oneline origin/main..HEAD` — was ist lokal, was gepusht?
 3. Den letzten Bericht als **Absichtserklärung** lesen, nicht als Zustand.
 4. Erst dann weiterbauen — und nichts doppelt.
+
+---
+
+## Die Wahrheit des Briefs: Behauptungen sind Bringschuld des Schreibers
+
+Zweimal in einer Woche war die Fehlerquelle nicht der Bauer, sondern der
+Brief. Drei Regeln daraus:
+
+**„Dasselbe Muster wie Y" ist erst eine gültige Brief-Aussage, wenn Y wirklich
+gelesen wurde und seine Schutzschichten AUFGEZÄHLT und in den Auftrag
+übernommen sind.** Real: Der echte Zwilling trug drei Schutzschichten, die die
+Kopie nicht bekam — die blinde Stimme fand es, weil sie den Zwilling las. Ohne
+die Aufzählung erbt die Kopie nur den Namen, nicht den Schutz.
+
+**Eine Umfangsgrenze gilt für neue Features, nie für die Blast-Radius-Prüfung
+einer Default-Änderung.** Wer einen globalen Default oder Wert ändert, prüft
+ALLE Leser — auch die ausgeklammerten. Real: Der Bauer hielt sich regelkonform
+an „nur Konsument X" und meldete statt zu fixen; ein ausgeklammerter Pfad las
+den scharf geschalteten Default. Regelkonform und trotzdem falsch heißt: Die
+Grenze war zu weit formuliert, nicht der Bauer zu wörtlich.
+
+**Der Bauer korrigiert eine falsche Brief-Prämisse mit Beleg — das ist
+erwünschtes Verhalten, kein Ungehorsam.** Zwei Belege: Ein Bauer suchte den im
+Brief angenommenen Helfer, fand ihn nicht im Baum und korrigierte die Annahme
+im Report; ein anderer korrigierte die R-Einstufung des Auftraggebers am
+Tabellentext. Der Brief ist Anleitung, kein Dogma; verifizierte Gegenbelege
+gehören in den Report.
+
+## Sechs Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
+
+1. **Schreibt dieser Fix an einer Stelle, die vorher nur las — und wer teilt
+   sich die Zielzeilen?** (Ein Fix machte einen inerten Pfad aktiv und schuf
+   damit den stillen Verlustweg, den er beheben sollte.)
+2. **Prüft dieser Test, was wahr bleiben MUSS — oder nur, was sich nicht
+   ändern DARF?** (Ein Test nagelte die Nebenbedingung fest und zementierte
+   den Ausfall des Zwecks: eine 26 Monate zu großzügige Präklusionsfrist,
+   grün abgesichert.)
+3. **Welche Geschwister-Routinen haben denselben Aufbau, und warum bleiben
+   sie so?** „Bewusst später" ist eine gültige Antwort — Fehlen keine.
+   (Ein Pfad wurde transaktional, Anlegen und Löschen mit identischem Aufbau
+   blieben zurück.)
+4. **Wählt eine Routine eine Zeile aus UND legt bei Nichtpassung eine neue
+   an?** Dann läuft die Auswahl über die Identität des Zwecks, nie über eine
+   Reihenfolge — sonst wächst der Bestand mit jedem Aufruf. (Gemessen: vier
+   offene Fristen nach drei Korrekturen, `.first()` fand immer die falsche.
+   Bitter: Eine frühere, richtige deterministische Sortierung machte den
+   Defekt reproduzierbar statt selten.)
+5. **Gilt die Rot-Zahl auch mit Kontext?** „N Tests rot" zählt nur zusammen
+   mit Lauf-Umfang (eine Datei / ganze Suite) und Zustand der Testdatenbank
+   (frisch/befüllt). Gemessen: dieselbe Mutation ergab 1, 6 oder 26 rote
+   Tests je nach Quelle — die nackte Zahl ist eine Erinnerung, keine Messung,
+   und landet doch als harte Zusage im Code.
+6. **Ist jede Behauptung im Brief belegt oder als Annahme markiert?**
+   (Siehe „Die Wahrheit des Briefs" oben.)
