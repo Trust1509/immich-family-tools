@@ -283,13 +283,13 @@ Stimmen am selben Kontingent. Drei Antworten darauf:
    Quelltext-Zugriff**. Die Regel schreibt das ERGEBNIS vor, nicht den
    Transport — Review-Branch, Commit-Snapshot oder Quelltext inline sind
    gleichwertig, solange die Quelle `git show HEAD:`-Stand ist (Quellen-Regel
-   gilt unverändert). Real belegt: In einer Sandbox ohne Datei-Zugriff trug
-   die Inline-Variante den einzigen echten Treffer der Runde. Teurer, aber
-   definiert statt improvisiert. **Bei uns gilt dazu ausdrücklich:** Der
-   Transport „Quelltext inline" schickt Quelltext an die GPT-Stimme, also an
-   einen fremden Dienst — die PII-Grenze oben gilt für diesen Transport
-   unverändert weiter. Diese Ersatzregel ist eine Aussage über den Transport,
-   keine Ausnahme von der PII-Grenze.
+   gilt unverändert). **Die Ersatzregel ist eine Aussage über den Transport,
+   keine Ausnahme von der PII-Grenze:** Was einer Fremdstimme nicht gegeben
+   werden darf, darf ihr auch inline nicht gegeben werden — wer nur eine der
+   beiden Regeln liest, darf sie nicht als Aufhebung der anderen lesen können.
+   Real belegt: In einer Sandbox ohne Datei-Zugriff trug die Inline-Variante
+   den einzigen echten Treffer der Runde. Teurer, aber definiert statt
+   improvisiert.
 3. Die bestehende Regel „Panel nie auf den letzten Moment" wiegt bei R3
    doppelt.
 
@@ -317,9 +317,10 @@ steht nur, was je Klasse zu tun ist:
   fester Panel-Kommentar. Die Drittstimme ist bei R2 optional (ihr gemessenes
   Profil: Konvergenz-Lieferant, kaum exklusive Funde); wird sie weggelassen,
   steht der Grund unter ihrer Überschrift.
-  _Verkürzung „R1":_ Nacharbeit mit ausschließlich mechanischen Auflagen darf
-  mit der blinden Erststimme allein geprüft werden — Begründung unter den
-  Überschriften der ausgelassenen Stimmen.
+  _Verkürzung „R1":_ Auslöser und Mindestprüfung stehen in der Tabelle
+  (`../../CLAUDE.md`, Zeile _R1_) — hier nur das Verfahrens-Detail: Die
+  Begründung der Verkürzung steht unter den Überschriften der ausgelassenen
+  Stimmen, nicht als Fließtext.
 - **R3** — volles Panel **plus eine risikospezifische Probe durch die echte
   Tür** (Datenerhalt-Probe für die JSON-Migration, Berechtigungs-Sonde,
   Schnittstellen-Aufruf von außen — je nach Auslöser). **Stimme 3 wird bei R3
