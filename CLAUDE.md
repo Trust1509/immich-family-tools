@@ -149,13 +149,31 @@ Kurzfassung hier.
 
 ## Prüfschritte
 
+**Ein CI-Lauf je Slice, nicht je Push.** Bau, Panel und Nacharbeit landen mit
+`[skip ci]`; nur der **gelandete Endstand** eines Slices läuft durch die CI.
+Reine Doku-Pushes filtert `paths-ignore` (`.github/workflows/ci.yml`) von
+selbst weg. Lokale Gates (der Husky-Hook) sind die **Verifikation** und
+bleiben Pflicht; die CI ist die **Gegenprobe**, nicht der Erstlauf. Warum:
+Das Portfolio-Tagesbudget für GitHub Actions liegt bei 100 Minuten über alle
+Repos des Owners — dieses Repo selbst ist PUBLIC und ein Lauf hier kostet 0
+abgerechnete Minuten (Abrechnungs-API, belegt für alle Läufe seit 11.08.,
+auch während der früheren Notbremse), aber die Regel gilt trotzdem: als
+Portfolio-Disziplin (dieselbe Arbeitsweise in allen Repos) und weil sie
+sofort real wird, sollte dieses Repo je auf privat umgeschaltet werden. Was
+davon dauerhaft bleibt, weil es Qualität nicht kostet: ein pytest-Job statt
+zwei, kein `pull_request`-Trigger im Trunk-Workflow, `concurrency` mit
+Abbruch (Tag-Läufe ausgenommen), `paths-ignore`. Diese Regel steht **hier**
+und nur hier — `release-ritual.md` und `docs/agents/lehren.md` verweisen bei
+Bedarf, sie wiederholen sie nicht.
+
 Ein Prüfschritt, den nur die CI kennt, wird lokal nie gefahren und meldet sich
 zum ungünstigsten Zeitpunkt — genau so ist `npm audit` in diesem Repo einmal
 rot geworden, mitten in einem Release, ohne dass sich eine Zeile geändert
 hatte. Deshalb hier **alle** Kommandos, die die CI fährt:
 
-**Push-Pfad (`.github/workflows/ci.yml`, bei jedem Push auf `main`/`release/**`
-und bei Tags):\*\*
+**Push-Pfad (`.github/workflows/ci.yml`, bei Push auf `main`/`release/**`
+und bei Tags, außer bei reinem Doku-Push — Pfadfilter greifen bei Tag-Pushes
+nicht):\*\*
 
 - Backend: `pytest -q backend/tests`
 - Backend: `python -m compileall -q backend`
@@ -170,6 +188,7 @@ aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 
 - `npx lint-staged` (prettier)
 - Frontend (in `frontend/`): `npm run typecheck` (= `npx tsc --noEmit`)
+- Frontend (in `frontend/`): `npm run test` (= `vitest run`, kein Watch-Modus)
 - Backend: `pytest backend/tests/ --basetemp=/tmp/pytest-immich -q`
 
 **Wochen-Prüfung (`.github/workflows/wochen-pruefung.yml`, montags 04:00 +

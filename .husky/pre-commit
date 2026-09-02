@@ -1,3 +1,4 @@
 npx lint-staged
 npm --prefix frontend run typecheck
+npm --prefix frontend run test
 PYTHONPATH=backend python -m pytest backend/tests/ --basetemp=/tmp/pytest-immich -q

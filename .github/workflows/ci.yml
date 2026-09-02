@@ -6,7 +6,23 @@ on:
     # Tag-Laeufe zulassen: ohne diesen Trigger prueft CI nie einen Tag-Ref,
     # und die Regel "Tag erst nach gruener CI" waere nicht ueberpruefbar.
     tags: ["v*"]
-  # `pull_request` bewusst entfernt (Notbremse 14.08.2026):
+    # Reiner Doku-Push loest keinen Lauf aus, ohne dass jemand an
+    # `[skip ci]` denken muss (Dauerregel "ein CI-Lauf je Slice", siehe
+    # CLAUDE.md, Abschnitt "Pruefschritte"). Zwei Praezisierungen:
+    #   - GitHub wertet Pfadfilter NICHT bei Tag-Pushes aus (GitHub-Doku,
+    #     "Workflow syntax for GitHub Actions": "Path filters are not
+    #     evaluated for pushes of tags."). Der `tags: ["v*"]`-Trigger oben
+    #     bleibt also vollstaendig wirksam — das war die Falle vom 14.08.:
+    #     Tags loesten gar keine CI aus. Sie darf nicht durch die
+    #     Hintertuer zurueckkommen.
+    #   - `paths-ignore` greift nur, wenn ALLE geaenderten Dateien passen.
+    #     Ein Commit mit Doku UND Code laeuft ganz normal. `[skip ci]`
+    #     bleibt das Mittel fuer Bau-, Panel- und Nacharbeits-Commits mit
+    #     Code.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  # `pull_request` bewusst entfernt (dauerhaft, ehemals Notbremse 14.08.2026):
   # Dies ist ein Trunk-Workflow ohne menschliche PRs — der Trigger bediente
   # ausschliesslich Dependabot und verdoppelte dessen Kosten (ein Lauf am PR,
   # ein zweiter am Push nach dem Merge). Belegt am 11.08.: zwei PR-Laeufe fuer
@@ -14,9 +30,10 @@ on:
   # Kommen je menschliche PRs dazu, gehoert der Trigger zurueck.
   workflow_dispatch:
 
-# Ein neuer Push bricht den noch laufenden Lauf desselben Zweigs ab.
-# Tag-Refs bekommen eine eigene Gruppe OHNE Abbruch — ein Release-Lauf darf
-# nicht von einem Folge-Push gekillt werden.
+# Ein neuer Push bricht den noch laufenden Lauf desselben Zweigs ab
+# (dauerhaft, ehemals Notbremse 14.08.2026). Tag-Refs bekommen eine eigene
+# Gruppe OHNE Abbruch — ein Release-Lauf darf nicht von einem Folge-Push
+# gekillt werden.
 concurrency:
   group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.run_id || github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -66,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .

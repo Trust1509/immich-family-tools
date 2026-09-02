@@ -705,9 +705,10 @@ die man für lokal gedeckt hält, weil ein Hook existiert, ist damit nicht
 gedeckt** — ein Hook deckt nur, was er nennt, und nennt seine Auslassungen
 nicht von selbst.
 
-Unter einer CI-Sperre (`[skip ci]`-Phase, wie sie bis 01.09. bei uns läuft)
-wird die Lücke scharf: Ein gebrochener Frontend-Test wäre erst Tage später
-aufgefallen, einem anderen Bauer zugeordnet.
+Unter der Dauerregel „ein CI-Lauf je Slice" (siehe `CLAUDE.md`, Abschnitt
+„Prüfschritte" — die Regel steht dort, nicht hier) ist die Lücke dauerhaft
+scharf, nicht nur befristet: Ein gebrochener Frontend-Test würde sonst erst
+Tage später auffallen, einem anderen Bauer zugeordnet.
 
 **Regel:** Wer sich auf „der Hook fängt das" beruft, hat die Hook-Definition
 gelesen, nicht vermutet — und ein Wegfall der zweiten Verteidigungslinie
@@ -715,8 +716,9 @@ gelesen, nicht vermutet — und ein Wegfall der zweiten Verteidigungslinie
 der Moment, ihr zu vertrauen. (§18 fragt, was eine Prüfung rot macht; dieser
 Paragraph fragt, wer überhaupt prüft.)
 
-**Der konkrete Fall ist bei uns nicht behoben.** Er liegt als **Issue #59**
-(„Pre-Commit-Hook fährt die Frontend-Tests nicht (Vitest nur in der CI)"),
-Status offen. Eine Lehre, die den eigenen offenen Fall verschweigt, liest sich
-wie erledigt — deshalb steht das hier ausdrücklich: Diese Lücke besteht in
-diesem Repo weiterhin, sie ist nur benannt, nicht geschlossen.
+**Der konkrete Fall ist mit diesem Slice geschlossen.** Er lag als **Issue
+#59** („Pre-Commit-Hook fährt die Frontend-Tests nicht (Vitest nur in der
+CI)"); der Hook fährt jetzt `npm --prefix frontend run test`, siehe
+`.husky/pre-commit`. Die Lehre selbst bleibt bestehen — ein Hook deckt nur,
+was er nennt — nur der Stand dieses konkreten Falls ändert sich von „offen"
+auf „geschlossen".
