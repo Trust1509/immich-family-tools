@@ -639,10 +639,14 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
 - **`gitleaks` (CI, Secrets-Job, Push-Pfad)** — Der Job checkt mit
   `fetch-depth: 0` aus; das liefert die volle Git-Historie, **scannt sie aber
   nicht**: gitleaks-action wertet bei `push`-Events nur die Commits des
-  jeweiligen Pushes aus (siehe Kommentar in `wochen-pruefung.yml`). Die
-  Regel-Update-Rot-Quelle, die hier bis `d7a9ada` stand, betrifft seit dem
-  eigenen Vollscan-Lauf die Wochen-Prüfung (siehe dort) — der Push-Job selbst
-  rescannt keine unveränderten, längst gelandeten Commits.
+  jeweiligen Pushes aus (siehe Kommentar in `wochen-pruefung.yml`) — nötig
+  bleibt es trotzdem: die Action löst `base^..head` auf, ein flacher Klon
+  bricht das. Die Regel-Update-Rot-Quelle, die bis `d7a9ada` stand hier
+  **falsch**; sie betrifft seit dem eigenen Vollscan-Lauf die Wochen-Prüfung
+  (siehe dort) — der Push-Job selbst rescannt keine unveränderten, längst
+  gelandeten Commits auf dem `push`-Pfad; bei manuellem `workflow_dispatch`
+  scannt auch dieser Job den vollen Verlauf und ist derselben
+  Regel-Update-Rot-Quelle ausgesetzt.
 - **Container-Bau (CI, `docker build`)** — **(a)-verwandt, Owner-Hinweis
   „fremde Basis-Images":** `Dockerfile` zieht `node:22-alpine` und
   `python:3.12-slim` über **bewegliche Tags**, nicht über einen Digest, und die
@@ -655,8 +659,8 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
 - **Wochen-Prüfung (`pip-audit` / `npm audit` / `gitleaks`)** — **(a), real
   eingetreten:** Ein neu veröffentlichtes npm-Advisory (`nanoid`, Commit
   `096db40`) färbte die CI mitten in einem Release rot, ohne dass sich eine
-  Zeile geändert hatte — siehe §12. Deshalb laufen beide Scans seit diesem
-  Fund **nicht** mehr auf dem Push-Pfad, sondern wöchentlich in
+  Zeile geändert hatte — siehe §12. Deshalb laufen die beiden Audits seit
+  diesem Fund **nicht** mehr auf dem Push-Pfad, sondern wöchentlich in
   `wochen-pruefung.yml`. Zweite, hier bisher nicht geführte Rot-Quelle
   desselben Jobs: `gitleaks` checkt dort mit `fetch-depth: 0` die volle
   Git-Historie aus und scannt sie komplett bei jedem Lauf, anders als der

@@ -202,9 +202,10 @@ aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 
 - Backend: `pip-audit -r backend/requirements.txt`
 - Frontend (in `frontend/`): `npm audit --audit-level=high`
-- Secrets: `gitleaks` gegen den vollen Verlauf — schließt die Lücke, die der
-  Push-Scan systembedingt lässt (siehe `ci.yml`, Kommentar am
-  `paths-ignore`), im Wochenrhythmus
+- Secrets: `gitleaks` gegen den vollen Verlauf, im Wochenrhythmus — schließt
+  die Lücke, die der Push-Scan systembedingt lässt: Pushes ohne CI-Lauf —
+  `[skip ci]`, `paths-ignore` — erreichen den Push-Scan nie; der nächste
+  Lauf holt sie nicht nach
 
 ## Produktivinstanz
 
