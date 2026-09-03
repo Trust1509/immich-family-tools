@@ -24,9 +24,8 @@ on:
     #     Text.
     #   - Ein gefilterter Push (wie ein reiner `**.md`-Push oder ein
     #     `[skip ci]`-Commit) startet keinen CI-Lauf und wird damit auch vom
-    #     Secrets-Scan im Push-Job unten nicht erfasst; der woechentliche
-    #     Vollscan in `wochen-pruefung.yml` faengt das auf, spaetestens nach
-    #     sieben Tagen.
+    #     Secrets-Scan im Push-Job unten nicht erfasst. Luecke und
+    #     Gegenmassnahme: CLAUDE.md, Abschnitt Pruefschritte.
     #   - GitHub startet bei Pfadfiltern ausserdem gar keinen Lauf, wenn kein
     #     Dateiinhalt sich aendert (`--allow-empty`-Commit, neuer
     #     `release/**`-Zweig auf einem bestehenden Commit) — kein Bug, nur

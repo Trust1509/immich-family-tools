@@ -9,11 +9,9 @@
 #
 # Zweiter Grund fuer einen eigenen Lauf: gitleaks-action scannt bei den
 # Events `schedule`/`workflow_dispatch` den vollen Git-Verlauf (kein
-# `--log-opts`, anders als bei `push`/`pull_request` in ci.yml, die nur den
-# Push-Bereich pruefen). Ein Push, fuer den kein CI-Lauf startet
-# (`[skip ci]` oder `paths-ignore`), wird von ci.yml nie auf Geheimnisse
-# geprueft; dieser Vollscan schliesst die Luecke spaetestens nach sieben
-# Tagen.
+# `--log-opts`, anders als beim `push`-Event in ci.yml, das nur den
+# Push-Bereich prueft). Luecke und Gegenmassnahme: CLAUDE.md, Abschnitt
+# Pruefschritte.
 name: Wochen-Pruefung
 
 on:
@@ -39,14 +37,22 @@ jobs:
       - run: pip install pip-audit
       - run: pip-audit -r backend/requirements.txt
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        if: ${{ !cancelled() }}
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+        if: ${{ !cancelled() }}
         working-directory: frontend
       - run: npm audit --audit-level=high
+        if: ${{ !cancelled() }}
         working-directory: frontend
+      # !cancelled() statt success() (Default): sonst verdeckt ein rotes
+      # Advisory (pip-audit/npm audit) den Geheimnis-Scan, Woche fuer Woche,
+      # solange das Advisory besteht -- derselbe Kopplungsfehler, den der
+      # Dateikopf oben fuer den Push-Pfad anprangert.
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

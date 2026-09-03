@@ -155,7 +155,8 @@ Reine Doku-Pushes filtert `paths-ignore` (`.github/workflows/ci.yml`) von
 selbst weg. Lokale Gates (der Husky-Hook) sind die **Verifikation** und
 bleiben Pflicht; die CI ist die **Gegenprobe**, nicht der Erstlauf. Warum:
 Das Portfolio-Tagesbudget für GitHub Actions liegt bei 100 Minuten über alle
-Repos des Owners — dieses Repo selbst ist PUBLIC und ein Lauf hier kostet 0
+Repos des Owners (Auslöser: 2701/3000 Portfolio-Minuten am 14.08.2026
+verbraucht) — dieses Repo selbst ist PUBLIC und ein Lauf hier kostet 0
 abgerechnete Minuten (Abrechnungs-API, belegt für alle Läufe seit 11.08.,
 auch während der früheren Notbremse), aber die Regel gilt trotzdem: als
 Portfolio-Disziplin (dieselbe Arbeitsweise in allen Repos) und weil sie
@@ -185,7 +186,8 @@ nicht):\*\*
 - Frontend (in `frontend/`): `npm test`
 - Frontend (in `frontend/`): `npm run build` (enthält `tsc`)
 - Container: `docker build` des Gesamt-Images (`push: false`, reiner Bau-Test)
-- Secrets: `gitleaks` gegen die Commits des Pushes
+- Secrets: `gitleaks` gegen die Commits des Pushes (bei `workflow_dispatch`:
+  voller Verlauf)
 
 Zusätzlich lokal vor jedem Commit (Husky-Pre-Commit-Hook, nicht Teil der CI,
 aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
@@ -202,7 +204,7 @@ aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 - Frontend (in `frontend/`): `npm audit --audit-level=high`
 - Secrets: `gitleaks` gegen den vollen Verlauf — schließt die Lücke, die der
   Push-Scan systembedingt lässt (siehe `ci.yml`, Kommentar am
-  `paths-ignore`), spätestens nach sieben Tagen
+  `paths-ignore`), im Wochenrhythmus
 
 ## Produktivinstanz
 

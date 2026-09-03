@@ -636,18 +636,13 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
   Wer den Hook wegen eines als „unrelated" empfundenen Rots einmal mit
   `--no-verify` umgeht, hat exakt den Zustand aus §21 hergestellt — einen
   Wächter, dessen Lauf niemand mehr erzwingt.
-- **`gitleaks` (CI, Secrets-Job)** — **(a)-verwandt:** Der Job checkt mit
-  `fetch-depth: 0` die **volle Git-Historie** aus und scannt sie komplett bei
-  jedem Lauf, nicht nur den aktuellen Diff. Ein Regel-Update im gitleaks-Projekt
-  selbst kann damit einen längst gelandeten, unveränderten Commit neu als Fund
-  markieren — CI wird rot, ohne dass in diesem Repo eine Zeile angefasst wurde.
-  Konkret erhöht: Mehrere Testdateien (u. a. `test_auth_service.py`,
-  `test_immich_client.py`, `test_config_store.py`) enthalten Literale wie
-  `api_key`, `token`, `secret` für erfundene Konten — aktuell niedrige Entropie
-  (`"secret"`, `"a-long-secret"`), aber ein künftiger Fixture-Wert, der wie ein
-  echter Schlüssel _aussieht_ (lang, zufällig wirkend), würde bei einem
-  schärferen Entropie-Ruleset genau hier zuschlagen, an einer Stelle, die
-  niemand als Sicherheitsproblem gebaut hat.
+- **`gitleaks` (CI, Secrets-Job, Push-Pfad)** — Der Job checkt mit
+  `fetch-depth: 0` aus; das liefert die volle Git-Historie, **scannt sie aber
+  nicht**: gitleaks-action wertet bei `push`-Events nur die Commits des
+  jeweiligen Pushes aus (siehe Kommentar in `wochen-pruefung.yml`). Die
+  Regel-Update-Rot-Quelle, die hier bis `d7a9ada` stand, betrifft seit dem
+  eigenen Vollscan-Lauf die Wochen-Prüfung (siehe dort) — der Push-Job selbst
+  rescannt keine unveränderten, längst gelandeten Commits.
 - **Container-Bau (CI, `docker build`)** — **(a)-verwandt, Owner-Hinweis
   „fremde Basis-Images":** `Dockerfile` zieht `node:22-alpine` und
   `python:3.12-slim` über **bewegliche Tags**, nicht über einen Digest, und die
@@ -657,12 +652,25 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
   unter demselben Tag, ein kurzzeitig inkonsistenter Debian-Mirror, oder ein
   entferntes Paket. Der Bau-Test (`push: false`) prüft dann eine Umgebung, die
   es beim nächsten Lauf schon nicht mehr gibt.
-- **Wochen-Prüfung (`pip-audit` / `npm audit`)** — **(a), real eingetreten:**
-  Ein neu veröffentlichtes npm-Advisory (`nanoid`, Commit `096db40`) färbte die
-  CI mitten in einem Release rot, ohne dass sich eine Zeile geändert hatte —
-  siehe §12. Deshalb laufen beide Scans seit diesem Fund **nicht** mehr auf dem
-  Push-Pfad, sondern wöchentlich in `wochen-pruefung.yml`. Der verbleibende
-  Rest-Fall: Läuft der wöchentliche Job selbst nicht durch (Budget, Rechte,
+- **Wochen-Prüfung (`pip-audit` / `npm audit` / `gitleaks`)** — **(a), real
+  eingetreten:** Ein neu veröffentlichtes npm-Advisory (`nanoid`, Commit
+  `096db40`) färbte die CI mitten in einem Release rot, ohne dass sich eine
+  Zeile geändert hatte — siehe §12. Deshalb laufen beide Scans seit diesem
+  Fund **nicht** mehr auf dem Push-Pfad, sondern wöchentlich in
+  `wochen-pruefung.yml`. Zweite, hier bisher nicht geführte Rot-Quelle
+  desselben Jobs: `gitleaks` checkt dort mit `fetch-depth: 0` die volle
+  Git-Historie aus und scannt sie komplett bei jedem Lauf, anders als der
+  Push-Scan in `ci.yml` (siehe oben) — ein Regel-Update im gitleaks-Projekt
+  selbst kann damit einen längst gelandeten, unveränderten Commit neu als
+  Fund markieren, CI wird rot, ohne dass in diesem Repo eine Zeile angefasst
+  wurde. Konkret erhöht: Mehrere Testdateien (u. a. `test_auth_service.py`,
+  `test_immich_client.py`, `test_config_store.py`) enthalten Literale wie
+  `api_key`, `token`, `secret` für erfundene Konten — aktuell niedrige
+  Entropie (`"secret"`, `"a-long-secret"`), aber ein künftiger Fixture-Wert,
+  der wie ein echter Schlüssel _aussieht_ (lang, zufällig wirkend), würde bei
+  einem schärferen Entropie-Ruleset genau hier zuschlagen, an einer Stelle,
+  die niemand als Sicherheitsproblem gebaut hat. Der verbleibende Rest-Fall:
+  Läuft der wöchentliche Job selbst nicht durch (Budget, Rechte,
   `workflow_dispatch` vergessen), meldet das niemand aktiv — die einzige
   Prüfung dafür ist ein Mensch, der das Grün des letzten Laufs von Hand
   nachsieht (vgl. §9, „das Vorhandensein einer Prüfung ist nicht ihr
