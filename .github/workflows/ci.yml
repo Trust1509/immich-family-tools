@@ -22,10 +22,8 @@ on:
     #     zu weit gefasst und wuerde auch Shell-Skripte unter `docs/betrieb/`
     #     verschlucken (Sicherung, Rueckspiel-Probe) — die sind Code, kein
     #     Text.
-    #   - Ein gefilterter Push (wie ein reiner `**.md`-Push oder ein
-    #     `[skip ci]`-Commit) startet keinen CI-Lauf und wird damit auch vom
-    #     Secrets-Scan im Push-Job unten nicht erfasst. Gegenmassnahme:
-    #     CLAUDE.md, Abschnitt Pruefschritte (woechentlicher Vollscan).
+    #   - Gefilterte Pushes und der Secrets-Scan: siehe CLAUDE.md, Abschnitt
+    #     Pruefschritte.
     #   - GitHub startet bei Pfadfiltern ausserdem gar keinen Lauf, wenn kein
     #     Dateiinhalt sich aendert (`--allow-empty`-Commit, neuer
     #     `release/**`-Zweig auf einem bestehenden Commit) — kein Bug, nur

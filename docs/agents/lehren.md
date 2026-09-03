@@ -639,14 +639,16 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
 - **`gitleaks` (CI, Secrets-Job, Push-Pfad)** — Der Job checkt mit
   `fetch-depth: 0` aus; das liefert die volle Git-Historie, **scannt sie aber
   nicht**: gitleaks-action wertet bei `push`-Events nur die Commits des
-  jeweiligen Pushes aus (siehe Kommentar in `wochen-pruefung.yml`) — nötig
-  bleibt es trotzdem: die Action löst `base^..head` auf, ein flacher Klon
-  bricht das. Die Regel-Update-Rot-Quelle, die bis `d7a9ada` stand hier
-  **falsch**; sie betrifft seit dem eigenen Vollscan-Lauf die Wochen-Prüfung
-  (siehe dort) — der Push-Job selbst rescannt keine unveränderten, längst
-  gelandeten Commits auf dem `push`-Pfad; bei manuellem `workflow_dispatch`
-  scannt auch dieser Job den vollen Verlauf und ist derselben
-  Regel-Update-Rot-Quelle ausgesetzt.
+  jeweiligen Pushes entlang der ersten Eltern-Linie aus (`--first-parent
+--no-merges`: Merge-Commits und Commits eines eingemergten Zweigs werden
+  nicht gescannt — relevant bei Dependabot-Merges; siehe Kommentar in
+  `wochen-pruefung.yml`) — nötig bleibt es trotzdem: die Action löst
+  `base^..head` auf, ein flacher Klon bricht das. Die Regel-Update-Rot-Quelle
+  stand hier bis `d7a9ada` **falsch**; sie betrifft seit dem eigenen
+  Vollscan-Lauf die Wochen-Prüfung (siehe dort) — der Push-Job selbst
+  rescannt keine unveränderten, längst gelandeten Commits auf dem `push`-Pfad;
+  bei manuellem `workflow_dispatch` scannt auch dieser Job den vollen Verlauf
+  und ist derselben Regel-Update-Rot-Quelle ausgesetzt.
 - **Container-Bau (CI, `docker build`)** — **(a)-verwandt, Owner-Hinweis
   „fremde Basis-Images":** `Dockerfile` zieht `node:22-alpine` und
   `python:3.12-slim` über **bewegliche Tags**, nicht über einen Digest, und die

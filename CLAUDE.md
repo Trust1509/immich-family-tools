@@ -186,8 +186,10 @@ nicht):\*\*
 - Frontend (in `frontend/`): `npm test`
 - Frontend (in `frontend/`): `npm run build` (enthält `tsc`)
 - Container: `docker build` des Gesamt-Images (`push: false`, reiner Bau-Test)
-- Secrets: `gitleaks` gegen die Commits des Pushes (bei `workflow_dispatch`:
-  voller Verlauf)
+- Secrets: `gitleaks` gegen die Commits des Pushes entlang der ersten
+  Eltern-Linie (`--first-parent --no-merges`: Merge-Commits und Commits eines
+  eingemergten Zweigs werden nicht gescannt — relevant bei Dependabot-Merges)
+  (bei `workflow_dispatch`: voller Verlauf)
 
 Zusätzlich lokal vor jedem Commit (Husky-Pre-Commit-Hook, nicht Teil der CI,
 aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
