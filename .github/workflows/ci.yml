@@ -8,7 +8,7 @@ on:
     tags: ["v*"]
     # Reiner Doku-Push loest keinen Lauf aus, ohne dass jemand an
     # `[skip ci]` denken muss (Dauerregel "ein CI-Lauf je Slice", siehe
-    # CLAUDE.md, Abschnitt "Pruefschritte"). Zwei Praezisierungen:
+    # CLAUDE.md, Abschnitt "Pruefschritte"). Praezisierungen:
     #   - GitHub wertet Pfadfilter NICHT bei Tag-Pushes aus (GitHub-Doku,
     #     "Workflow syntax for GitHub Actions": "Path filters are not
     #     evaluated for pushes of tags."). Der `tags: ["v*"]`-Trigger oben
@@ -18,9 +18,20 @@ on:
     #   - `paths-ignore` greift nur, wenn ALLE geaenderten Dateien passen.
     #     Ein Commit mit Doku UND Code laeuft ganz normal. `[skip ci]`
     #     bleibt das Mittel fuer Bau-, Panel- und Nacharbeits-Commits mit
-    #     Code.
+    #     Code. Nur `**.md` zaehlt als Doku hier drin: `docs/**` waere
+    #     zu weit gefasst und wuerde auch Shell-Skripte unter `docs/betrieb/`
+    #     verschlucken (Sicherung, Rueckspiel-Probe) — die sind Code, kein
+    #     Text.
+    #   - Ein gefilterter Push (wie ein reiner `**.md`-Push oder ein
+    #     `[skip ci]`-Commit) startet keinen CI-Lauf und wird damit auch vom
+    #     Secrets-Scan im Push-Job unten nicht erfasst; der woechentliche
+    #     Vollscan in `wochen-pruefung.yml` faengt das auf, spaetestens nach
+    #     sieben Tagen.
+    #   - GitHub startet bei Pfadfiltern ausserdem gar keinen Lauf, wenn kein
+    #     Dateiinhalt sich aendert (`--allow-empty`-Commit, neuer
+    #     `release/**`-Zweig auf einem bestehenden Commit) — kein Bug, nur
+    #     damit es niemanden ueberrascht.
     paths-ignore:
-      - "docs/**"
       - "**.md"
   # `pull_request` bewusst entfernt (dauerhaft, ehemals Notbremse 14.08.2026):
   # Dies ist ein Trunk-Workflow ohne menschliche PRs — der Trigger bediente

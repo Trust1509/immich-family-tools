@@ -1,28 +1,18 @@
 # ── DAUERKONFIGURATION: monthly + Limit 1 ──────────────────────────────────
-# Das ist keine Notbremse mehr, sondern die Dauerregel. Grund: Das
-# Portfolio-Tagesbudget für GitHub Actions liegt bei 100 Minuten über alle
-# Repos des Owners — und die vorherige Fassung dieser Datei (interval: weekly,
-# open-pull-requests-limit: 2/2/1/1) war eine der beiden Ursachen des
-# Kontingent-Platzers am 14.08. (2701/3000 Minuten am Tag 14, über das
-# Portfolio). Deshalb:
+# Das ist keine Notbremse mehr, sondern die Dauerregel:
 #   - interval: monthly            bei allen vier Ökosystemen
 #   - open-pull-requests-limit: 1  bei allen vier Ökosystemen
-#     (genug, um nicht stumm zu bleiben; wenig genug, um das Tagesbudget
-#     nicht wieder zu sprengen)
 #
-# Dieses Repo selbst ist PUBLIC — GitHub-gehostete Runner sind hier kostenlos,
-# belegt über die Abrechnungs-API für alle Läufe seit 11.08. (0 abgerechnete
-# Minuten, auch während der alten Notbremse). Die Regel gilt hier trotzdem,
-# aus zwei Gründen: (1) Portfolio-Disziplin — dieselbe Konfiguration in allen
-# Repos des Owners, unabhängig davon, welches gerade zahlt; (2) sie wird
-# sofort scharf, falls dieses Repo je auf privat umgeschaltet wird.
+# Owner-Budget-Entscheidung vom 02.09.2026 (festgehalten auf Issue #55).
+# Begründung, Zahlen und Abrechnungs-Beleg stehen dort und in `CLAUDE.md`,
+# Abschnitt „Prüfschritte" — nicht hier, ein Eigentümer pro Regel.
 #
 # SICHERHEITS-Updates laufen davon unberührt weiter — die schaltet dieses
 # Limit nicht ab, sie hängen an den Repo-Einstellungen, nicht an dieser Datei.
 #
 # Eine Änderung an dieser Datei ist eine Budget-Entscheidung, keine Hygiene —
-# vor jeder Anpassung von interval/limit das Tagesbudget gegenprüfen, nicht
-# nur den Diff lesen.
+# vor jeder Anpassung von interval/limit das Portfolio-Budget gegenprüfen,
+# nicht nur den Diff lesen.
 # ────────────────────────────────────────────────────────────────────────────
 version: 2
 updates:
@@ -35,10 +25,10 @@ updates:
     # bricht im Container. Grund für die Abweichung:
     #   (1) Der Bot hat hier bisher keine Lock-Drift erzeugt — Abbild und
     #       CI bauen beide mit Node 22.
-    #   (2) Der Nutzen ist belegt: Das nanoid-Advisory (096db40) kam über
-    #       genau diesen Weg ans Licht.
-    #   (3) Der Vorlagen-Rat adressiert Projekte mit eigenem
+    #   (2) Der Vorlagen-Rat adressiert Projekte mit eigenem
     #       npm-Major-Ritual — das hat dieses Repo nicht.
+    # Ehrlicher Nutzen: Versions-PRs halten die Abhängigkeiten überhaupt
+    # aktuell; ohne das npm-Ökosystem gäbe es dafür keinen Mechanismus.
     # Kipp-Punkt: Bei der ersten beobachteten Lock-Drift Ökosystem
     # entfernen und Locks künftig im Container der Zielversion erzeugen.
     schedule: { interval: monthly }

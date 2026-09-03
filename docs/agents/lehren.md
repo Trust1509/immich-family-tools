@@ -613,12 +613,11 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
   die Prüfung des Datei-Modus `0o600` mit `if os.name != "nt"` — auf Windows
   läuft die Suite grün, ohne die Zugriffsrechte-Regel je zu prüfen; bricht sie
   auf Linux (der tatsächlichen CI-Plattform), sieht das kein lokaler Lauf.
-- **`npm test` (Vitest)** — **kein Kandidat, sondern eine bestehende Lücke:**
-  Der Husky-Pre-Commit-Hook fährt `npx lint-staged`, den Frontend-Typecheck und
-  die Backend-Suite — **aber nicht `npm test`**. Die Vitest-Suite läuft
-  ausschließlich in der CI. Ein Regressionsfund erreicht den Bauer also nie am
-  Commit, sondern frühestens nach dem Push — und wenn der CI-Lauf aus einem der
-  in §6 genannten Gründe nicht startet, unter Umständen gar nicht.
+- **`npm test` (Vitest)** — **war** die Antwort auf die Pflichtfrage oben, bis
+  der Husky-Pre-Commit-Hook `npx lint-staged`, den Frontend-Typecheck und die
+  Backend-Suite fuhr, aber nicht `npm test`: Die Vitest-Suite lief
+  ausschließlich in der CI, ein Regressionsfund erreichte den Bauer also nie am
+  Commit. Seit `ba41e1f` geschlossen — Ist-Zustand siehe §20.
 - **`npx tsc --noEmit`** — Der lokale Husky-Lauf typprüft gegen das, was gerade
   in `frontend/node_modules` liegt. Führt jemand dort `npm install` statt
   `npm ci` aus (z. B. nach einem manuellen Paket-Test), driftet die lokal

@@ -166,6 +166,10 @@ Abbruch (Tag-Läufe ausgenommen), `paths-ignore`. Diese Regel steht **hier**
 und nur hier — `release-ritual.md` und `docs/agents/lehren.md` verweisen bei
 Bedarf, sie wiederholen sie nicht.
 
+Ohne `pull_request`-Trigger laufen Dependabot-PRs ohne Vor-Merge-CI; der Lauf
+auf `main` nach dem Merge ist ihr Gate — wird er rot, den Merge revertieren,
+nicht reparieren.
+
 Ein Prüfschritt, den nur die CI kennt, wird lokal nie gefahren und meldet sich
 zum ungünstigsten Zeitpunkt — genau so ist `npm audit` in diesem Repo einmal
 rot geworden, mitten in einem Release, ohne dass sich eine Zeile geändert
@@ -181,13 +185,13 @@ nicht):\*\*
 - Frontend (in `frontend/`): `npm test`
 - Frontend (in `frontend/`): `npm run build` (enthält `tsc`)
 - Container: `docker build` des Gesamt-Images (`push: false`, reiner Bau-Test)
-- Secrets: `gitleaks` gegen den vollen Verlauf
+- Secrets: `gitleaks` gegen die Commits des Pushes
 
 Zusätzlich lokal vor jedem Commit (Husky-Pre-Commit-Hook, nicht Teil der CI,
 aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 
 - `npx lint-staged` (prettier)
-- Frontend (in `frontend/`): `npm run typecheck` (= `npx tsc --noEmit`)
+- Frontend (in `frontend/`): `npm run typecheck` (= `tsc --noEmit`)
 - Frontend (in `frontend/`): `npm run test` (= `vitest run`, kein Watch-Modus)
 - Backend: `pytest backend/tests/ --basetemp=/tmp/pytest-immich -q`
 
@@ -196,6 +200,9 @@ aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 
 - Backend: `pip-audit -r backend/requirements.txt`
 - Frontend (in `frontend/`): `npm audit --audit-level=high`
+- Secrets: `gitleaks` gegen den vollen Verlauf — schließt die Lücke, die der
+  Push-Scan systembedingt lässt (siehe `ci.yml`, Kommentar am
+  `paths-ignore`), spätestens nach sieben Tagen
 
 ## Produktivinstanz
 
