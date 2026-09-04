@@ -57,9 +57,16 @@ permissions:
 # Herkunft/Vertrauenswuerdigkeit (ob der Code sauber ist) — die Herkunft wurde
 # beim Pinnen einmalig ueber die GitHub-API des jeweiligen Original-Repos
 # geprueft (die API-URL enthaelt das Repo, das ist der Herkunftsnachweis).
+#
+# Jeder Job traegt timeout-minutes. Ohne Grenze laeuft ein haengender Job bis
+# zum Plattform-Standard von 360 Minuten; bei 100 Minuten Portfolio-Tagesbudget
+# (siehe CLAUDE.md, Abschnitt "Pruefschritte") ist das nicht ein Aufschlag,
+# sondern der ganze Tag. Gemessene Laufzeit am 02.09.2026: 9-23 Sekunden je
+# Job — die Werte unten sind grosszuegig gewaehlt, keine Messwerte.
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -73,6 +80,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -89,6 +97,7 @@ jobs:
 
   container:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -100,6 +109,7 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

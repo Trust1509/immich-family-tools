@@ -9,14 +9,18 @@
 > nicht fertig; das ist prüfbar — vor jedem Absenden verbindlich:
 > `sh scripts/bau-brief-pruefen.sh <brief.md>`.
 
-## Pflicht-Gerüst (Block 0 plus acht Themen-Blöcke, keiner leer)
+## Pflicht-Gerüst (Block 0 plus neun Blöcke, keiner leer)
 
 ```markdown
-## 0 Risiko Risiko: R<n> — Auslöser: ⟨bei R3/R4 der Auslöser aus der
+## 0 Risiko Risiko: R<n> — Auslöser: ⟨bei R3/R4 der Auslöser aus
 
-                       Tabelle in CLAUDE.md; bei R0 der R0-Auslöser; bei
-                       R2 „Normalfall, gegen die Auslöser-Tabelle geprüft"⟩
+                        der Tabelle in CLAUDE.md; bei R0 der R0-Auslöser; bei
+                        R2 „Normalfall, gegen die Auslöser-Tabelle geprüft"⟩
+```
 
+## Pflicht-Gerüst (Fortsetzung: die neun Themen-Blöcke)
+
+```markdown
 ## 1 Auftrag ⟨was gebaut wird, in zwei Sätzen⟩
 
 ## 2 Befund ⟨bereits verifiziert — NICHT neu recherchieren⟩
@@ -36,13 +40,26 @@
 ## 8 Randbedingungen ⟨Vordergrund, lokal committen, nicht pushen,
 
                           Umfang nicht erweitern⟩
+
+## 9 Prüffragen ⟨die acht Fragen unten, JE EINE ZEILE Antwort —
+
+                          „trifft nicht zu" ist eine gültige Antwort,
+                          Weglassen ist keine⟩
 ```
+
+**Warum Block 9 existiert und nicht nur die Fragenliste:** Ein Projekt hat die
+Prüffragen einen ganzen Slice lang nicht angewendet — sie standen seit dem
+Abgleich in der eigenen `bau-brief.md`. Die Diagnose des Projekts trifft es:
+_Das Prüfskript prüft Themen, nicht Fragen — und was das Skript nicht anmahnt,
+fällt durch._ Als eigener Block fehlt er auffällig; als Liste im Fließtext
+verschwindet er lautlos. Das ist §21 auf unsere eigene Neuerung angewandt:
+Eine Regel, deren Auslassung nichts rot macht, ist eine Notiz.
 
 **Block 3 ist der teuerste, wenn er fehlt** — in vier von fünf Projekten kam
 darüber ein Fund, den sonst niemand hatte.
 
 **Baut der Hauptagent selbst, entfällt der Empfänger — nicht das Gerüst.** Block
-0 und die acht Themen werden dann vor dem ersten Commit durchgegangen, auch
+0 und die neun Themen werden dann vor dem ersten Commit durchgegangen, auch
 ohne Bau-Subagenten. Eine gekürzte Eigenliste („nur die drei, die mir fehlen") ist
 die falsche Antwort — sie schreibt den nächsten blinden Fleck fest, derselbe
 Kurzfassung/Langfassung-Fehler eine Ebene tiefer. Ein gegenstandsloses Thema
@@ -105,6 +122,10 @@ eine Zeile Begründung statt nichts.⟩
 
 ## 6 Prüf-Kommandos / 8 Randbedingungen
 ⟨Test-Kommandos VOLLSTÄNDIG, Zeitlimits, Vordergrund, nicht pushen, …⟩
+
+## 9 Prüffragen
+⟨die acht Fragen unten, JE EINE ZEILE Antwort — „trifft nicht zu" ist eine
+gültige Antwort, Weglassen ist keine⟩
 ```
 
 ---
@@ -374,7 +395,32 @@ im Report; ein anderer korrigierte die R-Einstufung des Auftraggebers am
 Tabellentext. Der Brief ist Anleitung, kein Dogma; verifizierte Gegenbelege
 gehören in den Report.
 
-## Sechs Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
+## Ablage: der Brief gehört dorthin, wo die blinde Stimme ihn findet
+
+**Der Bau-Brief wird beim Start des Slices als Issue-Kommentar gepostet** (oder
+unter `docs/agents/briefe/<issue>.md` committet) — nicht nur an den Bauer
+übergeben. Der Prompt der blinden Stimme nennt dann die Fundstelle („Brief:
+Issue #N, Kommentar vom …").
+
+Gemessen, in beide Richtungen: In einem Slice lag der Brief nur im Scratchpad
+des Hauptagenten. Prüffrage 6 konnte deshalb nur gegen Code und CHANGELOG
+laufen — und fand dort eine **erfundene Zahl** (vier Stellen behaupteten einen
+Fehlercode, den das Produkt nie liefert). Am Brief gemessen wäre sie zwei
+Runden früher aufgefallen. Im Folge-Slice lag der Brief als Issue-Kommentar
+vor: Die Stimme lieferte eine Tabelle _Behauptung → stimmt/stimmt nicht →
+Beleg_, zwei Behauptungen darin „überschärft".
+
+Nebeneffekt, der allein den Aufwand trägt: **Der Owner sieht die Annahmen des
+Briefs vor dem Bau**, nicht erst im Panel.
+
+**Für uns gilt der Issue-Kommentar als Regelweg, nicht die freie Wahl der
+Vorlage:** Unser `paths-ignore` filtert `**.md` aus dem Push-Pfad heraus — ein
+Brief unter `docs/agents/briefe/<issue>.md` würde also keinen CI-Lauf
+auslösen und geräuschlos an der Dauerregel „ein Lauf je Slice" vorbeilaufen;
+außerdem sieht der Owner die Annahmen so im Issue, nicht erst im commiteten
+Repo-Stand.
+
+## Acht Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
 
 1. **Schreibt dieser Fix an einer Stelle, die vorher nur las — und wer teilt
    sich die Zielzeilen?** (Ein Fix machte einen inerten Pfad aktiv und schuf
@@ -400,3 +446,14 @@ gehören in den Report.
    und landet doch als harte Zusage im Code.
 6. **Ist jede Behauptung im Brief belegt oder als Annahme markiert?**
    (Siehe „Die Wahrheit des Briefs" oben.)
+7. **Welchen Pfad benutzt das PRODUKT wirklich?** Ein Test, der die Zusage auf
+   einem Pfad beweist, den die Oberfläche nie aufruft, ist eine Beruhigung,
+   keine Prüfung. Gemessen: Tests bewiesen einen Direkt-Aufruf, das Produkt
+   nutzt einen anderen Weg — der Schutzzweig war unerreichbar, der Kanal tot,
+   alles grün. Der Rot-Beweis stellt den ECHTEN Aufrufweg nach, mit dem
+   Datenpaket der Oberfläche. (§21 in neuer Gestalt: Der Wächter lief, aber
+   am falschen Objekt.)
+8. **Zählt der Slice seine eigene Zusage ab?** Wer „kein X mehr über Y"
+   verspricht, zählt die Y. Gemessen: Ein Slice versprach Dichtigkeit für
+   einen Sprachassistenten mit acht Werkzeugen und schloss eines; der Brief
+   listete unter „Konsumenten" genau dieses eine.

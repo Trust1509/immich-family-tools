@@ -35,6 +35,31 @@ genügt ein zusätzlicher Eintrag, kein neuer Dienst.
 6. **Benachrichtigung** an den bestehenden Alarmierungskanal von Uptime-Kuma
    koppeln (derselbe, der für andere Dienste bereits eingerichtet ist).
 
+## Rückstands-Check: „läuft es?" ist nicht „ist das Laufende aktuell?"
+
+**Vertagt mit Bedingung — wirksam erst, wenn dieser Betriebs-Bausatz
+installiert ist (Issue #54).** Bis dahin ist dieser Abschnitt Vorbereitung,
+keine laufende Prüfung; nichts an der Produktivinstanz ändern.
+
+„Antwortet die Anwendung" beweist nicht, dass sie den **aktuellen** Stand
+ausliefert — ein Auslieferungs-Gate zwischen Tag und Rollout (siehe
+`docs/agents/release-ritual.md`, Schritt 8) kann einen ungetaggten oder
+veralteten Stand unbemerkt lange laufen lassen, während jeder Gate-Lauf und
+jede Erreichbarkeitsprüfung grün bleiben.
+
+**Kostet null zusätzliche Läufe:** `GET /api/health` liefert bereits
+`{"status":"ok","version":APP_VERSION}` (`backend/main.py:160`,
+`backend/version.py`) — dieselbe Antwort, die der Erreichbarkeits-Wächter
+oben ohnehin abruft. Der Check ist ein Vergleich:
+
+```
+version aus GET /api/health   gegen   git describe --tags --abbrev=0
+```
+
+Weichen beide voneinander ab, ist entweder die Auslieferung hinter dem
+letzten Tag zurück oder der Tag zeigt auf einen Stand, der nie ausgerollt
+wurde — beides ein stiller Rückstand, den kein bestehender Wächter meldet.
+
 ## Abgrenzung zum Totmann-Schalter
 
 Der Erreichbarkeits-Wächter prüft **"antwortet die Anwendung gerade"** — er

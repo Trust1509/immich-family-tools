@@ -22,6 +22,22 @@ Migration, einen Testaufbau, der den eigenen Fix nie berührt.
 Fehler-Intuition mit. Kennt den lokalen Arbeitsbaum nicht, arbeitet über einen
 gepushten Review-Branch.
 
+**Was die diff-only-Stimme kann, und warum sie nicht bloß die billige ist:**
+Ihre Stärke ist die **Struktur der Regel**, nicht der Einzelfall. Gemessen: In
+einem Datenschutz-Slice sagte sie als einzige „nicht landen" — die
+Redigierungsgrenze war als Negativliste gebaut („keine Ausnahme eingetragen,
+also veröffentlichbar"). Beide Repo-Stimmen hatten denselben Punkt gesehen und
+zum Hinweis abgestuft, weil sie **gemessen** hatten, dass heute kein solcher
+Fall erreichbar ist. Beide Einschätzungen waren korrekt — aber „heute nicht
+erreichbar" ist kein Argument gegen eine Regel, die morgen halten muss, und der
+Umbau auf eine Positivliste war zehn Zeilen.
+
+**Daraus die Arbitrierungs-Regel:** Stuft eine Repo-Stimme einen STRUKTURELLEN
+Befund mit „aktuell nicht erreichbar" ab, ist das begründungspflichtig — wer
+garantiert, dass es so bleibt? Das ist die Umkehrung der üblichen Richtung:
+Sonst gewinnt die Messung immer, und genau die Messung, die die Repo-Stimmen
+stark macht, macht sie hier milder.
+
 **Stimme 3 — abhängig von der Risikoklasse.** Bei R2 (wenn besetzt): die
 günstige diff-only-Fremdstimme, nur der Diff, kurze Antwort, kostet fast
 nichts. **Bei R3: eine zweite blinde Claude-Repo-Stimme mit adversarialer
@@ -164,6 +180,23 @@ Gegenstück zum Rot-Beweis.
 Zweimal an einem Tag geschehen: Die Sonde prüfte die **bestätigende** statt der
 widerlegenden Richtung, war technisch korrekt, grün — und die Schlussfolgerung
 falsch. Einmal hätte das den schwersten Fund des Tages abgeräumt.
+
+**Auch eine Text-Suche mit null Treffern ist so eine Sonde** — sie verwirft die
+Aussage eines anderen. Zwei gemessene Wege, auf denen sie falsch verwirft:
+grep arbeitet zeilenweise, eine Wortgruppe über einem Prosa-Umbruch liefert
+null Treffer, obwohl der Satz dasteht; und ohne `-i` verfehlt „Synthese" das
+„SYNTHESE" im Text. Beides hätte beinahe einen KORREKTEN Bauer-Bericht als
+Fehlbefund abgeräumt. Bevor eine Null-Treffer-Suche etwas verwirft: `-i`
+setzen und das **seltenste Einzelwort** suchen — ein Einzelwort kann nicht
+umbrochen werden.
+
+**Beleg (Vorlagen-CHANGELOG v1.12.3, nicht dieses Projekt — Korrektur der
+Brief-Prämisse):** Der Vorfall stammt aus der Vorlage selbst, gemeldet von P4:
+Zweimal wollte dort ein Arbiter eine Bauer-Aussage nachprüfen, bekam null
+Treffer und hätte beinahe einen KORREKTEN Bericht als Fehlbefund verworfen —
+einmal wegen fehlender Groß-/Kleinschreibung, einmal wegen eines
+Zeilenumbruchs mitten in der gesuchten Wortgruppe. Für uns ist die Regel
+präventiv übernommen, ohne eigenen Vorfall dieser Art.
 
 **Vor dem Verwerfen die Gegenfrage stellen: „Welche Eingabe würde der Stimme
 recht geben?"** Wer sie nicht beantworten kann, hat nicht widerlegt, sondern
@@ -362,6 +395,71 @@ beides in der Bilanz, damit die Messreihe weiterwächst.
 React-Frontend), die Regel entscheidet also bei jedem Produkt-Slice mit, ob
 ein R2-Slice zwei Stimmen bekommt oder eine — ein frontend-lastiger R2-Slice
 bekommt danach eine Stimme statt zwei.
+
+**Das ist eine Besetzungsentscheidung nach gemessenem Diff-Typ, kein
+Freibrief, die Drittstimme generell wegzulassen:** Sie bleibt bei
+Backend-Logik und gemischten Diffs gesetzt, und die Begründungspflicht beim
+Abstufen (oben, „Warum drei") gilt unverändert für das, was eine gesetzte
+Stimme findet — die beiden Regeln beantworten verschiedene Fragen (ob eine
+Stimme sitzt vs. wie ihr Fund gewertet wird).
+
+## Vorabprüfung: nicht „antwortet sie?", sondern „kann sie etwas ausführen?"
+
+Die übliche Vorabprüfung („sag OK") testet den Modell-Aufruf, nicht die
+Werkzeuge dahinter. Gemessen: Eine containerisierte Zweitstimme konnte
+**keinen einzigen Befehl ausführen** (`bwrap: No permissions to create a new
+namespace`) — das Modell lief normal, die Vorabprüfung war grün.
+
+Eine Stimme, die nichts ausführen kann, aber weiter antwortet, liefert ein
+Ergebnis, das äußerlich wie ein geprüftes aussieht: gleiche Form, gleiche
+Schwere-Angaben, gleicher Tonfall — ohne einen ausgeführten Befehl darunter.
+Im gemessenen Fall ging es gut, weil das Modell den Ausfall selbst erkannte und
+offenlegte. **Das war Sorgfalt des Modells, nicht Eigenschaft des Verfahrens.**
+
+**Regel:** Die Vorabprüfung setzt einen BEFEHL ab, dessen Ausgabe zurückkommen
+muss — `git rev-parse HEAD` gegen den erwarteten Stand genügt. Kommt sie nicht,
+ist die Stimme ausgefallen und der Ausfall-Vermerk gilt.
+
+**Und in der Ergebnisform:** Konnte eine Stimme ihre Werkzeuge nicht nutzen,
+steht das **unter ihrer Überschrift**. Eine Freigabe aus reiner Lektüre ist
+etwas anderes als eine aus Reproduktion, und der Unterschied gehört in den
+Kommentar, nicht nur ins Gedächtnis des Arbiters.
+
+**Für uns bereits scharf geworden:** Genau dieser Fehler ist hier passiert.
+Der Step-0-Trivialruf an Stimme 2 (GPT über Codex-CLI) ging durch, weil er
+keinen Dateizugriff brauchte; der echte Prüfauftrag scheiterte danach an
+`bwrap`-Rechten im Sandbox-Container. Der Vorabprüf-Befehl für Stimme 2 in
+diesem Projekt ist deshalb nicht „sag Hallo", sondern ein Kommando, dessen
+Ausgabe zurückkommen muss:
+
+```bash
+sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check --sandbox read-only -c 'model_reasoning_effort="high"' 'git rev-parse HEAD'
+```
+
+## Stimmen mit Repo-Zugriff arbeiten in eigenen Worktrees
+
+Jede Claude-Stimme bekommt einen eigenen `git worktree` auf dem gemessenen
+Commit; Mutationen und Container tragen ein stimmen-eigenes Präfix, das
+Aufräumen wird nachgewiesen. Der Hauptagent darf den Hauptbaum währenddessen
+weiterbewegen.
+
+Gemessen: Eine Erststimme lief im Hauptbaum, während dort Nacharbeit
+einfloss — ihr Bericht beginnt mit „Der Prüfgegenstand hat sich während des
+Reviews bewegt", und sie musste zwei Stände auseinanderhalten. Zwei Stimmen mit
+Mutationstests im selben Baum kollidieren zusätzlich.
+
+Der Nebeneffekt ist der eigentliche Gewinn: **Die Nacharbeit kann beginnen,
+bevor die letzte Stimme fertig ist** — die Stimmen prüfen den Commit, nicht den
+Baum. Das ist die Quellen-Regel unten zu Ende gedacht.
+
+**Für uns belegt:** Im 01.09.-Slice hat der Arbiter während laufender Stimmen
+im selben Arbeitsbaum gearbeitet. Das konkrete Kommando für uns:
+
+```bash
+git worktree add ../immich-family-tools-panel-<stimme> <commit>
+# … Stimme prüft dort …
+git worktree remove ../immich-family-tools-panel-<stimme>
+```
 
 ## Quellen-Regel: Keine Stimme sieht den Arbeitsbaum
 

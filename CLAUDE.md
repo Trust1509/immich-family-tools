@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.12.2** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.13.0** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -113,7 +113,7 @@ Projekt stehen ebenfalls dort.
 ## Bau-Brief
 
 Jeder Bau-Auftrag folgt dem Pflicht-Gerüst aus `docs/agents/bau-brief.md` —
-Block 0 (`Risiko: R<n> — Auslöser: …`) plus acht Themen-Blöcke, keiner leer.
+Block 0 (`Risiko: R<n> — Auslöser: …`) plus neun Themen-Blöcke, keiner leer.
 **Vor jedem Absenden verbindlich:** `sh scripts/bau-brief-pruefen.sh <brief.md>`.
 Details, Begründungen und projektspezifische Prüf-Kommandos stehen dort, nicht
 hier.
@@ -242,6 +242,34 @@ speichert — es gilt als offengelegt und gehört rotiert, unabhängig davon, ob
 je missbraucht wurde. Deshalb gehört in den Kontext nur ein Schlüssel, dessen
 Offenlegung verkraftbar ist: der Read-Only-Key aus dem Abschnitt oben, nie der
 schreibberechtigte.
+
+## Dieses Repo ist öffentlich
+
+`Trust1509/immich-family-tools` ist ein **öffentliches** Repository. Was hier
+landet, ist weltweit und dauerhaft lesbar — ein Commit, der ein Geheimnis
+enthält, ist auch nach dem Zurücknehmen noch im Verlauf.
+
+Deshalb: keine echten Schlüssel, keine Immich-Instanz-Adressen mit
+Zugangsdaten, **keine Personen- oder Gesichtsdaten aus den Fotobeständen** —
+weder in Code noch in Tests, Fixtures, Issues oder Commit-Nachrichten. Die
+PII-Grenze für Fremdstimmen im Panel steht in `docs/agents/panel.md`
+(„PII-Grenze") — hier nur der Verweis, nicht die Wiederholung.
+
+**Drei Verteidigungslinien, mit unterschiedlicher Reichweite** — das ist der
+Punkt, den unser 01.09.-Panel teuer gelernt hat, eine Linie allein zu
+verwechseln heißt, die Lücke der anderen zu übersehen:
+
+- **GitHub Push Protection** — blockt bekannte Geheimnis-Muster **vor** dem
+  Landen, GitHub-seitig, kein eigener Lauf.
+- **GitHub Secret Scanning** — durchsucht den vollen Verlauf, ebenfalls
+  GitHub-seitig, unabhängig davon, ob und wann unsere eigene CI läuft.
+- **Unser `gitleaks`** — der Push-Job (`ci.yml`) scannt nur die Commits des
+  Pushes entlang der ersten Eltern-Linie (`--first-parent --no-merges`); erst
+  der Wochenlauf (`wochen-pruefung.yml`) deckt den vollen Verlauf ab.
+
+**Der Nutzen der Öffentlichkeit gehört auch hin:** CI-Läufe kosten hier 0
+abgerechnete Minuten — Begründung und Beleg stehen in „Prüfschritte" oben,
+hier nur der Verweis.
 
 ## Projektspezifisches
 

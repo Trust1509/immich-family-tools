@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Zwanzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Dreiundzwanzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -394,6 +394,24 @@ gemeldet, weil die Lücke erst in der Portfolio-Sicht sichtbar wird. **Jede
 Notmaßnahme bekommt beim Einbau ein Issue mit konkretem Datum im Titel**, nicht
 „nach dem Reset".
 
+**Beim Rückbau gehört eine DRITTE Frage dazu, neben Datum und Bedingung: Hat
+die Messung aus der Notzeit die Ausgangsannahme widerlegt?** Wenn ja, wird aus
+der Notmaßnahme eine Regel mit NEUER Begründung — und die alte
+Rückdreh-Anweisung wird gelöscht, nicht ausgeführt. Datum und Bedingung prüfen
+nur, ob die Maßnahme noch NÖTIG ist; keine von beiden prüft, ob sie von Anfang
+an RICHTIG war.
+
+**Das ist unser eigener Fall:** Die Dependabot-Notiz „am 01.09. zurück auf
+weekly und 2/2/1/1" (`.github/dependabot.yml`, eingebaut mit der
+Actions-Minuten-Notbremse vom 14.08.2026) war sauber datiert und sauber
+bedingt. Pflichtschuldig ausgeführt hätte sie am 01.09. eine der zwei
+Ursachen des Quota-Zusammenbruchs wiederhergestellt — die Messung während der
+Notzeit hatte gezeigt, dass die Version-PR-Frequenz selbst zum
+Portfolio-Verbrauch beitrug, nicht nur ihre Reduktion auf Sicherheits-Updates.
+Die Owner-Entscheidung vom 02.09.2026 (Issue #55) macht deshalb `monthly` +
+`open-pull-requests-limit: 1` zur Dauerkonfiguration und streicht den
+Rückdreh-Hinweis ersatzlos — dokumentiert im Kopfkommentar der Datei selbst.
+
 ---
 
 ## 12. Eigene Funde (Immich Family Tools)
@@ -589,6 +607,15 @@ nicht.)
 
 **Regeln:**
 
+- **Zweite Pflichtfrage: „Wurde der Wächter einmal genau so ausgeführt, wie
+  der Job ihn ausführt — gleiches Kommando, gleiches Arbeitsverzeichnis,
+  gleiche Umgebung?"** Ein Test, der die Funktion IMPORTIERT, beweist nichts
+  über das Kommando. Gemessen (Vorlage): Ein neues Prüfskript war im Import
+  grün und scheiterte beim CI-Aufruf mit `ModuleNotFoundError` —
+  `sys.path[0]` ist beim Skript-Aufruf das Skript-Verzeichnis, nicht das
+  Projekt. Der Wächter wäre beim nächsten Push rot gewesen, ohne je richtig
+  gelaufen zu sein. Die Inventur über unsere eigenen Prüf-Suiten mit dieser
+  Frage steht noch aus (nicht Teil dieses Slices).
 - **Pflichtfrage beim Anlegen jeder Prüfung: „Was macht sie rot, ohne dass
   jemand daran denkt?"** Ohne Antwort ist sie eine Notiz, kein Wächter.
 - Geht der automatische Lauf (noch) nicht: ausdrücklich und **terminiert**
@@ -735,3 +762,94 @@ CI)"); der Hook fährt jetzt `npm --prefix frontend run test`, siehe
 `.husky/pre-commit`. Die Lehre selbst bleibt bestehen — ein Hook deckt nur,
 was er nennt — nur der Stand dieses konkreten Falls ändert sich von „offen"
 auf „geschlossen".
+
+## 21. Wächter-Code ist die defektdichteste Stelle eines Slices
+
+Aus Vorlage §24. Ein Projekt baute an einem Tag vier neue Wächter. Über fünf
+Panel-Runden verteilten sich die bestätigten Funde **nicht gleichmäßig**:
+Wenige lagen im Produkt-Inhalt, die große Mehrheit im Wächter- und Prüfcode —
+**darunter beide blockierenden Funde.**
+
+**Warum das strukturell ist und nicht Schlamperei:** Produkt-Code hat Nutzer,
+die ihn benutzen; ein Fehler fällt auf. **Wächter-Code hat als einzigen
+Nutzer den Fehlerfall — und der tritt selten ein.** Ein Gate, das nie rot
+war, ist ununterscheidbar von einem Gate, das nicht funktioniert; die übliche
+Rückmeldeschleife fehlt. Verschärfend: Man baut Wächter, wenn der eigentliche
+Slice fertig ist — mit weniger Aufmerksamkeit und dem Gefühl, „nur noch
+abzusichern".
+
+**Für uns direkt belegt:** Im 01.09.-Slice lagen beide schwersten Funde im
+Wächter-Code (Job-Kopplung im Wochenlauf; Push-Scan-Reichweite), nicht im
+Produktcode.
+
+**Regeln:**
+
+- **Ein Gate bekommt eine Selbstprobe:** ein eingechecktes Skript, das ein
+  Dutzend Mutationen gegen das Gate fährt und erwartet, welche rot werden
+  müssen.
+- **Der Wächter-Teil eines Slices wird wie Produktcode geprüft**, nicht als
+  Anhang: eigener Blick im Panel, eigene Rot-Beweise.
+- **Jeder Job bekommt eine Laufzeitgrenze** (`timeout-minutes`), jeder
+  Netzaufruf eine eigene Frist. Ohne sie läuft ein hängender Lauf bis zum
+  Plattform-Standard von 360 Minuten — bei einem Tagesbudget von 100 Minuten
+  ist das nicht ein Aufschlag, sondern der ganze Tag plus Überziehung.
+
+## 22. Freitext in einem `run:`-Block ist Code
+
+Aus Vorlage §25. Ein Monitoring-Workflow legte bei Befund ein Issue an. Im
+Issue-Text stand, als Hilfestellung für den Leser, der Auslieferungsbefehl in
+Markdown-Backticks — übergeben als doppelt gequoteter String an
+`gh issue create --body "…"`. **Die Shell führt Backticks in doppelten
+Anführungszeichen aus.** Der Wächter enthielt damit einen vollständigen,
+syntaktisch korrekten Deploy-Befehl, der bei jedem roten Lauf abgesetzt
+worden wäre. Dass nichts passierte, lag an zwei Zufällen (fehlendes
+`actions: write`, kein Repo-Kontext) — wer eines davon ergänzt hätte, hätte
+ab dann bei jedem Befund ungefragt nach Produktion ausgeliefert.
+
+**Ergebnis unserer Prüfung:** In unseren Workflows (`ci.yml`,
+`wochen-pruefung.yml`) steht in keinem `run:`-Block Freitext, keine
+Backticks, keine Kommandosubstitution — geprüft, alle zehn `run:`-Blöcke
+sind einfache Kommandos (`pip install`, `pytest`, `python -m compileall`,
+`npm ci`, `npm test`, `npm run build`, `pip-audit`, `npm audit`); Backticks
+kommen nur in YAML-**Kommentaren** vor. Die Regel ist hier **präventiv**, nicht
+korrigierend — es gab keinen Vorfall dieser Art in diesem Repo.
+
+**Regeln:**
+
+- **Freitext nie in doppelt gequoteten Strings an ein Kommando geben.** Immer
+  Heredoc mit gequotetem Begrenzer in eine Datei, dann `--body-file`. Die
+  `${{ }}`-Ausdrücke setzt die Plattform vorher ein, das funktioniert weiter;
+  Backticks und `$` bleiben Text.
+- **Wer „dieser Workflow kann nicht ausliefern" behauptet, prüft DREI Dinge:**
+  Rechte, Secrets — **und den Text aller `run:`-Blöcke auf den
+  Auslieferungsbefehl selbst**, Kommentare und Zitate eingeschlossen. Ein
+  Treffer ist ein Befund, auch wenn er „nur ein Zitat" ist.
+- Verwandt mit §16, aber eigenständig: Dort misst die Prüfung das Leichtere;
+  hier prüft sie die richtige Sache an der falschen Repräsentation.
+
+## 23. Was einmal richtig gemacht und nicht aufgeschrieben wurde, ist keine Regel, sondern eine Anekdote
+
+Aus Vorlage §26. Ein Release-Ritual endete mit „Owner fragen, danach taggen"
+und dem nächsten Abschnitt „Nach dem Ausliefern" — dazwischen kein Schritt.
+Das Dokument setzte stillschweigend voraus, dass Tag und Auslieferung
+aufeinanderfolgen. Mit einem Owner-Gate dazwischen hat die Reihenfolge zwei
+Möglichkeiten, und beide sind eingetreten: einmal Tag Sekunden vor der
+Auslieferung (richtig, niemand dachte darüber nach), Wochen später
+Auslieferung zuerst und der Tag danach auf Nachfrage. Zwischen beiden
+Terminen hatte sich nichts geändert außer dem Abstand.
+
+**Die richtige Reihenfolge EXISTIERTE** — als Praxis, einmal korrekt
+ausgeführt. Sie stand nur in keinem Dokument. Ein Schritt, der bloß in der
+Ausführung lebt, überlebt die nächste Ausführung nicht; Wochen genügen, bei
+wechselndem Agenten-Kontext erst recht.
+
+Warum es zählt: Ausgeliefert wird der Kopf des Hauptzweigs, nicht ein Tag. Es
+gibt also nichts, was den ausgelieferten Stand an einen Namen bindet. Wandert
+der Zweig zwischen Auslieferung und nachträglichem Tag, zeigt der Tag auf
+einen Stand, der nie draußen war — und es fällt nicht auf, weil er ja
+ordentlich „nach dem grünen Lauf" gesetzt wurde.
+
+**Für uns der Anlass:** Genau diese Lücke stand in unserem eigenen
+`release-ritual.md` — Schritt 7 endete mit Taggen/Pushen/Release, das
+Ausrollen auf TrueNAS tauchte gar nicht auf (siehe `release-ritual.md`,
+Schritt 8, in diesem Abgleich ergänzt).

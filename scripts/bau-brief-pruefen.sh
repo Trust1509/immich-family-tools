@@ -1,11 +1,15 @@
 #!/bin/sh
-# Zeigt, WO in einem Bau-Brief die neun Pflicht-Themen behandelt sein koennten.
+# Zeigt, WO in einem Bau-Brief die zehn Pflicht-Themen behandelt sein koennten.
 #
 #   sh scripts/bau-brief-pruefen.sh <brief.md>
 #
 # DAS TRAGENDE PRINZIP: DIE ASYMMETRIE
 # ------------------------------------
-#   KEIN Treffer  -> belastbar.  Das Thema kommt im Brief nicht vor.
+#   KEIN Treffer  -> belastbar NUR bei Einzelwort-Mustern. grep arbeitet
+#                    zeilenweise: Eine Wortgruppe, die ueber einen Umbruch
+#                    faellt, liefert null Treffer, obwohl sie dasteht
+#                    (gemessen an umbrochener Markdown-Prosa, 08/2026).
+#                    Einzelwoerter koennen nicht umbrochen werden.
 #   EIN Treffer   -> unbelastbar. Es kann Behandlung sein, Erwaehnung,
 #                    Verneinung, Nachbarwort oder wiederverwendete Floskel.
 #
@@ -23,6 +27,11 @@
 #   deshalb markiert — als Hinweis, nicht als Urteil.
 # * NACHBARWOERTER in deutscher Prosa: "doku" trifft "dokumentieren", ein
 #   Dateipfad in einer Beschreibung trifft wie ein auszufuehrendes Kommando.
+# * MEHRWORTIGE Muster am ZEILENUMBRUCH: mehrere THEMEN-Muster unten sind
+#   zweiwortig ("sichtbares verhalten", "ruft .* auf") — in einem Brief mit
+#   harten Umbruechen koennen sie durchfallen. Die Einzelwort-Alternativen
+#   je Zeile fangen das meist; wer einem [KEIN TREFFER] misstraut, sucht das
+#   seltenste EINZELWORT nach.
 # * FLOSKELN von slice-spezifischer Behandlung unterscheiden. Eine
 #   Standard-Regelzeile ("Fixtures erfunden, Rot-Beweis je Test, Gates im
 #   Vordergrund") saettigt drei Themen auf einmal, ohne dass eines fuer DIESEN
@@ -46,7 +55,8 @@ Sichtbares|sichtbares verhalten|verhalten aender|verhalten änder|handbuch|nutze
 Nachweis|rot-beweis|rotbeweis|sabotier|mutation|nachweis
 Kommandos|gates\.sh|pytest|npm |tsc|prüf-kommando|pruef-kommando
 Fixtures|fixture|testdaten|seed
-Randbedingungen|randbedingung|nicht pushen|vordergrund|leitplanke"
+Randbedingungen|randbedingung|nicht pushen|vordergrund|leitplanke
+Prüffragen|prüffrage|prueffrage|welchen pfad|wahr bleiben|zweck-identität"
 
 VERNEINUNG="nicht|kein|entfäll|entfall|braucht.*nicht|erübrigt|weiss ich nicht|weiß ich nicht"
 
@@ -95,13 +105,13 @@ if [ -n "$VERBOTE" ]; then
 fi
 
 if [ "$OHNE" -gt 0 ]; then
-  echo "$OHNE von 9 Themen kommen im Brief NIRGENDS vor."
+  echo "$OHNE von 10 Themen kommen im Brief NIRGENDS vor."
   echo "Das ist der belastbare Teil dieser Pruefung: entweder gegenstandslos"
   echo "(dann eine Zeile Begruendung in den Brief) oder vergessen."
   exit 1
 fi
 
-echo "Zu allen 9 Themen gibt es Kandidaten."
+echo "Zu allen 10 Themen gibt es Kandidaten."
 echo "Ob sie das Thema BEHANDELN, entscheidest du an den Zeilen oben —"
 echo "das Skript kann Erwaehnung, Verneinung und Floskel nicht unterscheiden."
 exit 0
