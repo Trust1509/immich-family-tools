@@ -29,10 +29,24 @@ export const LANG_LOCALES: Record<Lang, string> = {
  *  Lives here, next to `LANG_LOCALES`, because every caller needs exactly
  *  that mapping to pick a locale — `AlbumsOverview.tsx` and `ExtendMatch.tsx`
  *  used to each define an identical copy of this function, doubling the
- *  surface a future format change would need to touch. */
+ *  surface a future format change would need to touch.
+ *
+ *  A missing value isn't the only way in here: the timestamps ultimately
+ *  come from `accounts.json` on disk (see `docs/agents/lehren.md`'s
+ *  hand-recovered-storage case, a real instance of exactly this), so an
+ *  unreadable-but-present string is a real possibility, not a theoretical
+ *  one. `new Date("not-a-date")` doesn't throw — it silently produces an
+ *  Invalid Date whose `toLocaleString()` renders as the untranslated
+ *  English string `"Invalid Date"`, which is just as much a language leak
+ *  as the missing-value case the `!iso` guard already covers (Fund 1c).
+ *  `Number.isFinite(date.getTime())` is the standard way to detect that:
+ *  an Invalid Date's `getTime()` is `NaN`, which fails `Number.isFinite`
+ *  while every valid date's timestamp passes it. */
 export function formatDate(iso: string | undefined, locale: string): string {
   if (!iso) return "–";
-  return new Date(iso).toLocaleString(locale, {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "–";
+  return date.toLocaleString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -139,6 +153,11 @@ const translations = {
     de: "Zu viele Anmeldeversuche. Bitte in einer Minute erneut versuchen.",
     en: "Too many login attempts. Try again in one minute.",
     "pt-BR": "Muitas tentativas de login. Tente novamente em um minuto.",
+  },
+  auth_error_generic: {
+    de: "Anmeldung fehlgeschlagen. Bitte später erneut versuchen.",
+    en: "Login failed. Please try again later.",
+    "pt-BR": "Falha no login. Tente novamente mais tarde.",
   },
 
   // ── Common ────────────────────────────────────────────────────────────

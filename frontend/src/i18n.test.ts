@@ -100,6 +100,14 @@ describe("formatDate", () => {
     expect(formatDate(undefined, LANG_LOCALES.de)).toBe("–");
   });
 
+  it("returns the same placeholder for an unparseable timestamp instead of 'Invalid Date' (Fund 1c)", () => {
+    // Real case, not theoretical: timestamps come from accounts.json (see
+    // docs/agents/lehren.md's hand-recovered-storage incident), and an
+    // unreadable-but-present value must not leak the English
+    // `Invalid Date` string into a German or pt-BR UI.
+    expect(formatDate("nicht-ein-datum", LANG_LOCALES.de)).toBe("–");
+  });
+
   it("renders the exact, documented format for each shipped language", () => {
     // Pinned to the literal strings from Issue #71's Befund — a real `Intl`
     // run against the day:"numeric"/month:"short" options, not "looks about

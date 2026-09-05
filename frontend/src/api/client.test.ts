@@ -43,4 +43,102 @@ describe("auth client", () => {
     expect((err as ApiError).status).toBe(401);
     expect((err as ApiError).message).toBe("Invalid token");
   });
+
+  // Fund 1b: the error path used to read `detail` off whatever `res.json()`
+  // resolved to without checking it was even an object first. Each of these
+  // is a real shape a backend error response can take; every one of them
+  // must still surface an `ApiError` carrying the status code and a
+  // non-empty message — never a `TypeError` that pre-empts `ApiError`, and
+  // never an empty string `AuthGate` would render as nothing at all.
+  it("falls back to statusText when the body is null", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: "Bad Gateway",
+      json: async () => null,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await api.auth.login("x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(502);
+    expect((err as ApiError).message).toBe("Bad Gateway");
+  });
+
+  it("falls back to statusText when the body is an empty object", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await api.auth.login("x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(500);
+    expect((err as ApiError).message).toBe("Internal Server Error");
+  });
+
+  it("falls back to statusText when detail is an empty string", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ detail: "" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await api.auth.login("x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(400);
+    expect((err as ApiError).message).toBe("Bad Request");
+  });
+
+  it("falls back to statusText when detail is not a string", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      statusText: "Unprocessable Entity",
+      json: async () => ({ detail: 42 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await api.auth.login("x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(422);
+    expect((err as ApiError).message).toBe("Unprocessable Entity");
+  });
+
+  it("falls back to the status code when both detail and statusText are empty", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: "",
+      json: async () => ({ detail: "" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await api.auth.login("x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(503);
+    expect((err as ApiError).message).toBe("HTTP 503");
+  });
+
+  it("still throws an ApiError with the status code when reading the body itself fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 504,
+      statusText: "Gateway Timeout",
+      json: async () => {
+        throw new SyntaxError("Unexpected end of JSON input");
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await api.auth.login("x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(504);
+    expect((err as ApiError).message).toBe("Gateway Timeout");
+  });
 });

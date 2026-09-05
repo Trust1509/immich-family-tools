@@ -9,15 +9,23 @@ import { useT } from "../i18n";
  *  component: the backend's `detail` text is always English
  *  ("Invalid token", "Too many login attempts…"), so showing it verbatim
  *  left the one error state of an otherwise trilingual screen permanently
- *  English (Fund 1). Statuses the backend doesn't specifically call out
- *  fall back to the raw `detail`/message text — better an English string
- *  than no information at all. */
+ *  English (Fund 1). Every status the backend doesn't specifically call
+ *  out — plus non-ApiError failures like a network error — now falls back
+ *  to a single translated `auth_error_generic` key instead of the raw
+ *  English text, so the login screen never reverts to English mid-error.
+ *  The raw text is still worth having for troubleshooting (a customer's
+ *  screenshot rarely comes with dev tools open), so it goes to the
+ *  console via `console.error` rather than onto the screen: that keeps the
+ *  on-screen message fully translated for every language while still
+ *  leaving a trail for whoever debugs the report afterwards. */
 export function authErrorMessage(err: unknown, t: ReturnType<typeof useT>["t"]): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return t("auth_error_invalid");
     if (err.status === 429) return t("auth_error_rate_limited");
   }
-  return err instanceof Error ? err.message : String(err);
+  const raw = err instanceof Error ? err.message : String(err);
+  console.error("[AuthGate] login failed:", raw);
+  return t("auth_error_generic");
 }
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {

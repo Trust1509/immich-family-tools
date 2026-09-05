@@ -24,13 +24,13 @@ describe("authErrorMessage", () => {
     ).toBe("auth_error_rate_limited");
   });
 
-  it("falls back to the raw detail text for a status the login screen doesn't special-case", () => {
+  it("falls back to the translated auth_error_generic key for a status the login screen doesn't special-case", () => {
     expect(authErrorMessage(new ApiError("Immich API unreachable", 502), identityT)).toBe(
-      "Immich API unreachable"
+      "auth_error_generic"
     );
   });
 
-  it("falls back to the error message for a non-ApiError failure (e.g. a network error)", () => {
-    expect(authErrorMessage(new Error("Failed to fetch"), identityT)).toBe("Failed to fetch");
+  it("falls back to the translated auth_error_generic key for a non-ApiError failure (e.g. a network error)", () => {
+    expect(authErrorMessage(new Error("Failed to fetch"), identityT)).toBe("auth_error_generic");
   });
 });

@@ -15,6 +15,34 @@ export class ApiError extends Error {
   }
 }
 
+/** Extracts a human-readable message from a failed response's body, without
+ *  ever assuming the body is the object shape it usually is. The prior
+ *  version read `err.detail` straight off whatever `res.json()` resolved
+ *  to — but a JSON body of `null` (the backend legitimately sends this for
+ *  some error responses) makes that a `TypeError` on property access,
+ *  thrown *before* `ApiError` is ever constructed, so the caller's status
+ *  code branch (`AuthGate`'s 401/429 mapping) never runs. And `{}`, an
+ *  empty `detail`, or a non-string `detail` (e.g. a validation error's
+ *  `42`) all produced a falsy-but-not-nullish message that `?? res.statusText`
+ *  doesn't catch either — which `AuthGate` then renders as nothing at all
+ *  (Fund 1b). This treats the body as `unknown`, only trusts a non-empty
+ *  string `detail`, and falls through to `statusText` and finally the
+ *  status code itself so the result is never empty. */
+async function extractErrorMessage(res: Response): Promise<string> {
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    body = undefined;
+  }
+  if (body && typeof body === "object" && "detail" in body) {
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail.length > 0) return detail;
+  }
+  if (res.statusText) return res.statusText;
+  return `HTTP ${res.status}`;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
@@ -25,8 +53,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(err.detail ?? res.statusText, res.status);
+    throw new ApiError(await extractErrorMessage(res), res.status);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
