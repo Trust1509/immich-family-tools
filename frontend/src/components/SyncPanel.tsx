@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, ScrollText, CheckCircle, XCircle, RotateCcw, Trash2 } from "lucide-react";
 import { api, SyncLogEntry } from "../api/client";
-import { LANG_LOCALES, useT } from "../i18n";
+import { formatDate, LANG_LOCALES, useT } from "../i18n";
 
 function LogRow({ entry }: { entry: SyncLogEntry }) {
   const { t, lang, logMessage } = useT();
@@ -16,7 +16,7 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
     entry.status === "success" &&
     !!entry.undo_data &&
     !entry.undone_at;
-  const ts = new Date(entry.timestamp).toLocaleString(LANG_LOCALES[lang]);
+  const ts = formatDate(entry.timestamp, LANG_LOCALES[lang]);
 
   const actionLabel: Record<string, string> = {
     sync_names: t("action_sync_names"),

@@ -33,8 +33,8 @@ export const LANG_LOCALES: Record<Lang, string> = {
 export function formatDate(iso: string | undefined, locale: string): string {
   if (!iso) return "–";
   return new Date(iso).toLocaleString(locale, {
-    day: "2-digit",
-    month: "2-digit",
+    day: "numeric",
+    month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",

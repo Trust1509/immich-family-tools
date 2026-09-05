@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import {
   applyDocumentLang,
   detectBrowserLang,
+  formatDate,
   LANG_LABELS,
   LANG_LOCALES,
   LanguageProvider,
@@ -57,6 +58,72 @@ describe("LANG_LOCALES", () => {
       de: "de-AT",
       en: "en-GB",
       "pt-BR": "pt-BR",
+    });
+  });
+});
+
+// ── formatDate ──────────────────────────────────────────────────────────
+//
+// `toLocaleString`'s hour/minute rendering reads the process time zone,
+// which is whatever machine (or CI runner) happens to run the suite. This
+// stub pins it to UTC for the duration of one call — same restore-in-finally
+// shape as the storage/document stubs below — so the fixture timestamp
+// `2026-03-04T14:30:00Z` reliably shows up as `14:30`, not a runner-dependent
+// hour that would make the exact-string assertions below flaky.
+// Accessed via `globalThis` (typed just enough for `.env.TZ`), not the bare
+// `process` global: this project's tsconfig has `types: []` on purpose (a
+// browser app has no Node globals), so a plain `process.env.TZ` reference
+// would need `@types/node` — out of scope for a test-only helper.
+function withTZ<T>(tz: string, run: () => T): T {
+  const nodeProcess = (
+    globalThis as unknown as { process: { env: Record<string, string | undefined> } }
+  ).process;
+  const original = nodeProcess.env.TZ;
+  nodeProcess.env.TZ = tz;
+  try {
+    return run();
+  } finally {
+    if (original === undefined) {
+      delete nodeProcess.env.TZ;
+    } else {
+      nodeProcess.env.TZ = original;
+    }
+  }
+}
+
+describe("formatDate", () => {
+  // Invented fixture (Issue #71 Bau-Brief §7) — this repo is public, no real
+  // sync timestamps in code or tests.
+  const FIXTURE = "2026-03-04T14:30:00Z";
+
+  it("returns the placeholder for an undefined timestamp", () => {
+    expect(formatDate(undefined, LANG_LOCALES.de)).toBe("–");
+  });
+
+  it("renders the exact, documented format for each shipped language", () => {
+    // Pinned to the literal strings from Issue #71's Befund — a real `Intl`
+    // run against the day:"numeric"/month:"short" options, not "looks about
+    // right". This is the string a user actually sees.
+    withTZ("UTC", () => {
+      expect(formatDate(FIXTURE, LANG_LOCALES.de)).toBe("4. März 2026, 14:30");
+      expect(formatDate(FIXTURE, LANG_LOCALES.en)).toBe("4 Mar 2026, 14:30");
+      expect(formatDate(FIXTURE, LANG_LOCALES["pt-BR"])).toBe("4 de mar. de 2026, 14:30");
+    });
+  });
+
+  it("shows a month name, never a month number, in every shipped language", () => {
+    // This is the guard the whole slice exists for: a numeric month must
+    // never come back for any of the three locales, or the entire point of
+    // the change could be silently reverted without a single test noticing.
+    withTZ("UTC", () => {
+      expect(formatDate(FIXTURE, LANG_LOCALES.de)).toContain("März");
+      expect(formatDate(FIXTURE, LANG_LOCALES.en)).toContain("Mar");
+      expect(formatDate(FIXTURE, LANG_LOCALES["pt-BR"])).toContain("mar.");
+      for (const locale of Object.values(LANG_LOCALES)) {
+        // The old options rendered March as the two-digit token "03"; none
+        // of the three outputs above contain it any more.
+        expect(formatDate(FIXTURE, locale)).not.toContain("03");
+      }
     });
   });
 });
