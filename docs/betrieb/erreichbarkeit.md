@@ -37,14 +37,38 @@ genügt ein zusätzlicher Eintrag, kein neuer Dienst.
 
 ## Rückstands-Check: „läuft es?" ist nicht „ist das Laufende aktuell?"
 
+**Dieser Abschnitt beantwortet: ist das Laufende aktuell?** — verglichen wird
+gegen den **neuesten Tag im Repo**. Schritt 8 des Release-Rituals
+(`docs/agents/release-ritual.md`) beantwortet eine andere Frage — **habe ich
+ausgeliefert, was ich ausgecheckt habe?** — als Selbstprüfung der gerade
+laufenden Auslieferung gegen den **gerade ausgecheckten Tag**, nicht gegen
+den neuesten. Beide Referenzwerte fallen nur zusammen, solange zwischen dem
+Auschecken und dem Vergleich kein neuerer Tag entstanden ist.
+
 **Vertagt mit Bedingung und Termin — wirksam erst, wenn dieser
 Betriebs-Bausatz installiert ist (Issue #54, Owner-Sache, keine
 Zwangsinstallation). Nachfrage-Termin 31.10.2026** (Muster `lehren.md` §11:
 terminiert statt stillem Verzicht). Bis dahin ist dieser Abschnitt
 Vorbereitung, keine laufende Prüfung; nichts an der Produktivinstanz ändern.
-**Ersatz bis dahin:** Der Vergleich läuft von Hand im Release-Ritual,
-Schritt 8 (`docs/agents/release-ritual.md`) — die Prüfung hängt so nicht
-allein an einer Installation, die wartet.
+
+**Ersatz bis dahin — mit einer wichtigen Grenze:** Der Handvergleich in
+Schritt 8 des Release-Rituals läuft **nur im Moment der Auslieferung** — er
+fängt, ob **diese eine** Auslieferung das ausliefert, was ausgecheckt wurde.
+Er fängt **nicht** den Rückstand, der **zwischen** zwei Auslieferungen
+entsteht: Ein Check, der nur beim Ausliefern feuert, sieht per Konstruktion
+nie, was danach passiert. Kein vollwertiger Ersatz für die vertagte
+Automatik — nur ihr Teilstück für den Auslieferungs-Augenblick. Was die
+Rückstands-Klasse tatsächlich fängt, ist der **periodische Lauf** (Cron auf
+dem Wächter-Host, siehe unten) — der bleibt auf #54 vertagt, Nachfrage-Termin
+unverändert 31.10.2026.
+
+**Der Fall, für den dieser Abschnitt geschrieben wurde, ist bereits
+eingetreten:** Die Produktivinstanz lief mit `1.4.3`, während `v1.4.4` seit
+19.08.2026 getaggt und released war — 17 Tage stiller Rückstand, jeder
+bestehende Wächter grün. Der Handvergleich in Schritt 8 hätte das nicht
+gemeldet: Zwischen dem Tag und diesem Fund fand keine neue Auslieferung
+statt, bei der Schritt 8 hätte laufen können. Das ist der Beweis, dass die
+Klasse nicht theoretisch ist.
 
 „Antwortet die Anwendung" beweist nicht, dass sie den **aktuellen** Stand
 ausliefert — ein Auslieferungs-Gate zwischen Tag und Rollout (siehe
@@ -57,33 +81,43 @@ Der Uptime-Kuma-Wächter oben führt nur eine statische Schlüsselwort-Prüfung
 aus (Abschnitt oben) — er kann kein `git describe`/`git tag` ausführen und
 nicht gegen einen dynamischen Wert vergleichen. Der Vergleich braucht einen
 zweiten Ausführungskontext: einen eigenen Lauf (Cron auf dem Wächter-Host mit
-flachem Klon) **oder** einen Schritt im Release-Ritual, wie oben als Ersatz
-benannt.
+flachem Klon) **oder** den in Schritt 8 vorhandenen Teil-Ersatz, der nur die
+einzelne Auslieferung selbst prüft (siehe oben).
 
 `GET /api/health` liefert bereits `{"status":"ok","version":APP_VERSION}`
 (`backend/main.py:160`, `backend/version.py`) — dieselbe Antwort, die der
-Erreichbarkeits-Wächter oben ohnehin abruft. Der Check ist ein Vergleich,
-mit Präfix-Normalisierung (`/api/health` liefert `1.4.4` ohne führendes „v",
-Tags tragen es):
+Erreichbarkeits-Wächter oben ohnehin abruft. Der Check ist ein Vergleich mit
+Präfix-Normalisierung: `/api/health` liefert die Version als `<x.y.z>` ohne
+führendes „v" (Platzhalter für die jeweils laufende Zahl — der Präfix-Punkt
+gilt unabhängig davon, welche Version das im Einzelfall ist), Tags tragen
+es. Zwei echte Zeilen statt einer Mischung aus Prosa und Shell:
 
 ```
-"v$(version aus GET /api/health)"   gegen   git fetch --tags && git tag --sort=-v:refname | head -1
+version="v$(curl -s http://<host>:3100/api/health | jq -r .version)"
+tag=$(git fetch --tags && git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
 ```
+
+(Vorbehalt zu `--sort=-v:refname`: Ein Vorabversions-Tag wie `v1.4.4-rc1`
+sortiert damit über `v1.4.4` — heute latent, da wir keine solchen Tags
+führen.)
 
 **Nicht `git describe --tags --abbrev=0`:** Das liefert nicht den letzten
-Tag, sondern den letzten von HEAD **erreichbaren** Tag — auf einem Klon ohne
-`git fetch --tags` bleibt der Check still grün, obwohl ein neuerer Tag
-existiert (reproduziert: `git describe --tags --abbrev=0 5b78f0b~20` →
-`v1.4.3`, obwohl zu dem Zeitpunkt bereits `v1.4.4` existierte).
+Tag, sondern den letzten von HEAD **erreichbaren** Tag — unabhängig davon,
+ob `git fetch --tags` gelaufen ist. Zeigt HEAD auf einen Stand, von dem aus
+ein neuerer Tag nicht erreichbar ist, bleibt der Check still grün, obwohl
+der Tag im Repo existiert (reproduziert: `git describe --tags --abbrev=0
+5b78f0b~20` → `v1.4.3` — obwohl `v1.4.4` heute im Repo existiert, ist der
+Tag von diesem älteren Stand aus nicht erreichbar).
 
-Weichen beide voneinander ab, ist entweder die Auslieferung hinter dem
-letzten Tag zurück oder der Tag zeigt auf einen Stand, der nie ausgerollt
-wurde — beides ein stiller Rückstand, den kein bestehender Wächter meldet.
-Ein `git pull` beim Ausliefern liefert den Zweigkopf, nicht den Tag: Liegt
-nach dem Tag ein ungebumpter Commit auf dem Zweig, meldet `/api/health`
-weiter die alte, zum Tag passende Zahl — der Check wäre nach der
-Normalisierung **grün**, obwohl der getaggte Stand nie draußen war. Deshalb
-checkt Schritt 8 des Release-Rituals den Tag aus, nicht den Zweigkopf.
+Weichen `$version` und `$tag` voneinander ab, ist entweder die Auslieferung
+hinter dem letzten Tag zurück oder der Tag zeigt auf einen Stand, der nie
+ausgerollt wurde — beides ein stiller Rückstand, den kein bestehender
+Wächter meldet. Ein `git pull` beim Ausliefern liefert den Zweigkopf, nicht
+den Tag: Liegt nach dem Tag ein ungebumpter Commit auf dem Zweig, meldet
+`/api/health` weiter die alte, zum Tag passende Zahl — der Check wäre nach
+der Normalisierung **grün**, obwohl der getaggte Stand nie draußen war.
+Deshalb checkt Schritt 8 des Release-Rituals den Tag aus, nicht den
+Zweigkopf.
 
 **Was er zeigt und was nicht:** Er fängt „Auslieferung liegt Versionen
 zurück". Er fängt **nicht** „ausgeliefert wurde ein Commit nach dem Tag ohne

@@ -164,8 +164,8 @@ sofort real wird, sollte dieses Repo je auf privat umgeschaltet werden. Was
 davon dauerhaft bleibt, weil es Qualität nicht kostet: ein pytest-Job statt
 zwei, kein `pull_request`-Trigger im Trunk-Workflow, `concurrency` mit
 Abbruch (Tag-Läufe ausgenommen), `paths-ignore`. Diese Regel steht **hier**
-und nur hier — `release-ritual.md` und `docs/agents/lehren.md` verweisen bei
-Bedarf, sie wiederholen sie nicht.
+und nur hier — `release-ritual.md`, `docs/agents/lehren.md` und `ci.yml`
+verweisen bei Bedarf, sie wiederholen sie nicht.
 
 Ohne `pull_request`-Trigger laufen Dependabot-PRs ohne Vor-Merge-CI; der Lauf
 auf `main` nach dem Merge ist ihr Gate — wird er rot, den Merge revertieren,
@@ -260,13 +260,24 @@ Punkt, den unser 01.09.-Panel teuer gelernt hat, eine Linie allein zu
 verwechseln heißt, die Lücke der anderen zu übersehen:
 
 - **GitHub Push Protection** — blockt bekannte Geheimnis-Muster **vor** dem
-  Landen, GitHub-seitig, kein eigener Lauf.
+  Landen, GitHub-seitig, kein eigener Lauf. Erkennt nur **Partner-Muster**
+  (bekannte Anbieter-Tokenformate) — bei uns sind Nicht-Anbieter-Muster
+  abgeschaltet (Beleg unten); einen generischen Schlüssel wie unseren
+  Immich-API-Key erkennt diese Linie damit **nicht**.
 - **GitHub Secret Scanning** — durchsucht den vollen Verlauf, ebenfalls
-  GitHub-seitig, unabhängig davon, ob und wann unsere eigene CI läuft — aber
-  nur **Partner-Muster** (`gh api repos/Trust1509/immich-family-tools --jq
-.security_and_analysis` → `secret_scanning_non_provider_patterns:
-disabled`). Einen generischen Schlüssel wie unseren Immich-API-Key erkennt
-  sie damit **nicht** — dafür ist `gitleaks` faktisch die einzige Linie.
+  GitHub-seitig, unabhängig davon, ob und wann unsere eigene CI läuft.
+  Derselbe Vorbehalt gilt hier genauso: nur **Partner-Muster**, denselben
+  generischen Schlüssel erkennt auch diese Linie nicht. Beleg für beide,
+  wörtlich zitiert:
+
+  ```
+  gh api repos/Trust1509/immich-family-tools \
+    --jq .security_and_analysis.secret_scanning_non_provider_patterns.status
+  ```
+
+  → `disabled`. **Weil beide Linien denselben blinden Fleck haben**, ist
+  `gitleaks` faktisch die einzige, die unseren Immich-API-Key fangen würde.
+
 - **Unser `gitleaks`** — der Push-Job (`ci.yml`) scannt nur die Commits des
   Pushes entlang der ersten Eltern-Linie (Flag und Begründung: Abschnitt
   „Prüfschritte" oben); erst der Wochenlauf (`wochen-pruefung.yml`) deckt den

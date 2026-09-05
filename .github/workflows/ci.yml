@@ -8,7 +8,7 @@ on:
     tags: ["v*"]
     # Reiner Doku-Push loest keinen Lauf aus, ohne dass jemand an
     # `[skip ci]` denken muss (Dauerregel "ein CI-Lauf je Slice", siehe
-    # CLAUDE.md, Abschnitt "Pruefschritte"). Praezisierungen:
+    # CLAUDE.md, Abschnitt "Prüfschritte"). Praezisierungen:
     #   - GitHub wertet Pfadfilter NICHT bei Tag-Pushes aus (GitHub-Doku,
     #     "Workflow syntax for GitHub Actions": "Path filters are not
     #     evaluated for pushes of tags."). Der `tags: ["v*"]`-Trigger oben
@@ -23,7 +23,7 @@ on:
     #     verschlucken (Sicherung, Rueckspiel-Probe) — die sind Code, kein
     #     Text.
     #   - Gefilterte Pushes und der Secrets-Scan: siehe CLAUDE.md, Abschnitt
-    #     Pruefschritte.
+    #     "Prüfschritte".
     #   - GitHub startet bei Pfadfiltern ausserdem gar keinen Lauf, wenn kein
     #     Dateiinhalt sich aendert (`--allow-empty`-Commit, neuer
     #     `release/**`-Zweig auf einem bestehenden Commit) — kein Bug, nur
@@ -62,7 +62,7 @@ permissions:
 # zum Plattform-Standard von 360 Minuten und blockiert so lange den
 # Concurrency-Slot dieses Workflows sowie Runner-Zeit; in einem privaten Repo
 # waere das zusaetzlich Portfolio-Budget (Regel und Zahlen: CLAUDE.md,
-# Abschnitt "Pruefschritte"). Gemessene Laufzeit am 02.09.2026: 9-23 Sekunden
+# Abschnitt "Prüfschritte"). Gemessene Laufzeit am 02.09.2026: 9-23 Sekunden
 # je Job — die Werte unten sind grosszuegig gewaehlt, keine Messwerte.
 jobs:
   backend:

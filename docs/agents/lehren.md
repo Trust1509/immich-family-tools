@@ -790,9 +790,10 @@ Produktcode.
   Anhang: eigener Blick im Panel, eigene Rot-Beweise.
 - **Jeder Job bekommt eine Laufzeitgrenze** (`timeout-minutes`), jeder
   Netzaufruf eine eigene Frist. Ohne sie läuft ein hängender Lauf bis zum
-  Plattform-Standard von 360 Minuten; was das für unser Portfolio-Tagesbudget
-  bedeutet, steht in `CLAUDE.md`, Abschnitt „Prüfschritte" — die Regel steht
-  dort, nicht hier.
+  Plattform-Standard von 360 Minuten — unser Portfolio-Tagesbudget (Zahl:
+  `CLAUDE.md`, Abschnitt „Prüfschritte") liegt bei 100 Minuten über alle
+  Repos des Owners; ein einzelner hängender Lauf würde es allein schon um
+  mehr als das Dreifache überschreiten.
 
 ## 22. Freitext in einem `run:`-Block ist Code
 

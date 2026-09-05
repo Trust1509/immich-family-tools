@@ -67,16 +67,21 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    git fetch --tags && git checkout v<version> && docker compose up -d --build
    ```
 
-   Der Tag wird ausgecheckt, nicht der
-   Zweigkopf: Mit einem Owner-Gate zwischen 7 und 8 ist „seit dem Tag ist auf
-   dem Zweig etwas dazugekommen" der Normalfall, und ein `git pull` würde
-   genau das mit ausliefern. Ein nachträglich gesetzter Tag ist eine
-   Rekonstruktion, keine Tatsache: Wandert der Zweig dazwischen, benennt er
-   einen Stand, der nie draußen war. Begründung und Fall: `lehren.md` §23.
-   Danach von Hand der Rückstands-Check (bis Issue #54 automatisiert ist,
-   Nachfrage-Termin 31.10.2026): Version aus `/api/health` gegen den gerade
-   ausgecheckten Tag vergleichen — was der Check zeigt und was nicht, steht
-   in `docs/betrieb/erreichbarkeit.md`.
+   Der Tag wird ausgecheckt, nicht der Zweigkopf: Mit einem Owner-Gate
+   zwischen 7 und 8 ist „seit dem Tag ist auf dem Zweig etwas dazugekommen"
+   der Normalfall, und ein `git pull` würde genau das mit ausliefern. Ein
+   nachträglich gesetzter Tag ist eine Rekonstruktion, keine Tatsache:
+   Wandert der Zweig dazwischen, benennt er einen Stand, der nie draußen
+   war. Begründung und Fall: `lehren.md` §23.
+   Danach von Hand die Auslieferungs-Selbstprüfung (bis Issue #54
+   automatisiert ist, Nachfrage-Termin 31.10.2026) — **nicht** der
+   Rückstands-Check aus `docs/betrieb/erreichbarkeit.md`, der eine andere
+   Frage beantwortet: Sie beantwortet „habe ich ausgeliefert, was ich
+   ausgecheckt habe?" — Version aus `/api/health` gegen den **gerade
+   ausgecheckten Tag** vergleichen, nicht gegen den neuesten Tag im Repo.
+   Was sie zeigt und was nicht — insbesondere, dass sie den Rückstand
+   zwischen zwei Auslieferungen nicht fängt — steht in
+   `docs/betrieb/erreichbarkeit.md`.
 
 ## Notizen schreiben
 

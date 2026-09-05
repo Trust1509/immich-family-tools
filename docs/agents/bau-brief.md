@@ -180,6 +180,12 @@ stehen in `lehren.md`.
   migrierte DB testen statt gegen ein frisch erzeugtes Schema.
 - Wenn parallel ein anderer Slice läuft: **welche Dateien tabu sind**.
 - Sprache/Zeichensatz-Regeln des Projekts.
+- **Lange Kommandos und Pfade in Listenpunkten gehören in einen
+  eingerückten Zaun-Block, nie in einen Inline-Code-Span.** Prettier bricht
+  einen zu langen Inline-Code-Span sonst um und lässt die Fortsetzungszeile
+  auf Spalte 0 fallen — und `prettier --check` läuft danach grün, weil
+  Prettier den Zustand selbst hergestellt hat. Kein Gate fängt das; dritter
+  Fall in einem Slice (siehe `lehren.md`).
 
 ---
 
@@ -411,10 +417,9 @@ Brief_ ist Auftrag der **zweiten Stimme**: Sie erreicht den Brief unabhängig
 vom Arbeitsbaum des Hauptagenten, und der Owner sieht die Annahmen des
 Briefs vor dem Bau, nicht erst im Panel.
 
-**Der Bau-Brief wird beim Start des Slices als Issue-Kommentar gepostet** (oder
-unter `docs/agents/briefe/<issue>.md` committet) — nicht nur an den Bauer
-übergeben. Der Prompt der zweiten Stimme nennt dann die Fundstelle („Brief:
-Issue #N, Kommentar vom …").
+**Der Bau-Brief wird beim Start des Slices als Issue-Kommentar gepostet** —
+nicht nur an den Bauer übergeben. Der Prompt der zweiten Stimme nennt dann
+die Fundstelle („Brief: Issue #N, Kommentar vom …").
 
 Gemessen, in beide Richtungen: In einem Slice lag der Brief nur im Scratchpad
 des Hauptagenten. Prüffrage 6 konnte deshalb nur gegen Code und CHANGELOG
@@ -460,7 +465,7 @@ Issue, nicht erst im commiteten Repo-Stand.
    keine Prüfung. Gemessen: Tests bewiesen einen Direkt-Aufruf, das Produkt
    nutzt einen anderen Weg — der Schutzzweig war unerreichbar, der Kanal tot,
    alles grün. Der Rot-Beweis stellt den ECHTEN Aufrufweg nach, mit dem
-   Datenpaket der Oberfläche. (§18 in neuer Gestalt: Der Wächter lief, aber
+   Datenpaket der Oberfläche. (§8 in neuer Gestalt: Der Wächter lief, aber
    am falschen Objekt.)
 8. **Zählt der Slice seine eigene Zusage ab?** Wer „kein X mehr über Y"
    verspricht, zählt die Y. Gemessen: Ein Slice versprach Dichtigkeit für
