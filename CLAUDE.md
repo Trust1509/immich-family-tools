@@ -245,9 +245,13 @@ schreibberechtigte.
 
 ## Projektspezifisches
 
-**Zweisprachigkeit.** Nutzersichtbare UI-Texte sind zweisprachig (DE/EN) über
-`frontend/src/i18n.tsx` mit Typ-Parität — jeder neue Text in **beiden**
-Sprachen, echte Umlaute, kein ASCII-Ersatz.
+**Mehrsprachigkeit.** Nutzersichtbare UI-Texte werden in allen Sprachen aus
+`LANG_LABELS` (`frontend/src/i18n.tsx`) gepflegt — das ist die einzige
+Quelle, welche Sprachen es gibt; der Compiler erzwingt über die Typ-Parität
+von `translations` jeden Schlüssel in jeder dort gelisteten Sprache, also
+gibt es keine zweite Stelle, an der eine Sprachenzahl gepflegt werden müsste.
+Eine neue Sprache kommt in `LANG_LABELS` hinzu, danach zeigt `tsc` jeden
+fehlenden Schlüssel. Echte Umlaute/Sonderzeichen, kein ASCII-Ersatz.
 
 **Sync-Log.** Einträge tragen `message_key` + `message_params`; das deutsche
 `details`-Feld bleibt als Fallback für Alt-Einträge bestehen, nicht für neue

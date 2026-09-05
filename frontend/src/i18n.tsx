@@ -22,6 +22,21 @@ export function resolveLang(stored: string | null): Lang {
   return KNOWN_LANGS.includes(stored as Lang) ? (stored as Lang) : "de";
 }
 
+/** Reads the persisted language and validates it in one step — this is the
+ *  exact call the Provider makes, so a test exercising `readStoredLang()`
+ *  proves what the Provider actually does, not just what `resolveLang()` can
+ *  do in isolation. A locked-down `localStorage` (private browsing, blocked
+ *  site data, a sandboxed iframe) throws on the property access itself, not
+ *  just on `.getItem()` — caught here so a blocked store falls back to
+ *  `"de"` instead of leaving the whole app on a blank screen. */
+export function readStoredLang(): Lang {
+  try {
+    return resolveLang(localStorage.getItem("ift_lang"));
+  } catch {
+    return "de";
+  }
+}
+
 // ── Translations ───────────────────────────────────────────────────────────
 
 const translations = {
@@ -36,7 +51,7 @@ const translations = {
   nav_manual: { de: "Manuell matchen", en: "Manual Match", "pt-BR": "Correspondência Manual" },
   nav_albums: { de: "Alben", en: "Albums", "pt-BR": "Álbuns" },
   nav_log: { de: "Sync Log", en: "Sync Log", "pt-BR": "Sync Log" },
-  nav_extend: { de: "Match erweitern", en: "Extend Match", "pt-BR": "Correspondência Exata" },
+  nav_extend: { de: "Match erweitern", en: "Extend Match", "pt-BR": "Extender Correspondência" },
   app_subtitle: {
     de: "Immich Multi-Account",
     en: "Immich Multi-Account",
@@ -77,7 +92,7 @@ const translations = {
     en: "Manage Immich API Keys",
     "pt-BR": "Gerenciar Chaves de API do Immich",
   },
-  account_add: { de: "Account hinzufügen", en: "Add Account", "pt-BR": "Contas" },
+  account_add: { de: "Account hinzufügen", en: "Add Account", "pt-BR": "Adicionar Conta" },
   account_add_title: { de: "Account hinzufügen", en: "Add Account", "pt-BR": "Adicionar Conta" },
   account_remove_tip: { de: "Account entfernen", en: "Remove account", "pt-BR": "Remover Conta" },
   account_remove_confirm: {
@@ -266,7 +281,7 @@ const translations = {
   albums_subtitle: {
     de: (n: number) => `${n} ${n === 1 ? "Album" : "Alben"} mit automatischer Synchronisation`,
     en: (n: number) => `${n} album${n !== 1 ? "s" : ""} with automatic sync`,
-    "pt-BR": (n: number) => `${n} album${n !== 1 ? "s" : ""} com sincronismo automático`,
+    "pt-BR": (n: number) => `${n} ${n === 1 ? "álbum" : "álbuns"} com sincronismo automático`,
   },
   sync_all: { de: "Alle synchronisieren", en: "Sync all", "pt-BR": "Sincronizar tudo" },
   linked_people: { de: "Verknüpfte Personen", en: "Linked people", "pt-BR": "Pessoa vinculada" },
@@ -624,11 +639,18 @@ const LangContext = createContext<LangContextValue>({
 });
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const stored = resolveLang(localStorage.getItem("ift_lang"));
-  const [lang, setLangState] = useState<Lang>(stored);
+  // Lazy initializer: only the first render needs the stored value, not
+  // every re-render.
+  const [lang, setLangState] = useState<Lang>(() => readStoredLang());
 
   const setLang = (l: Lang) => {
-    localStorage.setItem("ift_lang", l);
+    try {
+      localStorage.setItem("ift_lang", l);
+    } catch {
+      // Storage blocked (private browsing, sandboxed iframe, ...): the
+      // choice still applies for the running session, it just isn't
+      // persisted across reloads.
+    }
     setLangState(l);
   };
 
