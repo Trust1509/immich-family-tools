@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { LanguageProvider, readStoredLang, resolveLang, useT } from "./i18n";
+import { LANG_LABELS, LanguageProvider, readStoredLang, resolveLang, useT } from "./i18n";
+import type { Lang } from "./i18n";
 
 describe("resolveLang", () => {
   it("accepts every known language unchanged", () => {
-    expect(resolveLang("de")).toBe("de");
-    expect(resolveLang("en")).toBe("en");
-    expect(resolveLang("pt-BR")).toBe("pt-BR");
+    // Derived from LANG_LABELS (not hardcoded) so a fourth language that's
+    // added there but not wired through resolveLang turns this test red
+    // instead of leaving it silently green.
+    for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
+      expect(resolveLang(lang)).toBe(lang);
+    }
   });
 
   it("falls back to de for a stale pre-rename value", () => {
@@ -75,6 +79,30 @@ function withStorage<T>(stub: Storage, run: () => T): T {
   }
 }
 
+// Distinct from `throwingStorage` above: that stub throws when `.getItem()`
+// is *called*. This one throws on the `localStorage` *property access*
+// itself (a getter on `globalThis`), before any method is ever reached —
+// the case the `readStoredLang` JSDoc claims its try/catch also covers.
+// Same restore mechanism as `withStorage` (finally + descriptor reset).
+function withThrowingLocalStorageAccess<T>(run: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    get(): Storage {
+      throw new Error("localStorage property access blocked");
+    },
+    configurable: true,
+  });
+  try {
+    return run();
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, "localStorage", original);
+    } else {
+      delete (globalThis as { localStorage?: Storage }).localStorage;
+    }
+  }
+}
+
 describe("readStoredLang", () => {
   it("resolves a valid stored value via resolveLang", () => {
     withStorage(fakeStorage("pt-BR"), () => {
@@ -90,6 +118,12 @@ describe("readStoredLang", () => {
 
   it("falls back to de when localStorage access itself throws (locked storage)", () => {
     withStorage(throwingStorage(), () => {
+      expect(readStoredLang()).toBe("de");
+    });
+  });
+
+  it("falls back to de when the localStorage property access itself throws", () => {
+    withThrowingLocalStorageAccess(() => {
       expect(readStoredLang()).toBe("de");
     });
   });
@@ -128,7 +162,7 @@ describe("LanguageProvider wiring", () => {
     expect(renderedLang(throwingStorage())).toBe("de");
   });
 
-  it("keeps the running session's language choice when persisting it throws", () => {
+  it("does not throw when persisting the language choice fails", () => {
     let captured: ReturnType<typeof useT> | undefined;
     function Capture() {
       captured = useT();

@@ -247,11 +247,14 @@ schreibberechtigte.
 
 **Mehrsprachigkeit.** Nutzersichtbare UI-Texte werden in allen Sprachen aus
 `LANG_LABELS` (`frontend/src/i18n.tsx`) gepflegt — das ist die einzige
-Quelle, welche Sprachen es gibt; der Compiler erzwingt über die Typ-Parität
-von `translations` jeden Schlüssel in jeder dort gelisteten Sprache, also
-gibt es keine zweite Stelle, an der eine Sprachenzahl gepflegt werden müsste.
-Eine neue Sprache kommt in `LANG_LABELS` hinzu, danach zeigt `tsc` jeden
-fehlenden Schlüssel. Echte Umlaute/Sonderzeichen, kein ASCII-Ersatz.
+Quelle, welche Sprachen es gibt; `translations` ist als `satisfies
+Record<string, Record<Lang, unknown>>` deklariert, also erzwingt der Compiler
+über die Typ-Parität jeden Schlüssel in jeder dort gelisteten Sprache und
+nennt bei einem fehlenden Schlüssel Datei und Zeile der schuldigen Stelle.
+`LANG_LABELS` bleibt der einzige Eigentümer der Sprachenzahl — die
+README-Erwähnung der aktuellen Sprachen ist bekannt nachrangiger Werbetext,
+von `tsc` nicht bewacht; wer eine Sprache hinzufügt, zieht sie mit. Echte
+Umlaute/Sonderzeichen, kein ASCII-Ersatz.
 
 **Sync-Log.** Einträge tragen `message_key` + `message_params`; das deutsche
 `details`-Feld bleibt als Fallback für Alt-Einträge bestehen, nicht für neue

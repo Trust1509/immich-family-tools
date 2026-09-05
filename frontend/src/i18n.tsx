@@ -448,7 +448,7 @@ const translations = {
     en: "Sync names + create album",
     "pt-BR": "Sincronizar nomes + criar álbum",
   },
-} as const;
+} as const satisfies Record<string, Record<Lang, unknown>>;
 
 // Type helpers
 type TranslationKey = keyof typeof translations;
