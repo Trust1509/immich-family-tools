@@ -120,10 +120,10 @@ hier.
 
 ## Release
 
-**Schwelle „gefahrlos":** nur Code, keine Migration — dafür gilt bei grüner CI
-eine stehende Owner-Freigabe zum Taggen; jede Migration (Stufe backup oder
-breaking) bleibt Owner-Sache und wird vor dem Tag gefragt, im Zweifel die
-vorsichtigere Stufe.
+**Schwelle „gefahrlos"** (Bedeutung siehe `docs/agents/release-ritual.md`):
+Für Releases dieser Stufe gilt bei grüner CI eine stehende Owner-Freigabe zum
+Taggen; jede Migration bleibt Owner-Sache und wird vor dem Tag gefragt, im
+Zweifel die vorsichtigere Stufe.
 
 Diese Schwelle ist das Release-Gate — und sie ist **breiter als R4**: Die
 Risikoklassen-Tabelle oben hat sie nie ersetzt und ersetzt sie nicht. Dass

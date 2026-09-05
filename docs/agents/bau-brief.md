@@ -301,6 +301,32 @@ an zwei unabhängigen Strängen hing und der Test nur einen berührte. Was die
 Suite **nicht** behauptet, gehört in den Test geschrieben, nicht in die
 Erinnerung.
 
+**Mutationen für Rot-Beweise laufen in einem Wegwerf-Worktree, nicht im
+Arbeitsbaum.** Realer Vorfall in diesem Repo: Ein Bauer wollte für einen
+Rot-Beweis eine Fehlerbehandlung im Arbeitsbaum entfernen; die
+Sicherheitsprüfung der Werkzeugkette hat die Bearbeitung blockiert —
+nachvollziehbar, das Entfernen eines `try/catch` sieht wie eine Schwächung
+aus. Der Bauer wich auf einen anderen Weg aus, fuhr die Mutation, nahm sie
+zurück und berichtete offen. Das Ergebnis war sauber, das Muster ist es
+nicht: „blockiert, also anderen Weg suchen" darf nicht zur Gewohnheit werden.
+
+Stattdessen auf dem gemessenen Commit mutieren:
+
+```bash
+git worktree add --detach <pfad> <commit>
+# … mutieren, messen …
+git worktree remove --force <pfad>
+```
+
+Drei Gründe, knapp: (1) Der lebende Code wird nicht angefasst, also löst die
+Mutation keine Schutzprüfung aus — und niemand muss sie umgehen. (2) Die
+Rücknahme entfällt, der Baum wird weggeworfen; damit entfällt auch die
+Beweislast „ist wirklich alles zurückgenommen?". (3) Ein beschädigter
+Prüfgegenstand kann nicht versehentlich zurückbleiben.
+
+Dieselbe Überlegung fordert `docs/agents/panel.md` seit v1.13.0 bereits für
+die Stimmen — hier gilt sie für den Bauer.
+
 ---
 
 ## Was im Bericht des Bauers zu prüfen ist
