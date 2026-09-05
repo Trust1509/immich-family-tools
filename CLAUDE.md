@@ -289,9 +289,16 @@ hier nur der Verweis.
 
 ## Projektspezifisches
 
-**Zweisprachigkeit.** Nutzersichtbare UI-Texte sind zweisprachig (DE/EN) über
-`frontend/src/i18n.tsx` mit Typ-Parität — jeder neue Text in **beiden**
-Sprachen, echte Umlaute, kein ASCII-Ersatz.
+**Mehrsprachigkeit.** Nutzersichtbare UI-Texte werden in allen Sprachen aus
+`LANG_LABELS` (`frontend/src/i18n.tsx`) gepflegt — das ist die einzige
+Quelle, welche Sprachen es gibt; `translations` ist als `satisfies
+Record<string, Record<Lang, unknown>>` deklariert, also erzwingt der Compiler
+über die Typ-Parität jeden Schlüssel in jeder dort gelisteten Sprache und
+nennt bei einem fehlenden Schlüssel Datei und Zeile der schuldigen Stelle.
+`LANG_LABELS` bleibt der einzige Eigentümer der Sprachenzahl — die
+README-Erwähnung der aktuellen Sprachen ist bekannt nachrangiger Werbetext,
+von `tsc` nicht bewacht; wer eine Sprache hinzufügt, zieht sie mit. Echte
+Umlaute/Sonderzeichen, kein ASCII-Ersatz.
 
 **Sync-Log.** Einträge tragen `message_key` + `message_params`; das deutsche
 `details`-Feld bleibt als Fallback für Alt-Einträge bestehen, nicht für neue

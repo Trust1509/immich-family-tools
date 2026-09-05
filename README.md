@@ -37,7 +37,7 @@ This tool bridges that gap.
 
 ### UI & Internationalisation
 
-- **DE / EN language toggle** — Full German and English UI, persisted in localStorage
+- **Language toggle** — all languages from `LANG_LABELS` (currently German, English, Brazilian Portuguese), persisted in localStorage
 - **Album grouping** — Albums with the same name are merged into one card in the overview, showing all linked persons across accounts
 - **Smart badges** — "Names synced" and "Album linked" badges on match cards now correctly detect matches extended via _Match erweitern_
 
@@ -190,7 +190,7 @@ immich-family-tools/
 │       └── thumbnail_cache.py # LRU in-memory cache (50 MB)
 └── frontend/               # React 18 + TypeScript + Tailwind (dark mode)
     └── src/
-        ├── i18n.tsx                     # DE/EN translations + LanguageProvider
+        ├── i18n.tsx                     # translations (all languages from LANG_LABELS) + LanguageProvider
         ├── components/
         │   ├── AccountManager.tsx       # Page 1: manage + edit accounts + colour picker
         │   ├── PeopleGrid.tsx           # Page 2: unified people view (parallel loading)
