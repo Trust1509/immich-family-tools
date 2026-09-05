@@ -99,6 +99,10 @@ sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check
 ```
 
 Kennt den lokalen Arbeitsbaum nicht — sie braucht den gepushten Review-Zweig.
+**Ihr Prüfauftrag schließt den Abgleich Commit gegen Bau-Brief ein:** Sie
+erreicht den Brief (Issue-Kommentar oder `docs/agents/briefe/`) unabhängig
+vom Arbeitsbaum des Hauptagenten — anders als die blinde Erststimme, die den
+Brief nie bekommt (siehe `bau-brief.md`, Abschnitt „Ablage").
 
 Zwei Fallstricke, die real zwei Anläufe gekostet haben:
 

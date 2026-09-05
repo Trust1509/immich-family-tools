@@ -37,9 +37,14 @@ genügt ein zusätzlicher Eintrag, kein neuer Dienst.
 
 ## Rückstands-Check: „läuft es?" ist nicht „ist das Laufende aktuell?"
 
-**Vertagt mit Bedingung — wirksam erst, wenn dieser Betriebs-Bausatz
-installiert ist (Issue #54).** Bis dahin ist dieser Abschnitt Vorbereitung,
-keine laufende Prüfung; nichts an der Produktivinstanz ändern.
+**Vertagt mit Bedingung und Termin — wirksam erst, wenn dieser
+Betriebs-Bausatz installiert ist (Issue #54, Owner-Sache, keine
+Zwangsinstallation). Nachfrage-Termin 31.10.2026** (Muster `lehren.md` §11:
+terminiert statt stillem Verzicht). Bis dahin ist dieser Abschnitt
+Vorbereitung, keine laufende Prüfung; nichts an der Produktivinstanz ändern.
+**Ersatz bis dahin:** Der Vergleich läuft von Hand im Release-Ritual,
+Schritt 8 (`docs/agents/release-ritual.md`) — die Prüfung hängt so nicht
+allein an einer Installation, die wartet.
 
 „Antwortet die Anwendung" beweist nicht, dass sie den **aktuellen** Stand
 ausliefert — ein Auslieferungs-Gate zwischen Tag und Rollout (siehe
@@ -47,18 +52,43 @@ ausliefert — ein Auslieferungs-Gate zwischen Tag und Rollout (siehe
 veralteten Stand unbemerkt lange laufen lassen, während jeder Gate-Lauf und
 jede Erreichbarkeitsprüfung grün bleiben.
 
-**Kostet null zusätzliche Läufe:** `GET /api/health` liefert bereits
-`{"status":"ok","version":APP_VERSION}` (`backend/main.py:160`,
-`backend/version.py`) — dieselbe Antwort, die der Erreichbarkeits-Wächter
-oben ohnehin abruft. Der Check ist ein Vergleich:
+**Das ist kein Nebenprodukt der Erreichbarkeitsprüfung ohne eigenen Lauf:**
+Der Uptime-Kuma-Wächter oben führt nur eine statische Schlüsselwort-Prüfung
+aus (Abschnitt oben) — er kann kein `git describe`/`git tag` ausführen und
+nicht gegen einen dynamischen Wert vergleichen. Der Vergleich braucht einen
+zweiten Ausführungskontext: einen eigenen Lauf (Cron auf dem Wächter-Host mit
+flachem Klon) **oder** einen Schritt im Release-Ritual, wie oben als Ersatz
+benannt.
+
+`GET /api/health` liefert bereits `{"status":"ok","version":APP_VERSION}`
+(`backend/main.py:160`, `backend/version.py`) — dieselbe Antwort, die der
+Erreichbarkeits-Wächter oben ohnehin abruft. Der Check ist ein Vergleich,
+mit Präfix-Normalisierung (`/api/health` liefert `1.4.4` ohne führendes „v",
+Tags tragen es):
 
 ```
-version aus GET /api/health   gegen   git describe --tags --abbrev=0
+"v$(version aus GET /api/health)"   gegen   git fetch --tags && git tag --sort=-v:refname | head -1
 ```
+
+**Nicht `git describe --tags --abbrev=0`:** Das liefert nicht den letzten
+Tag, sondern den letzten von HEAD **erreichbaren** Tag — auf einem Klon ohne
+`git fetch --tags` bleibt der Check still grün, obwohl ein neuerer Tag
+existiert (reproduziert: `git describe --tags --abbrev=0 5b78f0b~20` →
+`v1.4.3`, obwohl zu dem Zeitpunkt bereits `v1.4.4` existierte).
 
 Weichen beide voneinander ab, ist entweder die Auslieferung hinter dem
 letzten Tag zurück oder der Tag zeigt auf einen Stand, der nie ausgerollt
 wurde — beides ein stiller Rückstand, den kein bestehender Wächter meldet.
+Ein `git pull` beim Ausliefern liefert den Zweigkopf, nicht den Tag: Liegt
+nach dem Tag ein ungebumpter Commit auf dem Zweig, meldet `/api/health`
+weiter die alte, zum Tag passende Zahl — der Check wäre nach der
+Normalisierung **grün**, obwohl der getaggte Stand nie draußen war. Deshalb
+checkt Schritt 8 des Release-Rituals den Tag aus, nicht den Zweigkopf.
+
+**Was er zeigt und was nicht:** Er fängt „Auslieferung liegt Versionen
+zurück". Er fängt **nicht** „ausgeliefert wurde ein Commit nach dem Tag ohne
+Versionsbump" — dafür bräuchte es den Build-SHA in `/api/health`; das ist
+Anwendungscode und nicht Teil dieses Abschnitts (eigenes Issue).
 
 ## Abgrenzung zum Totmann-Schalter
 

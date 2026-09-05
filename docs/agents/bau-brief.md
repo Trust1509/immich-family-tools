@@ -6,8 +6,10 @@
 > eine Pflichtregel gescheitert — sie stand im Repo und fehlte im Brief.
 >
 > Deshalb hat der Brief ein **Pflicht-Gerüst**. Fehlt ein Block, ist der Brief
-> nicht fertig; das ist prüfbar — vor jedem Absenden verbindlich:
-> `sh scripts/bau-brief-pruefen.sh <brief.md>`.
+> nicht fertig; vor jedem Absenden verbindlich:
+> `sh scripts/bau-brief-pruefen.sh <brief.md>`. Das Skript fängt den
+> **vergessenen** Block — eine Floskel („Prüffragen wurden berücksichtigt")
+> kann es davon nicht unterscheiden. Es ersetzt das Lesen nicht.
 
 ## Pflicht-Gerüst (Block 0 plus neun Blöcke, keiner leer)
 
@@ -47,12 +49,18 @@
                           Weglassen ist keine⟩
 ```
 
+**Block-Überschriften nicht in Versalien schreiben.** Das Prüfskript findet
+Umlaute in Großschreibung nicht (`grep -i` faltet in dieser Umgebung kein
+„Ü" — gemessen, betrifft alle Muster mit Nicht-ASCII). Ein Brief, der Block 9
+vollständig behandelt, aber die Überschrift `## 9 PRÜFFRAGEN` schreibt, wird
+als „kommt NIRGENDS vor" gemeldet.
+
 **Warum Block 9 existiert und nicht nur die Fragenliste:** Ein Projekt hat die
 Prüffragen einen ganzen Slice lang nicht angewendet — sie standen seit dem
 Abgleich in der eigenen `bau-brief.md`. Die Diagnose des Projekts trifft es:
 _Das Prüfskript prüft Themen, nicht Fragen — und was das Skript nicht anmahnt,
 fällt durch._ Als eigener Block fehlt er auffällig; als Liste im Fließtext
-verschwindet er lautlos. Das ist §21 auf unsere eigene Neuerung angewandt:
+verschwindet er lautlos. Das ist §18 auf unsere eigene Neuerung angewandt:
 Eine Regel, deren Auslassung nichts rot macht, ist eine Notiz.
 
 **Block 3 ist der teuerste, wenn er fehlt** — in vier von fünf Projekten kam
@@ -395,11 +403,17 @@ im Report; ein anderer korrigierte die R-Einstufung des Auftraggebers am
 Tabellentext. Der Brief ist Anleitung, kein Dogma; verifizierte Gegenbelege
 gehören in den Report.
 
-## Ablage: der Brief gehört dorthin, wo die blinde Stimme ihn findet
+## Ablage: der Brief gehört dorthin, wo die zweite Stimme ihn findet
+
+**Die blinde Erststimme bleibt blind — sie bekommt den Brief nicht** (siehe
+`panel.md`, die Blindheitsregel wohnt dort). Die Messung _Commit gegen
+Brief_ ist Auftrag der **zweiten Stimme**: Sie erreicht den Brief unabhängig
+vom Arbeitsbaum des Hauptagenten, und der Owner sieht die Annahmen des
+Briefs vor dem Bau, nicht erst im Panel.
 
 **Der Bau-Brief wird beim Start des Slices als Issue-Kommentar gepostet** (oder
 unter `docs/agents/briefe/<issue>.md` committet) — nicht nur an den Bauer
-übergeben. Der Prompt der blinden Stimme nennt dann die Fundstelle („Brief:
+übergeben. Der Prompt der zweiten Stimme nennt dann die Fundstelle („Brief:
 Issue #N, Kommentar vom …").
 
 Gemessen, in beide Richtungen: In einem Slice lag der Brief nur im Scratchpad
@@ -407,18 +421,13 @@ des Hauptagenten. Prüffrage 6 konnte deshalb nur gegen Code und CHANGELOG
 laufen — und fand dort eine **erfundene Zahl** (vier Stellen behaupteten einen
 Fehlercode, den das Produkt nie liefert). Am Brief gemessen wäre sie zwei
 Runden früher aufgefallen. Im Folge-Slice lag der Brief als Issue-Kommentar
-vor: Die Stimme lieferte eine Tabelle _Behauptung → stimmt/stimmt nicht →
-Beleg_, zwei Behauptungen darin „überschärft".
-
-Nebeneffekt, der allein den Aufwand trägt: **Der Owner sieht die Annahmen des
-Briefs vor dem Bau**, nicht erst im Panel.
+vor: Die zweite Stimme lieferte eine Tabelle _Behauptung → stimmt/stimmt
+nicht → Beleg_, zwei Behauptungen darin „überschärft".
 
 **Für uns gilt der Issue-Kommentar als Regelweg, nicht die freie Wahl der
-Vorlage:** Unser `paths-ignore` filtert `**.md` aus dem Push-Pfad heraus — ein
-Brief unter `docs/agents/briefe/<issue>.md` würde also keinen CI-Lauf
-auslösen und geräuschlos an der Dauerregel „ein Lauf je Slice" vorbeilaufen;
-außerdem sieht der Owner die Annahmen so im Issue, nicht erst im commiteten
-Repo-Stand.
+Vorlage:** So bleibt der Brief außerhalb des versionierten Prozess-Stands,
+statt als Datei im Repo mitzulaufen — und der Owner sieht die Annahmen im
+Issue, nicht erst im commiteten Repo-Stand.
 
 ## Acht Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
 
@@ -451,7 +460,7 @@ Repo-Stand.
    keine Prüfung. Gemessen: Tests bewiesen einen Direkt-Aufruf, das Produkt
    nutzt einen anderen Weg — der Schutzzweig war unerreichbar, der Kanal tot,
    alles grün. Der Rot-Beweis stellt den ECHTEN Aufrufweg nach, mit dem
-   Datenpaket der Oberfläche. (§21 in neuer Gestalt: Der Wächter lief, aber
+   Datenpaket der Oberfläche. (§18 in neuer Gestalt: Der Wächter lief, aber
    am falschen Objekt.)
 8. **Zählt der Slice seine eigene Zusage ab?** Wer „kein X mehr über Y"
    verspricht, zählt die Y. Gemessen: Ein Slice versprach Dichtigkeit für

@@ -262,10 +262,15 @@ verwechseln heißt, die Lücke der anderen zu übersehen:
 - **GitHub Push Protection** — blockt bekannte Geheimnis-Muster **vor** dem
   Landen, GitHub-seitig, kein eigener Lauf.
 - **GitHub Secret Scanning** — durchsucht den vollen Verlauf, ebenfalls
-  GitHub-seitig, unabhängig davon, ob und wann unsere eigene CI läuft.
+  GitHub-seitig, unabhängig davon, ob und wann unsere eigene CI läuft — aber
+  nur **Partner-Muster** (`gh api repos/Trust1509/immich-family-tools --jq
+.security_and_analysis` → `secret_scanning_non_provider_patterns:
+disabled`). Einen generischen Schlüssel wie unseren Immich-API-Key erkennt
+  sie damit **nicht** — dafür ist `gitleaks` faktisch die einzige Linie.
 - **Unser `gitleaks`** — der Push-Job (`ci.yml`) scannt nur die Commits des
-  Pushes entlang der ersten Eltern-Linie (`--first-parent --no-merges`); erst
-  der Wochenlauf (`wochen-pruefung.yml`) deckt den vollen Verlauf ab.
+  Pushes entlang der ersten Eltern-Linie (Flag und Begründung: Abschnitt
+  „Prüfschritte" oben); erst der Wochenlauf (`wochen-pruefung.yml`) deckt den
+  vollen Verlauf ab.
 
 **Der Nutzen der Öffentlichkeit gehört auch hin:** CI-Läufe kosten hier 0
 abgerechnete Minuten — Begründung und Beleg stehen in „Prüfschritte" oben,

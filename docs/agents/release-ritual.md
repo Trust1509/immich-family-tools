@@ -59,34 +59,19 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
 6. **Trockenlauf** des Release-Skripts.
 7. **Owner fragen.** Danach taggen, pushen, Release anlegen.
 8. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 7. **Der
-   Tag geht der Auslieferung VORAUS.** Für uns: `git pull && docker compose
-up -d --build` auf `192.168.2.3`, durch den **Owner** — der Agent tut das
-   nicht selbst (Produktivinstanz, siehe `CLAUDE.md`). Mit einem Owner-Gate
-   dazwischen können zwischen 7 und 8 Stunden oder Wochen liegen — und dann
-   kehrt sich die Reihenfolge unbemerkt um. Ein nachträglich gesetzter Tag
-   ist eine Rekonstruktion, keine Tatsache: Wandert der Zweig dazwischen,
-   benennt er einen Stand, der nie draußen war. Begründung und Fall:
-   `lehren.md` §23.
-
-## Rückstands-Check: „läuft es?" beantwortet nicht „ist das Laufende aktuell?"
-
-Wer ein Auslieferungs-Gate hat, braucht eine Instanz, die **„ausgeliefert"
-gegen „gelandet"** hält. Sonst fällt genau dort ein stiller Rückstand hinein:
-Gates prüfen den Stand im Zweig, das Monitoring prüft, ob draußen etwas
-antwortet — niemand prüft, ob das Antwortende auch das Aktuelle ist. Und je
-besser das Gate funktioniert, desto länger bleibt der Rückstand unbemerkt.
-
-**Die Maßnahme kostet null zusätzliche Läufe:** Die ohnehin laufende
-Erreichbarkeitsprüfung vergleicht eine Versionskennung im ausgelieferten Stand
-mit dem letzten Tag und wird rot, wenn sie auseinanderlaufen.
-
-**Bei uns direkt umsetzbar:** `GET /api/health` liefert bereits
-`{"status":"ok","version":APP_VERSION}` (`backend/main.py:160`,
-`backend/version.py`), und `APP_VERSION` ist dieselbe Zahl, die auch der Tag
-trägt. Der Check ist ein Vergleich `version` aus `/api/health` gegen
-`git describe --tags --abbrev=0` — Details in `docs/betrieb/erreichbarkeit.md`.
-**Vertagt mit Bedingung:** wirksam erst, wenn der Betriebs-Bausatz installiert
-ist (Issue #54, wartet auf den Owner). Nichts an der laufenden Instanz ändern.
+   Tag geht der Auslieferung VORAUS.** Für uns: `git fetch --tags && git
+checkout v<version> && docker compose up -d --build` auf dem
+   TrueNAS-Host, durch den **Owner** — der Agent tut das nicht selbst
+   (Produktivinstanz, siehe `CLAUDE.md`). Der Tag wird ausgecheckt, nicht der
+   Zweigkopf: Mit einem Owner-Gate zwischen 7 und 8 ist „seit dem Tag ist auf
+   dem Zweig etwas dazugekommen" der Normalfall, und ein `git pull` würde
+   genau das mit ausliefern. Ein nachträglich gesetzter Tag ist eine
+   Rekonstruktion, keine Tatsache: Wandert der Zweig dazwischen, benennt er
+   einen Stand, der nie draußen war. Begründung und Fall: `lehren.md` §23.
+   Danach von Hand der Rückstands-Check (bis Issue #54 automatisiert ist,
+   Nachfrage-Termin 31.10.2026): Version aus `/api/health` gegen den gerade
+   ausgecheckten Tag vergleichen — was der Check zeigt und was nicht, steht
+   in `docs/betrieb/erreichbarkeit.md`.
 
 ## Notizen schreiben
 

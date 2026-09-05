@@ -661,15 +661,14 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
   reinen Backend-Commit, und umgekehrt. Das ist im Kern gewollt (dieselbe
   Klasse von „muss laufen, sonst meldet es sich zu spät"), aber es bedeutet:
   Wer den Hook wegen eines als „unrelated" empfundenen Rots einmal mit
-  `--no-verify` umgeht, hat exakt den Zustand aus §21 hergestellt — einen
+  `--no-verify` umgeht, hat exakt den Zustand aus §18 hergestellt — einen
   Wächter, dessen Lauf niemand mehr erzwingt.
 - **`gitleaks` (CI, Secrets-Job, Push-Pfad)** — Der Job checkt mit
   `fetch-depth: 0` aus; das liefert die volle Git-Historie, **scannt sie aber
   nicht**: gitleaks-action wertet bei `push`-Events nur die Commits des
-  jeweiligen Pushes entlang der ersten Eltern-Linie aus (`--first-parent
---no-merges`: Merge-Commits und Commits eines eingemergten Zweigs werden
-  nicht gescannt — relevant bei Dependabot-Merges; siehe Kommentar in
-  `wochen-pruefung.yml`) — nötig bleibt es trotzdem: die Action löst
+  jeweiligen Pushes entlang der ersten Eltern-Linie aus (Flag und
+  Begründung: `CLAUDE.md`, Abschnitt „Prüfschritte") — nötig bleibt es
+  trotzdem: die Action löst
   `base^..head` auf, ein flacher Klon bricht das. Die Regel-Update-Rot-Quelle
   stand hier bis `d7a9ada` **falsch**; sie betrifft seit dem eigenen
   Vollscan-Lauf die Wochen-Prüfung (siehe dort) — der Push-Job selbst
@@ -737,7 +736,7 @@ Klasse, die dieser Paragraph beschreibt.
 ## 20. Ein Hook deckt nur, was er nennt — und er nennt seine Auslassungen nicht
 
 **Vorlage §23 — verallgemeinert aus einem eigenen Fund dieses Projekts.**
-Herkunft: Bei der §21-Inventur im v1.11.3-Abgleich fiel auf, dass unser
+Herkunft: Bei der Vorlage-§21-Inventur im v1.11.3-Abgleich fiel auf, dass unser
 Husky-Pre-Commit-Hook Lint, `tsc --noEmit` und die Backend-Tests fährt, aber
 **nicht** die Frontend-Tests (Vitest, `npm test`) — die laufen ausschließlich
 in der CI. Die Vorlage hat daraus die allgemeine Form gemacht: **Eine Suite,
@@ -791,8 +790,9 @@ Produktcode.
   Anhang: eigener Blick im Panel, eigene Rot-Beweise.
 - **Jeder Job bekommt eine Laufzeitgrenze** (`timeout-minutes`), jeder
   Netzaufruf eine eigene Frist. Ohne sie läuft ein hängender Lauf bis zum
-  Plattform-Standard von 360 Minuten — bei einem Tagesbudget von 100 Minuten
-  ist das nicht ein Aufschlag, sondern der ganze Tag plus Überziehung.
+  Plattform-Standard von 360 Minuten; was das für unser Portfolio-Tagesbudget
+  bedeutet, steht in `CLAUDE.md`, Abschnitt „Prüfschritte" — die Regel steht
+  dort, nicht hier.
 
 ## 22. Freitext in einem `run:`-Block ist Code
 
