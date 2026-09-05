@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, ScrollText, CheckCircle, XCircle, RotateCcw, Trash2 } from "lucide-react";
 import { api, SyncLogEntry } from "../api/client";
-import { useT } from "../i18n";
+import { LANG_LOCALES, useT } from "../i18n";
 
 function LogRow({ entry }: { entry: SyncLogEntry }) {
-  const { t, logMessage } = useT();
+  const { t, lang, logMessage } = useT();
   const qc = useQueryClient();
   const undoMutation = useMutation({
     mutationFn: () => api.sync.undo(entry.id),
@@ -16,7 +16,7 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
     entry.status === "success" &&
     !!entry.undo_data &&
     !entry.undone_at;
-  const ts = new Date(entry.timestamp).toLocaleString("de-AT");
+  const ts = new Date(entry.timestamp).toLocaleString(LANG_LOCALES[lang]);
 
   const actionLabel: Record<string, string> = {
     sync_names: t("action_sync_names"),
@@ -95,9 +95,9 @@ export default function SyncPanel() {
         {log.length > 0 && (
           <button
             className="btn-ghost text-xs text-red-400 flex items-center gap-1"
-            onClick={() => confirm("Sync-Log wirklich löschen?") && clearMutation.mutate()}
+            onClick={() => confirm(t("log_clear_confirm")) && clearMutation.mutate()}
           >
-            <Trash2 size={13} /> Log löschen
+            <Trash2 size={13} /> {t("log_clear")}
           </button>
         )}
       </div>

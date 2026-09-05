@@ -2,11 +2,11 @@ import React from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Trash2, Disc, AlertTriangle, User, Clock, Timer } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry } from "../api/client";
-import { useT } from "../i18n";
+import { LANG_LOCALES, useT } from "../i18n";
 
-function formatDate(iso?: string) {
+function formatDate(iso: string | undefined, locale: string) {
   if (!iso) return "–";
-  return new Date(iso).toLocaleString("de-AT", {
+  return new Date(iso).toLocaleString(locale, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -101,7 +101,7 @@ function AlbumGroupCard({
   externalLogs?: SyncLogEntry[] | null; // results pushed from "Alle synchronisieren"
   externalSyncing?: boolean;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const qc = useQueryClient();
   const [localLogs, setLocalLogs] = React.useState<SyncLogEntry[] | null>(null);
   const [localSyncing, setLocalSyncing] = React.useState(false);
@@ -173,7 +173,7 @@ function AlbumGroupCard({
 
       <div className="flex items-center gap-1.5 text-xs text-gray-500">
         <Clock size={12} />
-        <span>{t("last_sync", formatDate(group.last_synced_at))}</span>
+        <span>{t("last_sync", formatDate(group.last_synced_at, LANG_LOCALES[lang]))}</span>
       </div>
 
       <SyncLogDisplay logs={displayLogs} syncing={syncing} />

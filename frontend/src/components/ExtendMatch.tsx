@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, User, Clock, Disc, CheckCircle, XCircle, ChevronRight, Plus } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry, Account, Person } from "../api/client";
-import { useT } from "../i18n";
+import { LANG_LOCALES, useT } from "../i18n";
 
 // ── Re-use groupAlbums logic ───────────────────────────────────────────────
 
@@ -56,9 +56,9 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
   });
 }
 
-function formatDate(iso?: string) {
+function formatDate(iso: string | undefined, locale: string) {
   if (!iso) return "–";
-  return new Date(iso).toLocaleString("de-AT", {
+  return new Date(iso).toLocaleString(locale, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -82,6 +82,7 @@ function SearchablePersonPicker({
   placeholder: string;
   disabled?: boolean;
 }) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -153,7 +154,7 @@ function SearchablePersonPicker({
                 }}
               />
               <span className="truncate flex-1">
-                {p.name || <span className="text-gray-500 italic">Unbekannt</span>}
+                {p.name || <span className="text-gray-500 italic">{t("unknown")}</span>}
               </span>
               {p.asset_count > 0 && (
                 <span className="text-xs text-gray-500 shrink-0">
@@ -179,7 +180,7 @@ function AlbumGroupCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   return (
     <button
       onClick={onSelect}
@@ -226,7 +227,7 @@ function AlbumGroupCard({
 
       <div className="flex items-center gap-1 text-xs text-gray-600">
         <Clock size={10} />
-        <span>{t("last_sync", formatDate(group.last_synced_at))}</span>
+        <span>{t("last_sync", formatDate(group.last_synced_at, LANG_LOCALES[lang]))}</span>
       </div>
     </button>
   );

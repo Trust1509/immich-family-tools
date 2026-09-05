@@ -73,7 +73,7 @@ export default function App() {
               window.location.reload();
             }}
           >
-            <LogOut size={12} /> Sperren
+            <LogOut size={12} /> {t("lock_button")}
           </button>
           {/* Language toggle */}
           <div className="flex gap-1">

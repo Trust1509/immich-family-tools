@@ -26,6 +26,7 @@ function SearchablePersonPicker({
   placeholder: string;
   disabled?: boolean;
 }) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -71,7 +72,7 @@ function SearchablePersonPicker({
       <input
         type="text"
         className={`w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary ${disabled ? "opacity-40 pointer-events-none" : ""}`}
-        placeholder={loading ? "Lade…" : placeholder}
+        placeholder={loading ? t("loading") : placeholder}
         value={displayValue}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -103,7 +104,7 @@ function SearchablePersonPicker({
                 }}
               />
               <span className="truncate flex-1">
-                {p.name || <span className="text-gray-500 italic">Unbekannt</span>}
+                {p.name || <span className="text-gray-500 italic">{t("unknown")}</span>}
               </span>
               {p.asset_count > 0 && (
                 <span className="text-xs text-gray-500 shrink-0">

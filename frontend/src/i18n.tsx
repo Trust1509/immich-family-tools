@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 
 export type Lang = "de" | "en" | "pt-BR";
 
@@ -12,6 +12,19 @@ export const LANG_LABELS: Record<Lang, string> = {
   "pt-BR": "🇧🇷 PT-BR",
 };
 
+/** Second mapping tied to the same key set as `LANG_LABELS` — the BCP-47
+ *  locale each language formats dates/numbers with. `Record<Lang, string>`
+ *  keeps the two in lockstep: adding a language to `LANG_LABELS` without
+ *  adding it here is a compile error, not a silent gap.
+ *  `en: "en-GB"` is a deliberate choice, not a default — it keeps the
+ *  day-before-month date order the German locale already uses, rather than
+ *  switching an English-reading user to `en-US`'s month-before-day. */
+export const LANG_LOCALES: Record<Lang, string> = {
+  de: "de-AT",
+  en: "en-GB",
+  "pt-BR": "pt-BR",
+};
+
 const KNOWN_LANGS = Object.keys(LANG_LABELS) as Lang[];
 
 /** Validates a raw (e.g. `localStorage`) value against the known languages,
@@ -22,16 +35,39 @@ export function resolveLang(stored: string | null): Lang {
   return KNOWN_LANGS.includes(stored as Lang) ? (stored as Lang) : "de";
 }
 
+/** Best-effort match of a raw `navigator.language` value (e.g. `"pt-BR"`,
+ *  `"pt"`, `"de-DE"`, `"en-US"`) against the known languages: exact match
+ *  first, then by BCP-47 primary subtag (the part before the first `-`), so
+ *  a browser reporting a regional variant we don't ship (`"en-US"`,
+ *  `"de-DE"`) still lands on the language it's closest to instead of `"de"`.
+ *  Falls back to `"de"` when nothing matches, or when no language is given
+ *  at all. Exported so it can be unit-tested without a `navigator` stub,
+ *  mirroring `resolveLang` above. */
+export function detectBrowserLang(raw: string | null | undefined): Lang {
+  if (!raw) return "de";
+  if (KNOWN_LANGS.includes(raw as Lang)) return raw as Lang;
+  const prefix = raw.split("-")[0].toLowerCase();
+  return KNOWN_LANGS.find((l) => l.split("-")[0].toLowerCase() === prefix) ?? "de";
+}
+
 /** Reads the persisted language and validates it in one step — this is the
  *  exact call the Provider makes, so a test exercising `readStoredLang()`
  *  proves what the Provider actually does, not just what `resolveLang()` can
  *  do in isolation. A locked-down `localStorage` (private browsing, blocked
  *  site data, a sandboxed iframe) throws on the property access itself, not
  *  just on `.getItem()` — caught here so a blocked store falls back to
- *  `"de"` instead of leaving the whole app on a blank screen. */
+ *  `"de"` instead of leaving the whole app on a blank screen.
+ *
+ *  When nothing is stored yet (first visit), the browser's own language
+ *  (`navigator.language`) decides the starting language instead of always
+ *  defaulting to German — but only then: an existing, even invalid, stored
+ *  value still goes through `resolveLang` as before and never falls through
+ *  to the browser language. */
 export function readStoredLang(): Lang {
   try {
-    return resolveLang(localStorage.getItem("ift_lang"));
+    const stored = localStorage.getItem("ift_lang");
+    if (stored !== null) return resolveLang(stored);
+    return detectBrowserLang(typeof navigator === "undefined" ? undefined : navigator.language);
   } catch {
     return "de";
   }
@@ -62,6 +98,22 @@ const translations = {
     en: "Support this project",
     "pt-BR": "Apoie este projeto",
   },
+  lock_button: { de: "Sperren", en: "Lock", "pt-BR": "Bloquear" },
+
+  // ── AuthGate ──────────────────────────────────────────────────────────
+  auth_title: {
+    de: "Family Tools entsperren",
+    en: "Unlock Family Tools",
+    "pt-BR": "Desbloquear o Family Tools",
+  },
+  auth_subtitle: {
+    de: "Gemeinsames Zugriffstoken eingeben",
+    en: "Enter the shared access token",
+    "pt-BR": "Insira o token de acesso compartilhado",
+  },
+  auth_token_ph: { de: "Zugriffstoken", en: "Access token", "pt-BR": "Token de acesso" },
+  auth_checking: { de: "Prüfe…", en: "Checking…", "pt-BR": "Verificando…" },
+  auth_unlock: { de: "Entsperren", en: "Unlock", "pt-BR": "Desbloquear" },
 
   // ── Common ────────────────────────────────────────────────────────────
   cancel: { de: "Abbrechen", en: "Cancel", "pt-BR": "Cancelar" },
@@ -122,6 +174,11 @@ const translations = {
   account_save: { de: "Speichern", en: "Save", "pt-BR": "Salvar" },
   account_saving: { de: "Wird gespeichert…", en: "Saving…", "pt-BR": "Salvando…" },
   account_color_label: { de: "Farbe", en: "Color", "pt-BR": "Cor" },
+  account_api_key_unchanged: {
+    de: "API-Key unverändert",
+    en: "API key unchanged",
+    "pt-BR": "Chave de API inalterada",
+  },
   account_api_hint: {
     de: "Wo finde ich meinen API Key?",
     en: "Where do I find my API Key?",
@@ -348,6 +405,12 @@ const translations = {
     "pt-BR": "Sem ação de sincronismo executada ainda.",
   },
   undo_tip: { de: "Rückgängig machen", en: "Undo action", "pt-BR": "Desfazer ação" },
+  log_clear: { de: "Log löschen", en: "Delete log", "pt-BR": "Excluir Log" },
+  log_clear_confirm: {
+    de: "Sync-Log wirklich löschen?",
+    en: "Really delete the sync log?",
+    "pt-BR": "Excluir mesmo o Sync Log?",
+  },
   action_sync_names: { de: "Namen sync", en: "Name sync", "pt-BR": "Sincronização de nomes" },
   action_create_album: { de: "Album erstellen", en: "Create album", "pt-BR": "Criar álbum" },
   action_undo_names: { de: "Undo Namen", en: "Undo names", "pt-BR": "Desfazer nomes" },
@@ -448,6 +511,20 @@ const translations = {
     en: "Sync names + create album",
     "pt-BR": "Sincronizar nomes + criar álbum",
   },
+
+  // ── FaceCompare ───────────────────────────────────────────────────────
+  match_label: { de: "Match", en: "Match", "pt-BR": "Correspondência" },
+  reason_name_similarity: {
+    de: "Namensähnlichkeit",
+    en: "Name similarity",
+    "pt-BR": "Similaridade de nome",
+  },
+  reason_embedding_similarity: {
+    de: "Gesichtserkennung",
+    en: "Face recognition",
+    "pt-BR": "Reconhecimento facial",
+  },
+  reason_manual: { de: "Manuell", en: "Manual", "pt-BR": "Manual" },
 } as const satisfies Record<string, Record<Lang, unknown>>;
 
 // Type helpers
@@ -638,10 +715,31 @@ const LangContext = createContext<LangContextValue>({
   logMessage: (entry) => renderLogMessage("de", entry),
 });
 
+/** Writes `lang` to `<html lang>`. Pulled out of the effect below into its
+ *  own exported function so it can be unit-tested directly against a stub
+ *  `document` (this repo has no jsdom) instead of only through a React
+ *  effect that `renderToString` never runs. A no-op outside a browser (SSR,
+ *  the test file's `renderToString` calls) rather than a DOM dependency. */
+export function applyDocumentLang(lang: Lang): void {
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = lang;
+  }
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   // Lazy initializer: only the first render needs the stored value, not
   // every re-render.
   const [lang, setLangState] = useState<Lang>(() => readStoredLang());
+
+  // Single place that keeps <html lang> in sync with the active language —
+  // both the initial value from readStoredLang() and every later setLang()
+  // call flow through this effect (it re-runs whenever `lang` changes) and
+  // through the same `applyDocumentLang`, so there's one source of truth
+  // instead of a second write path that could drift from it. Screen readers
+  // and the browser's own translation feature read this attribute.
+  useEffect(() => {
+    applyDocumentLang(lang);
+  }, [lang]);
 
   const setLang = (l: Lang) => {
     try {

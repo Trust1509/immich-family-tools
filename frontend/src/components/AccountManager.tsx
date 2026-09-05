@@ -1,6 +1,18 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Eye, EyeOff, Wifi, Users, Pencil, X } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Eye,
+  EyeOff,
+  Wifi,
+  Users,
+  Pencil,
+  X,
+} from "lucide-react";
 import { api, Account } from "../api/client";
 import { useT } from "../i18n";
 
@@ -35,7 +47,10 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (c: string)
           title={c}
         />
       ))}
-      <label className="w-6 h-6 rounded-full overflow-hidden cursor-pointer border-2 border-immich-border hover:border-gray-400 transition-colors relative" title={t("account_color_label")}>
+      <label
+        className="w-6 h-6 rounded-full overflow-hidden cursor-pointer border-2 border-immich-border hover:border-gray-400 transition-colors relative"
+        title={t("account_color_label")}
+      >
         <input
           type="color"
           value={value}
@@ -56,9 +71,13 @@ function StatusDot({ accountId }: { accountId: string }) {
   });
   if (isLoading) return <Loader2 size={14} className="animate-spin text-gray-500" />;
   if (!data) return null;
-  return data.reachable
-    ? <CheckCircle size={14} className="text-emerald-400" />
-    : <span title={data.error}><XCircle size={14} className="text-red-400" /></span>;
+  return data.reachable ? (
+    <CheckCircle size={14} className="text-emerald-400" />
+  ) : (
+    <span title={data.error}>
+      <XCircle size={14} className="text-red-400" />
+    </span>
+  );
 }
 
 function EditAccountForm({ account, onClose }: { account: Account; onClose: () => void }) {
@@ -71,12 +90,13 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
   const [showKey, setShowKey] = useState(false);
 
   const mutation = useMutation({
-    mutationFn: () => api.accounts.update(account.id, {
-      name: name !== account.name ? name : undefined,
-      immich_url: url !== account.immich_url ? url : undefined,
-      api_key: key.trim() ? key : undefined,
-      color: color !== account.color ? color : undefined,
-    }),
+    mutationFn: () =>
+      api.accounts.update(account.id, {
+        name: name !== account.name ? name : undefined,
+        immich_url: url !== account.immich_url ? url : undefined,
+        api_key: key.trim() ? key : undefined,
+        color: color !== account.color ? color : undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["account-status", account.id] });
@@ -84,13 +104,16 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
     },
   });
 
-  const hasChanges = name !== account.name || url !== account.immich_url || !!key.trim() || color !== account.color;
+  const hasChanges =
+    name !== account.name || url !== account.immich_url || !!key.trim() || color !== account.color;
 
   return (
     <div className="card space-y-3 border-immich-primary">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">{t("account_edit_title")}</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X size={14} /></button>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
+          <X size={14} />
+        </button>
       </div>
 
       <div className="space-y-2">
@@ -110,7 +133,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
           <input
             className="input pr-10"
             type={showKey ? "text" : "password"}
-            placeholder={account.api_key_configured ? "API-Key unverändert" : "API Key"}
+            placeholder={account.api_key_configured ? t("account_api_key_unchanged") : "API Key"}
             value={key}
             onChange={(e) => setKey(e.target.value)}
           />
@@ -129,7 +152,9 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
         </div>
       </div>
 
-      {mutation.error && <p className="text-red-400 text-xs">{(mutation.error as Error).message}</p>}
+      {mutation.error && (
+        <p className="text-red-400 text-xs">{(mutation.error as Error).message}</p>
+      )}
 
       <div className="flex gap-2">
         <button
@@ -140,7 +165,9 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
           {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
           {mutation.isPending ? t("account_saving") : t("account_save")}
         </button>
-        <button className="btn-ghost text-sm" onClick={onClose}>{t("cancel")}</button>
+        <button className="btn-ghost text-sm" onClick={onClose}>
+          {t("cancel")}
+        </button>
       </div>
     </div>
   );
@@ -165,7 +192,10 @@ function AccountCard({ account, onDelete }: { account: Account; onDelete: () => 
       {/* Color dot */}
       <div
         className="w-3 h-3 rounded-full shrink-0"
-        style={{ backgroundColor: account.color, boxShadow: `0 0 0 2px #1e2028, 0 0 0 4px ${account.color}` }}
+        style={{
+          backgroundColor: account.color,
+          boxShadow: `0 0 0 2px #1e2028, 0 0 0 4px ${account.color}`,
+        }}
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -177,7 +207,9 @@ function AccountCard({ account, onDelete }: { account: Account; onDelete: () => 
           <StatusDot accountId={account.id} />
         </div>
         <p className="text-xs text-gray-500 truncate">{account.immich_url}</p>
-        {status?.user_email && <p className="text-xs text-gray-600 truncate">{status.user_email}</p>}
+        {status?.user_email && (
+          <p className="text-xs text-gray-600 truncate">{status.user_email}</p>
+        )}
         {status?.error && <p className="text-xs text-red-400 truncate">{status.error}</p>}
       </div>
       <div className="flex items-center gap-1 shrink-0">
@@ -210,15 +242,28 @@ function AddAccountForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const mutation = useMutation({
     mutationFn: () => api.accounts.add({ name, immich_url: url, api_key: key }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["accounts"] }); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      onClose();
+    },
   });
 
   return (
     <div className="card space-y-3">
       <h3 className="font-semibold text-sm">{t("account_add_title")}</h3>
       <div className="space-y-2">
-        <input className="input" placeholder={t("account_name_ph")} value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="input" placeholder="Immich URL" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <input
+          className="input"
+          placeholder={t("account_name_ph")}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <input
+          className="input"
+          placeholder="Immich URL"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
         <div className="relative">
           <input
             className="input pr-10"
@@ -227,13 +272,18 @@ function AddAccountForm({ onClose }: { onClose: () => void }) {
             value={key}
             onChange={(e) => setKey(e.target.value)}
           />
-          <button type="button" onClick={() => setShowKey((v) => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+          <button
+            type="button"
+            onClick={() => setShowKey((v) => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+          >
             {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
       </div>
-      {mutation.error && <p className="text-red-400 text-xs">{(mutation.error as Error).message}</p>}
+      {mutation.error && (
+        <p className="text-red-400 text-xs">{(mutation.error as Error).message}</p>
+      )}
       <div className="flex gap-2">
         <button
           className="btn-primary flex items-center gap-2 text-sm"
@@ -243,7 +293,9 @@ function AddAccountForm({ onClose }: { onClose: () => void }) {
           {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
           {mutation.isPending ? t("account_test") : t("account_add_btn")}
         </button>
-        <button className="btn-ghost text-sm" onClick={onClose}>{t("cancel")}</button>
+        <button className="btn-ghost text-sm" onClick={onClose}>
+          {t("cancel")}
+        </button>
       </div>
     </div>
   );
@@ -272,17 +324,26 @@ export default function AccountManager() {
           <p className="text-sm text-gray-500 mt-0.5">{t("accounts_subtitle")}</p>
         </div>
         {!showForm && (
-          <button className="btn-primary flex items-center gap-2 text-sm" onClick={() => setShowForm(true)}>
+          <button
+            className="btn-primary flex items-center gap-2 text-sm"
+            onClick={() => setShowForm(true)}
+          >
             <Plus size={16} />
             {t("account_add")}
           </button>
         )}
       </div>
 
-      {showForm && <div className="mb-4"><AddAccountForm onClose={() => setShowForm(false)} /></div>}
+      {showForm && (
+        <div className="mb-4">
+          <AddAccountForm onClose={() => setShowForm(false)} />
+        </div>
+      )}
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-gray-500" /></div>
+        <div className="flex justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-gray-500" />
+        </div>
       ) : accounts.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <Users size={40} className="mx-auto mb-3 opacity-30" />
@@ -296,8 +357,7 @@ export default function AccountManager() {
               key={acc.id}
               account={acc}
               onDelete={() => {
-                if (confirm(t("account_remove_confirm", acc.name)))
-                  deleteMutation.mutate(acc.id);
+                if (confirm(t("account_remove_confirm", acc.name))) deleteMutation.mutate(acc.id);
               }}
             />
           ))}

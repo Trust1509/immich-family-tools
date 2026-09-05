@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Loader2, Search, UserX, User } from "lucide-react";
 import { api, Person } from "../api/client";
-import { useT } from "../i18n";
+import { LANG_LOCALES, useT } from "../i18n";
 
 function PersonCard({ person }: { person: Person }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const thumbUrl = api.people.thumbnailUrl(person.account_id, person.id);
   const [imgError, setImgError] = useState(false);
 
@@ -38,7 +38,7 @@ function PersonCard({ person }: { person: Person }) {
           {person.name || <span className="text-gray-500 italic">{t("unknown")}</span>}
         </p>
         <p className="text-xs text-gray-500">
-          {photoCount > 0 ? `${photoCount.toLocaleString("de-AT")} ${t("photos")}` : "–"}
+          {photoCount > 0 ? `${photoCount.toLocaleString(LANG_LOCALES[lang])} ${t("photos")}` : "–"}
         </p>
         <span className="badge mt-1 inline-block" style={{ backgroundColor: person.account_color }}>
           {person.account_name}
@@ -72,20 +72,20 @@ export default function PeopleGrid() {
   });
 
   const loadedCount = accountQueries.filter((q) => q.isSuccess).length;
-  const totalCount  = accounts.length;
-  const anyLoading  = loadingAccounts || accountQueries.some((q) => q.isFetching);
+  const totalCount = accounts.length;
+  const anyLoading = loadingAccounts || accountQueries.some((q) => q.isFetching);
 
   // Merge all loaded people so far
   const people: Person[] = accountQueries.flatMap((q) => q.data ?? []);
 
   const filtered = people.filter((p) => {
-    if (filter === "named"   && !p.name) return false;
-    if (filter === "unnamed" &&  p.name) return false;
+    if (filter === "named" && !p.name) return false;
+    if (filter === "unnamed" && p.name) return false;
     if (search && !(p.name ?? "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  const namedCount   = people.filter((p) =>  p.name).length;
+  const namedCount = people.filter((p) => p.name).length;
   const unnamedCount = people.filter((p) => !p.name).length;
 
   return (
@@ -136,7 +136,11 @@ export default function PeopleGrid() {
                 : "bg-immich-surface border border-immich-border text-gray-400 hover:text-gray-100"
             }`}
           >
-            {f === "all" ? t("filter_all") : f === "named" ? t("filter_named") : t("filter_unnamed")}
+            {f === "all"
+              ? t("filter_all")
+              : f === "named"
+                ? t("filter_named")
+                : t("filter_unnamed")}
           </button>
         ))}
       </div>
@@ -153,7 +157,9 @@ export default function PeopleGrid() {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {filtered.map((p) => <PersonCard key={`${p.account_id}:${p.id}`} person={p} />)}
+          {filtered.map((p) => (
+            <PersonCard key={`${p.account_id}:${p.id}`} person={p} />
+          ))}
         </div>
       )}
     </div>

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { LANG_LABELS, LanguageProvider, readStoredLang, resolveLang, useT } from "./i18n";
+import {
+  applyDocumentLang,
+  detectBrowserLang,
+  LANG_LABELS,
+  LanguageProvider,
+  readStoredLang,
+  resolveLang,
+  useT,
+} from "./i18n";
 import type { Lang } from "./i18n";
 
 describe("resolveLang", () => {
@@ -26,6 +34,38 @@ describe("resolveLang", () => {
 
   it("falls back to de when nothing is stored", () => {
     expect(resolveLang(null)).toBe("de");
+  });
+});
+
+describe("detectBrowserLang", () => {
+  it("accepts every known language unchanged (exact match)", () => {
+    // Same derivation-from-LANG_LABELS reasoning as the resolveLang test
+    // above: a fourth shipped language that isn't detectable by its own
+    // exact code should turn this red, not stay silently green.
+    for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
+      expect(detectBrowserLang(lang)).toBe(lang);
+    }
+  });
+
+  it("matches a bare language subtag to its shipped regional variant", () => {
+    // "pt" alone (no region) is what some browsers report; pt-BR is the
+    // only Portuguese we ship, so it's the only sane match.
+    expect(detectBrowserLang("pt")).toBe("pt-BR");
+  });
+
+  it("matches an unshipped regional variant by its language prefix", () => {
+    expect(detectBrowserLang("de-DE")).toBe("de");
+    expect(detectBrowserLang("en-US")).toBe("en");
+  });
+
+  it("falls back to de for a language we don't ship at all", () => {
+    expect(detectBrowserLang("xx")).toBe("de");
+    expect(detectBrowserLang("fr-FR")).toBe("de");
+  });
+
+  it("falls back to de when no language is given", () => {
+    expect(detectBrowserLang(null)).toBe("de");
+    expect(detectBrowserLang(undefined)).toBe("de");
   });
 });
 
@@ -103,6 +143,28 @@ function withThrowingLocalStorageAccess<T>(run: () => T): T {
   }
 }
 
+// Stubs `globalThis.navigator` for the duration of one call, the same
+// restore-in-finally shape as `withStorage` above. `undefined` simulates an
+// environment with no `navigator` at all (readStoredLang guards for that
+// with a `typeof navigator === "undefined"` check).
+function withNavigatorLanguage<T>(language: string | undefined, run: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    value: language === undefined ? undefined : ({ language } as Navigator),
+    configurable: true,
+    writable: true,
+  });
+  try {
+    return run();
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, "navigator", original);
+    } else {
+      delete (globalThis as { navigator?: Navigator }).navigator;
+    }
+  }
+}
+
 describe("readStoredLang", () => {
   it("resolves a valid stored value via resolveLang", () => {
     withStorage(fakeStorage("pt-BR"), () => {
@@ -125,6 +187,49 @@ describe("readStoredLang", () => {
   it("falls back to de when the localStorage property access itself throws", () => {
     withThrowingLocalStorageAccess(() => {
       expect(readStoredLang()).toBe("de");
+    });
+  });
+
+  it("uses the browser language on first visit (nothing stored)", () => {
+    withStorage(fakeStorage(null), () => {
+      withNavigatorLanguage("pt-BR", () => {
+        expect(readStoredLang()).toBe("pt-BR");
+      });
+    });
+  });
+
+  it("matches the browser language by prefix on first visit", () => {
+    withStorage(fakeStorage(null), () => {
+      withNavigatorLanguage("en-US", () => {
+        expect(readStoredLang()).toBe("en");
+      });
+    });
+  });
+
+  it("still prefers an existing stored value over the browser language", () => {
+    // This is the regression guard for the precedence rule in 1e: even a
+    // browser language that resolves cleanly must never override a value
+    // the user (or a previous session) already chose and saved.
+    withStorage(fakeStorage("de"), () => {
+      withNavigatorLanguage("pt-BR", () => {
+        expect(readStoredLang()).toBe("de");
+      });
+    });
+  });
+
+  it("falls back to de when nothing is stored and the browser language is unknown", () => {
+    withStorage(fakeStorage(null), () => {
+      withNavigatorLanguage("fr-FR", () => {
+        expect(readStoredLang()).toBe("de");
+      });
+    });
+  });
+
+  it("falls back to de when nothing is stored and there is no navigator at all", () => {
+    withStorage(fakeStorage(null), () => {
+      withNavigatorLanguage(undefined, () => {
+        expect(readStoredLang()).toBe("de");
+      });
     });
   });
 });
@@ -175,5 +280,62 @@ describe("LanguageProvider wiring", () => {
     withStorage(throwingStorage(), () => {
       expect(() => captured!.setLang("en")).not.toThrow();
     });
+  });
+
+  it("initialises from the browser language on first visit (nothing stored)", () => {
+    withNavigatorLanguage("pt-BR", () => {
+      expect(renderedLang(fakeStorage(null))).toBe("pt-BR");
+    });
+  });
+
+  it("still prefers a stored value over the browser language", () => {
+    withNavigatorLanguage("pt-BR", () => {
+      expect(renderedLang(fakeStorage("en"))).toBe("en");
+    });
+  });
+});
+
+// ── applyDocumentLang ────────────────────────────────────────────────────
+//
+// Same reasoning as the storage stubs above: no jsdom here, so `document` is
+// stubbed for the duration of one call rather than driven through a real
+// React effect (renderToString, used everywhere else in this file, never
+// runs effects at all).
+
+interface FakeDocument {
+  documentElement: { lang: string };
+}
+
+function fakeDocument(): FakeDocument {
+  return { documentElement: { lang: "" } };
+}
+
+function withDocument<T>(doc: FakeDocument | undefined, run: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", {
+    value: doc,
+    configurable: true,
+    writable: true,
+  });
+  try {
+    return run();
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, "document", original);
+    } else {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  }
+}
+
+describe("applyDocumentLang", () => {
+  it("writes the language to document.documentElement.lang", () => {
+    const doc = fakeDocument();
+    withDocument(doc, () => applyDocumentLang("pt-BR"));
+    expect(doc.documentElement.lang).toBe("pt-BR");
+  });
+
+  it("does nothing when there is no document (SSR)", () => {
+    expect(() => withDocument(undefined, () => applyDocumentLang("en"))).not.toThrow();
   });
 });
