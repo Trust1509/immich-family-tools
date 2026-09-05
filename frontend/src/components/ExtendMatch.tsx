@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, User, Clock, Disc, CheckCircle, XCircle, ChevronRight, Plus } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry, Account, Person } from "../api/client";
-import { LANG_LOCALES, useT } from "../i18n";
+import { formatDate, LANG_LOCALES, useT } from "../i18n";
 
 // ── Re-use groupAlbums logic ───────────────────────────────────────────────
 
@@ -56,17 +56,6 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
   });
 }
 
-function formatDate(iso: string | undefined, locale: string) {
-  if (!iso) return "–";
-  return new Date(iso).toLocaleString(locale, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 // ── Searchable Person Picker ───────────────────────────────────────────────
 
 function SearchablePersonPicker({
@@ -82,7 +71,7 @@ function SearchablePersonPicker({
   placeholder: string;
   disabled?: boolean;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -158,7 +147,7 @@ function SearchablePersonPicker({
               </span>
               {p.asset_count > 0 && (
                 <span className="text-xs text-gray-500 shrink-0">
-                  {p.asset_count.toLocaleString()}
+                  {p.asset_count.toLocaleString(LANG_LOCALES[lang])}
                 </span>
               )}
             </button>
@@ -200,7 +189,7 @@ function AlbumGroupCard({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-gray-400">
-            {group.total_assets.toLocaleString()} {t("photos")}
+            {group.total_assets.toLocaleString(LANG_LOCALES[lang])} {t("photos")}
           </span>
           <ChevronRight
             size={14}

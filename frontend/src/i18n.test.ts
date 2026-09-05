@@ -5,6 +5,7 @@ import {
   applyDocumentLang,
   detectBrowserLang,
   LANG_LABELS,
+  LANG_LOCALES,
   LanguageProvider,
   readStoredLang,
   resolveLang,
@@ -37,6 +38,29 @@ describe("resolveLang", () => {
   });
 });
 
+describe("LANG_LOCALES", () => {
+  it("has exactly the same key set as LANG_LABELS", () => {
+    // Same derivation reasoning as the resolveLang/detectBrowserLang tests
+    // below: a fourth language added to LANG_LABELS but forgotten here
+    // should turn this red, not stay silently green.
+    expect(Object.keys(LANG_LOCALES).sort()).toEqual(Object.keys(LANG_LABELS).sort());
+  });
+
+  it("pins the exact, documented locale for each language", () => {
+    // Exact values, not just "looks like a BCP-47 tag" — `LANG_LOCALES.de`
+    // mutated to an invented tag like "zz-ZZ", or `.en` swapped from the
+    // deliberately-chosen "en-GB" to "en-US", both still look like valid
+    // locale strings. Only pinning the literal, documented value catches
+    // either kind of mutation (previously: null coverage — the whole map
+    // could be swapped for nonsense without a single test going red).
+    expect(LANG_LOCALES).toEqual({
+      de: "de-AT",
+      en: "en-GB",
+      "pt-BR": "pt-BR",
+    });
+  });
+});
+
 describe("detectBrowserLang", () => {
   it("accepts every known language unchanged (exact match)", () => {
     // Same derivation-from-LANG_LABELS reasoning as the resolveLang test
@@ -56,6 +80,14 @@ describe("detectBrowserLang", () => {
   it("matches an unshipped regional variant by its language prefix", () => {
     expect(detectBrowserLang("de-DE")).toBe("de");
     expect(detectBrowserLang("en-US")).toBe("en");
+  });
+
+  it("matches a browser locale with mixed-case subtags", () => {
+    // Regression guard for the `.toLowerCase()` call in the prefix match:
+    // it could be deleted without any test going red. "PT-br" (some
+    // browsers report the region in lowercase, the language in upper) only
+    // matches "pt-BR" if both sides are folded to the same case first.
+    expect(detectBrowserLang("PT-br")).toBe("pt-BR");
   });
 
   it("falls back to de for a language we don't ship at all", () => {
@@ -232,6 +264,20 @@ describe("readStoredLang", () => {
       });
     });
   });
+
+  it("treats a stored empty string as an (invalid) stored value, not as 'nothing stored'", () => {
+    // Regression guard for `if (stored !== null)`: swapping it for the
+    // more casual-looking `if (stored)` behaves identically for every
+    // *realistic* stored value, and only diverges for an empty string —
+    // which is falsy, so `if (stored)` would fall through to the browser
+    // language below instead of validating "" via resolveLang() and
+    // landing on "de". Previously uncovered.
+    withStorage(fakeStorage(""), () => {
+      withNavigatorLanguage("pt-BR", () => {
+        expect(readStoredLang()).toBe("de");
+      });
+    });
+  });
 });
 
 describe("LanguageProvider wiring", () => {
@@ -337,5 +383,104 @@ describe("applyDocumentLang", () => {
 
   it("does nothing when there is no document (SSR)", () => {
     expect(() => withDocument(undefined, () => applyDocumentLang("en"))).not.toThrow();
+  });
+});
+
+// ── setLang <-> <html lang> wiring ───────────────────────────────────────
+//
+// A2: the Provider used to keep `<html lang>` in sync via a `useEffect`
+// that nothing exercised — deleting the whole effect left every test in
+// this file green (Fund 3/6), because `renderToString` never runs effects
+// and no test called `applyDocumentLang` through the Provider at all. Now
+// that the write happens synchronously inside `setLang` itself, a test can
+// call `setLang` directly (the same way the "does not throw when
+// persisting the language choice fails" test above already does) and
+// assert on the stubbed `document` — this goes red if the
+// `applyDocumentLang(l)` call inside `setLang` is deleted, not just if
+// `applyDocumentLang` itself is altered.
+
+function capturedContext(storage: Storage): ReturnType<typeof useT> {
+  let captured: ReturnType<typeof useT> | undefined;
+  function Capture() {
+    captured = useT();
+    return null;
+  }
+  withStorage(storage, () => {
+    renderToString(React.createElement(LanguageProvider, null, React.createElement(Capture)));
+  });
+  return captured!;
+}
+
+describe("setLang keeps <html lang> in sync", () => {
+  it("writes the new language to the document when the language changes", () => {
+    const ctx = capturedContext(fakeStorage("de"));
+    const doc = fakeDocument();
+    withDocument(doc, () => {
+      withStorage(fakeStorage("de"), () => {
+        ctx.setLang("pt-BR");
+      });
+    });
+    expect(doc.documentElement.lang).toBe("pt-BR");
+  });
+
+  it("does not throw when there is no document (SSR) while changing the language", () => {
+    const ctx = capturedContext(fakeStorage("de"));
+    expect(() =>
+      withDocument(undefined, () => {
+        withStorage(fakeStorage("de"), () => ctx.setLang("en"));
+      })
+    ).not.toThrow();
+  });
+});
+
+// ── AuthGate translations ────────────────────────────────────────────────
+//
+// A2: the login screen is the one screen every user sees before anything
+// else works, and its three static strings going back to German (or
+// `auth_subtitle` silently pointing at the wrong translation key) would go
+// unnoticed by every test above, since none of them render `t()` for a
+// non-German language against these specific keys. Pinning the exact
+// expected string per key/language — not just "differs from German" —
+// catches both a hardcoded-German regression and a key mix-up (Fund
+// "auth_subtitle auf den falschen Schlüssel").
+
+function tFor(lang: Lang): ReturnType<typeof useT>["t"] {
+  return capturedContext(fakeStorage(lang)).t;
+}
+
+describe("AuthGate translations", () => {
+  it("renders the exact expected text for every login-screen key, in every language", () => {
+    const expected: Record<
+      "auth_title" | "auth_subtitle" | "auth_token_ph",
+      Record<Lang, string>
+    > = {
+      auth_title: {
+        de: "Family Tools entsperren",
+        en: "Unlock Family Tools",
+        "pt-BR": "Desbloquear o Family Tools",
+      },
+      auth_subtitle: {
+        de: "Gemeinsames Zugriffstoken eingeben",
+        en: "Enter the shared access token",
+        "pt-BR": "Insira o token de acesso compartilhado",
+      },
+      auth_token_ph: { de: "Zugriffstoken", en: "Access token", "pt-BR": "Token de acesso" },
+    };
+    for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
+      const t = tFor(lang);
+      for (const key of Object.keys(expected) as (keyof typeof expected)[]) {
+        expect(t(key)).toBe(expected[key][lang]);
+      }
+    }
+  });
+
+  it("never shows the German login text for a non-German language", () => {
+    const tDe = tFor("de");
+    for (const lang of ["en", "pt-BR"] as Lang[]) {
+      const t = tFor(lang);
+      for (const key of ["auth_title", "auth_subtitle", "auth_token_ph"] as const) {
+        expect(t(key)).not.toBe(tDe(key));
+      }
+    }
   });
 });

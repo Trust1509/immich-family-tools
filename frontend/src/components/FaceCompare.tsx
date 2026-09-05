@@ -17,7 +17,7 @@ interface Props {
 // `t` is available. A `switch` (not an object lookup) keeps this typesafe:
 // each case passes a literal key straight to `t()`, so a typo or a removed
 // key is a compile error instead of a silent `undefined`.
-function reasonLabel(t: ReturnType<typeof useT>["t"], reason: string): string {
+export function reasonLabel(t: ReturnType<typeof useT>["t"], reason: string): string {
   switch (reason) {
     case "name_similarity":
       return t("reason_name_similarity");

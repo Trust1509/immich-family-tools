@@ -1,5 +1,20 @@
 const BASE = "/api";
 
+/** Thrown by `request()` for any non-OK response. Carries the HTTP status
+ *  code alongside the message — plain `Error` didn't, so a caller (e.g.
+ *  `AuthGate`) could only ever display the raw `detail` text and had no way
+ *  to branch on "this was a 401" vs. "this was a 429" to show a translated,
+ *  language-aware message instead of whatever English string the backend
+ *  happened to send. */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
@@ -11,7 +26,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? res.statusText);
+    throw new ApiError(err.detail ?? res.statusText, res.status);
   }
   if (res.status === 204) return undefined as T;
   return res.json();

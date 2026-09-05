@@ -2,18 +2,7 @@ import React from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Trash2, Disc, AlertTriangle, User, Clock, Timer } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry } from "../api/client";
-import { LANG_LOCALES, useT } from "../i18n";
-
-function formatDate(iso: string | undefined, locale: string) {
-  if (!iso) return "–";
-  return new Date(iso).toLocaleString(locale, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { formatDate, LANG_LOCALES, useT } from "../i18n";
 
 interface AlbumGroup {
   album_name: string;
@@ -154,7 +143,7 @@ function AlbumGroupCard({
           </div>
         </div>
         <span className="text-sm font-medium text-gray-300 shrink-0">
-          {group.total_assets.toLocaleString()} {t("photos")}
+          {group.total_assets.toLocaleString(LANG_LOCALES[lang])} {t("photos")}
         </span>
       </div>
 

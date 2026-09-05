@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useState } from "react";
 
 export type Lang = "de" | "en" | "pt-BR";
 
@@ -24,6 +24,22 @@ export const LANG_LOCALES: Record<Lang, string> = {
   en: "en-GB",
   "pt-BR": "pt-BR",
 };
+
+/** Shared `Intl`-backed date/time formatter for "last synced" timestamps.
+ *  Lives here, next to `LANG_LOCALES`, because every caller needs exactly
+ *  that mapping to pick a locale — `AlbumsOverview.tsx` and `ExtendMatch.tsx`
+ *  used to each define an identical copy of this function, doubling the
+ *  surface a future format change would need to touch. */
+export function formatDate(iso: string | undefined, locale: string): string {
+  if (!iso) return "–";
+  return new Date(iso).toLocaleString(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 const KNOWN_LANGS = Object.keys(LANG_LABELS) as Lang[];
 
@@ -114,6 +130,16 @@ const translations = {
   auth_token_ph: { de: "Zugriffstoken", en: "Access token", "pt-BR": "Token de acesso" },
   auth_checking: { de: "Prüfe…", en: "Checking…", "pt-BR": "Verificando…" },
   auth_unlock: { de: "Entsperren", en: "Unlock", "pt-BR": "Desbloquear" },
+  auth_error_invalid: {
+    de: "Ungültiges Zugriffstoken",
+    en: "Invalid access token",
+    "pt-BR": "Token de acesso inválido",
+  },
+  auth_error_rate_limited: {
+    de: "Zu viele Anmeldeversuche. Bitte in einer Minute erneut versuchen.",
+    en: "Too many login attempts. Try again in one minute.",
+    "pt-BR": "Muitas tentativas de login. Tente novamente em um minuto.",
+  },
 
   // ── Common ────────────────────────────────────────────────────────────
   cancel: { de: "Abbrechen", en: "Cancel", "pt-BR": "Cancelar" },
@@ -728,19 +754,22 @@ export function applyDocumentLang(lang: Lang): void {
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   // Lazy initializer: only the first render needs the stored value, not
-  // every re-render.
+  // every re-render. The matching `<html lang>` write for this initial value
+  // happens synchronously in main.tsx, *before* this component ever mounts
+  // (`applyDocumentLang(readStoredLang())` right before `createRoot(...)
+  // .render(...)`) — so the very first frame already carries the right
+  // attribute instead of correcting it after the fact.
   const [lang, setLangState] = useState<Lang>(() => readStoredLang());
 
-  // Single place that keeps <html lang> in sync with the active language —
-  // both the initial value from readStoredLang() and every later setLang()
-  // call flow through this effect (it re-runs whenever `lang` changes) and
-  // through the same `applyDocumentLang`, so there's one source of truth
-  // instead of a second write path that could drift from it. Screen readers
-  // and the browser's own translation feature read this attribute.
-  useEffect(() => {
-    applyDocumentLang(lang);
-  }, [lang]);
-
+  // `setLang` is the only place `lang` ever changes after mount, so it's
+  // also the only place that needs to keep `<html lang>` in sync — a
+  // `useEffect` that ran `applyDocumentLang(lang)` on every change used to
+  // sit here instead, but nothing proved it was ever wired in: deleting the
+  // effect outright left every test green (Fund 3/6). Calling
+  // `applyDocumentLang` directly, in the same function that already writes
+  // to storage, means there's exactly one synchronous write path — state,
+  // storage, and the document attribute — instead of a passive effect that
+  // runs after the first paint and that a test can silently lose.
   const setLang = (l: Lang) => {
     try {
       localStorage.setItem("ift_lang", l);
@@ -749,6 +778,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       // choice still applies for the running session, it just isn't
       // persisted across reloads.
     }
+    applyDocumentLang(l);
     setLangState(l);
   };
 

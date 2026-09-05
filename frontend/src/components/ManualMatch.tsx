@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle, Loader2 } from "lucide-react";
 import { api, type Account, type Person, type SyncLogEntry } from "../api/client";
-import { useT } from "../i18n";
+import { LANG_LOCALES, useT } from "../i18n";
 
 interface PersonSelection {
   account_id: string;
@@ -26,7 +26,7 @@ function SearchablePersonPicker({
   placeholder: string;
   disabled?: boolean;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -64,7 +64,7 @@ function SearchablePersonPicker({
   const displayValue = open
     ? query
     : selectedPerson
-      ? `${selectedPerson.name || "?"}${selectedPerson.asset_count > 0 ? ` (${selectedPerson.asset_count.toLocaleString()})` : ""}`
+      ? `${selectedPerson.name || "?"}${selectedPerson.asset_count > 0 ? ` (${selectedPerson.asset_count.toLocaleString(LANG_LOCALES[lang])})` : ""}`
       : "";
 
   return (
@@ -108,7 +108,7 @@ function SearchablePersonPicker({
               </span>
               {p.asset_count > 0 && (
                 <span className="text-xs text-gray-500 shrink-0">
-                  {p.asset_count.toLocaleString()}
+                  {p.asset_count.toLocaleString(LANG_LOCALES[lang])}
                 </span>
               )}
             </button>

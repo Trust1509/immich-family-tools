@@ -1,11 +1,36 @@
 import { FormEvent, useEffect, useState } from "react";
 import { LockKeyhole, Loader2 } from "lucide-react";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { useT } from "../i18n";
+
+/** Maps a failed login attempt to a translated, language-aware message.
+ *  Exported (and pure — takes `t` as a parameter instead of calling
+ *  `useT()` itself) so a test can assert the mapping without rendering the
+ *  component: the backend's `detail` text is always English
+ *  ("Invalid token", "Too many login attempts…"), so showing it verbatim
+ *  left the one error state of an otherwise trilingual screen permanently
+ *  English (Fund 1). Statuses the backend doesn't specifically call out
+ *  fall back to the raw `detail`/message text — better an English string
+ *  than no information at all. */
+export function authErrorMessage(err: unknown, t: ReturnType<typeof useT>["t"]): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return t("auth_error_invalid");
+    if (err.status === 429) return t("auth_error_rate_limited");
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { t } = useT();
-  const [loading, setLoading] = useState(true);
+  // Two separate flags, not one: `checkingAuth` covers the one-time status
+  // probe on mount, `submitting` covers the login form's own request. A
+  // single shared `loading` used to gate the whole form behind a full-page
+  // spinner ("loading && !authenticated") — which also fired while
+  // submitting the form, since `authenticated` is still false at that
+  // point. That made the button's own "auth_checking" text unreachable
+  // (Fund 7): the full-page spinner branch always won first.
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
@@ -15,25 +40,25 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       .status()
       .then(() => setAuthenticated(true))
       .catch(() => setAuthenticated(false))
-      .finally(() => setLoading(false));
+      .finally(() => setCheckingAuth(false));
   }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    setLoading(true);
+    setSubmitting(true);
     try {
       await api.auth.login(token);
       setToken("");
       setAuthenticated(true);
     } catch (err) {
-      setError((err as Error).message);
+      setError(authErrorMessage(err, t));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  if (loading && !authenticated) {
+  if (checkingAuth) {
     return (
       <div className="h-screen grid place-items-center">
         <Loader2 className="animate-spin" />
@@ -62,8 +87,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           placeholder={t("auth_token_ph")}
         />
         {error && <p className="text-xs text-red-400">{error}</p>}
-        <button className="btn-primary w-full" disabled={!token || loading}>
-          {loading ? t("auth_checking") : t("auth_unlock")}
+        <button className="btn-primary w-full" disabled={!token || submitting}>
+          {submitting ? t("auth_checking") : t("auth_unlock")}
         </button>
       </form>
     </div>
