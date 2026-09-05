@@ -59,10 +59,15 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
 6. **Trockenlauf** des Release-Skripts.
 7. **Owner fragen.** Danach taggen, pushen, Release anlegen.
 8. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 7. **Der
-   Tag geht der Auslieferung VORAUS.** Für uns: `git fetch --tags && git
-checkout v<version> && docker compose up -d --build` auf dem
-   TrueNAS-Host, durch den **Owner** — der Agent tut das nicht selbst
-   (Produktivinstanz, siehe `CLAUDE.md`). Der Tag wird ausgecheckt, nicht der
+   Tag geht der Auslieferung VORAUS.** Für uns auf dem TrueNAS-Host, durch
+   den **Owner** — der Agent tut das nicht selbst (Produktivinstanz, siehe
+   `CLAUDE.md`):
+
+   ```
+   git fetch --tags && git checkout v<version> && docker compose up -d --build
+   ```
+
+   Der Tag wird ausgecheckt, nicht der
    Zweigkopf: Mit einem Owner-Gate zwischen 7 und 8 ist „seit dem Tag ist auf
    dem Zweig etwas dazugekommen" der Normalfall, und ein `git pull` würde
    genau das mit ausliefern. Ein nachträglich gesetzter Tag ist eine
