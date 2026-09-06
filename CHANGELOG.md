@@ -2,6 +2,52 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.6.0] – 2026-09-06
+
+**Risk: safe**
+
+### Spanish (#73)
+
+- The app is now available in **Spanish**, contributed by [@crisvale](https://github.com/crisvale) — terminology kept consistent with Immich's own Spanish localisation. Pick it in the language switcher next to 🇩🇪 DE, 🇬🇧 EN and 🇧🇷 PT-BR.
+- All 183 strings are translated, including the login screen and the sync log. Nothing falls back to German.
+- A browser set to any Spanish variant — `es`, `es-MX`, `es-AR` — starts the app in Spanish on the first visit.
+- Dates read `4 mar 2026, 14:30`.
+
+### The language switcher holds more than four languages now
+
+- The switcher used to be a single row that split the available width between the buttons. It fitted four, and it fitted them exactly: measured in the real sidebar, the longest label had about **three pixels** to spare.
+- It is now a two-column grid. Every button keeps the same width no matter how many languages ship, and new ones wrap onto a new row instead of squeezing the existing ones.
+- The active language now also carries `aria-current`, so screen readers announce which one is selected — before, it was only marked by colour.
+
+### Under the hood, for anyone translating
+
+Two guards were added after a review found that a translation could be _structurally_ wrong without anything noticing:
+
+- A translation entry that is a string in three languages and a function in the fourth used to compile and pass every test — and render the word `undefined` on screen. That now fails to build.
+- A language that takes fewer arguments than its siblings, or an empty string, now turns the test suite red.
+- The list of shipped languages in the README is checked against the switcher itself, so it can no longer quietly go stale.
+
+None of this changes what you see. It changes what can reach you.
+
+### One German typo
+
+- The rename hint read `Person auf „Name" umbenennen` — an opening German quote closed with a straight one. It now closes properly: `Person auf „Name“ umbenennen`. Spotted by a reviewer in passing; it had been there since the string was written.
+
+### Upgrade notes
+
+- **No data migration.** Rebuild the container so backend and frontend both report `1.6.0`.
+- Your chosen language is remembered per browser, unchanged. If you have never chosen one, the browser's language decides.
+
+### Please test
+
+- Switch to Spanish and walk through accounts, people, matches and the sync log — this is the first release with a language none of the maintainers speaks.
+- Look at the language switcher itself: four buttons in two rows, all the same size, nothing clipped.
+- If anything reads oddly in Spanish, a comment on #73 is very welcome.
+
+### Still German, and known
+
+Error messages coming from the server are still German in every language — you may see `Error: Account nicht gefunden`. That is tracked in #76 and is the largest remaining gap in the translation.
+
 ## [1.5.0] – 2026-09-06
 
 **Risk: safe**

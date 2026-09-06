@@ -161,6 +161,11 @@ describe("detectBrowserLang", () => {
     expect(detectBrowserLang("de-DE")).toBe("de");
     expect(detectBrowserLang("en-US")).toBe("en");
     expect(detectBrowserLang("es-MX")).toBe("es-ES");
+    // Zusatz beim v1.6.0-Notizenschreiben: Die Notiz verspricht "jede
+    // spanische Variante". Geprueft statt behauptet — "es" ohne Region und
+    // "es-AR" waren nicht abgedeckt.
+    expect(detectBrowserLang("es")).toBe("es-ES");
+    expect(detectBrowserLang("es-AR")).toBe("es-ES");
   });
 
   it("matches a browser locale with mixed-case subtags", () => {
