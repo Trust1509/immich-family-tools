@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from config import get_settings
 from services.config_store import ConfigStore
@@ -14,6 +14,7 @@ from services.immich_client import ClientPool
 from services.match_cache import MatchCache
 from services.thumbnail_cache import ThumbnailCache
 from routers import accounts, people, faces, albums, auth
+import errors
 from services.auth_service import verify_session
 from version import APP_VERSION
 
@@ -36,6 +37,27 @@ app = FastAPI(
 UNPROTECTED = {"/api/health", "/api/auth/login"}
 
 
+def _fehler_antwort(fehler: errors.AppError) -> JSONResponse:
+    """Die Antwortform fuer Wege, die keine Ausnahme werfen koennen.
+
+    Die Middleware laeuft VOR jedem Router und vor dem Exception-Handler; sie
+    baut ihre Antworten selbst. Beide Wege holen die Form aus errors.antwort(),
+    damit nicht einer von beiden still beim alten Format bleibt.
+    """
+    return JSONResponse(status_code=fehler.status_code, content=errors.antwort(fehler))
+
+
+@app.exception_handler(errors.AppError)
+async def _app_error_handler(request: Request, fehler: errors.AppError) -> JSONResponse:
+    """Haengt Schluessel und Werte neben den deutschen Klartext.
+
+    `detail` bleibt eine Zeichenkette und bleibt deutsch — wer die
+    Schnittstelle direkt anspricht, merkt von der Aenderung nichts, und ein
+    Frontend, das den Schluessel nicht kennt, hat trotzdem etwas anzuzeigen.
+    """
+    return _fehler_antwort(fehler)
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if request.url.path.startswith("/api/"):
@@ -43,11 +65,9 @@ async def auth_middleware(request: Request, call_next):
         if content_length:
             try:
                 if int(content_length) > settings.max_request_bytes:
-                    from fastapi.responses import JSONResponse
-                    return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+                    return _fehler_antwort(errors.request_too_large())
             except ValueError:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
+                return _fehler_antwort(errors.invalid_content_length())
     if request.url.path not in UNPROTECTED and request.url.path.startswith("/api/"):
         bearer = request.headers.get("Authorization", "")
         bearer_ok = bearer.startswith("Bearer ") and hmac.compare_digest(
@@ -55,8 +75,7 @@ async def auth_middleware(request: Request, call_next):
         )
         cookie_ok = verify_session(request.cookies.get("ift_session"), settings.secret)
         if not (bearer_ok or cookie_ok):
-            from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+            return _fehler_antwort(errors.unauthorized())
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"

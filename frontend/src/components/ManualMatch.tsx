@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle, Loader2 } from "lucide-react";
 import { api, type Account, type Person, type SyncLogEntry } from "../api/client";
-import { LANG_LOCALES, useT } from "../i18n";
+import { LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
 
 interface PersonSelection {
   account_id: string;
@@ -328,7 +328,7 @@ function LogEntryRow({ entry }: { entry: SyncLogEntry }) {
 // ── Main page ──────────────────────────────────────────────────────────────
 
 export default function ManualMatch() {
-  const { t } = useT();
+  const { t, errorText } = useT();
   const queryClient = useQueryClient();
 
   const { data: accounts = [] } = useQuery({
@@ -470,7 +470,7 @@ export default function ManualMatch() {
 
       {mutation.isError && (
         <p className="text-sm text-red-400">
-          {t("error_prefix")} {(mutation.error as Error).message}
+          {t("error_prefix")} {errorText(mutation.error as ServerErrorLike)}
         </p>
       )}
 

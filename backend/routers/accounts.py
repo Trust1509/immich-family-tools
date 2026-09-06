@@ -1,6 +1,8 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
+
+import errors
 from models.account import AccountCreate, AccountPublic, AccountStatus, AccountUpdate
 from services.immich_client import ImmichClient
 
@@ -12,7 +14,7 @@ MIN_SUPPORTED_IMMICH_MAJOR = 3
 
 
 def _reject_unsupported_version(version: dict) -> None:
-    """Raise HTTPException(422) if the Immich server major version is too old.
+    """Raise AppError(422) if the Immich server major version is too old.
 
     version is the JSON payload from GET /api/server/version, e.g.
     {"major": 3, "minor": 1, "patch": 0}.
@@ -20,13 +22,7 @@ def _reject_unsupported_version(version: dict) -> None:
     major = version.get("major")
     minor = version.get("minor")
     if major is not None and major < MIN_SUPPORTED_IMMICH_MAJOR:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Immich-Version {major}.{minor} wird nicht unterstützt — dieses Tool "
-                "benötigt Immich v3.x (Server meldet Version über /api/server/version)."
-            ),
-        )
+        raise errors.unsupported_immich_version(major, minor)
 
 
 async def _check_immich_version(client: ImmichClient) -> None:
@@ -55,7 +51,7 @@ async def add_account(data: AccountCreate, request: Request):
     try:
         user_info = await client.validate()
     except Exception as exc:
-        raise HTTPException(status_code=422, detail="Immich API nicht erreichbar oder Token ungültig")
+        raise errors.immich_unreachable()
     await _check_immich_version(client)
     # Store the Immich user UUID — needed for album sharing
     user_id = user_info.get("id")
@@ -66,7 +62,7 @@ async def add_account(data: AccountCreate, request: Request):
 async def update_account(account_id: str, data: AccountUpdate, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+        raise errors.account_not_found()
     updates = data.model_dump(exclude_none=True)
     if updates.get("api_key") == "":
         updates.pop("api_key")
@@ -80,7 +76,7 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
             user_info = await client.validate()
             updates["user_id"] = user_info.get("id")
         except Exception as exc:
-            raise HTTPException(status_code=422, detail="Immich API nicht erreichbar oder Token ungültig")
+            raise errors.immich_unreachable()
         await _check_immich_version(client)
         request.app.state.client_pool.invalidate(account_id)
     updated = request.app.state.store.update_account(account_id, updates)
@@ -91,7 +87,7 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
 async def delete_account(account_id: str, request: Request):
     ok = request.app.state.store.delete_account(account_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+        raise errors.account_not_found()
     request.app.state.thumbnail_cache.clear_account(account_id)
     request.app.state.client_pool.invalidate(account_id)
     request.app.state.match_cache.invalidate()
@@ -102,7 +98,7 @@ async def refresh_account(account_id: str, request: Request):
     """Re-fetch user_id and other metadata from Immich."""
     account = request.app.state.store.get_account(account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+        raise errors.account_not_found()
     client = request.app.state.client_pool.get_for_account(account)
     try:
         user_info = await client.validate()
@@ -111,7 +107,7 @@ async def refresh_account(account_id: str, request: Request):
             request.app.state.store.update_account(account_id, {"user_id": user_id})
         return AccountPublic.from_account(request.app.state.store.get_account(account_id))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Immich-Anfrage fehlgeschlagen")
+        raise errors.immich_request_failed()
 
 
 @router.get("/{account_id}/albums")
@@ -119,20 +115,20 @@ async def get_account_albums(account_id: str, request: Request):
     """List Immich albums for a specific account (for existing-album linking)."""
     account = request.app.state.store.get_account(account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+        raise errors.account_not_found()
     client = request.app.state.client_pool.get_for_account(account)
     try:
         albums = await client.get_albums()
         return [{"id": a["id"], "name": a.get("albumName", "?")} for a in albums]
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Immich-Anfrage fehlgeschlagen")
+        raise errors.immich_request_failed()
 
 
 @router.get("/{account_id}/status", response_model=AccountStatus)
 async def account_status(account_id: str, request: Request):
     account = request.app.state.store.get_account(account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden")
+        raise errors.account_not_found()
     client = request.app.state.client_pool.get_for_account(account)
     try:
         user = await client.validate()

@@ -303,14 +303,27 @@ Quelle, welche Sprachen es gibt; `translations` ist als `satisfies
 Record<string, Record<Lang, unknown>>` deklariert, also erzwingt der Compiler
 über die Typ-Parität jeden Schlüssel in jeder dort gelisteten Sprache und
 nennt bei einem fehlenden Schlüssel Datei und Zeile der schuldigen Stelle.
-`LANG_LABELS` bleibt der einzige Eigentümer der Sprachenzahl — die
-README-Erwähnung der aktuellen Sprachen ist bekannt nachrangiger Werbetext,
-von `tsc` nicht bewacht; wer eine Sprache hinzufügt, zieht sie mit. Echte
+`LANG_LABELS` bleibt der einzige Eigentümer der Sprachenzahl. Die
+README-Liste der Sprachen **ist seit v1.6.0 bewacht** — ein Test in
+`i18n.test.ts` vergleicht sie gegen `LANG_LABELS` und wird rot, wenn eine
+ausgelieferte Sprache dort fehlt. Vorher stand hier, sie sei „nachrangiger
+Werbetext, von `tsc` nicht bewacht"; genau so ist sie einmal still veraltet,
+und gemerkt hat es erst eine Prüfstimme nach dem Merge. Echte
 Umlaute/Sonderzeichen, kein ASCII-Ersatz.
 
 **Sync-Log.** Einträge tragen `message_key` + `message_params`; das deutsche
 `details`-Feld bleibt als Fallback für Alt-Einträge bestehen, nicht für neue
 Einträge verwenden.
+
+**Fehlermeldungen des Servers.** Seit v1.7.0 wirft kein Router mehr eine nackte
+`HTTPException` — jede Meldung kommt aus `backend/errors.py` und trägt einen
+Schlüssel. Die Antwort führt **beides**: `detail` bleibt eine Zeichenkette und
+bleibt deutsch, `error_key` und `error_params` stehen daneben. Das ist keine
+Bequemlichkeit, sondern der Rückfall: Kennt das Frontend einen Schlüssel nicht,
+zeigt es den deutschen Satz statt einer leeren Zeile. Wer eine Meldung
+hinzufügt, trägt sie in **beide** Stellen ein — `backend/errors.py` und
+`frontend/src/i18n.tsx`; ein Test vergleicht die Schlüsselmengen, und einer
+verbietet die nackte `HTTPException`.
 
 **JSON-Migration.** Die Migration in `backend/services/config_store.py`
 (`SCHEMA_VERSION`) ist rein additiv und schreibt in die einzige persistente

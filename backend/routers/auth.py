@@ -3,7 +3,9 @@ import hmac
 import time
 from collections import defaultdict, deque
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
+
+import errors
 from pydantic import BaseModel
 
 from services.auth_service import create_session
@@ -22,7 +24,7 @@ def _check_rate_limit(client_ip: str) -> None:
     while attempts and attempts[0] < now - 60:
         attempts.popleft()
     if len(attempts) >= 5:
-        raise HTTPException(status_code=429, detail="Too many login attempts. Try again in one minute.")
+        raise errors.too_many_login_attempts()
 
 
 @router.post("/login")
@@ -32,7 +34,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
     _check_rate_limit(client_ip)
     if not hmac.compare_digest(body.token, settings.secret):
         _failed_logins[client_ip].append(time.monotonic())
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise errors.invalid_token()
     _failed_logins.pop(client_ip, None)
     max_age = settings.session_ttl_hours * 3600
     response.set_cookie(

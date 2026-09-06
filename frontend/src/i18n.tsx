@@ -939,6 +939,168 @@ export const translations = {
     "pt-BR": "Reconhecimento facial",
     "es-ES": "Reconocimiento facial",
   },
+  // ── Fehlermeldungen des Servers ──────────────────────────────────────────
+  //
+  // Die Gegenstuecke zu den Schluesseln aus `backend/errors.py`. Der Server
+  // schickt Schluessel UND deutschen Klartext; diese Tabelle uebersetzt den
+  // Schluessel, und `errorText()` faellt auf den Klartext zurueck, wenn ein
+  // Schluessel hier fehlt. Beides zusammen ist der Grund, warum eine
+  // vergessene Zeile hier nie zu einer leeren Meldung fuehrt.
+  //
+  // WER HIER ETWAS AENDERT, gleicht es mit `backend/errors.py` ab. Ein Test
+  // vergleicht die beiden Schluesselmengen (`i18n.test.ts`), damit sie nicht
+  // auseinanderlaufen.
+  //
+  // es-ES und pt-BR sind UNSERE Uebersetzungen, nicht die von
+  // Muttersprachlern. Beide Beitragenden haben angeboten gegenzulesen.
+  err_account_not_found: {
+    de: "Account nicht gefunden",
+    en: "Account not found",
+    "es-ES": "Cuenta no encontrada",
+    "pt-BR": "Conta não encontrada",
+  },
+  err_account_gone: {
+    de: "Account nicht mehr vorhanden",
+    en: "Account no longer exists",
+    "es-ES": "La cuenta ya no existe",
+    "pt-BR": "A conta não existe mais",
+  },
+  err_account_id_not_found: {
+    de: (id: string) => `Account ${id} nicht gefunden`,
+    en: (id: string) => `Account ${id} not found`,
+    "es-ES": (id: string) => `Cuenta ${id} no encontrada`,
+    "pt-BR": (id: string) => `Conta ${id} não encontrada`,
+  },
+  err_owner_account_not_found: {
+    de: "Owner-Account nicht gefunden",
+    en: "Owner account not found",
+    "es-ES": "Cuenta propietaria no encontrada",
+    "pt-BR": "Conta proprietária não encontrada",
+  },
+  err_owner_account_id_not_found: {
+    de: (id: string) => `Owner-Account ${id} nicht gefunden`,
+    en: (id: string) => `Owner account ${id} not found`,
+    "es-ES": (id: string) => `Cuenta propietaria ${id} no encontrada`,
+    "pt-BR": (id: string) => `Conta proprietária ${id} não encontrada`,
+  },
+  err_match_not_found: {
+    de: "Match nicht gefunden",
+    en: "Match not found",
+    "es-ES": "Coincidencia no encontrada",
+    "pt-BR": "Correspondência não encontrada",
+  },
+  err_managed_album_not_found: {
+    de: "Verwaltetes Album nicht gefunden",
+    en: "Managed album not found",
+    "es-ES": "Álbum gestionado no encontrado",
+    "pt-BR": "Álbum gerenciado não encontrado",
+  },
+  err_log_entry_not_found: {
+    de: "Log-Eintrag nicht gefunden",
+    en: "Log entry not found",
+    "es-ES": "Entrada de registro no encontrada",
+    "pt-BR": "Entrada de log não encontrada",
+  },
+  err_no_thumbnail: {
+    de: "Kein Vorschaubild vorhanden",
+    en: "No thumbnail available",
+    "es-ES": "No hay miniatura disponible",
+    "pt-BR": "Nenhuma miniatura disponível",
+  },
+  err_immich_unreachable: {
+    de: "Immich-API nicht erreichbar oder Token ungültig",
+    en: "Immich API unreachable or token invalid",
+    "es-ES": "API de Immich inaccesible o token no válido",
+    "pt-BR": "API do Immich inacessível ou token inválido",
+  },
+  err_immich_request_failed: {
+    de: "Immich-Anfrage fehlgeschlagen",
+    en: "Immich request failed",
+    "es-ES": "La solicitud a Immich ha fallado",
+    "pt-BR": "A solicitação ao Immich falhou",
+  },
+  err_unsupported_immich_version: {
+    de: (major: string, minor: string) =>
+      `Immich-Version ${major}.${minor} wird nicht unterstützt — dieses Tool benötigt Immich v3.x`,
+    en: (major: string, minor: string) =>
+      `Immich version ${major}.${minor} is not supported — this tool needs Immich v3.x`,
+    "es-ES": (major: string, minor: string) =>
+      `La versión ${major}.${minor} de Immich no es compatible — esta herramienta necesita Immich v3.x`,
+    "pt-BR": (major: string, minor: string) =>
+      `A versão ${major}.${minor} do Immich não é compatível — esta ferramenta precisa do Immich v3.x`,
+  },
+  err_album_name_required: {
+    de: "Für ein neues Album wird ein Name benötigt",
+    en: "A name is required for a new album",
+    "es-ES": "Se necesita un nombre para el álbum nuevo",
+    "pt-BR": "É necessário um nome para o novo álbum",
+  },
+  err_album_already_managed: {
+    de: "Für diese manuelle Zuordnung existiert bereits ein verwaltetes Album",
+    en: "A managed album already exists for this manual match",
+    "es-ES": "Ya existe un álbum gestionado para esta asignación manual",
+    "pt-BR": "Já existe um álbum gerenciado para esta associação manual",
+  },
+  err_match_album_exists: {
+    de: (album: string) => `Für diesen Match existiert bereits das Album „${album}“`,
+    en: (album: string) => `This match already has the album “${album}”`,
+    "es-ES": (album: string) => `Esta coincidencia ya tiene el álbum «${album}»`,
+    "pt-BR": (album: string) => `Esta correspondência já tem o álbum “${album}”`,
+  },
+  err_person_validation_failed: {
+    de: (account: string) => `Person im Account „${account}“ konnte nicht geprüft werden`,
+    en: (account: string) => `Could not verify the person in account “${account}”`,
+    "es-ES": (account: string) => `No se ha podido verificar la persona en la cuenta «${account}»`,
+    "pt-BR": (account: string) => `Não foi possível verificar a pessoa na conta “${account}”`,
+  },
+  err_min_two_people: {
+    de: "Mindestens 2 Personen erforderlich",
+    en: "At least 2 people required",
+    "es-ES": "Se requieren al menos 2 personas",
+    "pt-BR": "São necessárias pelo menos 2 pessoas",
+  },
+  err_not_undoable: {
+    de: "Diese Aktion lässt sich nicht rückgängig machen",
+    en: "This action cannot be undone",
+    "es-ES": "Esta acción no se puede deshacer",
+    "pt-BR": "Esta ação não pode ser desfeita",
+  },
+  err_invalid_time_format: {
+    de: "Ungültige Uhrzeit. Format HH:MM, z. B. 01:00",
+    en: "Invalid time. Use HH:MM, e.g. 01:00",
+    "es-ES": "Hora no válida. Usa HH:MM, p. ej. 01:00",
+    "pt-BR": "Horário inválido. Use HH:MM, por exemplo 01:00",
+  },
+  err_invalid_token: {
+    de: "Zugriffstoken ungültig",
+    en: "Invalid access token",
+    "es-ES": "Token de acceso no válido",
+    "pt-BR": "Token de acesso inválido",
+  },
+  err_too_many_login_attempts: {
+    de: "Zu viele Anmeldeversuche. Versuche es in einer Minute erneut.",
+    en: "Too many login attempts. Try again in one minute.",
+    "es-ES": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en un minuto.",
+    "pt-BR": "Muitas tentativas de login. Tente novamente em um minuto.",
+  },
+  err_unauthorized: {
+    de: "Nicht angemeldet",
+    en: "Not signed in",
+    "es-ES": "No has iniciado sesión",
+    "pt-BR": "Não autenticado",
+  },
+  err_request_too_large: {
+    de: "Anfrage zu groß",
+    en: "Request too large",
+    "es-ES": "La solicitud es demasiado grande",
+    "pt-BR": "A solicitação é grande demais",
+  },
+  err_invalid_content_length: {
+    de: "Ungültige Content-Length-Angabe",
+    en: "Invalid Content-Length header",
+    "es-ES": "Cabecera Content-Length no válida",
+    "pt-BR": "Cabeçalho Content-Length inválido",
+  },
   reason_manual: { de: "Manuell", en: "Manual", "pt-BR": "Manual", "es-ES": "Manual" },
 } as const satisfies Record<string, Record<Lang, Uebersetzungswert>>;
 
@@ -1143,6 +1305,9 @@ interface LangContextValue {
   /** Renders a SyncLogEntry via its message_key/message_params when known,
    *  falling back to the persisted (German) `details` string otherwise. */
   logMessage: (entry: LogLikeEntry) => string;
+  /** Uebersetzt einen Server-Fehler ueber seinen Schluessel und faellt auf
+   *  den deutschen Klartext zurueck, wenn der Schluessel unbekannt ist. */
+  errorText: (fehler: ServerErrorLike) => string;
 }
 
 function renderLogMessage(lang: Lang, entry: LogLikeEntry): string {
@@ -1153,11 +1318,59 @@ function renderLogMessage(lang: Lang, entry: LogLikeEntry): string {
   return entry.details;
 }
 
+/** Reihenfolge der Werte je Schluessel, fuer die Meldungen mit Parametern.
+ *
+ *  Der Server schickt ein WOERTERBUCH (`{"id": "a1"}`), die Uebersetzungen
+ *  nehmen POSITIONELLE Argumente. Diese Tabelle ist die Brücke. Sie ist
+ *  bewusst klein: Nur die fuenf Schluessel mit Werten stehen darin; alle
+ *  anderen brauchen sie nicht.
+ *
+ *  Warum nicht die Uebersetzungen auf ein Woerterbuch umstellen? Weil dann
+ *  jede der 157 uebrigen Zeilen mitgeaendert werden muesste, um fuenf
+ *  Faelle zu bedienen. */
+const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
+  err_account_id_not_found: ["id"],
+  err_owner_account_id_not_found: ["id"],
+  err_person_validation_failed: ["account"],
+  err_match_album_exists: ["album"],
+  err_unsupported_immich_version: ["major", "minor"],
+};
+
+/** Was der Server ueber einen Fehler mitschickt. Absichtlich strukturell
+ *  getippt statt an `ApiError` gebunden: i18n kennt die API-Schicht nicht,
+ *  und der Test kann so ein einfaches Objekt uebergeben. */
+export interface ServerErrorLike {
+  message: string;
+  key?: string;
+  params?: Record<string, string>;
+}
+
+function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
+  const key = fehler.key;
+  // DER RUECKFALL IST DER ZWECK, nicht die Notloesung: Kennt das Frontend
+  // den Schluessel nicht — eine neue Meldung, ein Tippfehler, ein aelterer
+  // Stand, oder gar kein Schluessel wie bei FastAPIs eigenen
+  // Validierungsfehlern —, dann zeigt es den deutschen Klartext des Servers.
+  // Der teuerste Fehler dieses Pfades waere "Error:" gefolgt von Leere.
+  if (!key || !Object.prototype.hasOwnProperty.call(translations, key)) {
+    return fehler.message;
+  }
+  const eintrag = (translations as Record<string, Record<Lang, unknown>>)[key][lang];
+  if (typeof eintrag === "function") {
+    const reihenfolge = ERROR_PARAM_ORDER[key] ?? [];
+    const werte = reihenfolge.map((name) => fehler.params?.[name] ?? "");
+    return (eintrag as (...a: string[]) => string)(...werte);
+  }
+  if (typeof eintrag === "string" && eintrag.length > 0) return eintrag;
+  return fehler.message;
+}
+
 const LangContext = createContext<LangContextValue>({
   lang: "de",
   setLang: () => {},
   t: ((_key: TranslationKey, ..._args: any[]) => _key as string) as LangContextValue["t"],
   logMessage: (entry) => renderLogMessage("de", entry),
+  errorText: (fehler) => renderErrorText("de", fehler),
 });
 
 /** Writes `lang` to `<html lang>`. Pulled out of the effect below into its
@@ -1208,9 +1421,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logMessage = (entry: LogLikeEntry): string => renderLogMessage(lang, entry);
+  const errorText = (fehler: ServerErrorLike): string => renderErrorText(lang, fehler);
 
   return (
-    <LangContext.Provider value={{ lang, setLang, t, logMessage }}>{children}</LangContext.Provider>
+    <LangContext.Provider value={{ lang, setLang, t, logMessage, errorText }}>
+      {children}
+    </LangContext.Provider>
   );
 }
 

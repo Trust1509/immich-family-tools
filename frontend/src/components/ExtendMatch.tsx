@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, User, Clock, Disc, CheckCircle, XCircle, ChevronRight, Plus } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry, Account, Person } from "../api/client";
-import { formatDate, LANG_LOCALES, useT } from "../i18n";
+import { formatDate, LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
 
 // ── Re-use groupAlbums logic ───────────────────────────────────────────────
 
@@ -225,7 +225,7 @@ function AlbumGroupCard({
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function ExtendMatch() {
-  const { t, logMessage } = useT();
+  const { t, logMessage, errorText } = useT();
   const qc = useQueryClient();
 
   const { data: rawAlbums = [], isLoading: loadingAlbums } = useQuery({
@@ -418,7 +418,7 @@ export default function ExtendMatch() {
 
           {mutation.isError && (
             <p className="text-sm text-red-400">
-              {t("error_prefix")} {(mutation.error as Error).message}
+              {t("error_prefix")} {errorText(mutation.error as ServerErrorLike)}
             </p>
           )}
 

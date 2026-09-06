@@ -142,3 +142,78 @@ describe("auth client", () => {
     expect((err as ApiError).message).toBe("Gateway Timeout");
   });
 });
+
+/** Die Naht zwischen HTTP-Antwort und `ApiError` fuer die Fehler-Schluessel.
+ *
+ *  WARUM DIESE GRUPPE EXISTIERT: Die `errorText`-Tests in `i18n.test.ts`
+ *  bauen ihr Fehlerobjekt selbst. Sie pruefen damit die Uebersetzung, aber
+ *  nicht, dass der Schluessel ueberhaupt aus der Antwort geholt wird. Ein
+ *  Mutationslauf hat genau das gezeigt: Die Zeile in `client.ts`, die
+ *  `error_key` liest, liess sich ersatzlos entfernen — alle Tests blieben
+ *  gruen, und jede Meldung waere still wieder deutsch gewesen. Also genau der
+ *  Fehler, den dieser Slice beseitigt, ohne ein einziges rotes Gate.
+ *
+ *  Dieselbe Bauart wie die Gruppe darueber (vi.stubGlobal auf fetch), damit
+ *  der Weg durch `request()` und das Werfen des `ApiError` echt bleibt. */
+describe("Fehler-Schluessel aus der Antwort", () => {
+  // Rueckgabetyp ausdruecklich ApiError: `list()` liefert sonst die Union
+  // `Account[] | ApiError`, und `.message` gibt es darauf nicht. Genau daran
+  // ist der Typcheck im Pre-Commit-Hook gescheitert — der Hook hat also
+  // getan, wofuer er da ist.
+  const antwort = async (status: number, koerper: unknown): Promise<ApiError> => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        statusText: "Fehler",
+        json: async () => koerper,
+      })
+    );
+    return (await api.accounts.list().catch((e) => e)) as ApiError;
+  };
+
+  it("nimmt Schluessel und Werte mit", async () => {
+    const err = await antwort(404, {
+      detail: "Account a1 nicht gefunden",
+      error_key: "err_account_id_not_found",
+      error_params: { id: "a1" },
+    });
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.message).toBe("Account a1 nicht gefunden");
+    expect(err.key).toBe("err_account_id_not_found");
+    expect(err.params).toEqual({ id: "a1" });
+  });
+
+  it("kommt ohne Schluessel aus und behaelt den Klartext", async () => {
+    // Die Form von FastAPIs eigenen Validierungsfehlern: `detail` ist eine
+    // Liste, ein Schluessel fehlt ganz. Gemessen an der laufenden API.
+    const err = await antwort(422, { detail: [{ msg: "Field required" }] });
+    expect(err.key).toBeUndefined();
+    expect(err.message.length).toBeGreaterThan(0);
+  });
+
+  it("verwirft einen Schluessel, der keine nicht-leere Zeichenkette ist", async () => {
+    for (const schluessel of ["", 42, null, {}, []]) {
+      const err = await antwort(400, { detail: "Klartext", error_key: schluessel });
+      expect(err.key).toBeUndefined();
+      expect(err.message).toBe("Klartext");
+    }
+  });
+
+  it("nimmt nur Werte mit, die sich anzeigen lassen", async () => {
+    const err = await antwort(409, {
+      detail: "x",
+      error_key: "err_match_album_exists",
+      error_params: { album: "Urlaub", anzahl: 3, unsinn: { tief: true }, leer: null },
+    });
+    expect(err.params).toEqual({ album: "Urlaub", anzahl: "3" });
+  });
+
+  it("kommt mit error_params zurecht, die gar kein Objekt sind", async () => {
+    for (const werte of ["nein", 42, [1, 2], null]) {
+      const err = await antwort(500, { detail: "x", error_key: "err_x", error_params: werte });
+      expect(err.message).toBe("x");
+    }
+  });
+});

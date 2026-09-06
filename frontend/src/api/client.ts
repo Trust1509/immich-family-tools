@@ -8,10 +8,22 @@ const BASE = "/api";
  *  happened to send. */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Uebersetzungs-Schluessel aus `backend/errors.py`, wenn der Server einen
+   *  mitgeschickt hat. Fehlt er, ist `message` der deutsche Klartext des
+   *  Servers — und der wird angezeigt. Das ist der Rueckfall, und er ist
+   *  keine Nachlaessigkeit, sondern der Zweck: Eine Meldung, die das
+   *  Frontend nicht kennt, darf nicht zu einer leeren Zeile werden.
+   *  Faelle ohne Schluessel gibt es wirklich: FastAPIs eigene
+   *  Validierungsfehler liefern eine LISTE unter `detail` und gar keinen
+   *  Schluessel (gemessen an der laufenden API). */
+  key?: string;
+  params?: Record<string, string>;
+  constructor(message: string, status: number, key?: string, params?: Record<string, string>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.key = key;
+    this.params = params;
   }
 }
 
@@ -28,19 +40,37 @@ export class ApiError extends Error {
  *  (Fund 1b). This treats the body as `unknown`, only trusts a non-empty
  *  string `detail`, and falls through to `statusText` and finally the
  *  status code itself so the result is never empty. */
-async function extractErrorMessage(res: Response): Promise<string> {
+async function extractError(
+  res: Response
+): Promise<{ message: string; key?: string; params?: Record<string, string> }> {
   let body: unknown;
   try {
     body = await res.json();
   } catch {
     body = undefined;
   }
-  if (body && typeof body === "object" && "detail" in body) {
-    const detail = (body as { detail?: unknown }).detail;
-    if (typeof detail === "string" && detail.length > 0) return detail;
+  let message = "";
+  let key: string | undefined;
+  let params: Record<string, string> | undefined;
+
+  if (body && typeof body === "object") {
+    const o = body as { detail?: unknown; error_key?: unknown; error_params?: unknown };
+    if (typeof o.detail === "string" && o.detail.length > 0) message = o.detail;
+    // Der Schluessel wird genauso misstrauisch behandelt wie `detail`: nur
+    // eine nicht-leere Zeichenkette zaehlt. Alles andere faellt weg, und der
+    // Klartext traegt.
+    if (typeof o.error_key === "string" && o.error_key.length > 0) key = o.error_key;
+    if (o.error_params && typeof o.error_params === "object" && !Array.isArray(o.error_params)) {
+      const roh = o.error_params as Record<string, unknown>;
+      const sauber: Record<string, string> = {};
+      for (const [k, v] of Object.entries(roh)) {
+        if (typeof v === "string" || typeof v === "number") sauber[k] = String(v);
+      }
+      params = sauber;
+    }
   }
-  if (res.statusText) return res.statusText;
-  return `HTTP ${res.status}`;
+  if (!message) message = res.statusText || `HTTP ${res.status}`;
+  return { message, key, params };
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -53,7 +83,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    throw new ApiError(await extractErrorMessage(res), res.status);
+    const fehler = await extractError(res);
+    throw new ApiError(fehler.message, res.status, fehler.key, fehler.params);
   }
   if (res.status === 204) return undefined as T;
   return res.json();

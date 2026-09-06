@@ -12,6 +12,7 @@ import {
   readStoredLang,
   resolveLang,
   translations,
+  type ServerErrorLike,
   useT,
 } from "./i18n";
 import type { Lang } from "./i18n";
@@ -664,5 +665,86 @@ describe("translations shape", () => {
       }
     }
     expect(leere).toEqual([]);
+  });
+});
+
+describe("errorText", () => {
+  // Der Server schickt Schluessel UND deutschen Klartext. Diese Gruppe
+  // prueft vor allem den RUECKFALL — den Fall, in dem das Frontend den
+  // Schluessel nicht kennt. Das ist kein Randfall: FastAPIs eigene
+  // Validierungsfehler kommen ganz ohne Schluessel (gemessen an der
+  // laufenden API), und jede kuenftige Meldung kommt zuerst ohne
+  // Uebersetzung hier an.
+  // Nimmt den vorhandenen Weg, die Sprache im Provider zu setzen, statt einen
+  // eigenen zu erfinden. Die erste Fassung dieses Helfers nahm `lang`
+  // entgegen und BENUTZTE ES NICHT — vier der sechs Tests blieben trotzdem
+  // gruen, weil sie gar nicht von der Sprache abhaengen. Zwei sind
+  // umgefallen, und nur deshalb ist es aufgefallen.
+  const textFor = (lang: Lang, fehler: ServerErrorLike): string =>
+    capturedContext(fakeStorage(lang)).errorText(fehler);
+
+  it("translates a known key into the selected language", () => {
+    expect(
+      textFor("es-ES", { message: "Account nicht gefunden", key: "err_account_not_found" })
+    ).toBe("Cuenta no encontrada");
+    expect(
+      textFor("pt-BR", { message: "Account nicht gefunden", key: "err_account_not_found" })
+    ).toBe("Conta não encontrada");
+  });
+
+  it("falls back to the server's plain text for an unknown key", () => {
+    // DER WICHTIGSTE TEST DIESES SLICES. Ohne den Rueckfall zeigt die
+    // Oberflaeche "Error:" und nichts dahinter — ein Fehler, den niemand
+    // bemerkt, weil er wie ein leeres Feld aussieht und nicht wie ein Absturz.
+    expect(
+      textFor("es-ES", { message: "Etwas ist schiefgegangen", key: "err_gibt_es_nicht" })
+    ).toBe("Etwas ist schiefgegangen");
+  });
+
+  it("falls back when the server sends no key at all", () => {
+    // Die Form von FastAPIs Validierungsfehlern.
+    expect(textFor("pt-BR", { message: "Unprocessable Entity" })).toBe("Unprocessable Entity");
+  });
+
+  it("never returns an empty string, whatever the server sent", () => {
+    // Die Zusicherung, auf die es ankommt: etwas Lesbares kommt immer.
+    const faelle: ServerErrorLike[] = [
+      { message: "HTTP 500" },
+      { message: "HTTP 500", key: "" },
+      { message: "HTTP 500", key: "err_unbekannt" },
+      { message: "HTTP 500", key: "err_account_not_found" },
+      { message: "HTTP 500", key: "err_account_id_not_found", params: {} },
+    ];
+    for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
+      for (const fall of faelle) {
+        expect(textFor(lang, fall).length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("fills the server's values into a parameterised message", () => {
+    expect(
+      textFor("en", {
+        message: "Account a1 nicht gefunden",
+        key: "err_account_id_not_found",
+        params: { id: "a1" },
+      })
+    ).toBe("Account a1 not found");
+    expect(
+      textFor("es-ES", {
+        message: "...",
+        key: "err_unsupported_immich_version",
+        params: { major: "2", minor: "7" },
+      })
+    ).toContain("2.7");
+  });
+
+  it("does not crash when a parameterised message arrives without its values", () => {
+    // Ein Server, der den Schluessel schickt und die Werte vergisst, darf
+    // die Seite nicht zerlegen — die Meldung wird dann lueckenhaft, aber sie
+    // erscheint.
+    const text = textFor("de", { message: "Rueckfall", key: "err_account_id_not_found" });
+    expect(text.length).toBeGreaterThan(0);
+    expect(text).toContain("nicht gefunden");
   });
 });

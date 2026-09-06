@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { api, Account } from "../api/client";
-import { useT } from "../i18n";
+import { useT, type ServerErrorLike } from "../i18n";
 
 const PRESET_COLORS = [
   "#6366f1", // indigo
@@ -81,7 +81,7 @@ function StatusDot({ accountId }: { accountId: string }) {
 }
 
 function EditAccountForm({ account, onClose }: { account: Account; onClose: () => void }) {
-  const { t } = useT();
+  const { t, errorText } = useT();
   const qc = useQueryClient();
   const [name, setName] = useState(account.name);
   const [url, setUrl] = useState(account.immich_url);
@@ -153,7 +153,7 @@ function EditAccountForm({ account, onClose }: { account: Account; onClose: () =
       </div>
 
       {mutation.error && (
-        <p className="text-red-400 text-xs">{(mutation.error as Error).message}</p>
+        <p className="text-red-400 text-xs">{errorText(mutation.error as ServerErrorLike)}</p>
       )}
 
       <div className="flex gap-2">
@@ -233,7 +233,7 @@ function AccountCard({ account, onDelete }: { account: Account; onDelete: () => 
 }
 
 function AddAccountForm({ onClose }: { onClose: () => void }) {
-  const { t } = useT();
+  const { t, errorText } = useT();
   const [name, setName] = useState("");
   const [url, setUrl] = useState("http://192.168.2.3:30041");
   const [key, setKey] = useState("");
@@ -282,7 +282,7 @@ function AddAccountForm({ onClose }: { onClose: () => void }) {
         </div>
       </div>
       {mutation.error && (
-        <p className="text-red-400 text-xs">{(mutation.error as Error).message}</p>
+        <p className="text-red-400 text-xs">{errorText(mutation.error as ServerErrorLike)}</p>
       )}
       <div className="flex gap-2">
         <button
