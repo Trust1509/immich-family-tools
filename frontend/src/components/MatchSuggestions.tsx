@@ -1,8 +1,19 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Loader2, RefreshCw, Check, X, Music, GitMerge, Zap,
-  Search, SlidersHorizontal, CheckCircle, Disc, EyeOff, Info,
+  Loader2,
+  RefreshCw,
+  Check,
+  X,
+  Music,
+  GitMerge,
+  Zap,
+  Search,
+  SlidersHorizontal,
+  CheckCircle,
+  Disc,
+  EyeOff,
+  Info,
 } from "lucide-react";
 import { api, Match, Account, ManagedAlbum } from "../api/client";
 import FaceCompare from "./FaceCompare";
@@ -11,11 +22,20 @@ import { useT } from "../i18n";
 // ── Album Dialog ───────────────────────────────────────────────────────────
 
 function AlbumDialog({
-  match, accounts, onSubmit, onCancel, isPending, error,
+  match,
+  accounts,
+  onSubmit,
+  onCancel,
+  isPending,
+  error,
 }: {
   match: Match;
   accounts: Account[];
-  onSubmit: (body: { owner_account_id: string; album_name?: string; existing_album_id?: string }) => void;
+  onSubmit: (body: {
+    owner_account_id: string;
+    album_name?: string;
+    existing_album_id?: string;
+  }) => void;
   onCancel: () => void;
   isPending: boolean;
   error?: string;
@@ -39,7 +59,11 @@ function AlbumDialog({
       onSubmit({ owner_account_id: ownerAccountId, album_name: albumName });
     } else {
       const selected = existingAlbums.find((a) => a.id === existingAlbumId);
-      onSubmit({ owner_account_id: ownerAccountId, existing_album_id: existingAlbumId, album_name: selected?.name });
+      onSubmit({
+        owner_account_id: ownerAccountId,
+        existing_album_id: existingAlbumId,
+        album_name: selected?.name,
+      });
     }
   };
 
@@ -66,9 +90,16 @@ function AlbumDialog({
         <select
           className="input text-sm flex-1"
           value={ownerAccountId}
-          onChange={(e) => { setOwnerAccountId(e.target.value); setExistingAlbumId(""); }}
+          onChange={(e) => {
+            setOwnerAccountId(e.target.value);
+            setExistingAlbumId("");
+          }}
         >
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -89,9 +120,17 @@ function AlbumDialog({
           {loadingAlbums ? (
             <Loader2 size={14} className="animate-spin text-gray-500" />
           ) : (
-            <select className="input text-sm flex-1" value={existingAlbumId} onChange={(e) => setExistingAlbumId(e.target.value)}>
+            <select
+              className="input text-sm flex-1"
+              value={existingAlbumId}
+              onChange={(e) => setExistingAlbumId(e.target.value)}
+            >
               <option value="">{t("album_select_ph")}</option>
-              {existingAlbums.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {existingAlbums.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
             </select>
           )}
         </div>
@@ -101,7 +140,11 @@ function AlbumDialog({
         {mode === "new" ? t("album_new_desc") : t("album_existing_desc")}
       </p>
 
-      {error && <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-2 py-1">{error}</p>}
+      {error && (
+        <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-2 py-1">
+          {error}
+        </p>
+      )}
 
       <div className="flex gap-2">
         <button
@@ -110,9 +153,15 @@ function AlbumDialog({
           disabled={!canSubmit || isPending}
         >
           {isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          {isPending ? t("processing") : mode === "new" ? t("album_create_btn") : t("album_link_btn")}
+          {isPending
+            ? t("processing")
+            : mode === "new"
+              ? t("album_create_btn")
+              : t("album_link_btn")}
         </button>
-        <button className="btn-ghost text-sm" onClick={onCancel}><X size={14} /></button>
+        <button className="btn-ghost text-sm" onClick={onCancel}>
+          <X size={14} />
+        </button>
       </div>
     </div>
   );
@@ -120,11 +169,23 @@ function AlbumDialog({
 
 // ── Match Card ─────────────────────────────────────────────────────────────
 
-interface ResultState { text: string; ok: boolean }
+interface ResultState {
+  text: string;
+  ok: boolean;
+}
 
-function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount }: {
-  match: Match; accounts: Account[]; onDismiss: () => void;
-  managedAlbum?: ManagedAlbum; groupPersonCount: number;
+function MatchCard({
+  match,
+  accounts,
+  onDismiss,
+  managedAlbum,
+  groupPersonCount,
+}: {
+  match: Match;
+  accounts: Account[];
+  onDismiss: () => void;
+  managedAlbum?: ManagedAlbum;
+  groupPersonCount: number;
 }) {
   const { t } = useT();
   const defaultName = match.person_a.person_name || match.person_b.person_name || "";
@@ -154,8 +215,11 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount 
   });
 
   const albumMutation = useMutation({
-    mutationFn: (body: { owner_account_id: string; album_name?: string; existing_album_id?: string }) =>
-      api.sync.album({ match_id: match.id, ...body }),
+    mutationFn: (body: {
+      owner_account_id: string;
+      album_name?: string;
+      existing_album_id?: string;
+    }) => api.sync.album({ match_id: match.id, ...body }),
     onSuccess: (entries) => {
       const ok = entries.every((e) => e.status === "success");
       setMode(null);
@@ -194,7 +258,12 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount 
         </div>
       )}
 
-      <FaceCompare personA={match.person_a} personB={match.person_b} confidence={match.confidence} reasons={match.reasons} />
+      <FaceCompare
+        personA={match.person_a}
+        personB={match.person_b}
+        confidence={match.confidence}
+        reasons={match.reasons}
+      />
 
       {(match.names_synced || match.has_album) && (
         <div className="flex gap-1.5 flex-wrap">
@@ -212,31 +281,57 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount 
       )}
 
       {result && (
-        <div className={`flex items-start justify-between gap-2 text-xs border rounded px-3 py-2 ${result.ok ? "text-emerald-400 bg-emerald-900/20 border-emerald-800" : "text-red-400 bg-red-900/20 border-red-800"}`}>
+        <div
+          className={`flex items-start justify-between gap-2 text-xs border rounded px-3 py-2 ${result.ok ? "text-emerald-400 bg-emerald-900/20 border-emerald-800" : "text-red-400 bg-red-900/20 border-red-800"}`}
+        >
           <span>{result.text}</span>
           {!result.ok && (
-            <button onClick={() => setResult(null)} className="shrink-0 opacity-60 hover:opacity-100"><X size={12} /></button>
+            <button
+              onClick={() => setResult(null)}
+              className="shrink-0 opacity-60 hover:opacity-100"
+            >
+              <X size={12} />
+            </button>
           )}
         </div>
       )}
 
       {mode === "name" && (
         <div className="flex gap-2">
-          <input className="input text-sm" placeholder={t("canonical_name_ph")} value={syncName}
-            onChange={(e) => setSyncName(e.target.value)} autoFocus />
-          <button className="btn-primary text-sm shrink-0 flex items-center gap-1"
-            onClick={() => nameMutation.mutate()} disabled={!syncName || nameMutation.isPending}>
-            {nameMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} OK
+          <input
+            className="input text-sm"
+            placeholder={t("canonical_name_ph")}
+            value={syncName}
+            onChange={(e) => setSyncName(e.target.value)}
+            autoFocus
+          />
+          <button
+            className="btn-primary text-sm shrink-0 flex items-center gap-1"
+            onClick={() => nameMutation.mutate()}
+            disabled={!syncName || nameMutation.isPending}
+          >
+            {nameMutation.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Check size={14} />
+            )}{" "}
+            OK
           </button>
-          <button className="btn-ghost text-sm" onClick={() => setMode(null)}><X size={14} /></button>
+          <button className="btn-ghost text-sm" onClick={() => setMode(null)}>
+            <X size={14} />
+          </button>
         </div>
       )}
 
       {mode === "album" && (
         <AlbumDialog
-          match={match} accounts={accounts}
+          match={match}
+          accounts={accounts}
           onSubmit={(body) => albumMutation.mutate(body)}
-          onCancel={() => { setMode(null); setAlbumError(undefined); }}
+          onCancel={() => {
+            setMode(null);
+            setAlbumError(undefined);
+          }}
           isPending={albumMutation.isPending}
           error={albumError}
         />
@@ -252,8 +347,11 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount 
 
       {mode === null && !isDismissed && (
         <div className="flex flex-wrap gap-2">
-          <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setMode("name")}
-            disabled={isMultiAccountMatch}>
+          <button
+            className="btn-primary text-xs flex items-center gap-1.5"
+            onClick={() => setMode("name")}
+            disabled={isMultiAccountMatch}
+          >
             <Check size={13} />
             {match.names_synced ? t("sync_names_again") : t("sync_names_btn")}
           </button>
@@ -263,7 +361,11 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount 
               onClick={() => refreshMutation.mutate()}
               disabled={refreshMutation.isPending || isMultiAccountMatch}
             >
-              {refreshMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              {refreshMutation.isPending ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <RefreshCw size={13} />
+              )}
               {t("album_update_btn")}
             </button>
           ) : !isMultiAccountMatch ? (
@@ -275,7 +377,10 @@ function MatchCard({ match, accounts, onDismiss, managedAlbum, groupPersonCount 
               {t("album_connect_btn")}
             </button>
           ) : null}
-          <button className="btn-ghost text-xs flex items-center gap-1.5 text-red-400 hover:text-red-300" onClick={onDismiss}>
+          <button
+            className="btn-ghost text-xs flex items-center gap-1.5 text-red-400 hover:text-red-300"
+            onClick={onDismiss}
+          >
             <X size={13} /> {t("not_same_person")}
           </button>
         </div>
@@ -294,8 +399,16 @@ interface Filters {
   showDismissed: boolean;
 }
 
-function FilterBar({ filters, onChange, total, visible }: {
-  filters: Filters; onChange: (f: Filters) => void; total: number; visible: number;
+function FilterBar({
+  filters,
+  onChange,
+  total,
+  visible,
+}: {
+  filters: Filters;
+  onChange: (f: Filters) => void;
+  total: number;
+  visible: number;
 }) {
   const { t } = useT();
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
@@ -304,26 +417,53 @@ function FilterBar({ filters, onChange, total, visible }: {
       <div className="flex flex-wrap gap-2">
         <div className="relative">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-          <input className="input pl-8 w-44 text-sm" placeholder={t("search_name")}
-            value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          <input
+            className="input pl-8 w-44 text-sm"
+            placeholder={t("search_name")}
+            value={filters.search}
+            onChange={(e) => set({ search: e.target.value })}
+          />
         </div>
         <div className="flex items-center gap-2 bg-immich-surface border border-immich-border rounded-lg px-3 py-1.5">
           <SlidersHorizontal size={13} className="text-gray-500" />
           <span className="text-xs text-gray-400">{t("min")}</span>
-          <input type="range" min={0} max={100} step={5} value={filters.minConfidence}
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={filters.minConfidence}
             onChange={(e) => set({ minConfidence: Number(e.target.value) })}
-            className="w-20 accent-immich-primary" />
+            className="w-20 accent-immich-primary"
+          />
           <span className="text-xs text-gray-300 w-8 text-right">{filters.minConfidence}%</span>
         </div>
         {[
-          { key: "showNamesSynced" as const, label: t("filter_names_synced"), icon: <CheckCircle size={12} /> },
-          { key: "showAlbumLinked" as const, label: t("filter_album_linked"), icon: <Disc size={12} /> },
-          { key: "showDismissed" as const,   label: t("filter_dismissed"),    icon: <EyeOff size={12} /> },
+          {
+            key: "showNamesSynced" as const,
+            label: t("filter_names_synced"),
+            icon: <CheckCircle size={12} />,
+          },
+          {
+            key: "showAlbumLinked" as const,
+            label: t("filter_album_linked"),
+            icon: <Disc size={12} />,
+          },
+          {
+            key: "showDismissed" as const,
+            label: t("filter_dismissed"),
+            icon: <EyeOff size={12} />,
+          },
         ].map(({ key, label, icon }) => (
-          <button key={key} onClick={() => set({ [key]: !filters[key] })}
+          <button
+            key={key}
+            onClick={() => set({ [key]: !filters[key] })}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-              filters[key] ? "bg-immich-primary border-immich-primary text-white" : "bg-immich-surface border-immich-border text-gray-400 hover:text-gray-100"
-            }`}>
+              filters[key]
+                ? "bg-immich-primary border-immich-primary text-white"
+                : "bg-immich-surface border-immich-border text-gray-400 hover:text-gray-100"
+            }`}
+          >
             {icon} {label}
           </button>
         ))}
@@ -341,11 +481,18 @@ export default function MatchSuggestions() {
   const { t } = useT();
   const qc = useQueryClient();
   const [filters, setFilters] = useState<Filters>({
-    search: "", minConfidence: 0,
-    showNamesSynced: true, showAlbumLinked: true, showDismissed: false,
+    search: "",
+    minConfidence: 0,
+    showNamesSynced: true,
+    showAlbumLinked: true,
+    showDismissed: false,
   });
 
-  const { data: matches = [], isLoading, isFetching } = useQuery({
+  const {
+    data: matches = [],
+    isLoading,
+    isFetching,
+  } = useQuery({
     queryKey: ["matches"],
     queryFn: api.matches.list,
     staleTime: 5 * 60_000,
@@ -431,32 +578,47 @@ export default function MatchSuggestions() {
         </div>
         <div className="flex gap-2">
           {highConf.length > 0 && (
-            <button className="btn-primary text-sm flex items-center gap-1.5"
-              onClick={() => { if (confirm(t("bulk_sync_confirm", highConf.length))) bulkSyncMutation.mutate(); }}
-              disabled={bulkSyncMutation.isPending}>
+            <button
+              className="btn-primary text-sm flex items-center gap-1.5"
+              onClick={() => {
+                if (confirm(t("bulk_sync_confirm", highConf.length))) bulkSyncMutation.mutate();
+              }}
+              disabled={bulkSyncMutation.isPending}
+            >
               <Zap size={14} /> {t("bulk_sync", highConf.length)}
             </button>
           )}
-          <button className="btn-ghost flex items-center gap-1.5 text-sm"
-            onClick={() => refreshMutation.mutate()} disabled={refreshMutation.isPending || isFetching}>
-            <RefreshCw size={14} className={(refreshMutation.isPending || isFetching) ? "animate-spin" : ""} />
+          <button
+            className="btn-ghost flex items-center gap-1.5 text-sm"
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending || isFetching}
+          >
+            <RefreshCw
+              size={14}
+              className={refreshMutation.isPending || isFetching ? "animate-spin" : ""}
+            />
             {t("recalculate")}
           </button>
         </div>
       </div>
 
       <FilterBar
-        filters={filters} onChange={setFilters}
+        filters={filters}
+        onChange={setFilters}
         total={pending.length + (filters.showDismissed ? dismissed.length : 0)}
         visible={displayed.length}
       />
 
       {isLoading ? (
-        <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-gray-500" /></div>
+        <div className="flex justify-center py-16">
+          <Loader2 size={28} className="animate-spin text-gray-500" />
+        </div>
       ) : displayed.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <GitMerge size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">{pending.length === 0 ? t("no_open_matches") : t("no_matches_filter")}</p>
+          <p className="text-sm">
+            {pending.length === 0 ? t("no_open_matches") : t("no_matches_filter")}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -477,10 +639,14 @@ export default function MatchSuggestions() {
               : 0;
 
             return (
-              <MatchCard key={m.id} match={m} accounts={accounts}
+              <MatchCard
+                key={m.id}
+                match={m}
+                accounts={accounts}
                 managedAlbum={managedAlbum}
                 groupPersonCount={groupPersonCount}
-                onDismiss={() => dismissMutation.mutate(m.id)} />
+                onDismiss={() => dismissMutation.mutate(m.id)}
+              />
             );
           })}
         </div>

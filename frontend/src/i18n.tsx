@@ -107,7 +107,27 @@ export function readStoredLang(): Lang {
 
 // ── Translations ───────────────────────────────────────────────────────────
 
-const translations = {
+/** Was in `translations` stehen DARF: ein fertiger Text oder eine Funktion,
+ *  die einen liefert.
+ *
+ *  Vorher stand hier `unknown`. Das prueft nur, dass der Sprachschluessel
+ *  ANWESEND ist — nicht, was drinsteht. Von der adversarialen Panel-Stimme
+ *  vorgefuehrt: `"es-ES": (n: number) => \`Manual ${n}\`` neben drei
+ *  Zeichenketten liess `tsc --noEmit` und alle 52 Tests gruen, und die
+ *  spanische Oberflaeche zeigte `Manual undefined`. Dasselbe galt fuer
+ *  `undefined` und fuer `42`.
+ *
+ *  Diese Zeile faengt Wert-Unsinn. Was sie NICHT faengt, ist eine Sprache,
+ *  die eine andere FORM hat als ihre Geschwister — dafuer gibt es den Test
+ *  "every language of a key has the same shape" in i18n.test.ts. */
+type Uebersetzungswert = string | ((...args: never[]) => string);
+
+/** Exportiert, damit die Tests ueber die Tabelle SELBST laufen koennen und
+ *  nicht nur ueber das, was `t()` daraus macht. Der Formen-Test in
+ *  i18n.test.ts prueft jeden Schluessel, auch die derzeit unreferenzierten —
+ *  gerade bei denen greift die Aritaetspruefung des Compilers nicht, weil es
+ *  keine Aufrufstelle gibt. Nur lesen; die Tabelle ist `as const`. */
+export const translations = {
   // ── App / Navigation ──────────────────────────────────────────────────
   nav_accounts: { de: "Accounts", en: "Accounts", "pt-BR": "Contas", "es-ES": "Cuentas" },
   nav_people: { de: "Personen", en: "People", "pt-BR": "Pessoas", "es-ES": "Personas" },
@@ -784,7 +804,7 @@ const translations = {
     "es-ES": "Sincronizar nombre",
   },
   extend_sync_name_hint: {
-    de: (name: string) => `Person auf „${name}" umbenennen`,
+    de: (name: string) => `Person auf „${name}“ umbenennen`,
     en: (name: string) => `Rename person to "${name}"`,
     "pt-BR": (name: string) => `Renomear pessoa para "${name}"`,
     "es-ES": (name: string) => `Cambiar el nombre de la persona a "${name}"`,
@@ -920,7 +940,7 @@ const translations = {
     "es-ES": "Reconocimiento facial",
   },
   reason_manual: { de: "Manuell", en: "Manual", "pt-BR": "Manual", "es-ES": "Manual" },
-} as const satisfies Record<string, Record<Lang, unknown>>;
+} as const satisfies Record<string, Record<Lang, Uebersetzungswert>>;
 
 // Type helpers
 type TranslationKey = keyof typeof translations;

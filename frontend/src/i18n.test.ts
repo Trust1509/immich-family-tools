@@ -11,6 +11,7 @@ import {
   LanguageProvider,
   readStoredLang,
   resolveLang,
+  translations,
   useT,
 } from "./i18n";
 import type { Lang } from "./i18n";
@@ -598,5 +599,65 @@ describe("README", () => {
       .map((label) => label.replace(/[^\x20-\x7E]/g, "").trim())
       .filter((code) => code.length > 0 && !readmeText.includes(`**${code}**`));
     expect(fehlend).toEqual([]);
+  });
+});
+
+describe("translations shape", () => {
+  // Der Typ `Record<Lang, Uebersetzungswert>` verbietet Unsinn im Wert
+  // (undefined, Zahlen), aber er verlangt NICHT, dass alle Sprachen eines
+  // Schluessels dieselbe Form haben. Genau das hat die adversariale
+  // Panel-Stimme ausgenutzt: eine Funktion neben drei Zeichenketten liess
+  // tsc und alle Tests gruen, und die spanische Oberflaeche zeigte
+  // "Manual undefined".
+  //
+  // Dieser Test schliesst die Luecke von der Laufzeitseite. Er laeuft ueber
+  // ALLE Schluessel, auch die, die derzeit nirgends aufgerufen werden — bei
+  // denen greift die Aritaetspruefung des Compilers naemlich gar nicht,
+  // weil es keine Aufrufstelle gibt, an der sie greifen koennte.
+  const alleSchluessel = Object.keys(translations) as (keyof typeof translations)[];
+
+  it("every language of a key has the same shape", () => {
+    const abweichungen: string[] = [];
+    for (const key of alleSchluessel) {
+      const werte = translations[key] as Record<string, unknown>;
+      const formen = new Map<string, string>();
+      for (const lang of Object.keys(LANG_LABELS)) {
+        formen.set(lang, typeof werte[lang]);
+      }
+      const verschiedene = new Set(formen.values());
+      if (verschiedene.size !== 1) {
+        abweichungen.push(`${String(key)}: ${[...formen].map(([l, f]) => `${l}=${f}`).join(" ")}`);
+      }
+    }
+    expect(abweichungen).toEqual([]);
+  });
+
+  it("every language of a parameterised key takes the same number of arguments", () => {
+    // Eine Sprache, die ein Argument weniger nimmt, rendert still einen
+    // Platzhalter weniger — der Satz erscheint dann unvollstaendig, ohne
+    // dass irgendetwas rot wird.
+    const abweichungen: string[] = [];
+    for (const key of alleSchluessel) {
+      const werte = translations[key] as Record<string, unknown>;
+      const stellen = Object.keys(LANG_LABELS)
+        .map((lang) => werte[lang])
+        .filter((v): v is (...a: never[]) => string => typeof v === "function")
+        .map((f) => f.length);
+      if (stellen.length > 0 && new Set(stellen).size !== 1) {
+        abweichungen.push(`${String(key)}: ${stellen.join(" / ")}`);
+      }
+    }
+    expect(abweichungen).toEqual([]);
+  });
+
+  it("no language value is an empty string", () => {
+    const leere: string[] = [];
+    for (const key of alleSchluessel) {
+      const werte = translations[key] as Record<string, unknown>;
+      for (const lang of Object.keys(LANG_LABELS)) {
+        if (werte[lang] === "") leere.push(`${String(key)}/${lang}`);
+      }
+    }
+    expect(leere).toEqual([]);
   });
 });

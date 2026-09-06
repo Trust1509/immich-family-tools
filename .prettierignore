@@ -1,0 +1,28 @@
+# Was Prettier nicht anfassen darf.
+#
+# Diese Datei entsteht zusammen mit dem CI-Gate `prettier --check` auf das
+# ganze Repo. Vorher lief Prettier nur ueber die im Husky-Hook GESTAGETEN
+# Dateien — nie erzeugter oder fremder Inhalt kam damit gar nicht in Beruehrung
+# und faellt jetzt auf. Ohne diese Liste waere das Gate dauerhaft rot, und ein
+# dauerhaft rotes Gate wird abgeschaltet statt befolgt.
+
+# Bau-Ergebnisse. Gehoeren nicht ins Repo und schon gar nicht in eine
+# Formatierungspruefung.
+frontend/dist/
+dist/
+
+# Maschinell erzeugt und von npm verwaltet.
+package-lock.json
+frontend/package-lock.json
+
+# Werkzeug-Zwischenstaende.
+.pytest_cache/
+
+# Die Produktions-Compose-Datei. Prettier formatiert die healthcheck-Liste in
+# eine mehrzeilige Flow-Sequenz MIT abschliessendem Komma um. Das ist gueltiges
+# YAML (nachgeprueft: PyYAML parst es, die Liste ist Zeichen fuer Zeichen
+# dieselbe) — aber es ist eine Aenderung an der Datei, die die Produktivinstanz
+# startet, ohne jeden Gewinn ausser Einheitlichkeit. Docker Compose bringt einen
+# eigenen YAML-Parser mit, und den haben wir hier nicht befragt.
+# Kein Nutzen, ein Restrisiko: also nicht anfassen.
+docker-compose.yml

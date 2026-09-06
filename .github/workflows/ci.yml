@@ -100,6 +100,20 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # Formatierung als Gate, nicht nur als Hook. Bis hierher hing sie
+      # allein am lokalen Husky-Hook (.husky/pre-commit -> lint-staged), und
+      # ein Beitrag aus einem Fork laeuft daran vorbei — bei zwei externen
+      # Sprachbeitraegen binnen einer Woche ist das kein Randfall mehr.
+      # Dass die bisherigen Fremdbeitraege formatiert ankamen, war Sorgfalt
+      # der Beitragenden, kein Waechter. Von der adversarialen Panel-Stimme
+      # gefunden. Prueft das ganze Repo, nicht nur frontend/ — die
+      # Prozess-Dokumente sind ebenfalls prettier-formatiert.
+      # --ignore-path ist NOETIG, nicht Zierde: Prettier sucht die
+      # .prettierignore im ARBEITSVERZEICHNIS, und das ist hier
+      # frontend/. Ohne den Schalter greift die Liste im Wurzel-
+      # verzeichnis nicht und das Gate faellt ueber dist/ und die
+      # Sperrdatei — gemessen, nicht vermutet.
+      - run: npx prettier --check --ignore-path ../.prettierignore ..
       - run: npm test
       - run: npm run build
 
