@@ -277,7 +277,7 @@ const translations = {
   bulk_sync_confirm: {
     de: (n: number) => `Alle ${n} hochkonfidenten Matches synchronisieren?`,
     en: (n: number) => `Sync all ${n} high-confidence matches?`,
-    "pt-BR": (n: number) => `Sincronizar todas as ${n} combinações com alta confiança?`,
+    "pt-BR": (n: number) => `Sincronizar todas as ${n} correspondências com alta confiança?`,
   },
   recalculate: { de: "Neu berechnen", en: "Recalculate", "pt-BR": "Recalcular" },
   album_new: { de: "Neues Album", en: "New Album", "pt-BR": "Novo Álbum" },
@@ -386,7 +386,7 @@ const translations = {
     "pt-BR": (n: number) => `${n} ${n === 1 ? "álbum" : "álbuns"} com sincronismo automático`,
   },
   sync_all: { de: "Alle synchronisieren", en: "Sync all", "pt-BR": "Sincronizar tudo" },
-  linked_people: { de: "Verknüpfte Personen", en: "Linked people", "pt-BR": "Pessoa vinculada" },
+  linked_people: { de: "Verknüpfte Personen", en: "Linked people", "pt-BR": "Pessoas vinculadas" },
   last_sync: {
     de: (d: string) => `Letzter Sync: ${d}`,
     en: (d: string) => `Last sync: ${d}`,

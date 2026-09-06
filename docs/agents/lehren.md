@@ -856,3 +856,67 @@ ordentlich „nach dem grünen Lauf" gesetzt wurde.
 `release-ritual.md` — Schritt 7 endete mit Taggen/Pushen/Release, das
 Ausrollen auf TrueNAS tauchte gar nicht auf (siehe `release-ritual.md`,
 Schritt 8, in diesem Abgleich ergänzt).
+
+---
+
+## 24. Freitext in einer Commit-Nachricht ist auch Maschinerie
+
+Schwesterfall zu §22, andere Stelle, diesmal ein echter Vorfall statt einer
+praeventiven Regel.
+
+Ein Commit landete auf `main` und **loeste keinen einzigen CI-Lauf aus**.
+Kein abgebrochener, kein fehlgeschlagener — gar keinen:
+
+    gh api "repos/.../actions/runs?head_sha=518565b..." --jq .total_count
+    -> 0
+    gh api "repos/.../commits/518565b.../check-runs" --jq .total_count
+    -> 0
+
+Der Commit fasste zwei `.sh`-Dateien an, der `paths-ignore`-Filter
+(`**.md`) konnte also nicht greifen. Die Ursache stand in Zeile 50 der
+Commit-Nachricht — in einem Satz, der erklaerte, dass der VORIGE Commit den
+Ueberspring-Marker bewusst **nicht** traegt:
+
+> „Der Release-Commit 4e46605 traegt richtigerweise kein `[skip ci]` — er ist der
+> gelandete Endstand und soll durch die CI."
+
+**GitHub liest die ganze Commit-Nachricht, nicht nur die erste Zeile.** Ein
+Satz _ueber_ den Marker enthaelt den Marker. Die Nachricht hat genau das
+getan, wovon sie sich distanzierte.
+
+### Warum das schwerer wiegt als ein vergessener Lauf
+
+Es faellt nicht auf. Ein roter Lauf meldet sich, ein abgebrochener steht in
+der Liste — ein Lauf, den es nie gab, hinterlaesst nichts. Wer nach dem Push
+in die Lauf-Liste schaut, sieht den gruenen Lauf des VORGAENGERS ganz oben
+und liest ihn als seinen eigenen. Das ist die Falle aus §6, hier von einer
+neuen Seite: Dort war der Lauf der falsche, hier existiert er nicht.
+
+Gefunden nur, weil das Release-Gate den Lauf ueber den `headSha` sucht und
+sich weigerte: „kein Lauf fuer HEAD gefunden — ROT, nicht 'noch nicht da'".
+Ohne diese Formulierung — ein ausgefallener Test ist kein bestandener Test —
+waere ein ungeprueftes Stueck Waechter-Code getaggt worden.
+
+### Regel
+
+- **Den Marker nie ausgeschrieben in eine Commit-Nachricht setzen**, auch
+  nicht in einem Nebensatz, auch nicht verneint, auch nicht in einem Zitat.
+  Umschreiben: „Ueberspring-Marker", „der CI-Marker". Das Wort ist in einer
+  Commit-Nachricht kein Wort, sondern ein Schalter.
+- Dasselbe gilt fuer alles, was GitHub in Commit-Nachrichten auswertet:
+  `Fixes #123` und die anderen Schluesselwoerter schliessen Issues, auch
+  wenn der Satz sagt, dass sie es gerade NICHT tun sollen. (Deutsche
+  Formulierungen wie „Schliesst #69" tun es uebrigens nicht — das ist
+  Glueck, keine Absicherung.)
+- **Ein Slice ist nicht fertig, bevor ein gruener Lauf auf dem GELANDETEN
+  `headSha` belegt ist.** Nicht „ein gruener Lauf ganz oben in der Liste".
+  Der Beleg ist die Abfrage ueber den SHA, und ihre gueltige Antwort
+  schliesst „null Laeufe" ausdruecklich ein.
+
+### Die Klasse dahinter
+
+Zweimal derselbe Fehler an zwei Stellen: Text, den ein Mensch als Erklaerung
+liest, wird von einer Maschine als Anweisung gelesen. In §22 war es die
+Shell in einem `run:`-Block, hier GitHub in einer Commit-Nachricht. Beide
+Male war die Absicht des Schreibenden das genaue Gegenteil dessen, was
+passierte. **Wo Text an eine Maschine geht, gibt es keinen Konjunktiv.**
