@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import readmeText from "../../README.md?raw";
 import React from "react";
 import { renderToString } from "react-dom/server";
 import {
@@ -568,5 +569,34 @@ describe("AuthGate translations", () => {
         expect(t(key)).not.toBe(tDe(key));
       }
     }
+  });
+});
+
+describe("README", () => {
+  it("lists every shipped language", () => {
+    // Warum ein Test fuer eine Zeile Prosa: Die Sprachliste im README ist
+    // eine Zusage an den Nutzer, und sie ist genau einmal still veraltet —
+    // der pt-BR-Beitrag hat sie gepflegt, der es-ES-Beitrag nicht, und
+    // gemerkt hat es erst eine Pruefstimme nach dem Merge. Eine Zusage, die
+    // niemand nachhaelt, ist schlechter als keine.
+    //
+    // Geprueft wird gegen LANG_LABELS, den Eigentuemer der Sprachliste, und
+    // zwar gegen den Text-Teil der Beschriftung ("DE", "PT-BR") statt gegen
+    // Sprachnamen in Prosa — sonst braeuchte der Test eine zweite Zuordnung
+    // und waere selbst eine Stelle, die driften kann.
+    // ?raw statt node:fs: Dieses Projekt fuehrt bewusst KEINE @types/node
+    // ("types": [] in der tsconfig), und eine Abhaengigkeit fuer einen Test
+    // waere der falsche Preis. Vites ?raw-Import ist ueber vite/client
+    // typisiert, das vite-env.d.ts schon einbindet.
+    //
+    // Gesucht wird die FETTE Form `**ES**`, nicht das blosse `ES`. Die erste
+    // Fassung suchte den blossen Code — und blieb gruen, als ES aus der
+    // Liste entfernt wurde, weil "ES" auch in REST, SESSION, CEST und
+    // RESTORE steckt. Ein Waechter, der auf ein Wortfragment prueft, prueft
+    // nichts. Gefunden nur, weil der Rot-Beweis gefahren wurde.
+    const fehlend = (Object.values(LANG_LABELS) as string[])
+      .map((label) => label.replace(/[^\x20-\x7E]/g, "").trim())
+      .filter((code) => code.length > 0 && !readmeText.includes(`**${code}**`));
+    expect(fehlend).toEqual([]);
   });
 });

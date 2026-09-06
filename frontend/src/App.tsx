@@ -75,13 +75,35 @@ export default function App() {
           >
             <LogOut size={12} /> {t("lock_button")}
           </button>
-          {/* Language toggle */}
-          <div className="flex gap-1">
+          {/* Language toggle: two columns, not one row.
+              Measured in the real sidebar (w-56 → 200px inner, gap-1), with
+              the actual rendered label widths — "🇧🇷 PT-BR" is the longest at
+              43.8px:
+
+                languages     one row (flex-1)            grid-cols-2
+                4             47px each                   98px each, 2 rows
+                5             35 / 35 / 43.8px, unequal   98px each, 3 rows
+                6             at content width            98px each, 3 rows
+                8             OVERFLOWS by 48px           98px each, 4 rows
+
+              The row does not clip before eight languages — `flex-1` carries
+              `min-width: auto`, so a button never shrinks below its own text.
+              It degrades differently: from five languages on, the buttons stop
+              being equal and the padding around the shorter labels collapses
+              to a few pixels, while PT-BR keeps its full width. It looks like
+              a mistake before it becomes one.
+              The grid keeps every button at 98px at any count and spends
+              vertical space instead — 53px at four languages, 82px at six.
+              That is the right trade here: contributors add languages faster
+              than we plan for them (pt-BR and es-ES arrived within a week),
+              and the sidebar has the height to spare. */}
+          <div className="grid grid-cols-2 gap-1">
             {(Object.keys(LANG_LABELS) as Lang[]).map((l) => (
               <button
                 key={l}
                 onClick={() => setLang(l)}
-                className={`flex-1 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
+                aria-current={lang === l ? "true" : undefined}
+                className={`min-w-0 truncate py-1 rounded text-[11px] font-medium transition-colors ${
                   lang === l
                     ? "bg-immich-primary text-white"
                     : "text-gray-500 hover:text-gray-300 bg-immich-bg"

@@ -37,7 +37,7 @@ This tool bridges that gap.
 
 ### UI & Internationalisation
 
-- **Language toggle** — all languages from `LANG_LABELS` (currently German, English, Brazilian Portuguese), persisted in localStorage
+- **Language toggle** — all languages from `LANG_LABELS`, currently **DE**, **EN**, **ES**, **PT-BR**, persisted in localStorage. The list is written with the switcher's own labels, and a test fails if a shipped language is missing here — this line went stale once already, in the release that added a fourth language.
 - **Album grouping** — Albums with the same name are merged into one card in the overview, showing all linked persons across accounts
 - **Smart badges** — "Names synced" and "Album linked" badges on match cards now correctly detect matches extended via _Match erweitern_
 
