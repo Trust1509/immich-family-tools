@@ -9,15 +9,48 @@ Versionsnummer nicht zum obersten Notizen-Eintrag passt.
 
 In diesem Projekt führen **vier** Dateien die Version, alle im selben Commit:
 `backend/version.py`, `frontend/src/version.ts`, `frontend/package.json` und
-`CHANGELOG.md`.
+`CHANGELOG.md`. Die ersten drei schreibt `sh scripts/release.sh bump <version>`,
+die vierte ist Handarbeit — Prosa in der Sprache des Nutzers schreibt kein
+Skript.
+
+**Diese Liste hat hier ihren Eigentümer**, und `scripts/release.sh` führt
+dieselbe Liste ein zweites Mal, weil ein Skript sie nicht erraten kann. Kommt
+eine fünfte Stelle dazu (etwa die Build-Kennung aus Issue #68), gehört sie in
+**beide** — sonst entsteht genau die Zwei-Dateien-Drift aus `lehren.md` §17.
+Das Skript nennt diese Datei in seinem Kopfkommentar, damit die Verbindung von
+beiden Seiten sichtbar ist.
+
+**Die Notizen führen, die Version folgt.** `bump` weigert sich zu schreiben,
+solange der oberste CHANGELOG-Eintrag nicht bereits die Zielversion trägt.
+Andernfalls entsteht der Zustand, den die Risiko-Kennzeichnung verhindern
+soll: Code auf der neuen Nummer, Notizen auf der alten.
+
+**Die Risiko-Stufe steht als eigene Zeile im Eintrag** und wird vom Gate
+geprüft, sonst zeigt der Tag die Einstufung der Vorversion:
+
+```
+## [1.5.0] – 2026-09-06
+
+**Risk: safe**
+```
+
+`safe` / `backup` / `breaking` entsprechen den drei Stufen unten. Die Zeile
+muss **innerhalb** des obersten Eintrags stehen; eine im Vorgänger zählt
+nicht. Alte Einträge werden **nicht** rückwirkend ergänzt — der Changelog ist
+eine dokumentierende Datei (`lehren.md` §17).
 
 **Risiko ehrlich kennzeichnen.** Bewährte Stufen:
 
-| Stufe     | Bedeutung                              |
-| --------- | -------------------------------------- |
-| gefahrlos | nur Code, keine Migration              |
-| backup    | Datenbank-Migration — Backup empfohlen |
-| breaking  | Hinweise beachten, Backup zwingend     |
+| Stufe     | im CHANGELOG | Bedeutung                              |
+| --------- | ------------ | -------------------------------------- |
+| gefahrlos | `safe`       | nur Code, keine Migration              |
+| backup    | `backup`     | Datenbank-Migration — Backup empfohlen |
+| breaking  | `breaking`   | Hinweise beachten, Backup zwingend     |
+
+Die mittlere Spalte gibt es, weil die Prozess-Dateien deutsch sind und der
+`CHANGELOG.md` englisch: „gefahrlos" und `safe` sind **dieselbe** Stufe, und
+die Schwelle in `CLAUDE.md`, Abschnitt „Release", meint genau diese Zeile.
+Ohne die Zuordnung wären es zwei Vokabulare für eine Entscheidung.
 
 **Im Zweifel die vorsichtigere Stufe.** Eine Index-Migration verändert keine
 Daten — trotzdem „backup", damit die Kennzeichnung verlässlich bleibt. Ein Flag,
@@ -55,8 +88,30 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    welche Funktion umgebaut wurde.
 4. **Frischer Build** — sonst prüft das Rauchtest-Set einen veralteten Stand.
 5. **Rauchtest-Set** über die kritischen Abläufe, Desktop **und** mobil, hell und
-   dunkel.
-6. **Trockenlauf** des Release-Skripts.
+   dunkel. **Dieses Set gibt es hier noch nicht** — der Schritt ist damit
+   ehrlich gesagt ein Vorsatz, kein Gate. Was ihm fehlt und warum er einen
+   Wegwerf-Stapel braucht statt der laufenden Instanz, steht in Issue #75;
+   bis dahin bleibt es Handprobe. Ein Schritt, der so tut, als liefe er, ist
+   schlimmer als einer, der zugibt, dass er es nicht tut.
+6. **Trockenlauf** des Release-Skripts:
+
+   ```
+   sh scripts/release.sh pruefen <version>
+   ```
+
+   Schreibt nichts. Grün heißt: Versionsformat gültig, oberster
+   CHANGELOG-Eintrag trägt genau diese Version mit ISO-Datum und
+   Risiko-Kennzeichnung, alle drei Code-Stellen stehen darauf, der Tag ist
+   frei, der Arbeitsbaum sauber, und für **HEAD** liegt ein grüner CI-Lauf
+   vor. Fällt eine Prüfung aus — kein `gh`, kein Lauf gefunden —, ist das
+   **rot**, nicht „übersprungen": Ein ausgefallener Test ist kein
+   bestandener Test.
+
+   Das Gate prüft sich selbst: `sh scripts/release-selbstprobe.sh` zeigt für
+   jede einzelne Prüfung einen roten und einen grünen Lauf gegen
+   Wegwerf-Repos. Sie läuft im `backend`-Job der CI mit, weil ein Wächter,
+   dessen Lauf niemand erzwingt, nichts beweist (`lehren.md` §21).
+
 7. **Owner fragen.** Danach taggen, pushen, Release anlegen.
 8. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 7. **Der
    Tag geht der Auslieferung VORAUS.** Für uns auf dem TrueNAS-Host, durch

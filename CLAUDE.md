@@ -185,6 +185,11 @@ nicht):\*\*
 
 - Backend: `pytest -q backend/tests`
 - Backend: `python -m compileall -q backend`
+- Backend: `sh scripts/release-selbstprobe.sh` — die Selbstprobe des
+  Release-Gates. Sie hängt am Push-Pfad und nicht am Release, weil ein
+  Wächter, dessen Lauf niemand erzwingt, seine Abdeckungszahl zur Beruhigung
+  macht (`docs/agents/lehren.md` §21), und weil ein kaputtes Gate am
+  Release-Tag zu spät auffällt. Braucht kein Netz und kein `gh`.
 - Frontend (in `frontend/`): `npm ci`
 - Frontend (in `frontend/`): `npm test`
 - Frontend (in `frontend/`): `npm run build` (enthält `tsc`)
