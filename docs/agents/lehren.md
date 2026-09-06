@@ -892,10 +892,19 @@ Produktcode.
   `LC_ALL=C` **null** Zeilen. Vorher stand
   ein `ü` im Muster und man sah das Problem; jetzt steht ein `.` da und sieht
   behoben aus. **Der Fix hat den Defekt nicht beseitigt, sondern getarnt.**
-  Gefunden von der blinden Stimme; an die Vorlage gemeldet, weil das Skript
-  dort seinen Eigentümer hat. Bei uns hängt der Schutz an der
-  Aufrufkonvention `LC_ALL=C.UTF-8` (`CLAUDE.md`, Abschnitt „Bau-Brief") —
-  und die ist eine Sorgfaltspflicht, kein Gate.
+  Gefunden von der blinden Stimme, an die Vorlage gemeldet — und bei uns
+  behoben statt abgewartet, weil §15 gilt (eine Messung, die der Vorlage
+  widerspricht, ist zuerst ein Befund über die Vorlage). Die Abweichung von
+  der Vorlagenfassung steht als _war → ist → warum_ im Kopf des Skripts.
+- **Dieselbe Klasse, drei Tage später und diesmal in meinem eigenen Code:**
+  Der `commit-msg`-Hook prüfte, ob eine Zeile diff-förmig ist, über eine
+  awk-Regex mit `\+\+\+`. **In awk ist `\+` kein gültiges Escape** — awk brach
+  mit `invalid regexp` ab, die geprüfte Nachricht wurde leer, und der Wächter
+  ließ alles durch. Sichtbar wurde es nur, weil die Selbstprobe einen Fall
+  hatte, der rot werden **musste**; im normalen Betrieb wäre der Hook
+  wortlos wirkungslos gewesen. Jetzt ohne Regex, über Präfix-Vergleiche.
+  Das ist der dritte Fall in diesem Repo, in dem ein Wächter-Muster still
+  nichts traf — nach dem unsichtbaren Backspace und dem bloßen `"ES"`.
 - **Ein Werkzeug, das den Zustand herstellt, den es prüft, prüft nicht.**
   Prettier bricht einen zu langen Inline-Code-Span um und läuft danach mit
   `--check` grün, weil es den Zustand selbst erzeugt hat. Kein Gate fängt
@@ -1030,17 +1039,30 @@ waere ein ungeprueftes Stueck Waechter-Code getaggt worden.
   Kopie beim naechsten Fix zurueckbleibt. Genau das ist hier passiert: Die
   erste Fassung stand als Schnipsel in diesem Absatz, wurde zweimal
   ueberarbeitet, und der Schnipsel blieb stehen.
-- **Rot-Beweis in dreizehn Richtungen**, Exit-Code ohne Pipe, plus zwei Laeufe
-  im echten `git`-Ablauf mit husky-gleicher Verdrahtung. Die drei Fassungen
-  des Hooks und warum die ersten beiden falsch waren, stehen im Kopf der
-  Datei. Die Kurzfassung, weil sie eine eigene Lehre ist: **Fassung 2 schnitt
-  vor der Pruefung weg, „was git ohnehin verwirft" — und lag in beide
-  Richtungen daneben.** Git verwirft Kommentarzeilen nur bei `cleanup=strip`
-  (im Editor), nicht bei `-m`/`-F`; und abgeschnitten wird nur bei
-  `cleanup=scissors`, praktisch nur bei `-v`. Eine Nachricht mit
-  selbstgeschriebener Scheren-Zeile und der Kennung darunter ging damit durch
-  den Waechter **und** in die gespeicherte Nachricht. **Wer eine Zusicherung
-  ueber fremdes Verhalten in einen Waechter einbaut, misst sie vorher.**
+- **Der Waechter hat eine eingecheckte Selbstprobe**, weil eine Zahl in einem
+  Regeltext das Kommando und den Stand traegt (§14) und weil ein Waechter,
+  dessen Lauf niemand erzwingt, seine Abdeckungszahl zur Beruhigung macht
+  (§18):
+
+  ```bash
+  sh scripts/commit-msg-selbstprobe.sh
+  ```
+
+  Sie laeuft im `backend`-Job der CI mit. Jeder ihrer Faelle steht fuer einen
+  Fehler, der einmal echt war — die Herkunft steht je Fall im Skript.
+
+- **Vier Fassungen, drei davon defekt, und die Klasse ist immer dieselbe:**
+  Ein `commit-msg`-Hook kann **nicht wissen, was git am Ende speichert.** Git
+  entscheidet den `cleanup`-Modus nach der Aufrufart, und der wirkt ERST NACH
+  dem Hook: bei `-m`/`-F` bleiben Kommentarzeilen in der Nachricht, im Editor
+  fallen sie weg, abgeschnitten wird nur bei `-v`. Fassung 2 schnitt weg,
+  „was git ohnehin verwirft", und lag in beide Richtungen daneben. Fassung 3
+  schnitt ab der ersten `diff --git`-Zeile — eine Kennung DAHINTER kam durch
+  und wurde gespeichert. **Wer eine Zusicherung ueber fremdes Verhalten in
+  einen Waechter einbaut, misst sie vorher** — und schreibt die Restluecke
+  hin, statt eine absolute Zusage zu machen, die die naechste Stimme
+  widerlegt. Die Restluecke steht als Fall 19 in der Selbstprobe, also als
+  Messung und nicht als Behauptung.
 
 **Wichtig fuer die Vorlage, und deshalb zurueckgemeldet:** Die Falle stellt
 der Prozess selbst auf. Die Dauerregel „ein CI-Lauf je Slice" fuehrt dazu,

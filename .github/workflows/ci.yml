@@ -85,6 +85,12 @@ jobs:
       # Braucht kein Netz und kein gh: sie baut Wegwerf-Repos und stellt
       # ein falsches gh in den PATH.
       - run: sh scripts/release-selbstprobe.sh
+      # Die Selbstprobe des commit-msg-Hooks. Aus demselben Grund hier: Der
+      # Hook laeuft nur lokal und nur, wenn jemand `npm install` in der Wurzel
+      # gefahren hat — seine Abdeckung waere sonst reine Behauptung. Die Probe
+      # faehrt echte Commits in Wegwerf-Repos und prueft, was git SPEICHERT,
+      # nicht nur, was der Hook sieht.
+      - run: sh scripts/commit-msg-selbstprobe.sh
 
   frontend:
     runs-on: ubuntu-latest

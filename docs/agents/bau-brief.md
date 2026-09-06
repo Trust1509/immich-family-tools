@@ -52,17 +52,24 @@
 **Das Prüfskript mit gesetzter Locale aufrufen:**
 `LC_ALL=C.UTF-8 sh scripts/bau-brief-pruefen.sh <brief.md>`. Ohne sie fällt
 `setlocale` auf `C` zurück, wo es keine Fallfaltung für Mehrbyte-Zeichen gibt —
-`grep -i` findet dann kein „Ü" zu „ü". Betroffen sind **drei der zehn
-Themen-Muster** (`Sichtbares` über `verhalten änder`, `Kommandos` über
-`prüf-kommando`, `Prüffragen` über `prüffrage` und `zweck-identität`) sowie die
-Verneinungs-Liste (`entfäll`, `erübrigt`, `weiß ich nicht`) — gezählt, nicht
-geschätzt. Das Skript selbst setzt die Locale nicht.
+`grep -i` findet dann kein „Ü" zu „ü". Das Skript setzt die Locale nicht selbst.
+
+**Historie, weil die Zahl in dieser Zeile zweimal falsch war:** Bis v1.13.1
+trugen drei der zehn Themen-Muster literale Umlaute und fielen ohne Locale aus.
+v1.14.0 ersetzte sie durch einen Punkt — was den Defekt tarnte statt behob, weil
+ein Punkt **ein Byte** trifft und ein Umlaut aus zweien besteht. Seit dem
+Abgleich auf v1.14.1 benutzen alle sieben Ersatzmuster `..?` und treffen unter
+beiden Locales (gemessen, Kommando in der Offenlegung im Skript-Kopf). Was
+weiterhin von der Locale abhängt, ist die **Fallfaltung** — `## 9 PRÜFFRAGEN`
+in Versalien wird ohne sie nicht gefunden.
 
 Gemessen an einem Sonden-Brief, dessen einzige Fundstelle die Überschrift
 `## 9 PRÜFFRAGEN` war: ohne Locale meldet das Skript `[KEIN TREFFER]
 Prüffragen`, mit Locale `Kandidat`. **Das ist der teuerste Fehler, den dieses
 Skript machen kann** — nach seiner eigenen Asymmetrie ist „kein Treffer" das
 belastbare Urteil, ein Falsch-Negativ hier sieht also aus wie ein Beweis.
+Ob ein bestimmter Brief davon getroffen wird, hängt an seinem Wortlaut: Jedes
+Thema hat mehrere Alternativen, und eine ASCII-Alternative rettet es.
 
 **Seit v1.14.0 sucht das Skript umlautfrei** (`pr..?ffrage`, `zweck-identit.t`,
 `verhalten .nder`) und entfernt Markdown-Auszeichnung vor der Suche. Gemessen
@@ -70,34 +77,28 @@ an einer Sonde mit `## 9 PRÜFFRAGEN` und `Risiko: **R2**`: ohne Locale traf das
 alte Prüffragen-Muster **0**, das neue **1**; das alte Risiko-Muster traf durch
 den Fettdruck **0**, nach der Bereinigung **1**.
 
-**Aber nur EINER der beiden Defekte ist im Werkzeug behoben, und das ist der
-Unterschied, auf den es ankommt.** Die Markdown-Bereinigung wirkt ohne Zutun.
-Die Umlaut-Freiheit nicht: Ein einzelner Punkt steht für **ein Byte**, ein
-Umlaut besteht aus zweien. Von den sieben Ersatzmustern sind nur die zwei mit
-`..?` zweibytefest — `pr..?ffrage` und `pr..?f-kommando`. Die anderen fünf
-(`zweck-identit.t`, `verhalten .nder`, `entf.ll`, `er.brigt`,
-`wei. ich nicht`) treffen unter `LC_ALL=C` **null** Zeilen und unter
-`LC_ALL=C.UTF-8` je eine. Das Skript setzt die Locale nicht selbst.
+**Der v1.14.0-Fix war jedoch selbst defekt, und wir weichen deshalb von der
+Vorlagenfassung ab.** Ein einzelner Punkt trifft **ein Byte**, ein Umlaut
+besteht aus zweien — von den sieben Ersatzmustern waren nur die beiden mit
+`..?` zweibytefest. Die anderen fünf trafen unter `LC_ALL=C` **null** Zeilen.
+Und der `VERBOTE`-Block hatte **beide** Fixes der Version nicht bekommen: Er
+suchte mit literalem Umlaut und auf der unbereinigten Datei, fand
+`nicht **ändern**` also nie.
 
-Die praktische Folge, gemessen statt geschätzt — und schmaler, als sie klingt:
-Ohne gesetzte Locale meldet das Skript `[KEIN TREFFER] Sichtbares` und
-`[KEIN TREFFER] Prüffragen`, also **Vorhandenes als fehlend**, in genau der
-Richtung, die es selbst belastbar nennt. Die **Verneinungs-Warnung** bleibt
-dagegen weitgehend wirksam, weil vier ihrer Alternativen (`nicht`, `kein`,
-`braucht.*nicht`, `weiss ich nicht`) reines ASCII sind; nur `entfällt`,
-`erübrigt` und `weiß ich nicht` fallen aus. Das war in einer früheren Fassung
-dieses Absatzes überzeichnet — der Beleg dort („Einen Rot-Beweis brauchst du
-hier eher nicht") enthält `nicht` und wird auch ohne Locale gefangen.
+Beides ist bei uns behoben (`..?` in allen sieben Mustern, `VERBOTE` auf der
+bereinigten Datei), offengelegt als _war → ist → warum_ im Kopf des Skripts und
+an die Vorlage gemeldet. **Wir haben nicht auf die Vorlage gewartet**, weil
+dieses Skript hier vor jedem Bau-Brief verbindlich läuft und `lehren.md` §15
+gilt: Eine Messung, die der Vorlage widerspricht, ist zuerst ein Befund über
+die Vorlage — nicht ein Anlass, die eigene Messung umzudeuten. Die
+Byte-Gleichheit mit der Vorlage ist der Zweck der Regel, nicht ihr Ziel.
 
-Der `VERBOTE`-Block am Ende hat dagegen **beide** v1.14.0-Fixes nicht bekommen:
-Er sucht mit literalem Umlaut **und** auf der unbereinigten Datei.
-`nicht **ändern**` findet er nie, `NICHT ÄNDERN` nur mit Locale. Er druckt nur
-bei Treffern — sein Schweigen ist von „nichts da" nicht zu unterscheiden.
+Rot-Beweis der Abweichung an einer Sonde mit `nicht **ändern**` und
+`erübrigt`, beides unter `LC_ALL=C`: Elternfassung 0 Hinweise und 0
+Verneinungs-Warnungen, neue Fassung je 1.
 
-**Deshalb bleibt der Aufruf mit `LC_ALL=C.UTF-8` verbindlich** — nicht als
-Gürtel-und-Hosenträger, sondern weil der Schutz genau dort liegt. Gemeldet an
-die Vorlage; das Skript selbst bleibt byteweise identisch, weil es dort seinen
-Eigentümer hat.
+**Der Aufruf mit `LC_ALL=C.UTF-8` bleibt trotzdem verbindlich** — er schützt
+jetzt nicht mehr die Muster, sondern die Fallfaltung.
 
 **Die Form bleibt trotzdem Teil der Regel** — aber aus einem anderen Grund als
 früher. Die alte Fassung riet zu `Risiko: R<n> — …` und gegen
@@ -565,12 +566,20 @@ gehören in den Report.
 
 ## Den Orchestrator prüft niemand — außer er bestellt die Prüfung
 
-Alles, was der Hauptagent selbst schreibt, geht an Panel und Gates vorbei:
+Alles, was der Hauptagent selbst schreibt, ging an Panel und Gates vorbei:
 Bau-Briefe, Issue-Texte, CHANGELOG-Einträge, Panel-Kommentare. Kein Gate liest
-sie, keine Stimme bekommt sie vorgelegt. Und in jeder Bilanz traf ein
-erheblicher Teil der bestätigten Funde nicht den Bauer, sondern den
-Auftraggeber — bei uns zuletzt vier von acht in einem einzigen Slice, darunter
-beide Blocker.
+sie — und in jeder Bilanz traf ein erheblicher Teil der bestätigten Funde nicht
+den Bauer, sondern den Auftraggeber; bei uns zuletzt sieben von fünfzehn über
+drei Slices, darunter drei Blocker.
+
+**Seit v1.14.1 ist das teilweise geschlossen, und der Unterschied gehört
+benannt:** Der Bau-Brief geht als Issue-Kommentar an die **zweite** Stimme
+(Abschnitt „Ablage" unten), und der Panel-Diff enthält die
+Orchestrator-Texte des Slices (`panel.md`, „Der Prüfgegenstand schließt die
+Orchestrator-Texte ein"). Ungeprüft bleibt, was **außerhalb** eines Slices
+entsteht: Meldungen an die Vorlage, Antworten an Projektfremde, dieser Absatz
+hier. Für die gilt weiterhin nur die eigene Sorgfalt — was schwächer ist, als
+es sich anfühlt.
 
 Fünf Regeln, die den Orchestrator in den Prüfbereich holen:
 

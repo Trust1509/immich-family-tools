@@ -4,59 +4,113 @@
 # und loeste NULL CI-Laeufe aus. Die Ursache stand in Zeile 50 seiner eigenen
 # Nachricht — in einem Satz, der erklaerte, dass der VORIGE Commit die Kennung
 # bewusst nicht traegt. GitHub liest die ganze Nachricht, nicht nur die erste
-# Zeile; ein Satz UEBER die Kennung enthaelt sie.
+# Zeile; ein Satz UEBER die Kennung enthaelt sie. Und ein Lauf, den es nie gab,
+# hinterlaesst nichts: Wer danach in die Liste schaut, sieht den gruenen Lauf
+# des Vorgaengers ganz oben und liest ihn als seinen eigenen.
 #
-# Und der Ausfall wiegt schwerer als ein vergessener Lauf: Ein Lauf, den es nie
-# gab, hinterlaesst nichts. Wer danach in die Liste schaut, sieht den gruenen
-# Lauf des Vorgaengers ganz oben und liest ihn als seinen eigenen.
+# WAS DIESER WAECHTER LEISTET — und was nicht. Der Satz gehoert hierher, weil
+# drei Vorfassungen an einer zu grossen Zusage gescheitert sind:
 #
-# Ohne diesen Hook waere die Regel eine Notiz (Paragraph 18: ein Waechter,
-# dessen Lauf niemand erzwingt, macht die Abdeckungszahl zur Beruhigung).
+#   Ein commit-msg-Hook kann NICHT wissen, was git am Ende speichern wird.
 #
-# DREI FASSUNGEN, ZWEI DAVON DEFEKT — die Geschichte gehoert hierher, weil sie
-# die Klasse zeigt (Paragraph 21: Waechter-Code ist die defektdichteste Stelle):
+# Git entscheidet den `cleanup`-Modus nach der Aufrufart, und er wirkt ERST
+# NACH diesem Hook: bei -m/-F gilt `whitespace` (Kommentarzeilen bleiben in der
+# Nachricht!), im Editor `strip` (sie fallen weg), abgeschnitten wird nur bei
+# `scissors`, praktisch also nur bei -v. Jede Vorverarbeitung hier ist deshalb
+# eine SCHAETZUNG. Drei Fassungen haben das gelernt:
 #
-# 1. Fassung: kannte nur die Klammer-Form. GitHub dokumentiert daneben einen
-#    TRAILER — `skip-checks: true` am Ende der Nachricht. Er wirkt genauso,
-#    sieht aber wie eine harmlose Fusszeile aus.
-# 2. Fassung: schnitt vor der Pruefung alles ab der Scheren-Zeile weg und
-#    zusaetzlich jede Kommentarzeile — mit der Begruendung, das verwerfe git
-#    ohnehin. DAS WAR GEMESSEN FALSCH, und zwar in beide Richtungen zugleich:
-#    git verwirft Kommentarzeilen nur bei `cleanup=strip` (also im Editor),
-#    NICHT bei `-m`/`-F` — dort ist `whitespace` der Standard und `# [skip ci]`
-#    landet in der Nachricht. Und abgeschnitten wird nur bei
-#    `cleanup=scissors`, also praktisch nur bei `-v`. Eine Nachricht mit einer
-#    selbstgeschriebenen Scheren-Zeile und der Kennung darunter ging damit
-#    durch den Waechter UND in die gespeicherte Nachricht.
+#   1. schnitt gar nichts weg  -> sicher, aber lehnte jedes `git commit -v` an
+#      einer Datei ab, die die Kennung nur ERWAEHNT (ci.yml, lehren.md, diese
+#      Datei). Wer daran haengenbleibt, greift zu --no-verify — und dann ist
+#      der Waechter ganz weg.
+#   2. schnitt ab der Scheren-Zeile UND jede Kommentarzeile weg, mit der
+#      Begruendung "das verwirft git ohnehin". In beide Richtungen falsch,
+#      vier Umgehungen belegt.
+#   3. schnitt ab der ersten `diff --git`-Zeile nach einer Scheren-Zeile.
+#      Eine Nachricht mit selbstgeschriebener Scheren-Zeile, einer
+#      `diff --git`-Zeile und der Kennung DAHINTER kam durch — und git
+#      speicherte sie. Gefunden von der zweiten Panel-Stimme.
 #
-# 3. Fassung, diese: Es wird genau EIN Ding weggeschnitten — der Diff, den
-#    `git commit -v` unter die Scheren-Zeile haengt. Gemessen sieht das so aus:
+# 4. Fassung, diese: Weggeschnitten wird nur ein Block, der VOLLSTAENDIG wie
+#    ein von git erzeugter -v-Anhang aussieht — Scheren-Zeile, dann nur
+#    Kommentarzeilen, dann eine `diff --git`-Zeile, und ab dort bis zum Ende
+#    ausschliesslich diff-foermige Zeilen. Steht dort auch nur EINE Zeile, die
+#    nicht in einen Diff gehoert, wird gar nichts weggeschnitten und die ganze
+#    Nachricht geprueft.
 #
-#        # ------------------------ >8 ------------------------
-#        # Do not modify or remove the line above.
-#        # Everything below it will be ignored.
-#        diff --git a/f.txt b/f.txt
+# DIE VERBLEIBENDE LUECKE, gemessen statt weggeschwiegen (Fall 19 der
+# Selbstprobe): Die Ausnahme ist nur auf dem -v-Weg korrekt. Uebergibt jemand
+# DENSELBEN Dateiinhalt per -F, speichert git ihn vollstaendig — und der Hook
+# greift trotzdem nicht, weil er die Aufrufart nicht sehen kann. Dasselbe gilt
+# fuer eine Kennung, die als scheinbare Diff-Zeile (`+[skip ci]`) im Anhang
+# steht.
 #
-#    Also: ab der ersten `diff --git`-Zeile NACH einer Scheren-Zeile. Alles
-#    davor bleibt in der Pruefung, Kommentarzeilen eingeschlossen. Das ist die
-#    einzige Form, die git nachweislich nie speichert — und der Grund, warum
-#    diese Fassung keine Nachricht mehr durchlaesst, die GitHub auswertet.
+# Beides ist keine Nachlaessigkeit mehr, sondern Absicht — und dafuer gibt es
+# --no-verify, einen Tastendruck weiter. Dieser Waechter faengt das VERSEHEN,
+# das Paragraph 24 dokumentiert: den Satz ueber die Kennung, der die Kennung
+# enthaelt. Er ist kein Tor am Repo (siehe CLAUDE.md, Pruefschritte).
 #
-# Bewusst NICHT ausgenommen: `git merge --squash`. Git schreibt den Betreff
-# der Einzelcommits in den Rumpf — traegt einer davon die Kennung, traegt sie
-# der Squash-Commit im Rumpf, und GitHub liest sie dort. Die Ablehnung ist
-# dann richtig, nicht laestig.
+# BEWUSSTE UEBERDECKUNG, damit niemand sie fuer einen Fehler haelt:
+# - `[skip-ci]` mit Bindestrich ist keine der fuenf von GitHub dokumentierten
+#   Klammer-Formen und wird trotzdem abgelehnt. Eine Beinahe-Form abzulehnen
+#   kostet nichts; sie zu erlauben kostet einen Lauf, falls GitHub sie je
+#   ergaenzt.
+# - `skip-checks:` wird ab Zeile 2 an JEDER Stelle abgelehnt, nicht nur am
+#   Ende, obwohl nur der Trailer am Ende wirkt. Wer die Zeichenfolge in einem
+#   Fliesstext braucht, schreibt sie ohne Doppelpunkt.
+# - `git merge --squash` wird abgelehnt, wenn ein Einzelcommit die Kennung im
+#   Betreff trug: git schreibt diese Betreffzeilen in den Rumpf, und dort liest
+#   GitHub sie. Die Ablehnung ist dann richtig, nicht laestig.
+#
+# Selbstprobe: scripts/commit-msg-selbstprobe.sh, laeuft in der CI mit.
 
 SCHEREN='^#[[:space:]]*-{2,}[[:space:]]*>8[[:space:]]*-{2,}'
 
-# Den -v-Diff wegschneiden — aber nur, wenn es wirklich einer ist: eine
-# Scheren-Zeile allein genuegt nicht, es muss auch ein Diff darunter stehen.
-if grep -qE "$SCHEREN" "$1" &&
-   sed -nE "/$SCHEREN/,\$p" "$1" | grep -q '^diff --git '; then
-  NACHRICHT=$(sed -E "/$SCHEREN/,\$ { /^diff --git /,\$ d; }" "$1")
-else
-  NACHRICHT=$(cat "$1")
-fi
+# OHNE REGULAEREN AUSDRUCK fuer die Diff-Erkennung, und das ist kein Stilfrage.
+# Die erste Fassung dieser Stelle listete die Diff-Praefixe als awk-Regex mit
+# `\+\+\+`. In awk ist `\+` KEIN gueltiges Escape: awk brach mit
+# "invalid regexp" ab, die Nachricht wurde leer, und der Hook liess ALLES
+# durch. Sichtbar wurde es nur, weil die Selbstprobe einen Fall hatte, der
+# rot werden musste. Ein Waechter, dessen Muster man nicht lesen kann, ist
+# keiner (docs/agents/lehren.md Paragraph 21).
+NACHRICHT=$(
+  awk -v schere="$SCHEREN" '
+    function ist_diffzeile(z,   praefixe, n, i) {
+      if (z == "") return 1
+      # Kontext-, Zufuege- und Entfernzeilen eines Hunks.
+      if (z ~ /^[-+ ]/) return 1
+      # "\ No newline at end of file"
+      if (substr(z, 1, 1) == "\\") return 1
+      n = split("diff --git |index |--- |@@ |old mode |new mode |new file mode |deleted file mode |similarity index |rename from |rename to |Binary files ", praefixe, "|")
+      for (i = 1; i <= n; i++)
+        if (substr(z, 1, length(praefixe[i])) == praefixe[i]) return 1
+      return 0
+    }
+    { zeile[NR] = $0 }
+    END {
+      sz = 0
+      for (i = 1; i <= NR; i++) if (zeile[i] ~ schere) { sz = i; break }
+
+      anhang = 0
+      if (sz > 0) {
+        # Zwischen Schere und Diff-Kopf darf nur Kommentar stehen — git legt
+        # dort genau zwei Hinweiszeilen ab.
+        dz = 0
+        for (i = sz + 1; i <= NR; i++) {
+          if (substr(zeile[i], 1, 11) == "diff --git ") { dz = i; break }
+          if (substr(zeile[i], 1, 1) != "#") break
+        }
+        if (dz > 0) {
+          anhang = 1
+          for (i = dz; i <= NR; i++) if (!ist_diffzeile(zeile[i])) { anhang = 0; break }
+        }
+      }
+
+      bis = (anhang ? sz - 1 : NR)
+      for (i = 1; i <= bis; i++) print zeile[i]
+    }
+  ' "$1"
+)
 
 # Klammer-Form: ueberall wirksam, in der Betreffzeile absichtlich erlaubt.
 if printf '%s\n' "$NACHRICHT" | tail -n +2 | grep -qiE '\[(skip[ -]ci|ci[ -]skip|no[ -]ci|skip[ -]actions|actions[ -]skip)\]'; then
@@ -66,7 +120,7 @@ if printf '%s\n' "$NACHRICHT" | tail -n +2 | grep -qiE '\[(skip[ -]ci|ci[ -]skip
   exit 1
 fi
 
-# Trailer-Form: wirkt nur am Ende, also ist ab Zeile 2 alles verdaechtig.
+# Trailer-Form: wirkt nur am Ende, wird aber ab Zeile 2 ueberall abgelehnt.
 if printf '%s\n' "$NACHRICHT" | tail -n +2 | grep -qiE '^[[:space:]]*skip-checks[[:space:]]*:'; then
   echo "FEHLER: 'skip-checks'-Trailer in der Commit-Nachricht."
   echo "        GitHub wertet ihn wie die Klammer-Form aus — der Lauf entfaellt."

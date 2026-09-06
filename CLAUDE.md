@@ -146,19 +146,16 @@ Block 0 (`Risiko: R<n> — Auslöser: …`) plus neun Themen-Blöcke, keiner lee
 setzt die Locale nicht selbst, und ohne sie meldet es Vorhandenes als
 fehlend.**
 
-Der Grund hat sich mit v1.14.1 geändert, die Anweisung nicht. Vorher trugen
-drei der zehn Themen-Muster literale Umlaute; heute trägt **keines** mehr
-einen. Was bleibt, ist die Ersatzschreibweise selbst: Ein einzelner Punkt steht
-für **ein Byte**, ein Umlaut besteht aus zweien — `zweck-identit.t`,
-`verhalten .nder`, `entf.ll`, `er.brigt` und `wei. ich nicht` treffen unter
-`LC_ALL=C` also **null** Zeilen, unter `LC_ALL=C.UTF-8` je eine (gemessen,
-blinde Panel-Stimme 06.09.2026). Zweibytefest sind nur die beiden Muster mit
-`..?`: `pr..?ffrage` und `pr..?f-kommando`.
+Der Grund hat sich mit v1.14.1 geändert, die Anweisung nicht. Die Muster tragen
+heute keine literalen Umlaute mehr, und seit dem Abgleich benutzen alle sieben
+Ersatzmuster `..?` statt eines einzelnen Punkts — ein Punkt trifft **ein Byte**,
+ein Umlaut besteht aus zweien. **Das ist eine bewusste Abweichung von der
+Vorlagenfassung**, offengelegt im Kopf des Skripts und als Vorlagen-Issue #73
+gemeldet.
 
-Praktisch heißt das: Ohne die Locale meldet das Skript `[KEIN TREFFER]` für
-`Sichtbares` und `Prüffragen` — also Vorhandenes als fehlend, in genau der
-Richtung, die es selbst belastbar nennt. Der Schutz liegt damit in der
-Aufrufkonvention, nicht im Werkzeug. Details, Begründungen und
+Was weiterhin an der Locale hängt, ist die **Fallfaltung**: `## 9 PRÜFFRAGEN`
+in Versalien wird ohne sie nicht gefunden — und „kein Treffer" ist genau das
+Urteil, das dieses Skript belastbar nennt. Details, Begründungen und
 projektspezifische Prüf-Kommandos stehen in `docs/agents/bau-brief.md`, nicht
 hier.
 
@@ -231,6 +228,11 @@ nicht):\*\*
   Wächter, dessen Lauf niemand erzwingt, seine Abdeckungszahl zur Beruhigung
   macht (`docs/agents/lehren.md` §18), und weil ein kaputtes Gate am
   Release-Tag zu spät auffällt. Braucht kein Netz und kein `gh`.
+- Backend: `sh scripts/commit-msg-selbstprobe.sh` — die Selbstprobe des
+  `commit-msg`-Hooks, 19 Fälle. Aus demselben Grund hier: Der Hook läuft nur
+  lokal und nur nach einem `npm install` in der Wurzel; ohne diesen Lauf wäre
+  seine Abdeckung reine Behauptung. Sie fährt echte Commits in Wegwerf-Repos
+  und prüft, was git **speichert**, nicht nur, was der Hook sieht.
 - Frontend (in `frontend/`): `npm ci`
 - Frontend (in `frontend/`): `npm test`
 - Frontend (in `frontend/`): `npm run build` (enthält `tsc`)
@@ -251,7 +253,8 @@ aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 Dazu der **Commit-Nachrichten-Hook** (`.husky/commit-msg`): Er lehnt die
 CI-Überspring-Kennung ab Zeile 2 ab — in der Klammer- **und** in der
 Trailer-Form (`skip-checks:`), nachdem GitHub beide auswertet. Begründung und
-Vorfall: `docs/agents/lehren.md` §24.
+Vorfall: `docs/agents/lehren.md` §24; Abdeckung und benannte Restlücke:
+`scripts/commit-msg-selbstprobe.sh`.
 
 **Beide Hooks sind nach einem frischen Klon NICHT scharf** — und das ist der
 Fall, den man übersieht, weil im eingerichteten Arbeitsbaum alles läuft.
