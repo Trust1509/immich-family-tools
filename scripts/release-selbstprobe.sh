@@ -84,35 +84,40 @@ baue() {
 # Arbeitsbaum schmutzig und die Sauberkeits-Pruefung rot — die Sonde haette
 # ihren eigenen Befund erzeugt. Genau einmal passiert, deshalb steht es hier.
 STUBS="$ARBEIT/stub-bin"
+# Das Gate liest seit dem ersten echten Release ZEILEN, nicht ein
+# JSON-Objekt: "<sha> <status> <conclusion> <id>", eine je Lauf.
 stub_gh() {
   ZS=$1
   SHA=${4:-$(git -C "$ZS" rev-parse HEAD)}
   mkdir -p "$STUBS"
   cat > "$STUBS/gh" <<STUB
 #!/bin/sh
-printf '{"databaseId":4711,"headSha":"%s","status":"%s","conclusion":"%s"}\n' "$SHA" "$2" "$3"
+printf '%s %s %s 4711\n' "$SHA" "$2" "$3"
 STUB
   chmod +x "$STUBS/gh"
 }
 
-# gh antwortet ordentlich, aber kein Lauf passt auf den Stand. Genau das
-# liefert "first" auf einer leeren Liste.
-stub_gh_leer() {
-  mkdir -p "$STUBS"
-  printf '#!/bin/sh\necho null\n' > "$STUBS/gh"
-  chmod +x "$STUBS/gh"
-}
-
-# Zwei Objekte statt einem — die Feld-Auswertung per sed duerfte sie mischen,
-# also muss das Gate die Antwortform ablehnen statt sie auszulegen.
-stub_gh_mehrere() {
-  ZS=$1
+# MEHRERE Laeufe auf demselben Stand. Das ist seit "cancel-in-progress" in
+# ci.yml der Normalfall und nicht der Randfall — genau daran ist die erste
+# Fassung des Gates beim ersten echten Release gescheitert.
+# stub_gh_viele <verzeichnis> "<status> <conclusion>" ...
+stub_gh_viele() {
+  ZS=$1; shift
   SHA=$(git -C "$ZS" rev-parse HEAD)
   mkdir -p "$STUBS"
-  cat > "$STUBS/gh" <<STUB
-#!/bin/sh
-printf '[{"conclusion":"failure","databaseId":1,"headSha":"%s","status":"completed"},{"conclusion":"success","databaseId":2,"headSha":"%s","status":"completed"}]\n' "$SHA" "$SHA"
-STUB
+  echo '#!/bin/sh' > "$STUBS/gh"
+  N=1
+  for PAAR in "$@"; do
+    echo "echo '$SHA $PAAR $N'" >> "$STUBS/gh"
+    N=$((N + 1))
+  done
+  chmod +x "$STUBS/gh"
+}
+
+# gh antwortet ordentlich, aber kein Lauf passt auf den Stand: keine Zeile.
+stub_gh_leer() {
+  mkdir -p "$STUBS"
+  printf '#!/bin/sh\nexit 0\n' > "$STUBS/gh"
   chmod +x "$STUBS/gh"
 }
 
@@ -129,11 +134,11 @@ stub_gh_fremdlauf() {
 #!/bin/sh
 for A in "\$@"; do
   if [ "\$A" = "--workflow" ]; then
-    printf '{"conclusion":"cancelled","databaseId":33960519974,"headSha":"%s","status":"completed"}\n' "$SHA"
+    printf '%s completed cancelled 33960519974\n' "$SHA"
     exit 0
   fi
 done
-printf '{"conclusion":"success","databaseId":33960522227,"headSha":"%s","status":"completed"}\n' "$SHA"
+printf '%s completed success 33960522227\n' "$SHA"
 STUB
   chmod +x "$STUBS/gh"
 }
@@ -304,27 +309,40 @@ else
 fi
 erwarte "mit --ci-nicht-pruefen" FEHLER "KEIN GRUENES GATE"   "$(lauf "$Z" pruefen 1.5.0 --ci-nicht-pruefen)"
 stub_gh "$Z" completed failure
-erwarte "roter Lauf"             FEHLER "conclusion=failure"  "$(lauf "$Z" pruefen 1.5.0)"
+erwarte "roter Lauf"             FEHLER "fehlgeschlagene Laeufe" "$(lauf "$Z" pruefen 1.5.0)"
 stub_gh "$Z" in_progress ""
-erwarte "Lauf noch unterwegs"    FEHLER "status=in_progress"  "$(lauf "$Z" pruefen 1.5.0)"
+erwarte "Lauf noch unterwegs"    FEHLER "laeuft noch"         "$(lauf "$Z" pruefen 1.5.0)"
 stub_gh "$Z" completed success 0000000000000000000000000000000000000000
-erwarte "Lauf meldet fremden Stand" FEHLER "nicht HEAD"       "$(lauf "$Z" pruefen 1.5.0)"
+erwarte "Zeile meldet fremden Stand, zaehlt nicht" FEHLER "kein Lauf fuer HEAD" "$(lauf "$Z" pruefen 1.5.0)"
 # gh antwortet, aber KEIN Lauf passt. Diese Zeile fehlte in der ersten
 # Fassung — und eine Mutation, die genau sie auf "ok" dreht, blieb dadurch
 # unentdeckt, bei unveraendert "39 bestanden, 0 fehlgeschlagen". Von der
 # blinden Panel-Stimme gefunden und mit genau dieser Mutation belegt.
 stub_gh_leer
 erwarte "gh antwortet, kein Lauf passt" FEHLER "kein Lauf fuer HEAD" "$(lauf "$Z" pruefen 1.5.0)"
-stub_gh_mehrere "$Z"
-erwarte "mehrere Laeufe in der Antwort" FEHLER "unerwartete Antwortform" "$(lauf "$Z" pruefen 1.5.0)"
 stub_gh "$Z" completed success
 erwarte "gruener Lauf auf HEAD"  OK     "CI gruen fuer HEAD"  "$(lauf "$Z" pruefen 1.5.0)"
+
+# Mehrere Laeufe auf einem Stand — der Fall, an dem die erste Fassung beim
+# ersten echten Release gescheitert ist. Ein ABGEBROCHENER Lauf traegt kein
+# Urteil: Er wurde von unserer eigenen concurrency-Regel weggeschaltet, bevor
+# er eines faellen konnte. Er darf ein Gruen also weder ersetzen noch kippen.
+stub_gh_viele "$Z" "completed cancelled" "completed success"
+erwarte "abgebrochen PLUS gruen zaehlt als gruen" OK "abgebrochen und ohne Urteil" "$(lauf "$Z" pruefen 1.5.0)"
+stub_gh_viele "$Z" "completed cancelled" "completed cancelled"
+erwarte "nur abgebrochene sind KEIN Urteil" FEHLER "nur abgebrochene" "$(lauf "$Z" pruefen 1.5.0)"
+stub_gh_viele "$Z" "completed success" "completed failure"
+erwarte "ein Fehlschlag neben einem Gruen kippt es" FEHLER "fehlgeschlagene Laeufe" "$(lauf "$Z" pruefen 1.5.0)"
+stub_gh_viele "$Z" "completed success" "in_progress "
+erwarte "ein noch laufender Lauf haelt das Gate auf" FEHLER "laeuft noch" "$(lauf "$Z" pruefen 1.5.0)"
+stub_gh_viele "$Z" "completed success" "completed success"
+erwarte "zwei gruene sind gruen" OK "CI gruen fuer HEAD" "$(lauf "$Z" pruefen 1.5.0)"
 # Der Workflow-Filter: ein gruener FREMD-Lauf auf demselben Stand darf das
 # Gate nicht befriedigen. Der Stub antwortet je nachdem, ob --workflow
 # mitkommt — ohne Filter der gruene Fremdlauf, mit Filter der abgebrochene
 # CI-Lauf. Real gemessen an 8e46bf1: CI cancelled, Dependency Graph gruen.
 stub_gh_fremdlauf "$Z"
-erwarte "Fremdlauf zaehlt nicht als CI" FEHLER "conclusion=cancelled" "$(lauf "$Z" pruefen 1.5.0)"
+erwarte "Fremdlauf zaehlt nicht als CI" FEHLER "nur abgebrochene" "$(lauf "$Z" pruefen 1.5.0)"
 
 echo "9  Das gruene Gate als Ganzes"
 # Stub zurueck auf gruen — Abschnitt 8 hat ihn zuletzt auf den Fremdlauf
@@ -442,7 +460,7 @@ ueberlebt "der Ausfall-Zweig traegt die Zusicherung 'kein Lauf gefunden'" \
 stub_gh_fremdlauf "$Z"
 ZM2=$(mutiere workflow-filter "$Z" '--workflow ci.yml --limit 60' '--limit 60')
 ueberlebt "der Workflow-Filter traegt: ohne ihn gewinnt der gruene Fremdlauf" \
-  "$(lauf "$ZM2" pruefen 1.5.0)" "conclusion=cancelled"
+  "$(lauf "$ZM2" pruefen 1.5.0)" "nur abgebrochene"
 
 stub_gh "$Z" completed success
 ZM3=$(mutiere risiko "$Z" \
@@ -462,11 +480,11 @@ ueberlebt "die Sauberkeits-Pruefung traegt" \
   "$(lauf "$ZM4" pruefen 1.5.0)" "nicht sauber"
 
 ZM5=$(mutiere headsha "$Z" \
-  'rot "CI: Lauf $LAUF meldet' \
-  'ok "SHA egal" # rot "CI: Lauf $LAUF meldet')
+  '[ "$Z_SHA" = "$SHA" ] || continue' \
+  'true # [ "$Z_SHA" = "$SHA" ] || continue')
 stub_gh "$ZM5" completed success 0000000000000000000000000000000000000000
-ueberlebt "die headSha-Nachpruefung traegt" \
-  "$(lauf "$ZM5" pruefen 1.5.0)" "nicht HEAD"
+ueberlebt "die headSha-Pruefung je Zeile traegt" \
+  "$(lauf "$ZM5" pruefen 1.5.0)" "kein Lauf fuer HEAD"
 
 stub_gh "$Z" completed success
 ZM6=$(mutiere codestellen "$Z" \

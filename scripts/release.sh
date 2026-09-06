@@ -206,39 +206,74 @@ pruefe_ci() {
   # Die headSha-Nachpruefung unten faengt das NICHT: Der Fremdlauf meldet
   # denselben Stand. Verwandt mit docs/agents/lehren.md §6, aber eine eigene
   # Klasse — dort war es der falsche Commit, hier der falsche Workflow.
-  ERGEBNIS=$(cd "$WURZEL" && "$GH" run list --workflow ci.yml --limit 60 \
-               --json headSha,status,conclusion,databaseId \
-               --jq "[.[] | select(.headSha == \"$SHA\")] | first" 2>/dev/null || true)
-  if [ -z "$ERGEBNIS" ] || [ "$ERGEBNIS" = "null" ]; then
-    rot "CI: kein Lauf fuer HEAD ($KURZ) gefunden — ROT, nicht 'noch nicht da'"
-    return
-  fi
-  # Die Auswertung unten liest die Felder EINZELN mit greedy ".*". Bei genau
-  # einem Objekt ist das richtig; kaemen mehrere, koennte sie Felder aus
-  # VERSCHIEDENEN Laeufen mischen und einen Zustand melden, den es nie gab.
-  # "first" im jq-Ausdruck soll das ausschliessen — nachgeprueft statt
-  # geglaubt, weil der Ausdruck fremder Code ist.
-  ANZAHL=$(echo "$ERGEBNIS" | grep -o '"headSha"' | wc -l | tr -d ' ')
-  if [ "$ANZAHL" != "1" ]; then
-    rot "CI: unerwartete Antwortform ($ANZAHL Laeufe statt 1) — nicht auswertbar, also ROT"
-    return
-  fi
-  STATUS=$(echo "$ERGEBNIS" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
-  SCHLUSS=$(echo "$ERGEBNIS" | sed -n 's/.*"conclusion":"\([^"]*\)".*/\1/p')
-  LAUF=$(echo "$ERGEBNIS" | sed -n 's/.*"databaseId":\([0-9]*\).*/\1/p')
-  GEMELDET=$(echo "$ERGEBNIS" | sed -n 's/.*"headSha":"\([^"]*\)".*/\1/p')
-  # Die Filterung steckt im --jq-Ausdruck, also in fremdem Code. Wir pruefen
-  # sein Ergebnis nach: ein Lauf, der einen anderen Stand meldet, ist kein
-  # Beleg fuer diesen. Genau so wurde hier einmal ein Issue gegen fremdes
-  # Gruen geschlossen (docs/agents/lehren.md §6).
-  if [ "$GEMELDET" != "$SHA" ]; then
-    rot "CI: Lauf $LAUF meldet $(echo "$GEMELDET" | cut -c1-7), nicht HEAD ($KURZ)"
-    return
-  fi
-  if [ "$STATUS" = "completed" ] && [ "$SCHLUSS" = "success" ]; then
-    ok "CI gruen fuer HEAD (Lauf $LAUF)"
+  #
+  # ALLE Laeufe dieses Stands, eine Zeile je Lauf. NICHT "first".
+  #
+  # Die erste Fassung nahm den neuesten Lauf und fragte, was er sagt. Am
+  # ersten echten Release ist sie genau daran gescheitert: Auf dem Stand lagen
+  # ein abgebrochener und ein gruener CI-Lauf, "first" erwischte den
+  # abgebrochenen, das Gate wurde rot. Das ist kein Randfall, sondern die
+  # Folge unserer EIGENEN ci.yml — "cancel-in-progress" bricht den Push-Lauf
+  # ab, sobald ein zweiter auf demselben Zweig startet. Ein Gate, das mit der
+  # normalen Arbeitsweise des Repos nicht vereinbar ist, wird umgangen statt
+  # repariert.
+  #
+  # Die Regel jetzt: Ein ABGEBROCHENER Lauf traegt kein Urteil — er wurde
+  # weggeschaltet, bevor er eines faellen konnte. Er zaehlt also weder fuer
+  # noch gegen. Alles andere zaehlt:
+  #   kein Lauf                        -> ROT (nicht "noch nicht da")
+  #   nur abgebrochene                 -> ROT (kein Urteil vorhanden)
+  #   irgendein Fehlschlag             -> ROT, auch neben einem gruenen
+  #   irgendetwas laeuft noch          -> ROT
+  #   mindestens ein gruener, sonst nichts Schlechtes -> gruen
+  #
+  # Die Zeilenform ersetzt zugleich das Feld-Lesen per sed am JSON-Objekt.
+  # Der headSha steht in JEDER Zeile und wird in JEDER Zeile nachgeprueft —
+  # die Filterung steckt im jq-Ausdruck, also in fremdem Code, und genau so
+  # wurde hier einmal ein Issue gegen fremdes Gruen geschlossen (§6).
+  ZEILEN=$(cd "$WURZEL" && "$GH" run list --workflow ci.yml --limit 60 \
+             --json headSha,status,conclusion,databaseId \
+             --jq ".[] | \"\(.headSha) \(.status) \(.conclusion) \(.databaseId)\"" \
+             2>/dev/null || true)
+  GRUENE=""; SCHLECHTE=""; ABGEBROCHEN=""; OFFEN=""
+  for_each_lauf() {
+    while read -r Z_SHA Z_STATUS Z_SCHLUSS Z_ID; do
+      [ "$Z_SHA" = "$SHA" ] || continue
+      if [ "$Z_STATUS" != "completed" ]; then
+        OFFEN="$OFFEN $Z_ID($Z_STATUS)"
+      else
+        case "$Z_SCHLUSS" in
+          success)   GRUENE="$GRUENE $Z_ID" ;;
+          cancelled) ABGEBROCHEN="$ABGEBROCHEN $Z_ID" ;;
+          *)         SCHLECHTE="$SCHLECHTE $Z_ID($Z_SCHLUSS)" ;;
+        esac
+      fi
+    done
+    printf '%s|%s|%s|%s\n' "$GRUENE" "$SCHLECHTE" "$ABGEBROCHEN" "$OFFEN"
+  }
+  # Die Schleife laeuft in einer Pipeline, also in einer Subshell — ihre
+  # Variablen ueberleben sie nicht. Deshalb kommt das Ergebnis als eine Zeile
+  # zurueck und wird hier zerlegt.
+  BILANZ=$(printf '%s\n' "$ZEILEN" | for_each_lauf)
+  GRUENE=$(echo "$BILANZ" | cut -d'|' -f1)
+  SCHLECHTE=$(echo "$BILANZ" | cut -d'|' -f2)
+  ABGEBROCHEN=$(echo "$BILANZ" | cut -d'|' -f3)
+  OFFEN=$(echo "$BILANZ" | cut -d'|' -f4)
+
+  if [ -n "$SCHLECHTE" ]; then
+    rot "CI fuer HEAD ($KURZ): fehlgeschlagene Laeufe:$SCHLECHTE"
+  elif [ -n "$OFFEN" ]; then
+    rot "CI fuer HEAD ($KURZ): laeuft noch:$OFFEN — abwarten, nicht taggen"
+  elif [ -n "$GRUENE" ]; then
+    if [ -n "$ABGEBROCHEN" ]; then
+      ok "CI gruen fuer HEAD (Lauf$GRUENE; abgebrochen und ohne Urteil:$ABGEBROCHEN)"
+    else
+      ok "CI gruen fuer HEAD (Lauf$GRUENE)"
+    fi
+  elif [ -n "$ABGEBROCHEN" ]; then
+    rot "CI fuer HEAD ($KURZ): nur abgebrochene Laeufe:$ABGEBROCHEN — kein Urteil, also ROT"
   else
-    rot "CI fuer HEAD: status=$STATUS conclusion=$SCHLUSS (Lauf $LAUF)"
+    rot "CI: kein Lauf fuer HEAD ($KURZ) gefunden — ROT, nicht 'noch nicht da'"
   fi
 }
 
