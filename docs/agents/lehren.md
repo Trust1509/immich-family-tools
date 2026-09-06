@@ -467,7 +467,9 @@ weiter die alte Pauschalregel. Geändert wurde die Stelle, die im Auftrag benann
 war. Aufgefallen ist es nur, weil ausdrücklich nach Widersprüchen gefragt wurde.
 
 **Regel:** Wer eine Regel ändert, sucht sie in **allen** Dateien
-(`grep -rn` über das Repo), nicht nur an der genannten Stelle. Und: eine Regel
+(`LC_ALL=C.UTF-8 grep -rni` über das Repo — ohne die Locale faltet `-i` keine
+Umlaute, die Suche verfehlt also ausgerechnet die deutschen Fachwörter), nicht
+nur an der genannten Stelle. Und: eine Regel
 hat genau einen Eigentümer, alle anderen Stellen verweisen.
 
 **Die Art der Datei bestimmt, WIE die Drift behoben wird** — nicht jede

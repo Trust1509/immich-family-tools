@@ -7,7 +7,7 @@
 >
 > Deshalb hat der Brief ein **Pflicht-Gerüst**. Fehlt ein Block, ist der Brief
 > nicht fertig; vor jedem Absenden verbindlich:
-> `sh scripts/bau-brief-pruefen.sh <brief.md>`. Das Skript fängt den
+> `LC_ALL=C.UTF-8 sh scripts/bau-brief-pruefen.sh <brief.md>`. Das Skript fängt den
 > **vergessenen** Block — eine Floskel („Prüffragen wurden berücksichtigt")
 > kann es davon nicht unterscheiden. Es ersetzt das Lesen nicht.
 
@@ -49,11 +49,24 @@
                           Weglassen ist keine⟩
 ```
 
-**Block-Überschriften nicht in Versalien schreiben.** Das Prüfskript findet
-Umlaute in Großschreibung nicht (`grep -i` faltet in dieser Umgebung kein
-„Ü" — gemessen, betrifft alle Muster mit Nicht-ASCII). Ein Brief, der Block 9
-vollständig behandelt, aber die Überschrift `## 9 PRÜFFRAGEN` schreibt, wird
-als „kommt NIRGENDS vor" gemeldet.
+**Das Prüfskript mit gesetzter Locale aufrufen:**
+`LC_ALL=C.UTF-8 sh scripts/bau-brief-pruefen.sh <brief.md>`. Ohne sie fällt
+`setlocale` auf `C` zurück, wo es keine Fallfaltung für Mehrbyte-Zeichen gibt —
+`grep -i` findet dann kein „Ü" zu „ü". Betroffen sind **drei der zehn
+Themen-Muster** (`Sichtbares` über `verhalten änder`, `Kommandos` über
+`prüf-kommando`, `Prüffragen` über `prüffrage` und `zweck-identität`) sowie die
+Verneinungs-Liste (`entfäll`, `erübrigt`, `weiß ich nicht`) — gezählt, nicht
+geschätzt. Das Skript selbst setzt die Locale nicht.
+
+Gemessen an einem Sonden-Brief, dessen einzige Fundstelle die Überschrift
+`## 9 PRÜFFRAGEN` war: ohne Locale meldet das Skript `[KEIN TREFFER]
+Prüffragen`, mit Locale `Kandidat`. **Das ist der teuerste Fehler, den dieses
+Skript machen kann** — nach seiner eigenen Asymmetrie ist „kein Treffer" das
+belastbare Urteil, ein Falsch-Negativ hier sieht also aus wie ein Beweis.
+
+Die frühere Fassung dieser Stelle riet, Block-Überschriften nicht in Versalien
+zu schreiben. Das war eine Umgehung des Defekts; seit v1.13.1 ist die Ursache
+benannt und behebbar, und die Umgehung entfällt.
 
 **Warum Block 9 existiert und nicht nur die Fragenliste:** Ein Projekt hat die
 Prüffragen einen ganzen Slice lang nicht angewendet — sie standen seit dem

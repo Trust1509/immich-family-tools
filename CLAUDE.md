@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.13.0** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.13.1** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -114,7 +114,10 @@ Projekt stehen ebenfalls dort.
 
 Jeder Bau-Auftrag folgt dem Pflicht-Gerüst aus `docs/agents/bau-brief.md` —
 Block 0 (`Risiko: R<n> — Auslöser: …`) plus neun Themen-Blöcke, keiner leer.
-**Vor jedem Absenden verbindlich:** `sh scripts/bau-brief-pruefen.sh <brief.md>`.
+**Vor jedem Absenden verbindlich:**
+`LC_ALL=C.UTF-8 sh scripts/bau-brief-pruefen.sh <brief.md>` — ohne die Locale
+findet `grep -i` die Umlaute in drei der zehn Themen-Muster nicht und das
+Skript meldet Vorhandenes als fehlend (gemessen, `docs/agents/bau-brief.md`).
 Details, Begründungen und projektspezifische Prüf-Kommandos stehen dort, nicht
 hier.
 

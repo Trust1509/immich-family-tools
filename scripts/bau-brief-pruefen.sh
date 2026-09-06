@@ -10,6 +10,11 @@
 #                    faellt, liefert null Treffer, obwohl sie dasteht
 #                    (gemessen an umbrochener Markdown-Prosa, 08/2026).
 #                    Einzelwoerter koennen nicht umbrochen werden.
+#                    UND: wer diesem Skript eine eigene Suche zur Seite
+#                    stellt, setzt LC_ALL=C.UTF-8 davor — ohne Locale faltet
+#                    "grep -i" keine Umlaute (gemessen: 1 von 2 Zeilen), und
+#                    zwar nur bei Nicht-ASCII, also ausgerechnet bei den
+#                    deutschen Fachwoertern.
 #   EIN Treffer   -> unbelastbar. Es kann Behandlung sein, Erwaehnung,
 #                    Verneinung, Nachbarwort oder wiederverwendete Floskel.
 #

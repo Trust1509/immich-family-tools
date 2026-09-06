@@ -190,9 +190,11 @@ Aussage eines anderen. Zwei gemessene Wege, auf denen sie falsch verwirft:
 grep arbeitet zeilenweise, eine Wortgruppe über einem Prosa-Umbruch liefert
 null Treffer, obwohl der Satz dasteht; und ohne `-i` verfehlt „Synthese" das
 „SYNTHESE" im Text. Beides hätte beinahe einen KORREKTEN Bauer-Bericht als
-Fehlbefund abgeräumt. Bevor eine Null-Treffer-Suche etwas verwirft: `-i`
-setzen und das **seltenste Einzelwort** suchen — ein Einzelwort kann nicht
-umbrochen werden.
+Fehlbefund abgeräumt. Bevor eine Null-Treffer-Suche etwas verwirft:
+**`LC_ALL=C.UTF-8` voranstellen**, `-i` setzen und das **seltenste Einzelwort**
+suchen — ein Einzelwort kann nicht umbrochen werden. Ohne die Locale faltet
+`-i` keine Umlaute, und die Sonde verwirft dann einen korrekten Befund mit
+einer Zahl, die nach Beweis aussieht.
 
 **Beleg (Vorlagen-CHANGELOG v1.12.3, nicht dieses Projekt — Korrektur der
 Brief-Prämisse):** Der Vorfall stammt aus der Vorlage selbst, gemeldet von P4:
