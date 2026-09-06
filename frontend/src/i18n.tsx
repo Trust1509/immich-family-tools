@@ -108,7 +108,7 @@ export function readStoredLang(): Lang {
 const translations = {
   // ── App / Navigation ──────────────────────────────────────────────────
   nav_accounts: { de: "Accounts", en: "Accounts", "pt-BR": "Contas" },
-  nav_people: { de: "Personen", en: "People", "pt-BR": "Pessoa" },
+  nav_people: { de: "Personen", en: "People", "pt-BR": "Pessoas" },
   nav_matches: {
     de: "Match-Vorschläge",
     en: "Match Suggestions",
@@ -117,7 +117,7 @@ const translations = {
   nav_manual: { de: "Manuell matchen", en: "Manual Match", "pt-BR": "Correspondência Manual" },
   nav_albums: { de: "Alben", en: "Albums", "pt-BR": "Álbuns" },
   nav_log: { de: "Sync Log", en: "Sync Log", "pt-BR": "Sync Log" },
-  nav_extend: { de: "Match erweitern", en: "Extend Match", "pt-BR": "Extender Correspondência" },
+  nav_extend: { de: "Match erweitern", en: "Extend Match", "pt-BR": "Estender Correspondência" },
   app_subtitle: {
     de: "Immich Multi-Account",
     en: "Immich Multi-Account",
@@ -237,7 +237,7 @@ const translations = {
   },
 
   // ── PeopleGrid ────────────────────────────────────────────────────────
-  people_title: { de: "Personen", en: "People", "pt-BR": "Pessoa" },
+  people_title: { de: "Personen", en: "People", "pt-BR": "Pessoas" },
   people_subtitle: {
     de: (total: number, named: number, unnamed: number) =>
       `${total} Personen aus allen Accounts · ${named} benannt · ${unnamed} unbekannt`,
@@ -252,14 +252,14 @@ const translations = {
   people_empty: {
     de: "Keine Personen gefunden.",
     en: "No people found.",
-    "pt-BR": "Nenhuma pessoa encontrada",
+    "pt-BR": "Nenhuma pessoa encontrada.",
   },
 
   // ── MatchSuggestions ─────────────────────────────────────────────────
   matches_title: {
     de: "Match-Vorschläge",
     en: "Match Suggestions",
-    "pt-BR": "Sugestões de Combinações",
+    "pt-BR": "Sugestões de Correspondência",
   },
   matches_subtitle: {
     de: (open: number, dismissed: number, high: number) =>
@@ -365,7 +365,7 @@ const translations = {
     de: 'Dieser Match ist Teil eines Albums mit mehr als 2 Accounts. Bitte Änderungen über "Alben" oder "Match erweitern" vornehmen.',
     en: 'This match is part of an album with more than 2 accounts. Please make changes via "Albums" or "Extend Match".',
     "pt-BR":
-      'Esta correspondência faz parte de um álbum com mais de duas contas. Por favor, faça alterações via "Álbums" ou "Estender Correspondência".',
+      'Esta correspondência faz parte de um álbum com mais de duas contas. Por favor, faça alterações via "Álbuns" ou "Estender Correspondência".',
   },
   no_open_matches: {
     de: "Keine offenen Vorschläge.",
@@ -465,7 +465,7 @@ const translations = {
   action_link: { de: "Album verknüpfen", en: "Link album", "pt-BR": "Vincular álbum" },
 
   // ── ExtendMatch ───────────────────────────────────────────────────────
-  extend_title: { de: "Match erweitern", en: "Extend Match", "pt-BR": "Extender Correspondência" },
+  extend_title: { de: "Match erweitern", en: "Extend Match", "pt-BR": "Estender Correspondência" },
   extend_subtitle: {
     de: "Füge einen Account und eine Person zu einem bestehenden gemeinsamen Album hinzu.",
     en: "Add an account and person to an existing shared album.",
@@ -475,7 +475,7 @@ const translations = {
   extend_pick_album_hint: {
     de: "Klicke auf ein Album um es auszuwählen.",
     en: "Click an album to select it.",
-    "pt-BR": "Clique em um álbum para seleciona-lo.",
+    "pt-BR": "Clique em um álbum para selecioná-lo.",
   },
   extend_new_account: { de: "Neuer Account", en: "New account", "pt-BR": "Nova conta" },
   extend_new_person: { de: "Person auswählen", en: "Select person", "pt-BR": "Selecionar pessoa" },
@@ -511,7 +511,7 @@ const translations = {
     de: 'Nur für neue Matches über mehrere Accounts. Um eine Person zu einem bestehenden Match hinzuzufügen → "Match erweitern" verwenden.',
     en: 'For new matches across multiple accounts only. To add a person to an existing match → use "Extend Match".',
     "pt-BR":
-      'Apenas para novas correspondências em múltiplas contas. Para adicionar uma pessoa a uma correspondência existente. → use "Extender Correspondência".',
+      'Apenas para novas correspondências em múltiplas contas. Para adicionar uma pessoa a uma correspondência existente. → use "Estender Correspondência".',
   },
 
   // ── ManualMatch ───────────────────────────────────────────────────────
@@ -526,7 +526,7 @@ const translations = {
     "pt-BR":
       "Selecione a pessoa correspondente para cada conta configurada, atribua um nome compartilhado e, opcionalmente, crie um álbum compartilhado.",
   },
-  manual_people: { de: "Personen", en: "People", "pt-BR": "Pessoa" },
+  manual_people: { de: "Personen", en: "People", "pt-BR": "Pessoas" },
   account_select_ph: {
     de: "— Account wählen —",
     en: "— Select account —",
