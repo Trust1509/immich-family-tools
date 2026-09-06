@@ -145,5 +145,6 @@ async def account_status(account_id: str, request: Request):
             name=account.name,
             color=account.color,
             reachable=False,
-            error="Immich-Anfrage fehlgeschlagen",
+            error=errors.immich_request_failed().detail,
+            error_key=errors.immich_request_failed().key,
         )

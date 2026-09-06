@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { api, Match, Account, ManagedAlbum } from "../api/client";
 import FaceCompare from "./FaceCompare";
-import { useT } from "../i18n";
+import { useT, type ServerErrorLike } from "../i18n";
 
 // ── Album Dialog ───────────────────────────────────────────────────────────
 
@@ -187,7 +187,7 @@ function MatchCard({
   managedAlbum?: ManagedAlbum;
   groupPersonCount: number;
 }) {
-  const { t } = useT();
+  const { t, errorText } = useT();
   const defaultName = match.person_a.person_name || match.person_b.person_name || "";
   const [syncName, setSyncName] = useState(defaultName);
   const [mode, setMode] = useState<null | "name" | "album">(null);
@@ -230,7 +230,7 @@ function MatchCard({
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
       if (ok) setTimeout(() => setResult(null), 4000);
     },
-    onError: (err: Error) => setAlbumError(err.message),
+    onError: (err: Error) => setAlbumError(errorText(err as ServerErrorLike)),
   });
 
   const refreshMutation = useMutation({
@@ -241,7 +241,7 @@ function MatchCard({
       qc.invalidateQueries({ queryKey: ["sync-log"] });
       if (ok) setTimeout(() => setResult(null), 4000);
     },
-    onError: (err: Error) => setResult({ text: err.message, ok: false }),
+    onError: (err: Error) => setResult({ text: errorText(err as ServerErrorLike), ok: false }),
   });
 
   return (

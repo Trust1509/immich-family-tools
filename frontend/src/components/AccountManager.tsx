@@ -64,6 +64,7 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (c: string)
 }
 
 function StatusDot({ accountId }: { accountId: string }) {
+  const { errorText } = useT();
   const { data, isLoading } = useQuery({
     queryKey: ["account-status", accountId],
     queryFn: () => api.accounts.status(accountId),
@@ -74,7 +75,7 @@ function StatusDot({ accountId }: { accountId: string }) {
   return data.reachable ? (
     <CheckCircle size={14} className="text-emerald-400" />
   ) : (
-    <span title={data.error}>
+    <span title={data.error ? errorText({ message: data.error, key: data.error_key }) : undefined}>
       <XCircle size={14} className="text-red-400" />
     </span>
   );

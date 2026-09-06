@@ -58,6 +58,15 @@ class AppError(HTTPException):
 
 # ── Die Meldungen ──────────────────────────────────────────────────────────
 #
+# DIE STATUSCODES SIND ABGESCHRIEBEN, NICHT GEWAEHLT. Beim ersten Anlauf habe
+# ich vier davon "aufgeraeumt" (422 -> 400 bzw. 409), weil sie mir passender
+# schienen — im selben Commit, der behauptete, an der Schnittstelle aendere
+# sich nichts. Ein Statuscode ist der haertere Teil des Vertrags als der Text:
+# Fremdkonsumenten verzweigen darauf. Von der blinden Panel-Stimme gefunden,
+# die es an der laufenden App gegen den Elternstand gemessen hat.
+# Wer hier einen Code aendert, aendert die Schnittstelle. Das ist ein eigener
+# Slice, kein Nebeneffekt.
+#
 # Als Funktionen und nicht als Konstanten, weil einige Parameter tragen und
 # weil ein Aufruf an der Fundstelle lesbarer ist als ein Konstantenname.
 # Die Statuscodes stehen HIER und nicht an den Fundstellen: derselbe Fehler
@@ -106,7 +115,7 @@ def immich_request_failed() -> AppError:
 
 def album_name_required() -> AppError:
     return AppError(
-        400, "err_album_name_required", "album_name erforderlich für neues Album"
+        422, "err_album_name_required", "album_name erforderlich für neues Album"
     )
 
 
@@ -119,12 +128,12 @@ def album_already_managed() -> AppError:
 
 
 def min_two_people() -> AppError:
-    return AppError(400, "err_min_two_people", "Mindestens 2 Personen erforderlich")
+    return AppError(422, "err_min_two_people", "Mindestens 2 Personen erforderlich")
 
 
 def not_undoable() -> AppError:
     return AppError(
-        409, "err_not_undoable", "Aktion kann nicht rückgängig gemacht werden"
+        422, "err_not_undoable", "Aktion kann nicht rückgängig gemacht werden"
     )
 
 
@@ -146,7 +155,7 @@ def too_many_login_attempts() -> AppError:
 
 def invalid_time_format() -> AppError:
     return AppError(
-        400, "err_invalid_time_format", "Invalid time format. Use HH:MM (e.g. 01:00)"
+        422, "err_invalid_time_format", "Invalid time format. Use HH:MM (e.g. 01:00)"
     )
 
 

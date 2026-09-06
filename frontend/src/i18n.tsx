@@ -1328,7 +1328,7 @@ function renderLogMessage(lang: Lang, entry: LogLikeEntry): string {
  *  Warum nicht die Uebersetzungen auf ein Woerterbuch umstellen? Weil dann
  *  jede der 157 uebrigen Zeilen mitgeaendert werden muesste, um fuenf
  *  Faelle zu bedienen. */
-const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
+export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_account_id_not_found: ["id"],
   err_owner_account_id_not_found: ["id"],
   err_person_validation_failed: ["account"],
@@ -1352,14 +1352,26 @@ function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
   // Stand, oder gar kein Schluessel wie bei FastAPIs eigenen
   // Validierungsfehlern —, dann zeigt es den deutschen Klartext des Servers.
   // Der teuerste Fehler dieses Pfades waere "Error:" gefolgt von Leere.
-  if (!key || !Object.prototype.hasOwnProperty.call(translations, key)) {
-    return fehler.message;
-  }
+  // NUR err_*-Schluessel. Ohne die Schranke schlaegt ein Schluessel im
+  // GESAMTEN Woerterbuch nach — auch in den 157 Oberflaechen-Texten. Ein
+  // Tippfehler serverseitig lieferte dann einen fremden Satz oder einen mit
+  // "undefined" gefuellten Log-Text, statt sauber auf den Klartext
+  // zurueckzufallen. Von der blinden Panel-Stimme gefunden.
+  if (!key || !key.startsWith("err_")) return fehler.message;
+  if (!Object.prototype.hasOwnProperty.call(translations, key)) return fehler.message;
+
   const eintrag = (translations as Record<string, Record<Lang, unknown>>)[key][lang];
   if (typeof eintrag === "function") {
-    const reihenfolge = ERROR_PARAM_ORDER[key] ?? [];
-    const werte = reihenfolge.map((name) => fehler.params?.[name] ?? "");
-    return (eintrag as (...a: string[]) => string)(...werte);
+    const reihenfolge = ERROR_PARAM_ORDER[key];
+    // Kein Eintrag in ERROR_PARAM_ORDER, oder ein Wert fehlt: Rueckfall auf
+    // den Klartext des Servers statt eines Satzes mit Luecke. Die erste
+    // Fassung fuellte "" ein und zeigte «» bzw. "undefined" — lesbar war das
+    // nicht, und rot wurde nichts. Der Test unten deckt jeden der fuenf
+    // Schluessel mit Werten ab, nicht nur zwei.
+    if (!reihenfolge) return fehler.message;
+    const werte = reihenfolge.map((name) => fehler.params?.[name]);
+    if (werte.some((w) => w === undefined || w === "")) return fehler.message;
+    return (eintrag as (...a: string[]) => string)(...(werte as string[]));
   }
   if (typeof eintrag === "string" && eintrag.length > 0) return eintrag;
   return fehler.message;

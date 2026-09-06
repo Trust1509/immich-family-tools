@@ -315,7 +315,7 @@ Umlaute/Sonderzeichen, kein ASCII-Ersatz.
 `details`-Feld bleibt als Fallback für Alt-Einträge bestehen, nicht für neue
 Einträge verwenden.
 
-**Fehlermeldungen des Servers.** Seit v1.7.0 wirft kein Router mehr eine nackte
+**Fehlermeldungen des Servers.** Kein Router wirft mehr eine nackte
 `HTTPException` — jede Meldung kommt aus `backend/errors.py` und trägt einen
 Schlüssel. Die Antwort führt **beides**: `detail` bleibt eine Zeichenkette und
 bleibt deutsch, `error_key` und `error_params` stehen daneben. Das ist keine

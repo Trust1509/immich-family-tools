@@ -103,4 +103,10 @@ class AccountStatus(BaseModel):
     color: str
     reachable: bool
     error: Optional[str] = None
+    # Der Schluessel zum Text darueber. Gleiche Bauart wie die Fehlerantworten
+    # (backend/errors.py): der deutsche Klartext bleibt als Rueckfall stehen,
+    # der Schluessel steht daneben. Dieser Pfad antwortet mit 200 und geht
+    # deshalb an jedem Fehler-Waechter vorbei — gefunden von der blinden
+    # Panel-Stimme, nachdem die eigentlichen Fehlerpfade schon umgestellt waren.
+    error_key: Optional[str] = None
     user_name: Optional[str] = None

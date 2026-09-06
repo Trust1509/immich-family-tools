@@ -92,18 +92,129 @@ def test_schluesselmengen_von_backend_und_frontend_sind_gleich():
     assert nur_frontend == [], f"im Frontend, aber nirgends geworfen: {nur_frontend}"
 
 
-def test_kein_router_wirft_noch_eine_nackte_httpexception():
+# Nicht "raise HTTPException" als Zeichenkette, sondern jede Erzeugung einer
+# HTTPException — egal ob geworfen, zwischengespeichert oder qualifiziert
+# geschrieben. Die erste Fassung suchte woertlich "raise HTTPException" und war
+# in EINER Zeile zu umgehen:
+#
+#     exc = HTTPException(status_code=404, detail="…")
+#     raise exc          ->  57 Tests gruen, error_key still verloren
+#
+# Ebenso unentdeckt: zwei Leerzeichen nach "raise", "fastapi.HTTPException",
+# und alles ausserhalb von routers/ — der Scan sah genau ein Verzeichnis an.
+# Von der blinden Panel-Stimme vorgefuehrt.
+# OHNE REGULAEREN AUSDRUCK, und das ist der zweite Anlauf. Die erste Fassung
+# begann mit einer Wortgrenze — und beim Schreiben durch die Werkzeugkette
+# wurde daraus ein BACKSPACE-ZEICHEN (0x08). Das Muster traf danach gar
+# nichts mehr, sah aber im Editor und in `grep` voellig richtig aus, weil das
+# Zeichen unsichtbar ist. Zwei Mutationen liefen daran vorbei und wurden nur
+# zufaellig vom Nachbartest gefangen, der auf den deutschen Text ansprang.
+#
+# Ein Waechter, dessen Muster man nicht LESEN kann, ist keiner.
+def _erzeugt_httpexception(zeile: str) -> bool:
+    """Findet jede Erzeugung, egal wie geschrieben.
+
+    Leerzeichen fallen vorher weg, damit `HTTPException (` und
+    `fastapi.HTTPException(` genauso auffallen wie die uebliche Form.
+    """
+    return "HTTPException(" in zeile.replace(" ", "")
+
+# Diese Dateien duerfen HTTPException nennen: errors.py definiert AppError
+# darauf, und dieser Test sucht danach.
+ERLAUBT = {"errors.py", "test_errors.py"}
+
+
+def test_niemand_erzeugt_mehr_eine_nackte_httpexception():
     """Eine neue HTTPException ohne Schluessel faellt still auf Deutsch zurueck.
 
     Das ist kein Absturz und keine leere Meldung — deshalb faellt es niemandem
     auf. Ein Test ist der einzige Ort, an dem es auffallen kann.
     """
     treffer = []
-    for datei in sorted((WURZEL / "backend" / "routers").glob("*.py")):
+    for datei in sorted((WURZEL / "backend").rglob("*.py")):
+        if datei.name in ERLAUBT:
+            continue
         for nr, zeile in enumerate(datei.read_text("utf-8").splitlines(), 1):
-            if "raise HTTPException" in zeile:
-                treffer.append(f"{datei.name}:{nr}")
+            if _erzeugt_httpexception(zeile):
+                treffer.append(f"{datei.relative_to(WURZEL)}:{nr}")
     assert treffer == [], f"nackte HTTPException: {treffer}"
+
+
+def test_kein_deutscher_klartext_ohne_schluessel_im_backend():
+    """Deutsche Meldungen gibt es auch AUSSERHALB der Fehlerpfade.
+
+    `account_status` antwortet mit 200 und legte den deutschen Text in ein
+    Feld — an jedem Fehler-Waechter vorbei. Gefunden von der blinden
+    Panel-Stimme, nachdem die Fehlerpfade schon umgestellt waren. Der Test
+    sucht deshalb nicht nach Ausnahmen, sondern nach deutschem Text in
+    Zuweisungen.
+    """
+    deutsch = re.compile(
+        r'(?:error|detail|message)\s*=\s*"[^"]*'
+        r"(?:nicht|kein|fehlgeschlagen|ungültig|bereits|erforderlich)",
+        re.I,
+    )
+    treffer = []
+    for datei in sorted((WURZEL / "backend").rglob("*.py")):
+        if datei.name in ERLAUBT or "test" in datei.name:
+            continue
+        for nr, zeile in enumerate(datei.read_text("utf-8").splitlines(), 1):
+            if deutsch.search(zeile):
+                treffer.append(f"{datei.relative_to(WURZEL)}:{nr}  {zeile.strip()[:60]}")
+    assert treffer == [], "deutscher Klartext ohne Schluessel: " + "; ".join(treffer)
+
+
+# Der Statuscode je Meldung, festgenagelt.
+#
+# WARUM ALS TABELLE UND NICHT ALS KOMMENTAR: Beim Bau dieses Slices habe ich
+# vier Codes "aufgeraeumt" (422 -> 400 bzw. 409), weil sie mir passender
+# schienen — im selben Commit, der behauptete, an der Schnittstelle aendere
+# sich nichts. Gefunden hat es die blinde Panel-Stimme, indem sie die
+# laufende App gegen den Elternstand gemessen hat; KEIN Test hat es bemerkt.
+#
+# Ein Statuscode ist der haertere Teil des Vertrags als der Text:
+# Fremdkonsumenten verzweigen darauf. Diese Tabelle macht jede Aenderung zu
+# einer bewussten.
+STATUSCODES = {
+    "err_account_gone": 404,
+    "err_account_id_not_found": 404,
+    "err_account_not_found": 404,
+    "err_album_already_managed": 409,
+    "err_album_name_required": 422,
+    "err_immich_request_failed": 502,
+    "err_immich_unreachable": 422,
+    "err_invalid_content_length": 400,
+    "err_invalid_time_format": 422,
+    "err_invalid_token": 401,
+    "err_log_entry_not_found": 404,
+    "err_managed_album_not_found": 404,
+    "err_match_album_exists": 409,
+    "err_match_not_found": 404,
+    "err_min_two_people": 422,
+    "err_no_thumbnail": 404,
+    "err_not_undoable": 422,
+    "err_owner_account_id_not_found": 404,
+    "err_owner_account_not_found": 404,
+    "err_person_validation_failed": 422,
+    "err_request_too_large": 413,
+    "err_too_many_login_attempts": 429,
+    "err_unauthorized": 401,
+    "err_unsupported_immich_version": 422,
+}
+
+
+def test_die_statuscodes_sind_festgenagelt():
+    ist = {}
+    for name in dir(errors):
+        if name.startswith("_") or name in ("AppError", "antwort"):
+            continue
+        f = getattr(errors, name)
+        if not callable(f) or getattr(f, "__module__", None) != "errors":
+            continue
+        fehler = f(*["x"] * f.__code__.co_argcount)
+        if isinstance(fehler, errors.AppError):
+            ist[fehler.key] = fehler.status_code
+    assert ist == STATUSCODES
 
 
 @pytest.fixture

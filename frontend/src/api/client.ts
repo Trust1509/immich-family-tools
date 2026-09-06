@@ -109,6 +109,7 @@ export interface AccountStatus {
   error?: string;
   user_name?: string;
   user_email?: string;
+  error_key?: string;
 }
 
 export interface Person {

@@ -11,6 +11,7 @@ import {
   LanguageProvider,
   readStoredLang,
   resolveLang,
+  ERROR_PARAM_ORDER,
   translations,
   type ServerErrorLike,
   useT,
@@ -739,12 +740,96 @@ describe("errorText", () => {
     ).toContain("2.7");
   });
 
-  it("does not crash when a parameterised message arrives without its values", () => {
-    // Ein Server, der den Schluessel schickt und die Werte vergisst, darf
-    // die Seite nicht zerlegen — die Meldung wird dann lueckenhaft, aber sie
-    // erscheint.
-    const text = textFor("de", { message: "Rueckfall", key: "err_account_id_not_found" });
-    expect(text.length).toBeGreaterThan(0);
-    expect(text).toContain("nicht gefunden");
+  it("falls back to the plain text when a parameterised message arrives without its values", () => {
+    // Frueher stand hier "die Meldung wird dann lueckenhaft, aber sie
+    // erscheint" — und die Zusicherung war entsprechend schwach
+    // (`length > 0`). Die Panel-Stimme hat gezeigt, wie das aussieht:
+    // «undefined» bzw. «» mitten im Satz. Lieber der deutsche Klartext des
+    // Servers als ein Satz mit einer Luecke; der Test haelt jetzt genau das
+    // fest, statt nur "irgendetwas kommt".
+    expect(textFor("de", { message: "Rueckfall", key: "err_account_id_not_found" })).toBe(
+      "Rueckfall"
+    );
+  });
+});
+
+describe("ERROR_PARAM_ORDER", () => {
+  // Die Bruecke zwischen dem Woerterbuch, das der Server schickt, und den
+  // positionellen Argumenten der Uebersetzungen. Sie ist die Stelle, an der
+  // still eine leere oder falsche Zahl erscheint — und die erste Fassung war
+  // nur zu zwei von fuenf Faellen abgedeckt: Eine Mutation, die zwei
+  // Eintraege entfernte, liess alle 66 Tests gruen und zeigte «undefined»
+  // auf der Oberflaeche. Von der blinden Panel-Stimme gefunden.
+  const fehlerSchluessel = (Object.keys(translations) as string[]).filter((k) =>
+    k.startsWith("err_")
+  );
+
+  it("has an entry for every parameterised error key, and only for those", () => {
+    const mitFunktion = fehlerSchluessel.filter((k) => {
+      const werte = (translations as Record<string, Record<string, unknown>>)[k];
+      return typeof werte.de === "function";
+    });
+    expect(Object.keys(ERROR_PARAM_ORDER).sort()).toEqual(mitFunktion.sort());
+  });
+
+  it("names exactly as many parameters as the translation takes arguments", () => {
+    const abweichungen: string[] = [];
+    for (const [key, namen] of Object.entries(ERROR_PARAM_ORDER)) {
+      const fn = (translations as Record<string, Record<string, unknown>>)[key]?.de;
+      if (typeof fn !== "function") {
+        abweichungen.push(`${key}: kein Funktionseintrag`);
+        continue;
+      }
+      if ((fn as (...a: never[]) => string).length !== namen.length) {
+        abweichungen.push(
+          `${key}: ${namen.length} Namen, aber ${(fn as (...a: never[]) => string).length} Argumente`
+        );
+      }
+    }
+    expect(abweichungen).toEqual([]);
+  });
+
+  it("renders every parameterised error with its values, in every language", () => {
+    // Alle fuenf, nicht zwei. Je Schluessel wird geprueft, dass JEDER Wert
+    // im Ergebnis auftaucht — ein vertauschtes oder verschlucktes Argument
+    // faellt damit auf.
+    const werte: Record<string, Record<string, string>> = {
+      err_account_id_not_found: { id: "WERT-A" },
+      err_owner_account_id_not_found: { id: "WERT-B" },
+      err_person_validation_failed: { account: "WERT-C" },
+      err_match_album_exists: { album: "WERT-D" },
+      err_unsupported_immich_version: { major: "WERT-E", minor: "WERT-F" },
+    };
+    expect(Object.keys(werte).sort()).toEqual(Object.keys(ERROR_PARAM_ORDER).sort());
+    for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
+      for (const [key, params] of Object.entries(werte)) {
+        const text = capturedContext(fakeStorage(lang)).errorText({
+          message: "RUECKFALL",
+          key,
+          params,
+        });
+        expect(text).not.toBe("RUECKFALL");
+        for (const wert of Object.values(params)) {
+          expect(text).toContain(wert);
+        }
+      }
+    }
+  });
+
+  it("falls back to the plain text when a value is missing", () => {
+    // Lieber der deutsche Satz des Servers als ein Satz mit einer Luecke.
+    for (const key of Object.keys(ERROR_PARAM_ORDER)) {
+      expect(capturedContext(fakeStorage("es-ES")).errorText({ message: "RUECKFALL", key })).toBe(
+        "RUECKFALL"
+      );
+    }
+  });
+
+  it("ignores a key that is not an error key at all", () => {
+    // Ohne die err_-Schranke schlug ein Tippfehler im GESAMTEN Woerterbuch
+    // nach und lieferte einen fremden Satz.
+    expect(
+      capturedContext(fakeStorage("de")).errorText({ message: "RUECKFALL", key: "nav_accounts" })
+    ).toBe("RUECKFALL");
   });
 });
