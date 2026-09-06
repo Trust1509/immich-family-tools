@@ -108,12 +108,27 @@ jobs:
       # der Beitragenden, kein Waechter. Von der adversarialen Panel-Stimme
       # gefunden. Prueft das ganze Repo, nicht nur frontend/ — die
       # Prozess-Dokumente sind ebenfalls prettier-formatiert.
-      # --ignore-path ist NOETIG, nicht Zierde: Prettier sucht die
-      # .prettierignore im ARBEITSVERZEICHNIS, und das ist hier
-      # frontend/. Ohne den Schalter greift die Liste im Wurzel-
-      # verzeichnis nicht und das Gate faellt ueber dist/ und die
-      # Sperrdatei — gemessen, nicht vermutet.
-      - run: npx prettier --check --ignore-path ../.prettierignore ..
+      #
+      # Laeuft im WURZELVERZEICHNIS, nicht in frontend/, und mit
+      # --no-install. Beides ist noetig:
+      #   - Prettier ist nur in der Wurzel-package.json deklariert. Der erste
+      #     Anlauf lief in frontend/, und npx hat sich prettier@3.9.6 zur
+      #     Laufzeit AUS DEM NETZ geladen, waehrend lokal 3.8.4 prueft
+      #     (Beleg in Lauf 34022711516: "The following package was not found
+      #     and will be installed"). Ein Formatierungs-Gate, das sich seine
+      #     eigene, ungepinnte Version zieht, kann ohne Codeaenderung rot
+      #     werden — und es holt Fremdcode in einen Job, der zwei Zeilen
+      #     vorher gerade "npm ci" fuer Reproduzierbarkeit gefahren ist.
+      #   - Vom Wurzelverzeichnis aus findet Prettier die .prettierignore von
+      #     selbst; sie wird sonst im Arbeitsverzeichnis gesucht.
+      # --no-install laesst den Schritt scheitern, statt still nachzuladen.
+      # --ignore-scripts: der "prepare"-Hook der Wurzel richtet husky ein,
+      # was auf einem Laeufer nichts zu suchen hat.
+      - name: Formatierung (Prettier aus der Wurzel, gepinnt ueber die Sperrdatei)
+        working-directory: .
+        run: |
+          npm ci --ignore-scripts
+          npx --no-install prettier --check .
       - run: npm test
       - run: npm run build
 
