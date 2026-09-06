@@ -16,7 +16,7 @@ import type { Lang } from "./i18n";
 
 describe("resolveLang", () => {
   it("accepts every known language unchanged", () => {
-    // Derived from LANG_LABELS (not hardcoded) so a fourth language that's
+    // Derived from LANG_LABELS (not hardcoded) so a fifth language that's
     // added there but not wired through resolveLang turns this test red
     // instead of leaving it silently green.
     for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
@@ -42,7 +42,7 @@ describe("resolveLang", () => {
 describe("LANG_LOCALES", () => {
   it("has exactly the same key set as LANG_LABELS", () => {
     // Same derivation reasoning as the resolveLang/detectBrowserLang tests
-    // below: a fourth language added to LANG_LABELS but forgotten here
+    // below: a fifth language added to LANG_LABELS but forgotten here
     // should turn this red, not stay silently green.
     expect(Object.keys(LANG_LOCALES).sort()).toEqual(Object.keys(LANG_LABELS).sort());
   });
@@ -57,6 +57,7 @@ describe("LANG_LOCALES", () => {
     expect(LANG_LOCALES).toEqual({
       de: "de-AT",
       en: "en-GB",
+      "es-ES": "es-ES",
       "pt-BR": "pt-BR",
     });
   });
@@ -104,7 +105,7 @@ describe("formatDate", () => {
     // Real case, not theoretical: timestamps come from accounts.json (see
     // docs/agents/lehren.md's hand-recovered-storage incident), and an
     // unreadable-but-present value must not leak the English
-    // `Invalid Date` string into a German or pt-BR UI.
+    // `Invalid Date` string into a German, Spanish, or pt-BR UI.
     expect(formatDate("nicht-ein-datum", LANG_LOCALES.de)).toBe("–");
   });
 
@@ -115,21 +116,23 @@ describe("formatDate", () => {
     withTZ("UTC", () => {
       expect(formatDate(FIXTURE, LANG_LOCALES.de)).toBe("4. März 2026, 14:30");
       expect(formatDate(FIXTURE, LANG_LOCALES.en)).toBe("4 Mar 2026, 14:30");
+      expect(formatDate(FIXTURE, LANG_LOCALES["es-ES"])).toBe("4 mar 2026, 14:30");
       expect(formatDate(FIXTURE, LANG_LOCALES["pt-BR"])).toBe("4 de mar. de 2026, 14:30");
     });
   });
 
   it("shows a month name, never a month number, in every shipped language", () => {
     // This is the guard the whole slice exists for: a numeric month must
-    // never come back for any of the three locales, or the entire point of
+    // never come back for any of the four locales, or the entire point of
     // the change could be silently reverted without a single test noticing.
     withTZ("UTC", () => {
       expect(formatDate(FIXTURE, LANG_LOCALES.de)).toContain("März");
       expect(formatDate(FIXTURE, LANG_LOCALES.en)).toContain("Mar");
+      expect(formatDate(FIXTURE, LANG_LOCALES["es-ES"])).toContain("mar");
       expect(formatDate(FIXTURE, LANG_LOCALES["pt-BR"])).toContain("mar.");
       for (const locale of Object.values(LANG_LOCALES)) {
         // The old options rendered March as the two-digit token "03"; none
-        // of the three outputs above contain it any more.
+        // of the four outputs above contain it any more.
         expect(formatDate(FIXTURE, locale)).not.toContain("03");
       }
     });
@@ -139,7 +142,7 @@ describe("formatDate", () => {
 describe("detectBrowserLang", () => {
   it("accepts every known language unchanged (exact match)", () => {
     // Same derivation-from-LANG_LABELS reasoning as the resolveLang test
-    // above: a fourth shipped language that isn't detectable by its own
+    // above: a fifth shipped language that isn't detectable by its own
     // exact code should turn this red, not stay silently green.
     for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
       expect(detectBrowserLang(lang)).toBe(lang);
@@ -155,6 +158,7 @@ describe("detectBrowserLang", () => {
   it("matches an unshipped regional variant by its language prefix", () => {
     expect(detectBrowserLang("de-DE")).toBe("de");
     expect(detectBrowserLang("en-US")).toBe("en");
+    expect(detectBrowserLang("es-MX")).toBe("es-ES");
   });
 
   it("matches a browser locale with mixed-case subtags", () => {
@@ -532,14 +536,21 @@ describe("AuthGate translations", () => {
       auth_title: {
         de: "Family Tools entsperren",
         en: "Unlock Family Tools",
+        "es-ES": "Desbloquear Family Tools",
         "pt-BR": "Desbloquear o Family Tools",
       },
       auth_subtitle: {
         de: "Gemeinsames Zugriffstoken eingeben",
         en: "Enter the shared access token",
+        "es-ES": "Introduce el token de acceso compartido",
         "pt-BR": "Insira o token de acesso compartilhado",
       },
-      auth_token_ph: { de: "Zugriffstoken", en: "Access token", "pt-BR": "Token de acesso" },
+      auth_token_ph: {
+        de: "Zugriffstoken",
+        en: "Access token",
+        "es-ES": "Token de acceso",
+        "pt-BR": "Token de acesso",
+      },
     };
     for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
       const t = tFor(lang);
@@ -551,7 +562,7 @@ describe("AuthGate translations", () => {
 
   it("never shows the German login text for a non-German language", () => {
     const tDe = tFor("de");
-    for (const lang of ["en", "pt-BR"] as Lang[]) {
+    for (const lang of ["en", "es-ES", "pt-BR"] as Lang[]) {
       const t = tFor(lang);
       for (const key of ["auth_title", "auth_subtitle", "auth_token_ph"] as const) {
         expect(t(key)).not.toBe(tDe(key));
