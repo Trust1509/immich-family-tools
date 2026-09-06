@@ -1,0 +1,75 @@
+# Die CI-Ueberspring-Kennung gehoert in die Betreffzeile oder gar nicht.
+#
+# Anlass (lehren.md Paragraph 24, eigener Vorfall): Ein Commit landete auf main
+# und loeste NULL CI-Laeufe aus. Die Ursache stand in Zeile 50 seiner eigenen
+# Nachricht — in einem Satz, der erklaerte, dass der VORIGE Commit die Kennung
+# bewusst nicht traegt. GitHub liest die ganze Nachricht, nicht nur die erste
+# Zeile; ein Satz UEBER die Kennung enthaelt sie.
+#
+# Und der Ausfall wiegt schwerer als ein vergessener Lauf: Ein Lauf, den es nie
+# gab, hinterlaesst nichts. Wer danach in die Liste schaut, sieht den gruenen
+# Lauf des Vorgaengers ganz oben und liest ihn als seinen eigenen.
+#
+# Ohne diesen Hook waere die Regel eine Notiz (Paragraph 18: ein Waechter,
+# dessen Lauf niemand erzwingt, macht die Abdeckungszahl zur Beruhigung).
+#
+# DREI FASSUNGEN, ZWEI DAVON DEFEKT — die Geschichte gehoert hierher, weil sie
+# die Klasse zeigt (Paragraph 21: Waechter-Code ist die defektdichteste Stelle):
+#
+# 1. Fassung: kannte nur die Klammer-Form. GitHub dokumentiert daneben einen
+#    TRAILER — `skip-checks: true` am Ende der Nachricht. Er wirkt genauso,
+#    sieht aber wie eine harmlose Fusszeile aus.
+# 2. Fassung: schnitt vor der Pruefung alles ab der Scheren-Zeile weg und
+#    zusaetzlich jede Kommentarzeile — mit der Begruendung, das verwerfe git
+#    ohnehin. DAS WAR GEMESSEN FALSCH, und zwar in beide Richtungen zugleich:
+#    git verwirft Kommentarzeilen nur bei `cleanup=strip` (also im Editor),
+#    NICHT bei `-m`/`-F` — dort ist `whitespace` der Standard und `# [skip ci]`
+#    landet in der Nachricht. Und abgeschnitten wird nur bei
+#    `cleanup=scissors`, also praktisch nur bei `-v`. Eine Nachricht mit einer
+#    selbstgeschriebenen Scheren-Zeile und der Kennung darunter ging damit
+#    durch den Waechter UND in die gespeicherte Nachricht.
+#
+# 3. Fassung, diese: Es wird genau EIN Ding weggeschnitten — der Diff, den
+#    `git commit -v` unter die Scheren-Zeile haengt. Gemessen sieht das so aus:
+#
+#        # ------------------------ >8 ------------------------
+#        # Do not modify or remove the line above.
+#        # Everything below it will be ignored.
+#        diff --git a/f.txt b/f.txt
+#
+#    Also: ab der ersten `diff --git`-Zeile NACH einer Scheren-Zeile. Alles
+#    davor bleibt in der Pruefung, Kommentarzeilen eingeschlossen. Das ist die
+#    einzige Form, die git nachweislich nie speichert — und der Grund, warum
+#    diese Fassung keine Nachricht mehr durchlaesst, die GitHub auswertet.
+#
+# Bewusst NICHT ausgenommen: `git merge --squash`. Git schreibt den Betreff
+# der Einzelcommits in den Rumpf — traegt einer davon die Kennung, traegt sie
+# der Squash-Commit im Rumpf, und GitHub liest sie dort. Die Ablehnung ist
+# dann richtig, nicht laestig.
+
+SCHEREN='^#[[:space:]]*-{2,}[[:space:]]*>8[[:space:]]*-{2,}'
+
+# Den -v-Diff wegschneiden — aber nur, wenn es wirklich einer ist: eine
+# Scheren-Zeile allein genuegt nicht, es muss auch ein Diff darunter stehen.
+if grep -qE "$SCHEREN" "$1" &&
+   sed -nE "/$SCHEREN/,\$p" "$1" | grep -q '^diff --git '; then
+  NACHRICHT=$(sed -E "/$SCHEREN/,\$ { /^diff --git /,\$ d; }" "$1")
+else
+  NACHRICHT=$(cat "$1")
+fi
+
+# Klammer-Form: ueberall wirksam, in der Betreffzeile absichtlich erlaubt.
+if printf '%s\n' "$NACHRICHT" | tail -n +2 | grep -qiE '\[(skip[ -]ci|ci[ -]skip|no[ -]ci|skip[ -]actions|actions[ -]skip)\]'; then
+  echo "FEHLER: CI-Ueberspring-Kennung ab Zeile 2 — die Plattform liest die ganze Nachricht."
+  echo "        In der Betreffzeile ist sie erlaubt. Wer ueber sie SCHREIBEN muss,"
+  echo "        umschreibt sie: 'Ueberspring-Kennung', 'der CI-Marker'."
+  exit 1
+fi
+
+# Trailer-Form: wirkt nur am Ende, also ist ab Zeile 2 alles verdaechtig.
+if printf '%s\n' "$NACHRICHT" | tail -n +2 | grep -qiE '^[[:space:]]*skip-checks[[:space:]]*:'; then
+  echo "FEHLER: 'skip-checks'-Trailer in der Commit-Nachricht."
+  echo "        GitHub wertet ihn wie die Klammer-Form aus — der Lauf entfaellt."
+  echo "        Wer ihn erwaehnen muss, schreibt 'der skip-checks-Trailer' ohne Doppelpunkt."
+  exit 1
+fi

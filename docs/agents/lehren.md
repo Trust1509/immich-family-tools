@@ -516,6 +516,22 @@ Projekt hat das (noch) keinen konkreten Gegenstand — es gibt keine solche
 doppelte Kopie —, aber es ist der Fall, an den bei jeder neuen Automatisierung
 zu denken ist, die eine Repo-Regel irgendwo außerhalb des Repos nachbildet.
 
+**Drei Regeln über die Belege dieser Regeln selbst** — sie stehen hier, weil sie
+die Suchdisziplin betreffen, nicht den gesuchten Gegenstand:
+
+- **Eine Zahl in einem Regeltext trägt das Kommando und den Stand, mit dem sie
+  gemessen wurde.** Gemessen: Drei Belege in Prozess-Dateien, die niemand
+  nachrechnen konnte, weil weder Aufruf noch Zeitpunkt dabeistanden — eine
+  Zahl ohne Kommando ist eine Erinnerung, die wie eine Messung aussieht.
+- **Der Beleg einer Regel stammt aus der Menge, für die sie gilt.** Die
+  Umlaut-Regel für `grep -i` wurde ausgerechnet mit „Synthese" belegt — einem
+  reinen ASCII-Wort, an dem sie gar nicht bricht. Ein zu freundlich gewählter
+  Beleg macht eine richtige Regel unglaubwürdig und eine falsche unauffällig.
+- **Die Suche vor dem Commit prüft das ERGEBNIS, nicht den Vorgang.** „Ich
+  habe gesucht" ist kein Nachweis; die Trefferliste ist einer. Und ein
+  null-Treffer-Ergebnis gilt nur unter den Bedingungen aus dem ersten
+  Regelabsatz oben: gesetzte Locale, `-i`, seltenstes **Einzelwort**.
+
 ## 15. Die Vorlage als Autorität unterdrückt die Messung
 
 Zwei Projekte machten dieselbe Messung an demselben Werkzeug. Eines schloss
@@ -594,6 +610,27 @@ Bedeutung wechselt (z. B. eine leere Zeichenkette, die still als „unverändert
 statt als „gelöscht" interpretiert wird), ist derselbe Fehler wie oben. Kein
 Feld darf gleichzeitig als schreibbar deklariert und in einem Tür-Mapper
 verworfen werden — belegt durch einen Test, der die Tür wirklich benutzt.
+
+### Die zweite Seite: eine stille Grenze beim ZURÜCKLESEN
+
+Bisher stand hier nur die Schreibrichtung. Die Leserichtung ist dieselbe
+Klasse und fällt noch schlechter auf, weil beim Lesen niemand eine Bestätigung
+erwartet: Ein Feld, das die Tür beim Schreiben annimmt, kann beim Zurücklesen
+still fehlen — und der Aufrufer sieht einen vollständig aussehenden Datensatz
+mit einem Loch darin. Drei Regeln:
+
+- **Der Vertrag ist die Deklaration, nicht die Signatur.** Was ein Endpunkt
+  laut Modell zurückgibt, ist die Zusage; was die Funktion zufällig
+  durchreicht, ist ein Zustand. Bei uns sind das die Pydantic-Modelle in
+  `backend/models/` — eine Antwort, die ein Feld nicht deklariert, hat es
+  nicht, auch wenn es heute mitkommt.
+- **Wer eine Grenze prüft, prüft den Rundlauf**: schreiben, zurücklesen,
+  vergleichen — nicht nur die Annahme des Schreibens.
+- **Ein Fremdbericht an einer Tür trägt Rohdaten oder ist ein Verdacht.**
+  Aufruf, Antwort, Kennung, Version. „Immich sagt, das Feld gibt es nicht"
+  ohne die Antwort daneben ist eine Behauptung über ein fremdes System — und
+  genau dort liegt unsere schlechteste Trefferquote (siehe `panel.md`, „Der
+  Fragetyp bestimmt, was ein Panel wert ist").
 
 ## 18. Ein Wächter, dessen Lauf niemand erzwingt, macht die Abdeckungszahl zur Beruhigung
 
@@ -710,6 +747,35 @@ sind konkrete, im Code belegte Kandidaten, keine Allgemeinplätze:
   nachsieht (vgl. §9, „das Vorhandensein einer Prüfung ist nicht ihr
   Bestehen").
 
+### Die dritte Pflichtfrage: Wer liest das Rot?
+
+Zwei Fragen standen hier bisher — was macht die Prüfung rot, und wer erzwingt
+ihren Lauf. Die dritte ist die, an der es real gescheitert ist: **Eine
+Wochenprüfung war fünf Wochen rot, und niemand hat sie gelesen.** Ein Wächter
+ohne Leser ist kein Wächter, sondern ein Protokoll.
+
+Und die Antwort auf die zweite Frage hat eine Form: **Sie ist der Exit-Code,
+ohne Pipe gemessen.** Eine Pipe verschluckt ihn — `set -o pipefail` gilt nicht
+überall —, und wer stattdessen die Ausgabe mit `grep` prüft, misst die
+Formulierung statt das Ergebnis. Genau diese Klasse hat bei uns zweimal
+zugeschlagen (Prettier, Wächter-Muster).
+
+**Ein Zeitplan-Wächter wird nach Bau oder Umbau einmal von Hand ausgelöst.**
+Ein geplanter Job existiert, sobald die Datei liegt — dass er läuft, weiß man
+erst nach dem ersten Lauf, und der ist per Definition nicht heute. Gemessen in
+einem anderen Projekt: ein Job, der vier Tage existierte, ohne je gelaufen zu
+sein. Für uns betrifft das `.github/workflows/wochen-pruefung.yml`:
+
+```bash
+gh workflow run wochen-pruefung.yml
+```
+
+**Die Umkehrung gilt auch: Eine Styleguide-Regel ohne Prüfung ist eine
+Absichtserklärung.** Das trifft besonders die Regeln über Texte — Umlaute,
+Sprachform, Marker in Commit-Nachrichten. Sie fühlen sich wie
+Selbstverständlichkeiten an und haben genau deshalb keinen Wächter; unsere
+Marker-Regel war bis zum `commit-msg`-Hook (§24) eine.
+
 ## 19. Eine als Spezialfall formulierte Regel wird beim strukturgleichen Fall nicht wiedererkannt
 
 **Vorlage §22.** Drei unabhängige Belege, einer vom Autor der Regel selbst:
@@ -796,6 +862,45 @@ Produktcode.
   `CLAUDE.md`, Abschnitt „Prüfschritte") liegt bei 100 Minuten über alle
   Repos des Owners; ein einzelner hängender Lauf würde es allein schon um
   mehr als das Dreifache überschreiten.
+
+**Drei Ergänzungen, alle bei uns eingetreten:**
+
+- **Der REGELTEXT über einen Wächter ist so defektdicht wie der
+  Wächter-Code.** Er hat dieselbe Eigenschaft: Sein einziger Leser ist der
+  Zweifelsfall, und der tritt selten ein. Ein Satz, der einen Wächter falsch
+  beschreibt, wird beim nächsten Umbau zur Vorgabe — und niemand vergleicht
+  ihn mit dem Wächter. In zwei Projekten unabhängig gemessen.
+- **Ein Muster-Merkmal, das keinen Treffer beitragen kann, gehört nicht ins
+  Muster.** Bei uns doppelt bezahlt: Der Wächter gegen bare `HTTPException`
+  begann mit einer Wortgrenze, die auf dem Weg durch die Werkzeugkette zu
+  einem **Backspace-Zeichen** (0x08) wurde. Das Muster traf danach gar nichts
+  mehr — und sah im Editor wie in `grep` völlig richtig aus, weil das Zeichen
+  unsichtbar ist. Zwei Mutationen liefen vorbei und wurden nur zufällig vom
+  Nachbartest gefangen. **Ein Wächter, dessen Muster man nicht LESEN kann,
+  ist keiner.** Die Fassung ohne regulären Ausdruck (Leerzeichen entfernen,
+  Teilzeichenkette suchen) ist nicht die elegantere, sondern die prüfbare.
+  Verwandt und ebenfalls bei uns: Ein README-Wächter suchte den bloßen Code
+  `"ES"` — der in `REST`, `SESSION`, `CEST` und `RESTORE` vorkommt und
+  deshalb immer traf. Erst der Rot-Beweis hat es gezeigt.
+- **Eine Ersatzschreibweise für ein Zeichen aus mehreren Bytes muss die
+  Byte-Zahl treffen** — sonst tauscht sie einen sichtbaren Defekt gegen einen
+  unsichtbaren. In `scripts/bau-brief-pruefen.sh` steht `.` als Platzhalter
+  für Umlaute; ein Punkt in einem Muster trifft aber **ein** Byte, ein Umlaut
+  besteht aus zweien. Von sieben Ersatzmustern sind nur die beiden mit `..?`
+  zweibytefest (`pr..?ffrage`, `pr..?f-kommando`); `zweck-identit.t`,
+  `verhalten .nder`, `entf.ll`, `er.brigt` und `wei. ich nicht` treffen unter
+  `LC_ALL=C` **null** Zeilen. Vorher stand
+  ein `ü` im Muster und man sah das Problem; jetzt steht ein `.` da und sieht
+  behoben aus. **Der Fix hat den Defekt nicht beseitigt, sondern getarnt.**
+  Gefunden von der blinden Stimme; an die Vorlage gemeldet, weil das Skript
+  dort seinen Eigentümer hat. Bei uns hängt der Schutz an der
+  Aufrufkonvention `LC_ALL=C.UTF-8` (`CLAUDE.md`, Abschnitt „Bau-Brief") —
+  und die ist eine Sorgfaltspflicht, kein Gate.
+- **Ein Werkzeug, das den Zustand herstellt, den es prüft, prüft nicht.**
+  Prettier bricht einen zu langen Inline-Code-Span um und läuft danach mit
+  `--check` grün, weil es den Zustand selbst erzeugt hat. Kein Gate fängt
+  das. Gegenmaßnahme in `bau-brief.md`, Randbedingungen: Zaun-Block statt
+  Inline-Span in Listenpunkten.
 
 ## 22. Freitext in einem `run:`-Block ist Code
 
@@ -912,6 +1017,37 @@ waere ein ungeprueftes Stueck Waechter-Code getaggt worden.
   `headSha` belegt ist.** Nicht „ein gruener Lauf ganz oben in der Liste".
   Der Beleg ist die Abfrage ueber den SHA, und ihre gueltige Antwort
   schliesst „null Laeufe" ausdruecklich ein.
+- **GitHub kennt ZWEI Formen, nicht eine.** Neben der Klammer-Kennung
+  dokumentiert die Plattform einen **Trailer** — `skip-checks: true` am Ende
+  der Nachricht, nach zwei Leerzeilen. Er wirkt genauso und sieht aus wie eine
+  harmlose Fusszeile. Wer nur die Klammer-Form kennt, hat den halben Waechter.
+- **Diese Regel braucht einen Erzwingungsweg, sonst ist sie eine Notiz**
+  (§18). Seit dem Abgleich auf v1.14.1 steht sie als `commit-msg`-Hook in
+  `.husky/commit-msg`: Er lehnt **beide** Formen ab Zeile 2 ab und laesst die
+  Klammer-Form in der Betreffzeile durch. Der Hook ist der Eigentuemer seines
+  Codes — hier steht kein zweites Exemplar davon, weil ein Regeltext ueber
+  einen Waechter genauso defektdicht ist wie der Waechter (§21) und eine
+  Kopie beim naechsten Fix zurueckbleibt. Genau das ist hier passiert: Die
+  erste Fassung stand als Schnipsel in diesem Absatz, wurde zweimal
+  ueberarbeitet, und der Schnipsel blieb stehen.
+- **Rot-Beweis in dreizehn Richtungen**, Exit-Code ohne Pipe, plus zwei Laeufe
+  im echten `git`-Ablauf mit husky-gleicher Verdrahtung. Die drei Fassungen
+  des Hooks und warum die ersten beiden falsch waren, stehen im Kopf der
+  Datei. Die Kurzfassung, weil sie eine eigene Lehre ist: **Fassung 2 schnitt
+  vor der Pruefung weg, „was git ohnehin verwirft" — und lag in beide
+  Richtungen daneben.** Git verwirft Kommentarzeilen nur bei `cleanup=strip`
+  (im Editor), nicht bei `-m`/`-F`; und abgeschnitten wird nur bei
+  `cleanup=scissors`, praktisch nur bei `-v`. Eine Nachricht mit
+  selbstgeschriebener Scheren-Zeile und der Kennung darunter ging damit durch
+  den Waechter **und** in die gespeicherte Nachricht. **Wer eine Zusicherung
+  ueber fremdes Verhalten in einen Waechter einbaut, misst sie vorher.**
+
+**Wichtig fuer die Vorlage, und deshalb zurueckgemeldet:** Die Falle stellt
+der Prozess selbst auf. Die Dauerregel „ein CI-Lauf je Slice" fuehrt dazu,
+dass wir den Marker staendig erklaeren — in Abgleich-Commits, in
+Nacharbeits-Commits, in jeder Begruendung, warum dieser eine Commit ihn
+ausnahmsweise nicht traegt. **Je disziplinierter ein Projekt die Regel
+dokumentiert, desto eher stolpert es.** Genau dieser Commit hier ist so einer.
 
 ### Die Klasse dahinter
 
@@ -920,3 +1056,77 @@ liest, wird von einer Maschine als Anweisung gelesen. In §22 war es die
 Shell in einem `run:`-Block, hier GitHub in einer Commit-Nachricht. Beide
 Male war die Absicht des Schreibenden das genaue Gegenteil dessen, was
 passierte. **Wo Text an eine Maschine geht, gibt es keinen Konjunktiv.**
+
+## 25. Ein hängender Hintergrund-Lauf ist ein aufgeschobenes Kommando
+
+**Vorlage §27.** Ein Aufruf hing; die Sitzung wurde beendet. Beim Beenden lief
+alles ab, was **hinter** dem hängenden Aufruf in derselben Zeile stand —
+Commit, Push, und ein Release-Tag, der dadurch auf einen Stand rutschte, der
+so nie geprüft worden war. Der Ablauf sah nach „abgebrochen" aus und war in
+Wahrheit „verzögert vollständig ausgeführt".
+
+Das ist der Nachbarfall zu unserem eigenen Bauer-Wartemuster
+(`bau-brief.md`, „Das Hintergrund-Warte-Muster"): Dort endet ein Akteur, weil
+er auf ein Signal wartet, das nie kommt; hier passiert das Gegenteil — es
+kommt alles auf einmal, zum falschen Zeitpunkt.
+
+**Regeln:**
+
+- **Vor dem Abbrechen lesen, was hinter dem hängenden Aufruf steht.** Nicht
+  den Aufruf, sondern den Rest der Zeile und die Kette danach.
+- **Nach dem Abbrechen den Zustand prüfen**, nicht den Bericht:
+  `git status`, `git log --oneline origin/main..HEAD`, `git tag --points-at HEAD`.
+- **Ein Aufruf, der hängen kann, steht am ENDE seiner Zeile.** Alles, was
+  danach käme, gehört in einen eigenen Schritt — dann kann ein Abbruch nichts
+  mehr nachziehen.
+
+Für uns besonders scharf, weil unser Release-Ritual genau diese Form hat: Der
+Tag geht der Auslieferung voraus, und ein nachgezogener Tag benennt einen
+Stand, der nie draußen war (§23).
+
+## 26. Was der Owner ausführt, wird auf seinem Rechner gemessen
+
+**Vorlage §31.** Ein Ritual-Skript lief im Container grün und auf dem
+Windows-Host des Owners rot. **Keine Stimme kann das sehen** — alle drei
+prüfen dieselbe Umgebung, und die ist nicht die, in der das Skript benutzt
+wird.
+
+Bei uns betrifft das unmittelbar `scripts/release.sh`. Es ist ein
+**Owner-Skript**: Der Tag ist eine Owner-Entscheidung, die Auslieferung
+geschieht auf dem TrueNAS-Host durch den Owner. Geprobt wurde es bisher
+ausschließlich in der Agenten-Umgebung und in der CI — also zweimal an
+derselben Stelle vorbei. Die Selbstprobe mit ihren 55 Fällen beweist die
+Logik des Gates, nicht seine Lauffähigkeit dort, wo jemand es aufruft.
+
+**Regel:** Ein Skript, das der Owner ausführt, wird **einmal von ihm selbst**
+ausgeführt, bevor es als Gate gilt — mit zurückgemeldeter Ausgabe. Bis dahin
+ist sein Zustand „ungeprüft auf dem Zielrechner", nicht „grün".
+
+**Und: Der Rückstands-Check ist wesensmäßig periodisch.** Er beantwortet die
+Frage „läuft draußen noch, was ich zuletzt ausgeliefert habe?" — eine Frage,
+die zwischen zwei Auslieferungen entsteht, nicht bei einer. Ein Check, der nur
+im Release-Ritual läuft, kann sie strukturell nicht beantworten: In einem
+anderen Projekt blieben so **17 Tage** stiller Rückstand unbemerkt. Bei uns
+hängt das an Issue #54; bis dahin ist die Auslieferungs-Selbstprüfung in
+Schritt 8 des Rituals ausdrücklich **nicht** der Rückstands-Check.
+
+## 27. Eine Bewertung, die zweimal dasselbe verschieden zählt, trägt keine Entscheidung
+
+**Vorlage §32.** Dieselben Dateien wurden dreimal gegen dieselbe Rubrik
+bewertet: **14, 16 und 15** erfüllte Punkte. Die Streuung stammte nicht aus
+den Dateien, sondern aus der Rubrik — sie ließ offen, was „erfüllt" heißt, und
+jede Zählung entschied das neu.
+
+Eine Summe verbirgt das: Sie sieht bei 14 und bei 16 gleich belastbar aus.
+Erst das **Zeilenprotokoll** — je Punkt: erfüllt ja/nein, mit Beleg — macht
+die Abweichung sichtbar, und zwar dort, wo sie entstand.
+
+**Regeln:**
+
+- **Rubriken sind Zeilenprotokolle, keine Summen.** Die Summe darf danebenstehen,
+  aber nie allein.
+- **Ein Kriterium, das zwei Leser verschieden zählen, ist kein Kriterium**,
+  sondern eine Meinungsfrage mit Zahlenkleid.
+- Verwandt mit `panel.md`, „Der Arbiter stuft nach EINER Regel über alle
+  Runden": Dort geht es um die Schwere eines Funds, hier um die Zählung einer
+  Bewertung — dieselbe Klasse, zwei Anwendungen.

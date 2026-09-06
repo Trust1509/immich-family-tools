@@ -161,10 +161,49 @@ ersetzt keine Reproduktion: Zwei Stimmen können denselben Fehler machen, und di
 diff-only-Stimme liest gelegentlich die Vorher-Seite eines Diffs und meldet
 einen längst gefixten Zustand.
 
+**Konvergenz ist ein Grund zu messen, kein Grund aufzuhören** — und das steht
+inzwischen mit Zahlen da, nicht als Vorsicht. In einem Benchmark über drei
+Läufe desselben eingefrorenen Slices fanden **zwei bis drei Blocker je Lauf
+ausschließlich die Gates und der Rauchtest**, keine Stimme. Und in einem Lauf
+erklärten **3 von 3** Stimmen denselben roten Test mit derselben **falschen**
+Ursache. Einstimmigkeit ist damit kein Verstärker: Drei Modelle, die dieselbe
+Trainingsverteilung teilen, greifen zur selben plausiblen Erklärung.
+
+**Sonde vor Hypothese.** Die billigste Widerlegung ist meist kein Modell,
+sondern ein Aufruf: die echte Funktion, ein gefälschter Kontext, eine
+Wegwerf-Ablage — 0,1 Sekunden, kein Token. In einem gemessenen Fall waren
+**beide** plausiblen Hypothesen falsch, und die Sonde zeigte es sofort. Für
+uns die konkrete Form: die Funktion aus `backend/` direkt importieren, ein
+erfundenes `accounts.json` in ein Wegwerf-Verzeichnis legen, aufrufen.
+
+**Messartefakte gehören nicht in den Baum, den die Stimmen lesen.** Beide
+Claude-Stimmen haben vollen Repo-Zugriff — eine Stimme zitierte einmal die
+Fehlerkontexte des Orchestrators als eigenen Beleg. Sonden-Ausgaben,
+Mutations-Protokolle und Bauer-Berichte kommen in den Scratchpad, nicht in den
+Baum. Der Haken: Eine ignorierte Datei ist in `git status --short`
+**unsichtbar** und für eine Repo-Stimme trotzdem lesbar. Die Probe lautet
+deshalb:
+
+```bash
+git status --short --ignored
+```
+
 **4. Nacharbeit** nach `bau-brief.md` — mit dem, was **bestätigt** wurde, und mit
 ausdrücklich **abgeräumten** Fehlbefunden. Wer sie baut (derselbe Bauer oder ein
 frischer), entscheidet die **Art der Auflage**, nicht eine Vorliebe — siehe
 `bau-brief.md`, Abschnitt „Der Nacharbeits-Brief ist ein Bau-Brief".
+
+**Beginnt die Nacharbeit, bevor die letzte Stimme fertig ist, führt der
+Panel-Kommentar eine Tabelle:**
+
+| Befund | Stimme | Stand bei Beginn der Nacharbeit | Ergebnis |
+| ------ | ------ | ------------------------------- | -------- |
+
+Das ist erlaubt und sogar erwünscht — die Stimmen prüfen den Commit, nicht den
+Baum (siehe „Stimmen mit Repo-Zugriff"). Aber der Nebeneffekt ist gemessen:
+In einem Fall begann die Nacharbeit **in derselben Minute** wie der erste
+Befund, und danach war nicht mehr rekonstruierbar, welche Stimme welchen Stand
+gesehen hatte. Die Tabelle hält genau das fest.
 
 **Die Regel hängt am GELANDETEN ZUSTAND, nicht am Slice.** Was am Ende auf dem
 Hauptzweig liegt, ist geprüft — egal in wie vielen Anläufen es dorthin kam.
@@ -224,6 +263,24 @@ und herunterstufen (die Konsumenten-Frage macht aus einem Anzeigefehler regelmä
 einen Schreibpfad-Fehler). Die Umstufung wird im Panel-Kommentar als solche
 markiert, z. B. `P2 → P1 (arb.)`, sonst ist sie stille Meinung.
 
+**Fund und Schwere werden getrennt arbitriert.** Ein Fund kann bestehen
+bleiben, während seine Begründung zusammenbricht — das mittlere Urteil oben
+gilt in **beide** Richtungen: Auch eine Stimme, die zu hoch stuft, kann auf
+etwas Echtes zeigen. Drei Regeln daraus:
+
+- **Wer strukturell hochstuft, benennt die Mengenannahme.** Gemessen: „~34 000
+  Bilder laufen durch diesen Pfad" — die Zahl war um Größenordnungen zu hoch,
+  der Fund blieb trotzdem gültig. Ohne die genannte Annahme lässt sich das
+  nicht auseinanderhalten, und der Fund fällt mit seiner Zahl.
+- **Der Arbiter stuft nach EINER Regel über alle Runden.** Gemessen: derselbe
+  Fund in zwei Runden einmal als KLEIN und einmal als BLOCKER. Eine Schwere,
+  die von der Tagesform abhängt, ist keine Schwere.
+- **Eine widerlegte Behauptung des Prüfauftrags ist ein Fund.** Der Auftrag
+  kommt vom Orchestrator und ist ungeprüft (siehe `bau-brief.md`, „Den
+  Orchestrator prüft niemand"). Wenn eine Stimme zeigt, dass die Behauptung,
+  die sie widerlegen sollte, gar nicht zutrifft, hat sie geliefert — und der
+  Fund wird protokolliert, nicht als „nichts gefunden" abgelegt.
+
 **Widersprechen sich zwei Stimmen, entscheidet die Reproduktion**, nicht die
 Mehrheit und nicht die Plausibilität der Begründung.
 
@@ -241,6 +298,22 @@ Dazu:
 - **Ausdrücklich erlauben, nichts zu finden.** Sonst wird etwas erfunden.
 - **Je Fund: Schwere, Datei:Zeile, Nachweis.** Kein Nachweis, kein Fund.
 - Abschluss: **ein Satz Gesamturteil** (landen ja/nein).
+
+**Der Prüfgegenstand schließt die Orchestrator-Texte ein.** Der Diff, den die
+Stimmen bekommen, enthält CHANGELOG-Eintrag, Doku-Änderung und alles andere,
+was der Hauptagent für diesen Slice geschrieben hat — nicht nur den
+Produktcode. Das ist die Gegenseite zu `bau-brief.md`, „Den Orchestrator prüft
+niemand": Dort wird die Prüfung bestellt, hier wird sie geliefert.
+
+**Zwei Aufträge gehen fest an mindestens eine Stimme:**
+
+- **„Zählt der Slice seine eigene Zusage ab?"** — die Frage aus Block 9 des
+  Briefs, hier als Prüferfrage. Sie wirkt so gemessen stärker: Wer die Zusage
+  geschrieben hat, zählt sie anders nach als wer sie zum ersten Mal liest.
+- **„Welche Vorgabe macht dir dieser Auftrag, und was spricht dagegen?"** —
+  die Verhaltensvorgaben des Briefs sind Widerlegungs-Auftrag, nicht
+  Randbedingung. Gemessen: Der schwerste Fund eines Slices war die Folge
+  einer Brief-Vorgabe, und die Stimme, die den Brief kannte, hakte sie ab.
 
 ## Fragen, die überdurchschnittlich oft etwas finden
 
@@ -305,6 +378,13 @@ Prüfung.** Gemessen: Zwei Subagenten starben an Sitzungslimits — einer mitten
 Rot-Beweis (die Sabotage stand danach zwei Tage im Code), einer mitten im Panel
 (eine komplette Runde musste wiederholt werden).
 
+**Verfügbarkeit wird vor jeder Serie GEMESSEN, nicht angenommen** — beides:
+Sitzungskontingent und Guthaben. Der Grund ist unangenehm konkret: **Der
+Anbieter lehnt ab, bevor das Guthaben leer ist.** Wer bis zum letzten Cent
+plant, verliert die Stimme mitten im Lauf und hat dann einen halben Befund,
+der aussieht wie ein ganzer. Das gehört zu Schritt 0 des Ablaufs oben, nicht
+in die Rückschau.
+
 Verkraftbar war das nur, weil nichts ausgeliefert war. **Wer zwischen Panel und
 Release wenig Puffer hat, plant das Panel nicht auf den letzten Moment** — und
 behandelt einen abgebrochenen Prüflauf wie einen abgebrochenen Bau: erst
@@ -362,7 +442,15 @@ steht nur, was je Klasse zu tun ist:
   Stimmen, nicht als Fließtext.
 - **R3** — volles Panel **plus eine risikospezifische Probe durch die echte
   Tür** (Datenerhalt-Probe für die JSON-Migration, Berechtigungs-Sonde,
-  Schnittstellen-Aufruf von außen — je nach Auslöser). **Stimme 3 wird bei R3
+  Schnittstellen-Aufruf von außen — je nach Auslöser).
+  **Die Tür-Probe braucht die Tür.** Wo der Zugang ein Geheimnis verlangt,
+  das der Agent nicht eingeben darf und nicht eingeben wird, gibt es keine
+  Probe durch die echte Tür — dann steht unter der Probe **„teilweise
+  ausgefallen"** mit dem Grund, und nicht ein Ergebnis, das aus einem
+  Ersatzpfad stammt. Bei uns ist das der Normalfall, solange #75 offen ist:
+  Ohne geheimnisfreien Auth-Pfad reicht die Probe bis zur Anmeldemaske und
+  nicht weiter. Ein Ersatzpfad ist eine andere Messung, kein schwächeres
+  Ergebnis derselben. **Stimme 3 wird bei R3
   durch eine zweite blinde Claude-Repo-Stimme ersetzt** — ein zweiter frischer
   Subagent mit vollem Repo-Zugriff wie Stimme 1, aber **adversarial gerahmt**:
   Sein Auftrag lautet ausdrücklich, den Befund der ersten blinden Stimme zu
@@ -448,6 +536,12 @@ Jede Claude-Stimme bekommt einen eigenen `git worktree` auf dem gemessenen
 Commit; Mutationen und Container tragen ein stimmen-eigenes Präfix, das
 Aufräumen wird nachgewiesen. Der Hauptagent darf den Hauptbaum währenddessen
 weiterbewegen.
+
+Präzisierung, weil die alte Formulierung zwei Fälle zusammenzog: Verboten ist
+der **geteilte Hauptarbeitsbaum** — zwei Akteure, die gleichzeitig im selben
+Verzeichnis schreiben. Ein eigener Worktree je Stimme ist genau die Auflösung
+davon, kein Verstoß gegen die Quellen-Regel: Er zeigt auf denselben Commit,
+nicht auf denselben Baum.
 
 Gemessen: Eine Erststimme lief im Hauptbaum, während dort Nacharbeit
 einfloss — ihr Bericht beginnt mit „Der Prüfgegenstand hat sich während des

@@ -1,6 +1,6 @@
 # CLAUDE.md — Projektanweisungen
 
-**Prozess-Stand: v1.13.1** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.14.1** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -53,6 +53,33 @@ jeden Blocker am Code**, statt der Konvergenz der Prüfer zu glauben.
 Schnittstellen-Zuschnitt, Testform: selbst. Ob eine Zahlung auf eine
 abgeschlossene Rechnung möglich sein soll: fragen. Im Zweifel: eine Annahme
 formulieren, weiterbauen, die Annahme sichtbar machen.
+
+**Den Herkunftsstempel setzt der Hauptagent, nie der Bauer.** Ein Bau-Subagent
+kennt seine eigene Modell-Kennung nicht und erfindet sie — gemessen in vier von
+vier Erstbauten, auch nach ausdrücklicher Auflage. Bau-Briefe geben deshalb den
+Platzhalter `bau=<vom Orchestrator gesetzt>` vor; ersetzt wird er beim Landen.
+Form und Begründung: `docs/agents/bau-brief.md`, „Modell-Stempel".
+
+**Zeit wird in Bilanzen als DREI Zahlen geführt**, nicht als eine — damit sie
+über Projekte hinweg summierbar bleibt (Owner-Entscheid 06.09.2026). Jeder
+Block der Zeitachse trägt genau einen Zustand:
+
+| Zustand                    | Bedeutung                                                                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACTIVE`                   | Es wird gearbeitet. **Verworfene Arbeit zählt mit** — Messfehler und Wiederholung sind Reibung des Verfahrens, nicht Ausschuss.                                      |
+| `PAUSED_EXTERNAL_CAPACITY` | Wartezeit auf eine fremde Kapazitätsgrenze: Sitzungslimit, Guthaben, Dienstausfall. Mit Ursache und Dauer protokollieren; trifft ausdrücklich auch den Orchestrator. |
+| `MIXED`                    | Nicht aufgeteilt. Wird **ausgewiesen, nicht geschätzt** — erzeugt eine Untergrenze („≥ …").                                                                          |
+
+Wartezeit auf ein fremdes Kontingent wird **gezählt, nicht in die Zeit
+summiert**: Die Vergleichsgröße zwischen Projekten ist die aktive
+Umsetzungszeit, nicht die Wandzeit. Für dieses Projekt ist das keine Theorie —
+zwei Subagenten sind an Sitzungslimits gestorben, und der Orchestrator selbst
+war zuletzt mitten in einem Slice ausgesperrt.
+
+**Bilanzen zählen außerdem, welche Funde den ORCHESTRATOR trafen** und nicht
+den Bauer — die Zahl ist die einzige, die zeigt, ob die Prüfung dort ankommt,
+wo sie bisher nicht hinsah (`docs/agents/bau-brief.md`, „Den Orchestrator prüft
+niemand").
 
 ## Risikoklasse je Slice — hier wird entschieden, was geprüft wird
 
@@ -115,10 +142,24 @@ Projekt stehen ebenfalls dort.
 Jeder Bau-Auftrag folgt dem Pflicht-Gerüst aus `docs/agents/bau-brief.md` —
 Block 0 (`Risiko: R<n> — Auslöser: …`) plus neun Themen-Blöcke, keiner leer.
 **Vor jedem Absenden verbindlich:**
-`LC_ALL=C.UTF-8 sh scripts/bau-brief-pruefen.sh <brief.md>` — ohne die Locale
-findet `grep -i` die Umlaute in drei der zehn Themen-Muster nicht und das
-Skript meldet Vorhandenes als fehlend (gemessen, `docs/agents/bau-brief.md`).
-Details, Begründungen und projektspezifische Prüf-Kommandos stehen dort, nicht
+`LC_ALL=C.UTF-8 sh scripts/bau-brief-pruefen.sh <brief.md>` — **das Skript
+setzt die Locale nicht selbst, und ohne sie meldet es Vorhandenes als
+fehlend.**
+
+Der Grund hat sich mit v1.14.1 geändert, die Anweisung nicht. Vorher trugen
+drei der zehn Themen-Muster literale Umlaute; heute trägt **keines** mehr
+einen. Was bleibt, ist die Ersatzschreibweise selbst: Ein einzelner Punkt steht
+für **ein Byte**, ein Umlaut besteht aus zweien — `zweck-identit.t`,
+`verhalten .nder`, `entf.ll`, `er.brigt` und `wei. ich nicht` treffen unter
+`LC_ALL=C` also **null** Zeilen, unter `LC_ALL=C.UTF-8` je eine (gemessen,
+blinde Panel-Stimme 06.09.2026). Zweibytefest sind nur die beiden Muster mit
+`..?`: `pr..?ffrage` und `pr..?f-kommando`.
+
+Praktisch heißt das: Ohne die Locale meldet das Skript `[KEIN TREFFER]` für
+`Sichtbares` und `Prüffragen` — also Vorhandenes als fehlend, in genau der
+Richtung, die es selbst belastbar nennt. Der Schutz liegt damit in der
+Aufrufkonvention, nicht im Werkzeug. Details, Begründungen und
+projektspezifische Prüf-Kommandos stehen in `docs/agents/bau-brief.md`, nicht
 hier.
 
 ## Release
@@ -188,7 +229,7 @@ nicht):\*\*
 - Backend: `sh scripts/release-selbstprobe.sh` — die Selbstprobe des
   Release-Gates. Sie hängt am Push-Pfad und nicht am Release, weil ein
   Wächter, dessen Lauf niemand erzwingt, seine Abdeckungszahl zur Beruhigung
-  macht (`docs/agents/lehren.md` §21), und weil ein kaputtes Gate am
+  macht (`docs/agents/lehren.md` §18), und weil ein kaputtes Gate am
   Release-Tag zu spät auffällt. Braucht kein Netz und kein `gh`.
 - Frontend (in `frontend/`): `npm ci`
 - Frontend (in `frontend/`): `npm test`
@@ -206,6 +247,28 @@ aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 - Frontend (in `frontend/`): `npm run typecheck` (= `tsc --noEmit`)
 - Frontend (in `frontend/`): `npm run test` (= `vitest run`, kein Watch-Modus)
 - Backend: `pytest backend/tests/ --basetemp=/tmp/pytest-immich -q`
+
+Dazu der **Commit-Nachrichten-Hook** (`.husky/commit-msg`): Er lehnt die
+CI-Überspring-Kennung ab Zeile 2 ab — in der Klammer- **und** in der
+Trailer-Form (`skip-checks:`), nachdem GitHub beide auswertet. Begründung und
+Vorfall: `docs/agents/lehren.md` §24.
+
+**Beide Hooks sind nach einem frischen Klon NICHT scharf** — und das ist der
+Fall, den man übersieht, weil im eingerichteten Arbeitsbaum alles läuft.
+`core.hooksPath` zeigt auf `.husky/_`, und dieses Verzeichnis ist **nicht
+versioniert**; es entsteht erst durch ein `npm install` **in der Wurzel**
+(`"prepare": "husky"` in der Wurzel-`package.json`). Die `npm ci` in der Liste
+oben laufen in `frontend/` und richten nichts ein. Also:
+
+```bash
+npm install          # in der Wurzel, einmal je Klon — richtet .husky/_ ein
+git config core.hooksPath   # muss .husky/_ ausgeben, sonst laeuft kein Hook
+```
+
+Und die verbleibenden Löcher offen benannt, damit niemand den Hook für mehr
+hält, als er ist: `--no-verify` umgeht ihn, ein Merge über die
+GitHub-Oberfläche erreicht ihn nie, und es gibt keine serverseitige
+Entsprechung. Er ist eine Verifikation auf diesem Rechner, kein Tor am Repo.
 
 **Wochen-Prüfung (`.github/workflows/wochen-pruefung.yml`, montags 04:00 +
 `workflow_dispatch`, bewusst **nicht** auf dem Push-Pfad):**
@@ -294,6 +357,53 @@ verwechseln heißt, die Lücke der anderen zu übersehen:
 **Der Nutzen der Öffentlichkeit gehört auch hin:** CI-Läufe kosten hier 0
 abgerechnete Minuten — Begründung und Beleg stehen in „Prüfschritte" oben,
 hier nur der Verweis.
+
+### Gemessen am 06.09.2026: was der eigene Scanner zusätzlich leistet
+
+Auftrag aus dem Vorlagen-Abgleich v1.14.0 („doppelte Wächter kosten Budget").
+Ergebnis: **beide Plattform-Schalter sind an, und `gitleaks` bleibt trotzdem.**
+
+Schalterstand — `gh api repos/Trust1509/immich-family-tools --jq
+.security_and_analysis`:
+
+```
+secret_scanning:                        enabled
+secret_scanning_push_protection:        enabled
+secret_scanning_non_provider_patterns:  disabled
+secret_scanning_validity_checks:        disabled
+```
+
+Deckungs-Messung, Wegwerf-Repo mit sechs **erfundenen** Werten, `gitleaks
+detect` über den vollen Verlauf. Klasse A ist die Form, in der unser einziges
+echtes Geheimnis auftreten würde (Immich-Schlüssel: 32 Zeichen, kein
+Anbieter-Präfix); Klasse B ist die Gegenprobe:
+
+| Fixture                             | Klasse | gitleaks           | Plattform |
+| ----------------------------------- | ------ | ------------------ | --------- |
+| Immich-Schlüssel in `accounts.json` | A      | Fund (generic)     | kein Fund |
+| Immich-Schlüssel in Python-Code     | A      | Fund (generic)     | kein Fund |
+| Passwort in einer Datenbank-URL     | A      | **kein Fund**      | kein Fund |
+| privater RSA-Schlüssel              | A      | Fund (private-key) | kein Fund |
+| AWS-Schlüsselpaar                   | B      | Fund               | Fund      |
+| GitHub-PAT                          | B      | Fund (github-pat)  | Fund      |
+
+**Drei von sechs fängt nur `gitleaks`, darunter beide Formen unseres einzigen
+echten Geheimnistyps.** Diese zwei bleiben exklusiv, auch wenn die generischen
+Muster eingeschaltet werden: Ein bloßer Schlüssel ohne Präfix ist kein
+generisches Muster (das sind private Schlüssel und Verbindungszeichenketten),
+höchstens ein KI-erkanntes — und die haben laut Plattform-Dokumentation keine
+Push Protection.
+
+**Und die Kostenannahme trägt nicht:** `actions/runs/<id>/timing` meldet
+`billable.UBUNTU.total_ms = 0` für alle Jobs, geprüft über drei Läufe und
+beide Workflows; der `secrets`-Job läuft in 4–10 Sekunden.
+
+**Zwei offene Punkte** (Issue #77): Die generischen Muster einschalten ist
+kostenlos und deckt **privaten Schlüssel und Verbindungszeichenkette**
+plattformseitig ab — und zwar **vor** dem Push, wo unser Scanner erst danach
+prüft. Owner-Schalter. Und **das Passwort in einer Verbindungszeichenkette
+fängt heute keiner von beiden**; solange das so ist, ist es kein gedeckter
+Fall, sondern eine bekannte Lücke.
 
 ## Projektspezifisches
 

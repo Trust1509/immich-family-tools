@@ -43,7 +43,7 @@
 
                           Umfang nicht erweitern⟩
 
-## 9 Prüffragen ⟨die acht Fragen unten, JE EINE ZEILE Antwort —
+## 9 Prüffragen ⟨die zehn Fragen unten, JE EINE ZEILE Antwort —
 
                           „trifft nicht zu" ist eine gültige Antwort,
                           Weglassen ist keine⟩
@@ -64,9 +64,48 @@ Prüffragen`, mit Locale `Kandidat`. **Das ist der teuerste Fehler, den dieses
 Skript machen kann** — nach seiner eigenen Asymmetrie ist „kein Treffer" das
 belastbare Urteil, ein Falsch-Negativ hier sieht also aus wie ein Beweis.
 
-Die frühere Fassung dieser Stelle riet, Block-Überschriften nicht in Versalien
-zu schreiben. Das war eine Umgehung des Defekts; seit v1.13.1 ist die Ursache
-benannt und behebbar, und die Umgehung entfällt.
+**Seit v1.14.0 sucht das Skript umlautfrei** (`pr..?ffrage`, `zweck-identit.t`,
+`verhalten .nder`) und entfernt Markdown-Auszeichnung vor der Suche. Gemessen
+an einer Sonde mit `## 9 PRÜFFRAGEN` und `Risiko: **R2**`: ohne Locale traf das
+alte Prüffragen-Muster **0**, das neue **1**; das alte Risiko-Muster traf durch
+den Fettdruck **0**, nach der Bereinigung **1**.
+
+**Aber nur EINER der beiden Defekte ist im Werkzeug behoben, und das ist der
+Unterschied, auf den es ankommt.** Die Markdown-Bereinigung wirkt ohne Zutun.
+Die Umlaut-Freiheit nicht: Ein einzelner Punkt steht für **ein Byte**, ein
+Umlaut besteht aus zweien. Von den sieben Ersatzmustern sind nur die zwei mit
+`..?` zweibytefest — `pr..?ffrage` und `pr..?f-kommando`. Die anderen fünf
+(`zweck-identit.t`, `verhalten .nder`, `entf.ll`, `er.brigt`,
+`wei. ich nicht`) treffen unter `LC_ALL=C` **null** Zeilen und unter
+`LC_ALL=C.UTF-8` je eine. Das Skript setzt die Locale nicht selbst.
+
+Die praktische Folge, gemessen statt geschätzt — und schmaler, als sie klingt:
+Ohne gesetzte Locale meldet das Skript `[KEIN TREFFER] Sichtbares` und
+`[KEIN TREFFER] Prüffragen`, also **Vorhandenes als fehlend**, in genau der
+Richtung, die es selbst belastbar nennt. Die **Verneinungs-Warnung** bleibt
+dagegen weitgehend wirksam, weil vier ihrer Alternativen (`nicht`, `kein`,
+`braucht.*nicht`, `weiss ich nicht`) reines ASCII sind; nur `entfällt`,
+`erübrigt` und `weiß ich nicht` fallen aus. Das war in einer früheren Fassung
+dieses Absatzes überzeichnet — der Beleg dort („Einen Rot-Beweis brauchst du
+hier eher nicht") enthält `nicht` und wird auch ohne Locale gefangen.
+
+Der `VERBOTE`-Block am Ende hat dagegen **beide** v1.14.0-Fixes nicht bekommen:
+Er sucht mit literalem Umlaut **und** auf der unbereinigten Datei.
+`nicht **ändern**` findet er nie, `NICHT ÄNDERN` nur mit Locale. Er druckt nur
+bei Treffern — sein Schweigen ist von „nichts da" nicht zu unterscheiden.
+
+**Deshalb bleibt der Aufruf mit `LC_ALL=C.UTF-8` verbindlich** — nicht als
+Gürtel-und-Hosenträger, sondern weil der Schutz genau dort liegt. Gemeldet an
+die Vorlage; das Skript selbst bleibt byteweise identisch, weil es dort seinen
+Eigentümer hat.
+
+**Die Form bleibt trotzdem Teil der Regel** — aber aus einem anderen Grund als
+früher. Die alte Fassung riet zu `Risiko: R<n> — …` und gegen
+Versalien-Überschriften, um einen Werkzeug-Defekt zu umgehen; diese Umgehung
+entfällt. Die Form steht jetzt für sich: Ein Brief ist ein Formular mit
+festen Feldern, und ein Feld, das jeder anders beschriftet, ist maschinell
+nicht mehr auffindbar — auch nicht mit einem reparierten Muster. Wer die Form
+aufweicht, verlagert die Prüfung wieder auf das Lesen.
 
 **Warum Block 9 existiert und nicht nur die Fragenliste:** Ein Projekt hat die
 Prüffragen einen ganzen Slice lang nicht angewendet — sie standen seit dem
@@ -103,12 +142,27 @@ Ein Bau-Brief ist der Unterschied zwischen einem Slice, der beim ersten Panel
 durchgeht, und einem, der drei Runden braucht. Die Punkte unten stehen alle,
 weil ihr Fehlen einmal Geld gekostet hat.
 
-**Modell-Stempel:** Der Bauer hängt an seinen Commit den mehrteiligen Stempel
+**Modell-Stempel:** An jedem Bau-Commit hängt der mehrteilige Stempel
 `Built-With: bau=<modell>; nacharbeit=<modell>; arbitriert=<modell> (<datum>)`
-an — nicht besetzte Rollen weglassen. Eine Welle hat oft mehrere Akteure (Bau,
+— nicht besetzte Rollen weglassen. Eine Welle hat oft mehrere Akteure (Bau,
 Nacharbeit, Arbitrierung); ohne das feste Mehrteil-Format ist die
 Herkunfts-Regel nach vier Wochen nicht mehr durchsetzbar, und jede Aussage über
 Modellverhalten bleibt Anekdote.
+
+**Den Stempel setzt der Hauptagent, nie der Bauer.** Der Bauer kennt seine
+eigene Modell-Kennung nicht — er kann sie nur erfinden, und er tut es: In einem
+Benchmark trugen **vier von vier** Erstbauten einen erfundenen Stempel, auch
+nach ausdrücklicher Auflage im Brief. Ein erfundener Herkunftsstempel ist
+schlimmer als keiner, weil er wie eine Messung aussieht und die ganze
+Herkunfts-Buchführung entwertet. Der Brief gibt deshalb den Platzhalter vor:
+
+```
+Built-With: bau=<vom Orchestrator gesetzt>
+```
+
+Der Hauptagent ersetzt ihn beim Landen. Das ist dieselbe Klasse wie die
+Prüffragen: Eine Auflage an einen Empfänger, der ihr strukturell nicht folgen
+kann, ist keine Regel — siehe „Das Hintergrund-Warte-Muster" unten.
 
 ---
 
@@ -145,7 +199,7 @@ eine Zeile Begründung statt nichts.⟩
 ⟨Test-Kommandos VOLLSTÄNDIG, Zeitlimits, Vordergrund, nicht pushen, …⟩
 
 ## 9 Prüffragen
-⟨die acht Fragen unten, JE EINE ZEILE Antwort — „trifft nicht zu" ist eine
+⟨die zehn Fragen unten, JE EINE ZEILE Antwort — „trifft nicht zu" ist eine
 gültige Antwort, Weglassen ist keine⟩
 ```
 
@@ -223,6 +277,20 @@ etwas _abgeleitet_, das still ausfällt, statt sichtbar zu degradieren?
 geht? Fallen zwei Ordnungen zufällig zusammen? Kennt ein AST-Wächter das
 _hausübliche_ Änderungsmuster oder nur die naive Form?
 
+**Fremdcode.** Wir haben zwei zugelieferte Übersetzungs-PRs verarbeitet, und
+die Linie war dabei nur implizit: **An fremdem Code wird nur korrigiert, wo
+der Widerspruch im Artefakt selbst nachweisbar ist** — ein Wert, der der
+eigenen Datei widerspricht; ein Schlüssel, den es nicht gibt. Nicht: was uns
+besser gefiele. Jede solche Korrektur wird offengelegt als **war → ist →
+warum**, damit der Zulieferer sie prüfen kann statt sie zu entdecken. Alles
+andere ist eine Rückfrage, keine Änderung.
+
+**Heuristik-Ablösung gilt pro Vorgang, nicht pro Element.** Wer eine Schätzung
+durch eine exakte Quelle ersetzt, ersetzt sie für den ganzen Durchlauf. Ein
+Vorgang, der für manche Elemente misst und für andere rät, liefert eine
+Mischung, die niemand mehr auseinanderhalten kann — und die Fehlerursache
+sitzt danach im Anteil, nicht im Verfahren.
+
 ---
 
 ## Nacharbeit nach dem Panel
@@ -251,16 +319,31 @@ entsteht (zweimal belegt, einmal _nachdem_ der erste Fall dokumentiert war).
 Deshalb: Nacharbeit bekommt dasselbe Pflicht-Gerüst, plus zwei Blöcke:
 
 ```markdown
-## 9 Bestätigt ⟨arbitrierte Auflagen, nummeriert, je mit Nachweis⟩
+## 10 Bestätigt ⟨arbitrierte Auflagen, nummeriert, je mit Nachweis⟩
 
-## 10 Ausdrücklich abgeräumt — hier ist NICHTS zu tun
+## 11 Ausdrücklich abgeräumt — hier ist NICHTS zu tun
 
                        ⟨widerlegte Fehlbefunde, damit der Bauer nicht sucht⟩
 ```
 
-Block 10 wurde in einem anderen Projekt erfunden, weil `panel.md` zwar
+Block 11 wurde in einem anderen Projekt erfunden, weil `panel.md` zwar
 „ausdrücklich abgeräumt" verlangt, aber nicht sagt, wo das steht. Ohne ihn
 sucht der Bauer nach Fehlern, die es nicht gibt.
+
+_Die Nummern 10 und 11 sind nicht kosmetisch: Bis v1.13.1 hießen diese Blöcke
+9 und 10 — und Block 9 ist der Prüffragen-Block. Ein Nacharbeits-Brief hatte
+damit **zwei Blöcke „9"**, beide legitim aussehend, und das Prüfskript kann
+eine Nummern-Kollision nicht sehen (es sucht Themen, nicht Nummern). Nach
+jedem Einfügen eines nummerierten Blocks deshalb einmal zählen:_
+
+```bash
+grep -o '^## [0-9]*' <brief.md> | sort | uniq -c
+```
+
+**Keine neuen Tests in der letzten Nacharbeitsrunde.** Wer in der Schlussrunde
+noch einen Test bestellt, bestellt den einzigen Blocker, der am Ende offen
+bleibt — genau so gemessen. Ein in der Schlussrunde erkannter Testbedarf wird
+ein Issue, keine Auflage.
 
 **Wer die Nacharbeit baut — nach der Art der Auflage, nicht nach Vorliebe:**
 
@@ -301,6 +384,38 @@ im Issue und in der Lehre.
 **Für dieses Projekt besonders relevant:** Testdaten enthalten Personennamen aus
 Gesichtserkennung. Ein Name aus einem echten Gesichtserkennungs-Match gehört
 nicht in eine Fixture — auch nicht als „nur ein Beispiel".
+
+## Der Rot-Beweis ist eine Schrittfolge, keine Warnung
+
+Ein misslungener Rot-Beweis meldet **grün** — er sieht von außen genauso aus
+wie ein gelungener. Drei Arten davon in einem einzigen Slice gemessen: Die
+Sabotage war gar keine; die Sabotage kam im laufenden Artefakt nicht an; der
+Bau scheiterte still, weil die Ausgabe nach `/dev/null` ging. Dazu ein
+Rückbau per `git checkout --`, der die uncommittete Nacharbeit gleich mit
+löschte. Deshalb nummeriert statt ermahnt:
+
+1. **Committen.** Vor der ersten Mutation ein `wip`-Commit — sonst löscht der
+   Rückbau Arbeit mit, die nie in der Mutation stand. Am Ende amenden.
+2. **a) Die Sabotage im Quelltext belegen.** Nicht „ich habe geändert",
+   sondern die geänderte Zeile zeigen.
+   **b) Die Sabotage im laufenden Artefakt nachweisen.** Der Marker steht im
+   **String**, nicht im Kommentar — ein Kommentar überlebt jeden Bau und
+   beweist nichts über das, was wirklich läuft. Dieser Schritt ist der, an
+   dem wir zuletzt selbst gescheitert sind: Eine Umlaut-Probe war grün, weil
+   der Brief ein zusätzliches ASCII-Muster enthielt, das der Test fand.
+3. **Messen ohne Pipe.** Der Exit-Code ist die Antwort. Eine Pipe verschluckt
+   ihn (`set -o pipefail` ist nicht überall gesetzt), und `grep` auf der
+   Ausgabe misst die Formulierung statt das Ergebnis.
+4. **Zurücknehmen und den Baum prüfen.** `git status` und `git diff` danach,
+   nicht davor.
+
+Zwei Zuschnitt-Regeln dazu:
+
+- **Die Mutation trifft die gesamte betroffene Menge**, nicht ihren ersten
+  Vertreter. Gemessen: Ein Beweis leerte nur den ersten Abschnitt und war
+  deshalb grün an der Stelle, an der er hätte rot sein müssen.
+- **Ein Rot-Beweis mutiert eine Zeile, die im Diff steht.** Vier grüne Tests
+  gegen null geänderte Zeilen bestätigen die Ausgangslage, nicht den Fix.
 
 ## Rot-Beweis gilt auch für ganze Suiten
 
@@ -448,6 +563,56 @@ im Report; ein anderer korrigierte die R-Einstufung des Auftraggebers am
 Tabellentext. Der Brief ist Anleitung, kein Dogma; verifizierte Gegenbelege
 gehören in den Report.
 
+## Den Orchestrator prüft niemand — außer er bestellt die Prüfung
+
+Alles, was der Hauptagent selbst schreibt, geht an Panel und Gates vorbei:
+Bau-Briefe, Issue-Texte, CHANGELOG-Einträge, Panel-Kommentare. Kein Gate liest
+sie, keine Stimme bekommt sie vorgelegt. Und in jeder Bilanz traf ein
+erheblicher Teil der bestätigten Funde nicht den Bauer, sondern den
+Auftraggeber — bei uns zuletzt vier von acht in einem einzigen Slice, darunter
+beide Blocker.
+
+Fünf Regeln, die den Orchestrator in den Prüfbereich holen:
+
+- **Jeder Brief mit einer Empfehlung trägt die Klausel: „Prüfe meine
+  Einschätzung, statt sie zu übernehmen."** Ohne sie liest der Bauer eine
+  Vermutung als Befund. Der Satz kostet eine Zeile und ist die einzige
+  Stelle, an der der Brief seine eigene Fehlbarkeit zugibt.
+- **Verhaltensvorgaben des Briefs sind Widerlegungs-Auftrag mindestens einer
+  Stimme.** Gemessen: Der schwerste Fund eines Slices war die Folge einer
+  Brief-Vorgabe — und die blinde Stimme, die den Brief kannte, hakte sie ab
+  statt sie zu prüfen. Was der Brief anordnet, muss jemand angreifen dürfen.
+- **Eine Fundstelle aus einem Ticket ist ein Verdacht, keine Tatsache.** Sie
+  wird im Brief als Verdacht markiert und vom Bauer nachgemessen. Ein Ticket
+  ist ein Gedächtnisstand, kein Messwert — und altert.
+- **Ein Brief bestellt eine Tatsache an genau einer Stelle.** Dieselbe Zahl
+  in Block 2 und Block 5 driftet beim ersten Nachtrag; dann steht im Brief
+  ein Widerspruch, den der Bauer nach Belieben auflöst.
+- **Jede Brief-Option nennt die Umgebung, in der sie läuft.** Bei uns kein
+  Gedankenspiel: Die Codex-Stimme läuft in einem Container ohne
+  `bwrap`-Rechte; eine Option, die dort einen Dateizugriff voraussetzt, ist
+  kein Weg, sondern ein Totalausfall — in einem gemessenen Fall 0 von 3
+  Stimmen.
+
+**Ausgelieferte Orchestrator-Texte sind Produkt.** CHANGELOG-Einträge,
+Issue-Texte und Antworten an Projektfremde unterliegen denselben Stilregeln
+wie der Code (echte Umlaute, keine internen Kürzel roh) **und derselben
+Prüfung** — der Panel-Diff enthält sie, siehe `panel.md`. Sie sind
+Außenwirkung; das ist bei uns ein R3-Auslöser, wenn sie über eine
+Schnittstelle nach außen gehen.
+
+**Der Brief in einem öffentlichen Repo trägt keine Zugangswege.** Unsere
+Briefe werden als Issue-Kommentar gepostet, und dieses Repo ist öffentlich.
+Adressen von Instanzen, Kontonamen, Pfade zu Schlüsseldateien, die Form eines
+Tokens: nichts davon gehört hinein — auch nicht als Beispiel, auch nicht
+erfunden-aber-echt-aussehend. Was der Bauer an Zugang braucht, bekommt er
+außerhalb des Briefs.
+
+**Der Bericht des Bauers ist die Abschlussantwort, keine Datei im Repo.**
+Gemessen: Zwei von drei Läufen legten ihn in den Arbeitsbaum, einer committete
+ihn. Ein Bericht im Baum ist ein Messartefakt, das die Repo-Stimmen dann als
+Quelle lesen — siehe `panel.md`, „Messartefakte".
+
 ## Ablage: der Brief gehört dorthin, wo die zweite Stimme ihn findet
 
 **Die blinde Erststimme bleibt blind — sie bekommt den Brief nicht** (siehe
@@ -473,7 +638,7 @@ Vorlage:** So bleibt der Brief außerhalb des versionierten Prozess-Stands,
 statt als Datei im Repo mitzulaufen — und der Owner sieht die Annahmen im
 Issue, nicht erst im commiteten Repo-Stand.
 
-## Acht Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
+## Zehn Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
 
 1. **Schreibt dieser Fix an einer Stelle, die vorher nur las — und wer teilt
    sich die Zielzeilen?** (Ein Fix machte einen inerten Pfad aktiv und schuf
@@ -510,3 +675,19 @@ Issue, nicht erst im commiteten Repo-Stand.
    verspricht, zählt die Y. Gemessen: Ein Slice versprach Dichtigkeit für
    einen Sprachassistenten mit acht Werkzeugen und schloss eines; der Brief
    listete unter „Konsumenten" genau dieses eine.
+   _Diese Frage wirkt als **Prüferfrage** stärker denn als Bauerfrage und
+   steht deshalb auch im Prüfauftrag der Stimmen (`panel.md`): Wer die Zusage
+   geschrieben hat, zählt sie anders nach als wer sie zum ersten Mal liest._
+9. **Welche Eigenschaft hat die Antwort, die es NUR gibt, wenn die Funktion
+   wirklich läuft?** Gemessen: Eine Suite war vor und nach dem Fix identisch
+   grün — die Funktion tat wochenlang nichts, und niemand sah es, weil kein
+   Test etwas prüfte, das ihre Ausführung voraussetzt. Zwei Kopfzeilen der
+   Antwort haben es dann entschieden. Die Frage sucht das Merkmal, das eine
+   nicht ausgeführte Funktion nicht fälschen kann.
+10. **Wer hat den Schlüssel heute NICHT — und ist das dieselbe Person wie
+    „frische Installation"?** Ein Owner-Entscheid ist eine **Anforderung, kein
+    Abnahmekriterium**: Er sagt, was gelten soll, nicht dass es gilt. Gemessen
+    als Erst-Rollout-Fehler — ein richtiger Entscheid, dessen Folge niemand
+    abnahm, in 27 Review-Läufen genau **einmal** gefunden. Für uns die
+    konkrete Form: Ein Konto ohne hinterlegten Immich-Schlüssel und eine
+    frische `accounts.json` sind **zwei** Zustände, nicht einer.

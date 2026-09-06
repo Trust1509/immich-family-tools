@@ -80,7 +80,7 @@ jobs:
       - run: python -m compileall -q backend
       # Die Selbstprobe des Release-Gates. Sie haengt hier und nicht am
       # Release, weil ein Waechter, dessen Lauf niemand erzwingt, seine
-      # Abdeckungszahl zur Beruhigung macht (docs/agents/lehren.md §21) —
+      # Abdeckungszahl zur Beruhigung macht (docs/agents/lehren.md §18) —
       # und weil ein kaputtes Gate am Release-Tag zu spaet auffaellt.
       # Braucht kein Netz und kein gh: sie baut Wegwerf-Repos und stellt
       # ein falsches gh in den PATH.

@@ -82,6 +82,43 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    **Vorgänger-Commits**, weil der eigene noch nicht existiert — real wurde so
    ein Issue gegen fremdes Grün geschlossen. Über den eigenen `headSha` filtern,
    dann auf die gefundene Lauf-ID warten. Details in `docs/agents/lehren.md` §6.
+
+   **„Kein Lauf zum `headSha` gefunden" ist ROT, nicht „noch nicht da".** Das
+   ist keine Formulierungsfrage: Nur diese Lesart hat den Vorfall aus §24
+   überhaupt sichtbar gemacht — ein Commit auf `main`, der **null** Läufe
+   auslöste, weil seine eigene Nachricht die CI-Überspring-Kennung enthielt.
+   Ein Lauf, den es nie gab, hinterlässt nichts; wer „null Läufe" als „warte
+   noch" liest, wartet für immer und taggt irgendwann trotzdem. Der Beleg für
+   „ein CI-Lauf je Slice" ist damit nicht die Absicht, sondern die Abfrage:
+
+   ```bash
+   gh run list --workflow ci.yml --limit 60 --json headSha,status,conclusion \
+     --jq "[.[] | select(.headSha == \"$(git rev-parse HEAD)\")]"
+   ```
+
+   Eine leere Liste ist ein Befund, keine Wartemeldung.
+
+   **`--workflow ci.yml` ist tragend, nicht Kosmetik** — und die naheliegende
+   Kurzform ist gemessen falsch. Wer stattdessen alle Läufe zum `headSha`
+   zählt (`actions/runs?head_sha=…` mit `.total_count`), bekommt an Commit
+   `8e46bf1` die Antwort `2` und liest sie als „Läufe da, alles gut":
+
+   ```
+   Configured Graph Update: pip in /backend | success | dynamic/dependabot/update-graph
+   CI                                       | cancelled | .github/workflows/ci.yml
+   ```
+
+   Der grüne Lauf ist ein **fremder** Workflow, der eigene war abgebrochen —
+   und ein abgebrochener Lauf trägt kein Urteil. Genau dieses falsche Grün hat
+   `scripts/release.sh` schon einmal produziert, bevor der Filter hinzukam
+   (Begründung dort im Kopf von `pruefe_ci`). Die Frage lautet nie „gibt es
+   einen Lauf", sondern **„gibt es einen grünen CI-Lauf, und steht nichts
+   Schlechtes daneben"**.
+
+   `scripts/release.sh pruefen` setzt das in Schritt 6 durch; diese Zeile
+   steht hier, weil Schritt 1 die Stelle ist, an der man beim Landen hinsieht —
+   und der Vorfall lag Wochen vor dem Release.
+
 2. **Version bumpen** an allen Stellen, die sie führen.
 3. **Notizen-Eintrag** ganz oben: Titel, Risiko, „Neu", „Bitte testen".
    In der Sprache des Nutzers, nicht in der des Codes: _was er merkt_, nicht
@@ -112,7 +149,16 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    Das Gate prüft sich selbst: `sh scripts/release-selbstprobe.sh` zeigt für
    jede einzelne Prüfung einen roten und einen grünen Lauf gegen
    Wegwerf-Repos. Sie läuft im `backend`-Job der CI mit, weil ein Wächter,
-   dessen Lauf niemand erzwingt, nichts beweist (`lehren.md` §21).
+   dessen Lauf niemand erzwingt, nichts beweist (`lehren.md` §18).
+
+   **Was die Selbstprobe NICHT zeigt: dass das Skript auf dem Rechner des
+   Owners läuft.** `release.sh` ist ein Owner-Skript — der Tag ist eine
+   Owner-Entscheidung, die Auslieferung geschieht auf dem TrueNAS-Host. Bisher
+   lief es ausschließlich in der Agenten-Umgebung und in der CI, also zweimal
+   an derselben Stelle vorbei. Ein Ritual-Skript gilt erst als Gate, wenn der
+   Owner es **einmal selbst ausgeführt** und die Ausgabe zurückgemeldet hat
+   (`lehren.md` §26). Bis dahin steht sein Zustand auf „ungeprüft auf dem
+   Zielrechner", nicht auf „grün".
 
 7. **Owner fragen.** Danach taggen, pushen, Release anlegen.
 8. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 7. **Der
