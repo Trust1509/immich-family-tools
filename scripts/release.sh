@@ -48,17 +48,23 @@ rot()  { printf '  FEHLER  %s\n' "$1"; FEHLER=$((FEHLER + 1)); }
 version_aus() {
   case "$1" in
     backend/version.py)
-      sed -n 's/^APP_VERSION *= *"\([^"]*\)".*/\1/p' "$WURZEL/$1" 2>/dev/null | head -1 ;;
+      sed -n 's/^APP_VERSION *= *"\([^"]*\)".*/\1/p' "$WURZEL/$1" 2>/dev/null | head -n 1 ;;
     frontend/src/version.ts)
-      sed -n 's/^export const APP_VERSION *= *"\([^"]*\)".*/\1/p' "$WURZEL/$1" 2>/dev/null | head -1 ;;
+      sed -n 's/^export const APP_VERSION *= *"\([^"]*\)".*/\1/p' "$WURZEL/$1" 2>/dev/null | head -n 1 ;;
     frontend/package.json)
-      sed -n 's/^  "version": *"\([^"]*\)".*/\1/p' "$WURZEL/$1" 2>/dev/null | head -1 ;;
+      # Die zwei Leerzeichen sind ABSICHT, kein Zufall der Formatierung: Sie
+      # binden den Treffer an die oberste Ebene. Ein "version"-Feld tiefer im
+      # Baum (in einem Abhaengigkeits-Block) traegt mehr Einrueckung und darf
+      # hier nicht mitgelesen werden. Wird die Datei je anders eingerueckt,
+      # findet dieses Muster nichts — und das Gate wird rot, nicht falsch
+      # gruen. Prettier haelt die zwei Leerzeichen; siehe .lintstagedrc.
+      sed -n 's/^  "version": *"\([^"]*\)".*/\1/p' "$WURZEL/$1" 2>/dev/null | head -n 1 ;;
   esac
 }
 
 # Der oberste CHANGELOG-Eintrag: die erste Zeile, die mit "## [" beginnt.
 changelog_kopfzeile() {
-  grep -n '^## \[' "$WURZEL/CHANGELOG.md" 2>/dev/null | head -1
+  grep -n '^## \[' "$WURZEL/CHANGELOG.md" 2>/dev/null | head -n 1
 }
 
 # ------------------------------------------------------------------ Pruefung
@@ -121,7 +127,7 @@ pruefe_changelog() {
   ENDE=$(awk -v start="$ZEILENNR" 'NR > start && /^## \[/ { print NR; exit }' "$WURZEL/CHANGELOG.md")
   [ -n "$ENDE" ] || ENDE=$(wc -l < "$WURZEL/CHANGELOG.md")
   RISIKO=$(awk -v a="$ZEILENNR" -v b="$ENDE" 'NR >= a && NR <= b' "$WURZEL/CHANGELOG.md" |
-           sed -n 's/^\*\*Risk: *\(safe\|backup\|breaking\)\*\* *$/\1/p' | head -1)
+           sed -n 's/^\*\*Risk: *\(safe\|backup\|breaking\)\*\*[[:space:]]*$/\1/p' | head -n 1)
   if [ -n "$RISIKO" ]; then
     ok "CHANGELOG.md: Risiko-Kennzeichnung '$RISIKO'"
   else
@@ -145,9 +151,22 @@ pruefe_code_stellen() {
 
 pruefe_tag_frei() {
   if git -C "$WURZEL" rev-parse -q --verify "refs/tags/v$1" >/dev/null 2>&1; then
-    rot "Tag v$1 existiert bereits"
+    rot "Tag v$1 existiert bereits (lokal)"
+    return
+  fi
+  # Auch die Gegenseite fragen. Ein Tag, den jemand anders schon gepusht hat,
+  # ist lokal unsichtbar, solange niemand geholt hat — "frei" waere dann eine
+  # Aussage ueber den eigenen Schreibtisch, nicht ueber die Welt, und erst der
+  # Push wuerde scheitern. Von der blinden Panel-Stimme angemerkt.
+  # Antwortet die Gegenseite nicht, ist das ROT: nicht pruefbar heisst nicht
+  # bestanden.
+  FERN=$(git -C "$WURZEL" ls-remote --tags origin "refs/tags/v$1" 2>/dev/null) || FERN="FEHLGESCHLAGEN"
+  if [ "$FERN" = "FEHLGESCHLAGEN" ]; then
+    rot "Tag v$1: origin nicht erreichbar — nicht pruefbar, also ROT"
+  elif [ -n "$FERN" ]; then
+    rot "Tag v$1 existiert bereits auf origin (lokal nicht geholt)"
   else
-    ok "Tag v$1 ist frei"
+    ok "Tag v$1 ist frei, lokal und auf origin"
   fi
 }
 
@@ -177,11 +196,31 @@ pruefe_ci() {
   fi
   SHA=$(git -C "$WURZEL" rev-parse HEAD)
   KURZ=$(echo "$SHA" | cut -c1-7)
-  ERGEBNIS=$(cd "$WURZEL" && "$GH" run list --limit 20 \
+  # --workflow ci.yml IST TRAGEND, nicht Kosmetik. Ohne den Filter genuegt
+  # IRGENDEIN Lauf auf diesem Stand, und dieses Repo hat mehrere Quellen, die
+  # praktisch immer gruen sind (Dependency Graph, Dependabot Updates,
+  # Wochen-Pruefung). Gemessen an 8e46bf1: der CI-Lauf war CANCELLED, der
+  # Dependency-Graph-Lauf gruen, und das Gate meldete "CI gruen" — ein
+  # falsches Gruen an der einzigen Stelle, die etwas ueber den Code sagt.
+  # Von der blinden Panel-Stimme gefunden, Ende zu Ende reproduziert.
+  # Die headSha-Nachpruefung unten faengt das NICHT: Der Fremdlauf meldet
+  # denselben Stand. Verwandt mit docs/agents/lehren.md §6, aber eine eigene
+  # Klasse — dort war es der falsche Commit, hier der falsche Workflow.
+  ERGEBNIS=$(cd "$WURZEL" && "$GH" run list --workflow ci.yml --limit 60 \
                --json headSha,status,conclusion,databaseId \
                --jq "[.[] | select(.headSha == \"$SHA\")] | first" 2>/dev/null || true)
   if [ -z "$ERGEBNIS" ] || [ "$ERGEBNIS" = "null" ]; then
     rot "CI: kein Lauf fuer HEAD ($KURZ) gefunden — ROT, nicht 'noch nicht da'"
+    return
+  fi
+  # Die Auswertung unten liest die Felder EINZELN mit greedy ".*". Bei genau
+  # einem Objekt ist das richtig; kaemen mehrere, koennte sie Felder aus
+  # VERSCHIEDENEN Laeufen mischen und einen Zustand melden, den es nie gab.
+  # "first" im jq-Ausdruck soll das ausschliessen — nachgeprueft statt
+  # geglaubt, weil der Ausdruck fremder Code ist.
+  ANZAHL=$(echo "$ERGEBNIS" | grep -o '"headSha"' | wc -l | tr -d ' ')
+  if [ "$ANZAHL" != "1" ]; then
+    rot "CI: unerwartete Antwortform ($ANZAHL Laeufe statt 1) — nicht auswertbar, also ROT"
     return
   fi
   STATUS=$(echo "$ERGEBNIS" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
@@ -231,6 +270,23 @@ bump() {
   VERSION=$1
   echo "Bump auf $VERSION"
 
+  # Formatpruefung ZUERST. Ohne sie schreibt bump bereitwillig eine Version,
+  # die das Gate danach nie mehr annimmt ("1.5.0-rc1"), und man kommt nur von
+  # Hand wieder heraus. Von der blinden Panel-Stimme gefunden.
+  pruefe_format "$VERSION"
+  [ "$FEHLER" -eq 0 ] || return 1
+
+  # Erst ALLE Zieldateien pruefen, dann schreiben. Sonst steht nach einem
+  # Abbruch in der Mitte genau die Drift da, die dieses Skript verhindern
+  # soll — backend auf der neuen Nummer, package.json auf der alten.
+  for DATEI in backend/version.py frontend/src/version.ts frontend/package.json; do
+    [ -f "$WURZEL/$DATEI" ] || rot "$DATEI fehlt"
+  done
+  if [ "$FEHLER" -ne 0 ]; then
+    echo "          Nichts geschrieben."
+    return 1
+  fi
+
   # Die Notizen fuehren: ohne passenden CHANGELOG-Eintrag wird nichts
   # geschrieben. Sonst entsteht genau der Zustand, den das Gate verhindern
   # soll — Code auf der neuen Nummer, Notizen auf der alten.
@@ -241,10 +297,27 @@ bump() {
     return 1
   fi
 
-  sed -i.bak "s/^APP_VERSION = \".*\"/APP_VERSION = \"$VERSION\"/" "$WURZEL/backend/version.py"
-  sed -i.bak "s/^export const APP_VERSION = \".*\";/export const APP_VERSION = \"$VERSION\";/" "$WURZEL/frontend/src/version.ts"
-  sed -i.bak "s/^  \"version\": \".*\",/  \"version\": \"$VERSION\",/" "$WURZEL/frontend/package.json"
-  rm -f "$WURZEL/backend/version.py.bak" "$WURZEL/frontend/src/version.ts.bak" "$WURZEL/frontend/package.json.bak"
+  # Je Datei: schreiben, Sicherungskopie SOFORT weg. Ein gemeinsames "rm" am
+  # Ende wird bei "set -e" nie erreicht, wenn das zweite sed abbricht — dann
+  # bleibt eine .bak liegen, macht den Arbeitsbaum schmutzig und das Gate rot
+  # aus einem Grund, der nichts mit dem Release zu tun hat.
+  #
+  # Das package.json-Muster laesst das Komma OFFEN ("[,]*" statt ","). Die
+  # erste Fassung verlangte es und haette eine Datei, in der "version" das
+  # letzte Feld ist, gar nicht angefasst. Zerstoert haette sie sie nicht —
+  # nachgemessen, das Muster kann kein Komma erfinden, wo keins steht —, aber
+  # sie waere still unveraendert geblieben und erst am Nachtest aufgefallen.
+  schreibe() {
+    DATEI="$WURZEL/$1"
+    sed -i.bak "$2" "$DATEI"
+    rm -f "$DATEI.bak"
+  }
+  schreibe backend/version.py \
+    "s/^APP_VERSION = \".*\"/APP_VERSION = \"$VERSION\"/" || true
+  schreibe frontend/src/version.ts \
+    "s/^export const APP_VERSION = \".*\";/export const APP_VERSION = \"$VERSION\";/" || true
+  schreibe frontend/package.json \
+    "s/^\(  \"version\": \)\"[^\"]*\"/\1\"$VERSION\"/" || true
 
   for DATEI in backend/version.py frontend/src/version.ts frontend/package.json; do
     IST=$(version_aus "$DATEI")
@@ -283,7 +356,15 @@ for ARG in "$@"; do
   case "$ARG" in
     --ci-nicht-pruefen) CI_UNGEPRUEFT=1 ;;
     -*) echo "Unbekannter Schalter: $ARG" >&2; exit 2 ;;
-    *) if [ -z "$BEFEHL" ]; then BEFEHL=$ARG; else VERSION=$ARG; fi ;;
+    *)
+      # Ein drittes Positionsargument wird ABGELEHNT, nicht stillschweigend
+      # verarbeitet: "pruefen 1.5.0 9.9.9" hat vorher 9.9.9 geprueft und die
+      # 1.5.0 verschluckt. Ein Gate, das mehrdeutige Eingabe irgendwie
+      # auslegt, prueft nicht das, was der Aufrufer meinte.
+      if [ -z "$BEFEHL" ]; then BEFEHL=$ARG
+      elif [ -z "$VERSION" ]; then VERSION=$ARG
+      else echo "Zu viele Argumente: '$ARG' nach '$BEFEHL $VERSION'" >&2; exit 2
+      fi ;;
   esac
 done
 

@@ -67,6 +67,12 @@ baue() {
   git -C "$Z" config user.name Probe
   git -C "$Z" add -A
   git -C "$Z" commit -qm "fixture"
+  # Ein eigenes, leeres Bare-Repo als "origin". Braucht kein Netz und keine
+  # Zugangsdaten, aber das Gate fragt seit der Panel-Nacharbeit auch die
+  # Gegenseite nach dem Tag — ohne origin waere jeder Fixture-Lauf rot, und
+  # zwar aus einem Grund, der mit dem geprueften Fall nichts zu tun hat.
+  git init -q --bare "$ZB.git"
+  git -C "$Z" remote add origin "$ZB.git"
   echo "$Z"
 }
 
@@ -85,6 +91,49 @@ stub_gh() {
   cat > "$STUBS/gh" <<STUB
 #!/bin/sh
 printf '{"databaseId":4711,"headSha":"%s","status":"%s","conclusion":"%s"}\n' "$SHA" "$2" "$3"
+STUB
+  chmod +x "$STUBS/gh"
+}
+
+# gh antwortet ordentlich, aber kein Lauf passt auf den Stand. Genau das
+# liefert "first" auf einer leeren Liste.
+stub_gh_leer() {
+  mkdir -p "$STUBS"
+  printf '#!/bin/sh\necho null\n' > "$STUBS/gh"
+  chmod +x "$STUBS/gh"
+}
+
+# Zwei Objekte statt einem — die Feld-Auswertung per sed duerfte sie mischen,
+# also muss das Gate die Antwortform ablehnen statt sie auszulegen.
+stub_gh_mehrere() {
+  ZS=$1
+  SHA=$(git -C "$ZS" rev-parse HEAD)
+  mkdir -p "$STUBS"
+  cat > "$STUBS/gh" <<STUB
+#!/bin/sh
+printf '[{"conclusion":"failure","databaseId":1,"headSha":"%s","status":"completed"},{"conclusion":"success","databaseId":2,"headSha":"%s","status":"completed"}]\n' "$SHA" "$SHA"
+STUB
+  chmod +x "$STUBS/gh"
+}
+
+# Der entscheidende Stub: Er ANTWORTET UNTERSCHIEDLICH, je nachdem ob der
+# Aufrufer --workflow mitgibt. Ohne Filter kommt ein gruener Fremd-Lauf
+# (bei uns real: "Dependency Graph"), mit Filter der abgebrochene CI-Lauf.
+# Damit wird der Filter selbst pruefbar: Nimmt jemand ihn heraus, faellt die
+# Zusicherung um. Ohne diesen Stub waere der Filter eine Behauptung.
+stub_gh_fremdlauf() {
+  ZS=$1
+  SHA=$(git -C "$ZS" rev-parse HEAD)
+  mkdir -p "$STUBS"
+  cat > "$STUBS/gh" <<STUB
+#!/bin/sh
+for A in "\$@"; do
+  if [ "\$A" = "--workflow" ]; then
+    printf '{"conclusion":"cancelled","databaseId":33960519974,"headSha":"%s","status":"completed"}\n' "$SHA"
+    exit 0
+  fi
+done
+printf '{"conclusion":"success","databaseId":33960522227,"headSha":"%s","status":"completed"}\n' "$SHA"
 STUB
   chmod +x "$STUBS/gh"
 }
@@ -114,9 +163,28 @@ lauf_ohne_gh() {
 }
 
 # erwarte <beschreibung> <OK|FEHLER> <teilstring> <ausgabe>
+#
+# Der Teilstring wird WOERTLICH verglichen, nicht als regulaerer Ausdruck.
+# Die erste Fassung gab ihn an grep, und "[1.5.0]" ist dort eine
+# Zeichenklasse: Sie trifft jede Zeile mit einer 1, 5, 0 oder einem Punkt.
+# Gemessen — "  OK  irgendwas mit einer 5 drin" hat das Muster bestanden.
+# Die Aufrufstellen waren zwar escaped, aber die naechste haette es nicht
+# sein muessen, und der Fehler waere ein FALSCHES GRUEN gewesen: die Probe
+# haette bestaetigt, was sie nie geprueft hat. Von Stimme 3 angestossen,
+# in der Wirkung schaerfer als dort beschrieben.
+treffer() {
+  MUSTER_ART=$1; MUSTER_TEIL=$2
+  while IFS= read -r ZEILE; do
+    case "$ZEILE" in
+      "  $MUSTER_ART "*)
+        case "$ZEILE" in *"$MUSTER_TEIL"*) return 0 ;; esac ;;
+    esac
+  done
+  return 1
+}
 erwarte() {
   BESCHREIBUNG=$1; ART=$2; TEIL=$3; AUSGABE=$4
-  if echo "$AUSGABE" | grep -q "^  $ART .*$TEIL"; then
+  if echo "$AUSGABE" | treffer "$ART" "$TEIL"; then
     printf '  bestanden   %s\n' "$BESCHREIBUNG"
     GRUEN=$((GRUEN + 1))
   else
@@ -145,9 +213,9 @@ erwarte "1.5.x wird abgelehnt"    FEHLER "kein MAJOR.MINOR.PATCH" "$(lauf "$Z" p
 erwarte "v1.5.0 wird abgelehnt"   FEHLER "kein MAJOR.MINOR.PATCH" "$(lauf "$Z" pruefen v1.5.0)"
 
 echo "2  Oberster CHANGELOG-Eintrag"
-erwarte "passender Eintrag" OK "oberster Eintrag ist \[1.5.0\]" "$(lauf "$Z" pruefen 1.5.0)"
+erwarte "passender Eintrag" OK "oberster Eintrag ist [1.5.0]" "$(lauf "$Z" pruefen 1.5.0)"
 Z2=$(baue f2 1.5.0 '## [1.4.9] – 2026-09-06' "$RISIKO_GUT")
-erwarte "Eintrag fuehrt eine andere Version" FEHLER "erwartet \[1.5.0\]" "$(lauf "$Z2" pruefen 1.5.0)"
+erwarte "Eintrag fuehrt eine andere Version" FEHLER "erwartet [1.5.0]" "$(lauf "$Z2" pruefen 1.5.0)"
 Z3=$(baue f3 1.5.0 OHNE "$RISIKO_GUT")
 erwarte "gar kein Eintrag" FEHLER "kein Eintrag der Form" "$(lauf "$Z3" pruefen 1.5.0)"
 
@@ -156,6 +224,8 @@ Z4=$(baue f4 1.5.0 '## [1.5.0] – 6. September 2026' "$RISIKO_GUT")
 erwarte "Datum in Prosa wird abgelehnt" FEHLER "kein gueltiges Datum" "$(lauf "$Z4" pruefen 1.5.0)"
 Z5=$(baue f5 1.5.0 '## [1.5.0] - 2026-09-06' "$RISIKO_GUT")
 erwarte "Bindestrich statt Halbgeviertstrich ist erlaubt" OK "Datum 2026-09-06" "$(lauf "$Z5" pruefen 1.5.0)"
+Z5b=$(baue f5b 1.5.0 '## [1.5.0]' "$RISIKO_GUT")
+erwarte "gar kein Datum in der Kopfzeile" FEHLER "kein gueltiges Datum" "$(lauf "$Z5b" pruefen 1.5.0)"
 
 echo "4  Risiko-Kennzeichnung"
 erwarte "safe wird erkannt" OK "Risiko-Kennzeichnung 'safe'" "$(lauf "$Z" pruefen 1.5.0)"
@@ -180,12 +250,12 @@ for PAAR in "backend/version.py|APP_VERSION = \"1.4.4\"" \
   mkdir -p "$ZX"; cp -r "$Z/." "$ZX/"
   echo "$INHALT" > "$ZX/$DATEI"
   git -C "$ZX" -c user.email=p@example.invalid -c user.name=P commit -qam "drift"
-  erwarte "$DATEI weicht ab" FEHLER "1.4.4, erwartet 1.5.0" "$(lauf "$ZX" pruefen 1.5.0)"
+  erwarte "$DATEI weicht ab" FEHLER "$DATEI: 1.4.4, erwartet 1.5.0" "$(lauf "$ZX" pruefen 1.5.0)"
 done
 ZP="$ARBEIT/f5-pkg"; mkdir -p "$ZP"; cp -r "$Z/." "$ZP/"
 printf '{\n  "name": "probe",\n  "version": "1.4.4",\n  "private": true\n}\n' > "$ZP/frontend/package.json"
 git -C "$ZP" -c user.email=p@example.invalid -c user.name=P commit -qam "drift"
-erwarte "frontend/package.json weicht ab" FEHLER "1.4.4, erwartet 1.5.0" "$(lauf "$ZP" pruefen 1.5.0)"
+erwarte "frontend/package.json weicht ab" FEHLER "frontend/package.json: 1.4.4, erwartet 1.5.0" "$(lauf "$ZP" pruefen 1.5.0)"
 ZF="$ARBEIT/f5-fehlt"; mkdir -p "$ZF"; cp -r "$Z/." "$ZF/"
 rm "$ZF/backend/version.py"
 git -C "$ZF" -c user.email=p@example.invalid -c user.name=P commit -qam "weg"
@@ -195,7 +265,25 @@ echo "6  Tag bereits vergeben"
 erwarte "Tag ist frei" OK "Tag v1.5.0 ist frei" "$(lauf "$Z" pruefen 1.5.0)"
 ZT="$ARBEIT/f6-tag"; mkdir -p "$ZT"; cp -r "$Z/." "$ZT/"
 git -C "$ZT" tag v1.5.0
-erwarte "Tag existiert schon" FEHLER "existiert bereits" "$(lauf "$ZT" pruefen 1.5.0)"
+erwarte "Tag existiert schon (lokal)" FEHLER "existiert bereits (lokal)" "$(lauf "$ZT" pruefen 1.5.0)"
+# Der Tag liegt auf origin, lokal nicht. Ohne die Fern-Abfrage meldet das
+# Gate "frei" und erst der Push scheitert — von der blinden Panel-Stimme
+# angemerkt. Der Tag wird in EINEM Klon gesetzt und in das gemeinsame
+# Bare-Repo gepusht; der zweite Klon weiss lokal nichts davon.
+ZFERN="$ARBEIT/f6-fern"; mkdir -p "$ZFERN"; cp -r "$Z/." "$ZFERN/"
+# EIGENES Bare-Repo fuer diesen Fall. Beide Klone erben sonst das origin von
+# f1, und der gepushte Tag laege danach auch fuer die Abschnitte 9 und 11 dort
+# — die haben daraufhin "Tag existiert auf origin" gemeldet und ihren eigenen
+# Fehlschlag erzeugt. Die Sonde hatte sich selbst vergiftet.
+git init -q --bare "$ARBEIT/f6-origin.git"
+git -C "$ZT" remote set-url origin "$ARBEIT/f6-origin.git"
+git -C "$ZFERN" remote set-url origin "$ARBEIT/f6-origin.git"
+git -C "$ZT" push -q origin v1.5.0
+erwarte "Tag liegt auf origin" FEHLER "auf origin" "$(lauf "$ZFERN" pruefen 1.5.0)"
+# Nicht erreichbares origin: nicht pruefbar heisst nicht bestanden.
+ZKAPUTT="$ARBEIT/f6-kaputt"; mkdir -p "$ZKAPUTT"; cp -r "$Z/." "$ZKAPUTT/"
+git -C "$ZKAPUTT" remote set-url origin "$ARBEIT/gibt-es-nicht.git"
+erwarte "origin nicht erreichbar" FEHLER "nicht pruefbar" "$(lauf "$ZKAPUTT" pruefen 1.5.0)"
 
 echo "7  Arbeitsbaum"
 erwarte "sauberer Baum" OK "Arbeitsbaum sauber" "$(lauf "$Z" pruefen 1.5.0)"
@@ -221,10 +309,28 @@ stub_gh "$Z" in_progress ""
 erwarte "Lauf noch unterwegs"    FEHLER "status=in_progress"  "$(lauf "$Z" pruefen 1.5.0)"
 stub_gh "$Z" completed success 0000000000000000000000000000000000000000
 erwarte "Lauf meldet fremden Stand" FEHLER "nicht HEAD"       "$(lauf "$Z" pruefen 1.5.0)"
+# gh antwortet, aber KEIN Lauf passt. Diese Zeile fehlte in der ersten
+# Fassung — und eine Mutation, die genau sie auf "ok" dreht, blieb dadurch
+# unentdeckt, bei unveraendert "39 bestanden, 0 fehlgeschlagen". Von der
+# blinden Panel-Stimme gefunden und mit genau dieser Mutation belegt.
+stub_gh_leer
+erwarte "gh antwortet, kein Lauf passt" FEHLER "kein Lauf fuer HEAD" "$(lauf "$Z" pruefen 1.5.0)"
+stub_gh_mehrere "$Z"
+erwarte "mehrere Laeufe in der Antwort" FEHLER "unerwartete Antwortform" "$(lauf "$Z" pruefen 1.5.0)"
 stub_gh "$Z" completed success
 erwarte "gruener Lauf auf HEAD"  OK     "CI gruen fuer HEAD"  "$(lauf "$Z" pruefen 1.5.0)"
+# Der Workflow-Filter: ein gruener FREMD-Lauf auf demselben Stand darf das
+# Gate nicht befriedigen. Der Stub antwortet je nachdem, ob --workflow
+# mitkommt — ohne Filter der gruene Fremdlauf, mit Filter der abgebrochene
+# CI-Lauf. Real gemessen an 8e46bf1: CI cancelled, Dependency Graph gruen.
+stub_gh_fremdlauf "$Z"
+erwarte "Fremdlauf zaehlt nicht als CI" FEHLER "conclusion=cancelled" "$(lauf "$Z" pruefen 1.5.0)"
 
 echo "9  Das gruene Gate als Ganzes"
+# Stub zurueck auf gruen — Abschnitt 8 hat ihn zuletzt auf den Fremdlauf
+# gestellt, und ohne das Zuruecksetzen pruefte dieser Abschnitt einen
+# Zustand, den er nicht meint.
+stub_gh "$Z" completed success
 AUSGABE=$(lauf "$Z" pruefen 1.5.0)
 if echo "$AUSGABE" | grep -q "Gate gruen"; then
   printf '  bestanden   alle Pruefungen gruen -> "Gate gruen"\n'; GRUEN=$((GRUEN + 1))
@@ -273,6 +379,103 @@ if git -C "$Z" rev-parse -q --verify refs/tags/v1.5.0 >/dev/null 2>&1; then
 else
   printf '  FEHLGESCHLAGEN  gruenes Gate, aber kein Tag\n'; ROT=$((ROT + 1))
 fi
+
+echo "12 Mutationen GEGEN DAS GATE — tragen die Pruefungen ueberhaupt Gewicht?"
+# Bis hierher mutiert diese Probe nur FIXTURES. Das beweist, dass ein
+# kaputter Eingang gefunden wird — nicht, dass die pruefende Zeile Gewicht
+# traegt. Genau diese Luecke hat die blinde Panel-Stimme aufgemacht: Sie hat
+# release.sh:184 von "rot" auf "ok" gedreht, und die Probe meldete
+# unveraendert "39 bestanden, 0 fehlgeschlagen".
+#
+# docs/agents/lehren.md §21 verlangt woertlich Mutationen GEGEN DAS GATE.
+# Hier stehen sie. Je Fall: eine Zeile in release.sh verbiegen und zeigen,
+# dass der zugehoerige Fall daraufhin FALSCH gruen wuerde — die Zusicherung
+# also an dieser Zeile haengt und nicht an einer anderen.
+
+# mutiere <name> <vorlage-fixture> <alt> <neu> -> Verzeichnis
+#
+# Ersetzt WOERTLICH, mit awk und index()/substr() statt sed: Die Muster
+# enthalten "$", "[", Klammern und Anfuehrungszeichen, und als regulaerer
+# Ausdruck wuerde davon das Falsche gelesen. awk gibt es auf beiden Zielen
+# (Git Bash und ubuntu-latest); python schied aus, weil "python -" mit
+# Heredoc hier durch einen Shim laeuft, der die Ausgabe mit Warnungen
+# zumuellt und auf dem Laeufer anders heissen kann.
+#
+# Der Zaehler ist tragend: Trifft das Muster nicht GENAU einmal, bricht die
+# Mutation ab, statt still nichts zu tun — sonst waere jede spaetere
+# "bestanden"-Zeile aus dem falschen Grund gruen.
+mutiere() {
+  ZM="$ARBEIT/mut-$1"
+  mkdir -p "$ZM"; cp -r "$2/." "$ZM/"
+  awk -v alt="$3" -v neu="$4" '
+    { n = index($0, alt)
+      if (n > 0) { $0 = substr($0, 1, n - 1) neu substr($0, n + length(alt)); treffer++ }
+      print }
+    END { if (treffer != 1) {
+            printf "MUSTER-FEHLER: %d Treffer statt 1\n", treffer > "/dev/stderr"
+            exit 3 } }
+  ' "$2/scripts/release.sh" > "$ZM/scripts/release.sh"
+  echo "$ZM"
+}
+
+# ueberlebt <beschreibung> <ausgabe> <teilstring-der-verschwinden-muss>
+# Bestanden heisst hier: Die Mutation hat die Pruefung TATSAECHLICH
+# ausgeschaltet. Damit ist belegt, dass die Zeile die Zusicherung traegt.
+ueberlebt() {
+  if echo "$2" | treffer FEHLER "$3"; then
+    printf '  FEHLGESCHLAGEN  %s — Mutation blieb wirkungslos, die Zusicherung haengt woanders\n' "$1"
+    echo "$2" | sed 's/^/      | /'
+    ROT=$((ROT + 1))
+  else
+    printf '  bestanden   %s\n' "$1"
+    GRUEN=$((GRUEN + 1))
+  fi
+}
+
+stub_gh_leer
+ZM1=$(mutiere ci-ausfall "$Z" \
+  'rot "CI: kein Lauf fuer HEAD ($KURZ) gefunden' \
+  'ok "CI (kein Lauf gefunden, nehmen wir mal an)" # rot "CI: kein Lauf fuer HEAD ($KURZ) gefunden')
+ueberlebt "der Ausfall-Zweig traegt die Zusicherung 'kein Lauf gefunden'" \
+  "$(lauf "$ZM1" pruefen 1.5.0)" "kein Lauf fuer HEAD"
+
+stub_gh_fremdlauf "$Z"
+ZM2=$(mutiere workflow-filter "$Z" '--workflow ci.yml --limit 60' '--limit 60')
+ueberlebt "der Workflow-Filter traegt: ohne ihn gewinnt der gruene Fremdlauf" \
+  "$(lauf "$ZM2" pruefen 1.5.0)" "conclusion=cancelled"
+
+stub_gh "$Z" completed success
+ZM3=$(mutiere risiko "$Z" \
+  'rot "CHANGELOG.md: im Eintrag [$VERSION] fehlt eine Zeile' \
+  'ok "Risiko egal" # rot "CHANGELOG.md: im Eintrag [$VERSION] fehlt eine Zeile')
+ZM3O="$ARBEIT/mut-risiko-ohne"; mkdir -p "$ZM3O"; cp -r "$ZM3/." "$ZM3O/"
+cp "$Z6/CHANGELOG.md" "$ZM3O/CHANGELOG.md"
+git -C "$ZM3O" -c user.email=p@example.invalid -c user.name=P commit -qam "risiko raus"
+ueberlebt "die Risiko-Pruefung traegt" \
+  "$(lauf "$ZM3O" pruefen 1.5.0)" "fehlt eine Zeile"
+
+ZM4=$(mutiere baum "$Z" \
+  'rot "Arbeitsbaum ist nicht sauber' \
+  'ok "Baum egal" # rot "Arbeitsbaum ist nicht sauber')
+echo "dreck" >> "$ZM4/CHANGELOG.md"
+ueberlebt "die Sauberkeits-Pruefung traegt" \
+  "$(lauf "$ZM4" pruefen 1.5.0)" "nicht sauber"
+
+ZM5=$(mutiere headsha "$Z" \
+  'rot "CI: Lauf $LAUF meldet' \
+  'ok "SHA egal" # rot "CI: Lauf $LAUF meldet')
+stub_gh "$ZM5" completed success 0000000000000000000000000000000000000000
+ueberlebt "die headSha-Nachpruefung traegt" \
+  "$(lauf "$ZM5" pruefen 1.5.0)" "nicht HEAD"
+
+stub_gh "$Z" completed success
+ZM6=$(mutiere codestellen "$Z" \
+  'rot "$DATEI: $IST, erwartet $VERSION"' \
+  'ok "$DATEI egal" # rot "$DATEI: $IST, erwartet $VERSION"')
+printf 'APP_VERSION = "1.4.4"\n' > "$ZM6/backend/version.py"
+git -C "$ZM6" -c user.email=p@example.invalid -c user.name=P commit -qam "drift"
+ueberlebt "die Versions-Gleichheit traegt" \
+  "$(lauf "$ZM6" pruefen 1.5.0)" "erwartet 1.5.0"
 
 echo
 echo "$GRUEN bestanden, $ROT fehlgeschlagen"

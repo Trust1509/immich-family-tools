@@ -86,7 +86,9 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
 3. **Notizen-Eintrag** ganz oben: Titel, Risiko, „Neu", „Bitte testen".
    In der Sprache des Nutzers, nicht in der des Codes: _was er merkt_, nicht
    welche Funktion umgebaut wurde.
-4. **Frischer Build** — sonst prüft das Rauchtest-Set einen veralteten Stand.
+4. **Frischer Build** — sonst prüft Schritt 5 einen veralteten Stand. (Die
+   Vorlage begründet diesen Schritt mit dem Rauchtest-Set; solange es das
+   hier nicht gibt, gilt er für die Handprobe genauso.)
 5. **Rauchtest-Set** über die kritischen Abläufe, Desktop **und** mobil, hell und
    dunkel. **Dieses Set gibt es hier noch nicht** — der Schritt ist damit
    ehrlich gesagt ein Vorsatz, kein Gate. Was ihm fehlt und warum er einen
