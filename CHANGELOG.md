@@ -2,6 +2,51 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.5.0] – 2026-09-06
+
+**Risk: safe**
+
+### Portuguese (Brazil), and a login screen that speaks your language (#65, #71)
+
+- The app is now available in **Portuguese (Brazil)**, contributed by [@fitocazo](https://github.com/fitocazo) — their first open-source contribution. Pick it in the language switcher next to 🇩🇪 DE and 🇬🇧 EN.
+- The **login screen is translated**. Until now it was German for everyone, in every language — the first screen anyone sees was the one screen the language switch never reached.
+- **Login errors say what actually happened**, in your language: a rejected token, too many attempts, or a general failure. Before, a failed login showed whatever the server had said — raw, untranslated, sometimes just `HTTP 429`. The technical detail now goes to the browser console instead of at you.
+- On a **first visit** the app follows your browser's language instead of always starting in German.
+- `<html lang>` now matches the chosen language, so screen readers and browser translation get it right.
+
+### Dates read as dates (#71)
+
+- Timestamps now spell the month instead of numbering it, in each language:
+
+  |           | before              | now                        |
+  | --------- | ------------------- | -------------------------- |
+  | Deutsch   | `04.03.2026, 15:30` | `4. März 2026, 15:30`      |
+  | English   | `04/03/2026, 15:30` | `4 Mar 2026, 15:30`        |
+  | Português | `04/03/2026, 15:30` | `4 de mar. de 2026, 15:30` |
+
+- Why it was worth changing: `04/03/2026` is 4 March to a Brazilian reader and 3 April to an American one, and nothing on screen says which. A spelled-out month cannot be read the wrong way round.
+- **A broken timestamp no longer shows as `Invalid Date`.** Album lists, match extension and the sync log now show `–` for a date the server could not deliver — and they all use the same formatting routine, so no corner of the app renders dates its own way any more.
+
+### Also in this release, if you are coming from 1.4.3
+
+Version 1.4.4 was tagged but never rolled out here, so its changes arrive with this one:
+
+- **Sync log retention** (90 days, at most 500 entries) now applies when the log is **read**, not only as a side effect of writing. With auto-sync off, nothing ever expired before.
+- Entries with an unreadable timestamp are **kept** rather than silently dropped: a broken clock is not evidence that an entry is old.
+- Entries that cannot be turned into a log record at all are skipped on read with a warning and removed on the next write.
+
+### Upgrade notes
+
+- **No data migration.** Rebuild the container so backend and frontend both report `1.5.0`.
+- Coming from 1.4.3: sync-log entries older than 90 days disappear from the view after the update, and are removed from disk on the next write. That is the 1.4.4 change above, not a new one.
+- Your chosen language is remembered in the browser, per device. Nothing to do.
+
+### Please test
+
+- Switch the language while logged in, and after a fresh reload — the choice should survive both.
+- Open the app in a private window with a Portuguese or English browser: the login screen should already be in that language.
+- Look at any timestamp in the sync log and the album list — same format, month spelled out.
+
 ## [1.4.4] – 2026-08-19
 
 ### Sync log retention (#56)
