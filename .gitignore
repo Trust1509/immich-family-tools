@@ -18,6 +18,33 @@ backend/static/
 backend/data/
 accounts.json
 
+# Artefakte des AUSLIEFERUNGS-Hosts.
+#
+# Auf dem TrueNAS liegt das Repo im selben Verzeichnis wie die Laufzeitdaten:
+# docker-compose.yml haengt den Datenpfad des Hosts nach `/app/data`, ZFS blendet unter
+# `.zfs` seine Schnappschuesse ein, und eine Sicherung vor einem groesseren
+# Schritt landet daneben.
+#
+# GRENZE, gemessen: Gedeckt ist genau `data.backup-<...>/` als
+# VERZEICHNIS. Ein Tarball (`data.backup-v3.tar.gz`) oder ein anderer
+# Name (`data.bak/`, `backup-data/`) faellt durch und macht den Baum dort
+# wieder dauerhaft unsauber. Wer so sichert, traegt die Zeile hier nach —
+# der Abschnitt oben beschreibt sonst einen Zustand, den er nicht
+# herstellt.
+#
+# Ohne diese Zeilen ist der Arbeitsbaum dort DAUERHAFT unsauber — und damit
+# eine Pruefung des Release-Gates ("Arbeitsbaum sauber") auf dem Host des
+# Owners strukturell nicht erfuellbar. Gemessen am 07.09.2026, als der Owner
+# `release.sh pruefen` zum ersten Mal selbst ausfuehrte: `?? .zfs/`,
+# `?? data.backup-before-v3/`, `?? data/`.
+#
+# Die Pruefung wird NICHT aufgeweicht — ein unsauberer Baum beim Taggen ist ein
+# echtes Problem. Ignoriert wird nur, was dort betriebsbedingt liegt und
+# ohnehin nie ins Repo gehoert.
+/data/
+/.zfs/
+/data.backup-*/
+
 # OS
 .DS_Store
 Thumbs.db

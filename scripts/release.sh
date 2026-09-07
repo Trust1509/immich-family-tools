@@ -69,21 +69,50 @@ changelog_kopfzeile() {
 
 # ------------------------------------------------------------------ Pruefung
 
-pruefe_format() {
+# Der Hinweis zur unlesbaren Version — EINE Stelle, nicht zwei.
+#
+# Er stand nach der ersten Nacharbeit woertlich gleich in `gate` und in `bump`:
+# zwei Wahrheiten fuer dieselbe Frage, die beim naechsten Umbau auseinander
+# laufen. Genau das, wogegen die Entdopplung von `format_gueltig` zwei
+# Bildschirme hoeher argumentiert (lehren.md Paragraph 14).
+hinweis_zur_version() {
+  case "$1" in
+    v[0-9]*)
+      echo "Die Version wird OHNE fuehrendes v angegeben — 1.6.0, nicht v1.6.0."
+      echo "Das 'v' setzt das Skript selbst, wenn es den Tag bildet." ;;
+    *)
+      echo "Erwartet wird MAJOR.MINOR.PATCH aus Ziffern, z. B. 1.6.0." ;;
+  esac
+}
+
+# Stille Fassung der Formatpruefung: liefert nur den Status, meldet nichts.
+# Sie existiert, damit `gate` VOR der Kopfzeile wissen kann, ob die Version
+# lesbar ist — ohne die OK-Zeile an eine Stelle zu drucken, an der sie vor dem
+# Titel steht. Die Bedingung selbst steht weiterhin genau einmal da
+# (`pruefe_format` ruft diese hier), sonst waeren es zwei Wahrheiten.
+format_gueltig() {
   case "$1" in
     [0-9]*.[0-9]*.[0-9]*)
-      # Punkte zaehlen und auf Ziffern pruefen, damit "1.2.3.4" und "1.2.x"
-      # nicht durchrutschen — der Glob oben allein waere zu grosszuegig.
-      if [ "$(echo "$1" | tr -cd '.' | wc -c)" -eq 2 ] &&
-         [ -z "$(echo "$1" | tr -d '0-9.')" ] &&
-         [ -n "$(echo "$1" | cut -d. -f1)" ] &&
-         [ -n "$(echo "$1" | cut -d. -f2)" ] &&
-         [ -n "$(echo "$1" | cut -d. -f3)" ]; then
-        ok "Versionsformat: $1"
-        return 0
-      fi ;;
+      [ "$(echo "$1" | tr -cd '.' | wc -c)" -eq 2 ] &&
+      [ -z "$(echo "$1" | tr -d '0-9.')" ] &&
+      [ -n "$(echo "$1" | cut -d. -f1)" ] &&
+      [ -n "$(echo "$1" | cut -d. -f2)" ] &&
+      [ -n "$(echo "$1" | cut -d. -f3)" ] ;;
+    *) return 1 ;;
   esac
+}
+
+# Meldende Fassung: benutzt dieselbe Bedingung wie `format_gueltig` und fuegt
+# nur die Ausgabe hinzu. Vorher trug sie eine eigene Kopie der Bedingung — zwei
+# Wahrheiten fuer dieselbe Frage, die beim naechsten Umbau auseinanderlaufen
+# (lehren.md Paragraph 14: eine Regel hat genau einen Eigentuemer).
+pruefe_format() {
+  if format_gueltig "$1"; then
+    ok "Versionsformat: $1"
+    return 0
+  fi
   rot "Versionsformat: '$1' ist kein MAJOR.MINOR.PATCH"
+  return 1
 }
 
 pruefe_changelog() {
@@ -279,6 +308,38 @@ pruefe_ci() {
 
 gate() {
   VERSION=$1
+
+  # Die Kopfzeile kommt NACH der Formatpruefung. Vorher stand dort
+  # "Release-Gate fuer vv1.6.0" — das Skript setzt das v selbst dazu, und bei
+  # einer bereits v-praefixierten Eingabe las sich die erste Zeile wie ein
+  # Tippfehler des Skripts statt wie einer des Aufrufers.
+  #
+  # ABBRUCH statt Kaskade. Ist die Version nicht lesbar, sind ALLE folgenden
+  # Pruefungen Symptome derselben Ursache: Der Changelog-Eintrag "passt nicht",
+  # die drei Code-Stellen "stehen falsch", und die Kopfzeile meldet "vv1.6.0".
+  #
+  # Gemessen auf dem Rechner des Owners (07.09.2026), nach einer falschen
+  # Aufrufanweisung von mir: acht Fehlerzeilen, von denen sieben Folgen der
+  # ersten waren. Die Ursache stand oben und ging in den Symptomen unter.
+  # Ein Gate, dessen Ausgabe man sortieren muss, hat seine Aufgabe verfehlt.
+  if ! format_gueltig "$VERSION"; then
+    # `|| true`, weil `set -e` sonst genau hier zuschlaegt: pruefe_format gibt
+    # den Fehlerstatus zurueck, das Skript endet — und die Hinweiszeilen
+    # darunter werden nie gedruckt. Die erste Fassung dieses Abbruchs hatte
+    # genau diesen Defekt; im echten Repo fiel er nicht auf, in einem
+    # Wegwerf-Repo der Selbstprobe schon. Ein Waechter, dessen Erklaerung
+    # verschluckt wird, hilft dem nicht, der sie braucht.
+    pruefe_format "$VERSION" || true
+    echo
+    echo "Gate ROT: 1 Punkt. Kein Tag."
+    # Der Hinweis nur, wenn er ZUTRIFFT. Die erste Fassung nannte das
+    # v-Praefix unbedingt — auch bei "1.5.0.1" oder "1.5.x", wo er von der
+    # Ursache wegfuehrt. Ein Wegweiser, der immer in dieselbe Richtung zeigt,
+    # ist keiner (blinde Panel-Stimme, 07.09.2026).
+    hinweis_zur_version "$VERSION"
+    return 1
+  fi
+
   echo "Release-Gate fuer v$VERSION"
   echo "Trockenlauf: dieses Kommando schreibt nichts."
   echo
@@ -308,7 +369,16 @@ bump() {
   # Formatpruefung ZUERST. Ohne sie schreibt bump bereitwillig eine Version,
   # die das Gate danach nie mehr annimmt ("1.5.0-rc1"), und man kommt nur von
   # Hand wieder heraus. Von der blinden Panel-Stimme gefunden.
-  pruefe_format "$VERSION"
+  # `|| true` und die eigene Statuspruefung: Seit `pruefe_format` einen
+  # Fehlerstatus zurueckgibt, wuerde `set -e` hier abbrechen — die Zeile
+  # darunter war damit toter Code, und jeder kuenftige Einschub dazwischen
+  # waere still uebersprungen worden (blinde Panel-Stimme, 07.09.2026).
+  if ! format_gueltig "$VERSION"; then
+    pruefe_format "$VERSION" || true
+    hinweis_zur_version "$VERSION"
+    return 1
+  fi
+  pruefe_format "$VERSION" || true
   [ "$FEHLER" -eq 0 ] || return 1
 
   # Erst ALLE Zieldateien pruefen, dann schreiben. Sonst steht nach einem

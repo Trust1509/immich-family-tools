@@ -151,14 +151,38 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    Wegwerf-Repos. Sie läuft im `backend`-Job der CI mit, weil ein Wächter,
    dessen Lauf niemand erzwingt, nichts beweist (`lehren.md` §18).
 
+   **Dieser Schritt läuft dort, wo getaggt wird — nicht auf dem
+   Auslieferungs-Host.** Der Unterschied klingt nach Kleinigkeit und ist
+   keiner: Der TrueNAS führt Schritt 8 aus, mehr nicht. Dort fehlt `gh` (die
+   CI-Prüfung ist damit **rot**, nicht „übersprungen"), und im selben
+   Verzeichnis liegen die Laufzeitdaten — `data/`, ZFS-Schnappschüsse unter
+   `.zfs/`, gelegentlich eine Sicherung daneben.
+
+   **Gemessen am 07.09.2026**, als der Owner das Skript zum ersten Mal selbst
+   ausführte: acht rote Punkte, von denen **sieben Folgen eines einzigen**
+   waren (eine falsche Aufrufform, die ich ihm gegeben hatte) und die
+   restlichen aus der Umgebung stammten. Behoben in drei Richtungen: Das Gate
+   **bricht bei unlesbarer Version ab**, statt sieben Symptome zu drucken und
+   die Ursache darin zu begraben; `.gitignore` deckt die Artefakte des
+   Auslieferungs-Hosts; und dieser Absatz sagt, wo der Schritt hingehört.
+
+   **Die Prüfung „Arbeitsbaum sauber" wird nicht aufgeweicht.** Ein unsauberer
+   Baum beim Taggen ist ein echtes Problem — ignoriert wird nur, was dort
+   betriebsbedingt liegt und ohnehin nie ins Repo gehört.
+
+   **Der Aufruf nimmt die Version OHNE führendes `v`:** `pruefen 1.7.0`, nicht
+   `pruefen v1.7.0`. Das `v` setzt das Skript selbst, wenn es den Tag bildet.
+   Die andere Form wird bewusst abgelehnt (Selbstprobe, Abschnitt 1) — ein
+   Gate, das zwei Schreibweisen irgendwie auslegt, prüft nicht das, was der
+   Aufrufer meinte.
+
    **Was die Selbstprobe NICHT zeigt: dass das Skript auf dem Rechner des
-   Owners läuft.** `release.sh` ist ein Owner-Skript — der Tag ist eine
-   Owner-Entscheidung, die Auslieferung geschieht auf dem TrueNAS-Host. Bisher
-   lief es ausschließlich in der Agenten-Umgebung und in der CI, also zweimal
-   an derselben Stelle vorbei. Ein Ritual-Skript gilt erst als Gate, wenn der
-   Owner es **einmal selbst ausgeführt** und die Ausgabe zurückgemeldet hat
-   (`lehren.md` §26). Bis dahin steht sein Zustand auf „ungeprüft auf dem
-   Zielrechner", nicht auf „grün".
+   Owners läuft.** Sie beweist die Logik des Gates, nicht seine Lauffähigkeit
+   dort, wo jemand es aufruft — ihre grünen Fälle decken denselben Interpreter
+   so oft, wie es Fälle gibt (`lehren.md` §26). Die Zahl steht bewusst nicht
+   hier: Sie wächst mit jedem Fund, und eine fortgeschriebene Zahl in einem
+   Regeltext ist genau die Erinnerung, vor der §9 warnt. Wer sie braucht,
+   liest sie aus dem Lauf.
 
 7. **Owner fragen.** Danach taggen, pushen, Release anlegen.
 8. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 7. **Der

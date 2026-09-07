@@ -1117,12 +1117,49 @@ Bei uns betrifft das unmittelbar `scripts/release.sh`. Es ist ein
 **Owner-Skript**: Der Tag ist eine Owner-Entscheidung, die Auslieferung
 geschieht auf dem TrueNAS-Host durch den Owner. Geprobt wurde es bisher
 ausschließlich in der Agenten-Umgebung und in der CI — also zweimal an
-derselben Stelle vorbei. Die Selbstprobe mit ihren 55 Fällen beweist die
+derselben Stelle vorbei. Die Selbstprobe des Gates beweist die
 Logik des Gates, nicht seine Lauffähigkeit dort, wo jemand es aufruft.
 
 **Regel:** Ein Skript, das der Owner ausführt, wird **einmal von ihm selbst**
 ausgeführt, bevor es als Gate gilt — mit zurückgemeldeter Ausgabe. Bis dahin
 ist sein Zustand „ungeprüft auf dem Zielrechner", nicht „grün".
+
+### Am 07.09.2026 ist es passiert, und der Ertrag war größer als erwartet
+
+Der Owner führte `release.sh pruefen` zum ersten Mal selbst aus. Ergebnis:
+**acht rote Punkte** — und keiner davon war die Logik des Gates, die ihre grünen
+Selbstproben belegen.
+
+- **Fünf der acht waren Folgen des ersten.** Ich hatte ihm eine falsche
+  Aufrufform gegeben (`pruefen v1.6.0` statt `1.6.0`); das Gate lehnte richtig
+  ab — und prüfte danach munter weiter, mit einer Version, die es selbst als
+  unlesbar erkannt hatte. Changelog „passt nicht" (zwei Zeilen), drei
+  Code-Stellen „stehen falsch", Kopfzeile `vv1.6.0`. **Die Ursache stand ganz
+  oben und ging in ihren eigenen Symptomen unter.**
+  _(Die erste Fassung dieses Absatzes schrieb „sieben" und behauptete zwei
+  Zeilen weiter zusätzlich zwei Umgebungsfunde — zusammen neun von acht. Von
+  der blinden Stimme nachgezählt. Eine Zahl in einem Regeltext, die niemand
+  nachrechnet, ist eine Erinnerung, siehe §9.)_
+- **Zwei kamen aus der Umgebung, nicht aus dem Code.** Auf dem
+  Auslieferungs-Host liegen die Laufzeitdaten im Repo-Verzeichnis (`data/`,
+  `.zfs/`, eine Sicherung), und `gh` gibt es dort nicht. Die Prüfungen
+  „Arbeitsbaum sauber" und „CI grün" waren dort **strukturell** nicht
+  erfüllbar — keine davon hätte je grün werden können.
+
+**Drei Lehren, die über den Fall hinausgehen:**
+
+1. **Ein Gate, das eine unlesbare Eingabe erkennt, hört auf.** Alles danach
+   sind Symptome derselben Ursache, und sie begraben sie. Wer die Ausgabe
+   eines Wächters erst sortieren muss, hat einen zweiten Wächter nötig.
+2. **„Owner-Host" ist keine Adresse.** Es gibt den Rechner, auf dem getaggt
+   wird, und den, auf dem ausgeliefert wird — mit verschiedenen Werkzeugen und
+   verschiedenem Inhalt im selben Verzeichnis. Ein Ritual, das nur „der Owner
+   führt aus" sagt, lässt genau diese Frage offen; der Owner wählte
+   naheliegenderweise den Auslieferungs-Host.
+3. **Die Anweisung ist Teil des Werkzeugs.** Der teuerste der acht Punkte war
+   nicht Code, sondern ein Satz von mir. Er lief an Panel und Gates vorbei —
+   §28 in seiner unauffälligsten Form: nicht ein Bau-Brief, sondern eine
+   beiläufige Zeile in einer Nachricht.
 
 **Und: Der Rückstands-Check ist wesensmäßig periodisch.** Er beantwortet die
 Frage „läuft draußen noch, was ich zuletzt ausgeliefert habe?" — eine Frage,
