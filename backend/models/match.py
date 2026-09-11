@@ -107,6 +107,10 @@ class SyncAlbumRequest(BaseModel):
     force_new_group: bool = False
 
 
+class RenameManagedAlbumRequest(BaseModel):
+    album_name: str
+
+
 class SyncLogEntry(BaseModel):
     id: str
     timestamp: str

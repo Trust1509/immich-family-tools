@@ -23,6 +23,7 @@ This tool bridges that gap.
 - **Match suggestions** — Automatically detects the same person across accounts using name similarity, face embeddings (if available), and shared assets
 - **Name sync** — Set a canonical name across all matched persons with one click; bulk-sync for high-confidence matches
 - **Shared album** — Create a shared album containing all photos of a matched person, populated from each account's own API key
+- **Album rename** — Rename managed albums from the Albums overview; grouped entries are updated in each owning Immich account
 - **Sync log** — Full history of all actions with undo support for name syncs
 
 ### Manual Matching

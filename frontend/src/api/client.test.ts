@@ -217,3 +217,23 @@ describe("Fehler-Schluessel aus der Antwort", () => {
     }
   });
 });
+describe("managed album rename client", () => {
+  it("patches the managed album with the new name", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.sync.renameAlbum("managed-1", "New family name");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync/albums/managed-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ album_name: "New family name" }),
+      })
+    );
+  });
+});

@@ -531,3 +531,41 @@ def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
     # Zwei getrennte Schleifen, dasselbe Album.
     assert asyncio.run(umkaempft())
     assert asyncio.run(umkaempft()), "zweite Schleife scheiterte"
+@pytest.mark.asyncio
+async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatch):
+    updates: list[tuple[str, dict]] = []
+    persisted: list[ManagedAlbum] = []
+
+    class Client:
+        def __init__(self, *_):
+            pass
+
+        async def update_album(self, album_id, payload):
+            updates.append((album_id, payload))
+            return {"id": album_id, **payload}
+
+    class Store:
+        def update_managed_album(self, album):
+            persisted.append(album)
+
+    owner = account("owner")
+    managed = ManagedAlbum(
+        id="managed-1",
+        match_id="match-1",
+        album_id="album-1",
+        album_name="Old family name",
+        owner_account_id=owner.id,
+        person_refs=[],
+        created_at="2026-09-10T00:00:00+00:00",
+    )
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    logs = await sync_service.rename_managed_album(
+        managed, owner, "New family name", Store()
+    )
+
+    assert updates == [("album-1", {"albumName": "New family name"})]
+    assert managed.album_name == "New family name"
+    assert persisted == [managed]
+    assert logs[0].status == "success"
+    assert logs[0].message_key == "log_album_renamed"
