@@ -686,6 +686,12 @@ export const translations = {
         ? `¿Eliminar ${n} entradas del álbum "${name}"?\n\nEl álbum se conservará en Immich, pero dejará de sincronizarse.`
         : `¿Eliminar la entrada del álbum "${name}"?\n\nEl álbum se conservará en Immich, pero dejará de sincronizarse.`,
   },
+  album_rename_action: {
+    de: "Album umbenennen",
+    en: "Rename album",
+    "pt-BR": "Renomear álbum",
+    "es-ES": "Cambiar nombre del álbum",
+  },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────
   log_subtitle: {
@@ -1260,6 +1266,18 @@ const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
     en: (p) => `Album '${p.album}' could not be created`,
     "pt-BR": (p) => `Álbum '${p.album}' não pode ser criado`,
     "es-ES": (p) => `No se ha podido crear el álbum '${p.album}'`,
+  },
+  log_album_renamed: {
+    de: (p) => `Album '${p.old_name}' in '${p.new_name}' umbenannt`,
+    en: (p) => `Album '${p.old_name}' renamed to '${p.new_name}'`,
+    "pt-BR": (p) => `Álbum '${p.old_name}' renomeado para '${p.new_name}'`,
+    "es-ES": (p) => `Álbum '${p.old_name}' renombrado como '${p.new_name}'`,
+  },
+  log_album_rename_failed: {
+    de: (p) => `Album '${p.album}' konnte nicht umbenannt werden`,
+    en: (p) => `Album '${p.album}' could not be renamed`,
+    "pt-BR": (p) => `Não foi possível renomear o álbum '${p.album}'`,
+    "es-ES": (p) => `No se ha podido cambiar el nombre del álbum '${p.album}'`,
   },
   log_sync_failed: {
     de: (p) => `Sync von '${p.account}' fehlgeschlagen`,

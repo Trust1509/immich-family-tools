@@ -190,6 +190,15 @@ class ImmichClient:
             r.raise_for_status()
             return r.json()
 
+    async def update_album(self, album_id: str, payload: dict) -> dict:
+        """Update album metadata such as its name."""
+        async with self._client() as c:
+            r = await c.patch(f"/api/albums/{album_id}", json=payload)
+            if r.status_code == 404:
+                raise AlbumNotFoundError(album_id)
+            r.raise_for_status()
+            return r.json()
+
     async def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> list[dict]:
         """Add assets to an album and return the per-item results.
 

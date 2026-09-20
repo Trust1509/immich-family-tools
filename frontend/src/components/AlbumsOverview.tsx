@@ -1,8 +1,20 @@
 import React from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Trash2, Disc, AlertTriangle, User, Clock, Timer } from "lucide-react";
+import {
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Disc,
+  AlertTriangle,
+  User,
+  Clock,
+  Timer,
+  X,
+  Pencil,
+  Check,
+} from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry } from "../api/client";
-import { formatDate, LANG_LOCALES, useT } from "../i18n";
+import { formatDate, LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
 
 interface AlbumGroup {
   album_name: string;
@@ -90,11 +102,14 @@ function AlbumGroupCard({
   externalLogs?: SyncLogEntry[] | null; // results pushed from "Alle synchronisieren"
   externalSyncing?: boolean;
 }) {
-  const { t, lang } = useT();
+  const { t, lang, errorText } = useT();
   const qc = useQueryClient();
   const [localLogs, setLocalLogs] = React.useState<SyncLogEntry[] | null>(null);
   const [localSyncing, setLocalSyncing] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [renaming, setRenaming] = React.useState(false);
+  const [renameValue, setRenameValue] = React.useState(group.album_name);
+  const [renameError, setRenameError] = React.useState<string | null>(null);
 
   // External (bulk) results take priority over local results
   const displayLogs = externalLogs !== undefined ? externalLogs : localLogs;
@@ -128,6 +143,33 @@ function AlbumGroupCard({
     qc.invalidateQueries({ queryKey: ["matches"] });
   };
 
+  const handleRename = async () => {
+    const nextName = renameValue.trim();
+    if (!nextName || nextName === group.album_name) {
+      setRenaming(false);
+      setRenameValue(group.album_name);
+      return;
+    }
+    setRenameError(null);
+    setLocalSyncing(true);
+    setLocalLogs(null);
+    const logs: SyncLogEntry[] = [];
+    try {
+      for (const album of group.albums) {
+        logs.push(...(await api.sync.renameAlbum(album.id, nextName)));
+      }
+      setLocalLogs(logs);
+      if (logs.every((entry) => entry.status === "success")) setRenaming(false);
+      qc.invalidateQueries({ queryKey: ["managed-albums"] });
+      qc.invalidateQueries({ queryKey: ["sync-log"] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
+    } catch (error) {
+      setRenameError(errorText(error as ServerErrorLike));
+    } finally {
+      setLocalSyncing(false);
+    }
+  };
+
   const isDeleted = displayLogs?.some((e) => e.error_message === "ALBUM_DELETED");
 
   return (
@@ -136,7 +178,46 @@ function AlbumGroupCard({
         <div className="flex items-center gap-2">
           <Disc size={18} className={isDeleted ? "text-red-400" : "text-blue-400"} />
           <div>
-            <h3 className="font-semibold">{group.album_name}</h3>
+            {renaming ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  className="input py-1 text-sm"
+                  value={renameValue}
+                  onChange={(event) => setRenameValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleRename();
+                    if (event.key === "Escape") {
+                      setRenaming(false);
+                      setRenameValue(group.album_name);
+                    }
+                  }}
+                  aria-label={t("album_rename_action")}
+                  autoFocus
+                  disabled={localSyncing}
+                />
+                <button
+                  className="p-1 text-emerald-400 hover:text-emerald-300"
+                  onClick={handleRename}
+                  disabled={localSyncing || !renameValue.trim()}
+                  aria-label={t("save")}
+                >
+                  <Check size={15} />
+                </button>
+                <button
+                  className="p-1 text-gray-500 hover:text-gray-300"
+                  onClick={() => {
+                    setRenaming(false);
+                    setRenameValue(group.album_name);
+                    setRenameError(null);
+                  }}
+                  aria-label={t("cancel")}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ) : (
+              <h3 className="font-semibold">{group.album_name}</h3>
+            )}
             <p className="text-xs text-gray-500">
               {t("owner")}: {group.owner_name}
             </p>
@@ -166,6 +247,7 @@ function AlbumGroupCard({
       </div>
 
       <SyncLogDisplay logs={displayLogs} syncing={syncing} />
+      {renameError && <p className="text-xs text-red-400">{renameError}</p>}
 
       {isDeleted && (
         <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
@@ -174,7 +256,19 @@ function AlbumGroupCard({
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="btn-ghost text-xs flex items-center gap-1.5"
+          onClick={() => {
+            setRenameValue(group.album_name);
+            setRenameError(null);
+            setRenaming(true);
+          }}
+          disabled={syncing || deleting || renaming}
+        >
+          <Pencil size={13} />
+          {t("album_rename_action")}
+        </button>
         <button
           className="btn-primary text-xs flex items-center gap-1.5"
           onClick={handleRefresh}

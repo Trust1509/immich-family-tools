@@ -83,6 +83,10 @@ class SyncAlbumRequest(BaseModel):
     existing_album_id: Optional[str] = None # for linking existing album
 
 
+class RenameManagedAlbumRequest(BaseModel):
+    album_name: str
+
+
 class SyncLogEntry(BaseModel):
     id: str
     timestamp: str

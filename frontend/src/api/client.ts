@@ -252,6 +252,11 @@ export const api = {
     refreshAlbum: (managedAlbumId: string) =>
       request<SyncLogEntry[]>(`/sync/album/${managedAlbumId}/refresh`, { method: "POST" }),
     albums: () => request<ManagedAlbum[]>("/sync/albums"),
+    renameAlbum: (managedAlbumId: string, albumName: string) =>
+      request<SyncLogEntry[]>(`/sync/albums/${managedAlbumId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ album_name: albumName }),
+      }),
     deleteAlbum: (managedAlbumId: string) =>
       request<void>(`/sync/albums/${managedAlbumId}`, { method: "DELETE" }),
     undo: (logEntryId: string) =>

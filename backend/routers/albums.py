@@ -4,7 +4,15 @@ from fastapi import APIRouter, Request
 import errors
 from pydantic import BaseModel
 
-from models.match import SyncNamesRequest, SyncAlbumRequest, SyncLogEntry, ManagedAlbum, SyncNamesMultiRequest, ExtendMatchRequest
+from models.match import (
+    ExtendMatchRequest,
+    ManagedAlbum,
+    RenameManagedAlbumRequest,
+    SyncAlbumRequest,
+    SyncLogEntry,
+    SyncNamesMultiRequest,
+    SyncNamesRequest,
+)
 from services import sync_service
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -221,6 +229,30 @@ async def refresh_album(managed_album_id: str, request: Request):
     logs = await sync_service.refresh_managed_album(
         managed=managed, all_accounts=store.list_accounts(), store=store,
     )
+    store.append_log(logs)
+    return logs
+
+
+@router.patch("/albums/{managed_album_id}", response_model=list[SyncLogEntry])
+async def rename_managed_album(
+    managed_album_id: str,
+    body: RenameManagedAlbumRequest,
+    request: Request,
+):
+    new_name = body.album_name.strip()
+    if not new_name:
+        raise errors.album_name_required()
+    store = request.app.state.store
+    managed = next(
+        (album for album in store.get_managed_albums() if album.id == managed_album_id),
+        None,
+    )
+    if not managed:
+        raise errors.managed_album_not_found()
+    owner = store.get_account(managed.owner_account_id)
+    if not owner:
+        raise errors.owner_account_not_found()
+    logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)
     return logs
 

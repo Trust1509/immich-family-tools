@@ -499,6 +499,59 @@ async def refresh_managed_album(
         return await _refresh_managed_album_unlocked(managed, all_accounts, store)
 
 
+async def _rename_managed_album_unlocked(
+    managed: ManagedAlbum,
+    owner_account: Account,
+    new_name: str,
+    store: ConfigStore,
+) -> list[SyncLogEntry]:
+    """Rename an Immich album and update its managed snapshot after success."""
+    previous_name = managed.album_name
+    client = ImmichClient(owner_account.immich_url, owner_account.api_key)
+    try:
+        await client.update_album(managed.album_id, {"albumName": new_name})
+    except AlbumNotFoundError:
+        return [SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="rename_album",
+            details=f"Album '{previous_name}' existiert nicht in Immich.",
+            status="error", error_message="ALBUM_DELETED",
+            message_key="log_album_not_found",
+            message_params={"album": previous_name},
+        )]
+    except Exception:
+        return [SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="rename_album",
+            details=f"Album '{previous_name}' konnte nicht umbenannt werden",
+            status="error", error_message="IMMICH_API_ERROR",
+            message_key="log_album_rename_failed",
+            message_params={"album": previous_name},
+        )]
+
+    managed.album_name = new_name
+    store.update_managed_album(managed)
+    return [SyncLogEntry(
+        id=str(uuid.uuid4()), timestamp=_now(), action="rename_album",
+        details=f"Album '{previous_name}' in '{new_name}' umbenannt",
+        status="success",
+        message_key="log_album_renamed",
+        message_params={"old_name": previous_name, "new_name": new_name},
+    )]
+
+
+async def rename_managed_album(
+    managed: ManagedAlbum,
+    owner_account: Account,
+    new_name: str,
+    store: ConfigStore,
+) -> list[SyncLogEntry]:
+    """Serialize renames with refreshes so stale snapshots cannot restore the old name."""
+    lock = _album_locks.setdefault(managed.id, asyncio.Lock())
+    async with lock:
+        return await _rename_managed_album_unlocked(
+            managed, owner_account, new_name, store
+        )
+
+
 async def extend_match(
     managed: ManagedAlbum,
     new_account: Account,
