@@ -170,11 +170,17 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    Baum beim Taggen ist ein echtes Problem — ignoriert wird nur, was dort
    betriebsbedingt liegt und ohnehin nie ins Repo gehört.
 
-   **Der Aufruf nimmt die Version OHNE führendes `v`:** `pruefen 1.7.0`, nicht
-   `pruefen v1.7.0`. Das `v` setzt das Skript selbst, wenn es den Tag bildet.
+   **Der Aufruf nimmt die Version OHNE führendes `v` und ohne Leerraum:**
+   `pruefen 1.7.0`, nicht `pruefen v1.7.0`. Das `v` setzt das Skript selbst, wenn es den Tag bildet.
    Die andere Form wird bewusst abgelehnt (Selbstprobe, Abschnitt 1) — ein
    Gate, das zwei Schreibweisen irgendwie auslegt, prüft nicht das, was der
    Aufrufer meinte.
+
+   Auch ein **angehängter Zeilenumbruch** wird abgelehnt — der entsteht beim
+   Kopieren aus einer Datei und war bis #80 unsichtbar: Die Prüfung las ihr
+   eigenes Ergebnis über eine Kommandosubstitution, und die entfernt genau
+   solche Umbrüche. Die Version kam als gültig durch und erzeugte danach fünf
+   Folgefehler.
 
    **Was die Selbstprobe NICHT zeigt: dass das Skript auf dem Rechner des
    Owners läuft.** Sie beweist die Logik des Gates, nicht seine Lauffähigkeit

@@ -80,6 +80,15 @@ hinweis_zur_version() {
     v[0-9]*)
       echo "Die Version wird OHNE fuehrendes v angegeben — 1.6.0, nicht v1.6.0."
       echo "Das 'v' setzt das Skript selbst, wenn es den Tag bildet." ;;
+    *[[:space:]]*)
+      # NUR Leerraum, nicht jedes Fremdzeichen: Bei "1.6.0<umbruch>" waere
+      # "besteht aus Ziffern und Punkten" aktiv irrefuehrend — die Eingabe
+      # besteht ja genau daraus, bis auf das unsichtbare Zeichen. Bei "1.5.x"
+      # ist der allgemeine Hinweis dagegen genau richtig, und die erste
+      # Fassung dieses Zweigs hat ihn dort verdraengt (eigener Fehlschlag).
+      echo "Die Version enthaelt ein Zeichen, das keine Ziffer und kein Punkt ist —"
+      echo "moeglicherweise Leerraum oder einen Zeilenumbruch vom Kopieren."
+      echo "Erwartet wird MAJOR.MINOR.PATCH, z. B. 1.6.0." ;;
     *)
       echo "Erwartet wird MAJOR.MINOR.PATCH aus Ziffern, z. B. 1.6.0." ;;
   esac
@@ -91,10 +100,22 @@ hinweis_zur_version() {
 # Titel steht. Die Bedingung selbst steht weiterhin genau einmal da
 # (`pruefe_format` ruft diese hier), sonst waeren es zwei Wahrheiten.
 format_gueltig() {
+  # ZUERST jedes Zeichen ausserhalb von Ziffern und Punkt ablehnen — mit
+  # `case`, nicht ueber eine Kommandosubstitution.
+  #
+  # Die frueher hier stehende Pruefung `[ -z "$(echo "$1" | tr -d '0-9.')" ]`
+  # war von genau dem Mechanismus ausgehebelt, mit dem sie ihr Ergebnis las:
+  # `$( )` entfernt ABSCHLIESSENDE Zeilenumbrueche. Ein "1.6.0" mit
+  # angehaengtem Umbruch — wie er beim Kopieren aus einer Datei entsteht —
+  # kam damit als gueltig durch und erzeugte danach fuenf Folgefehler, also
+  # genau die Kaskade, die dieses Gate seit 785af60 verhindern soll.
+  # Ohne Mutation reproduziert, Fremdpruefer 20.09.2026.
+  case "$1" in
+    *[!0-9.]*) return 1 ;;
+  esac
   case "$1" in
     [0-9]*.[0-9]*.[0-9]*)
       [ "$(echo "$1" | tr -cd '.' | wc -c)" -eq 2 ] &&
-      [ -z "$(echo "$1" | tr -d '0-9.')" ] &&
       [ -n "$(echo "$1" | cut -d. -f1)" ] &&
       [ -n "$(echo "$1" | cut -d. -f2)" ] &&
       [ -n "$(echo "$1" | cut -d. -f3)" ] ;;
@@ -111,7 +132,13 @@ pruefe_format() {
     ok "Versionsformat: $1"
     return 0
   fi
-  rot "Versionsformat: '$1' ist kein MAJOR.MINOR.PATCH"
+  # Unsichtbare Zeichen sichtbar machen, bevor sie in die Meldung gehen: Ein
+  # rohes \r verschiebt die Zeile im Terminal, ein \n zerreisst sie — und
+  # ausgerechnet diese beiden Zeichen sind der Anlass der Schranke oben.
+  # `tr` VOR der Kommandosubstitution, sonst verschluckt `$( )` den Umbruch
+  # wieder (derselbe Mechanismus, der die alte Pruefung ausgehebelt hat).
+  SICHTBAR=$(printf '%s' "$1" | tr -c '[:print:]' '?')
+  rot "Versionsformat: '$SICHTBAR' ist kein MAJOR.MINOR.PATCH"
   return 1
 }
 
