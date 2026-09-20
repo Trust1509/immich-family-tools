@@ -1189,3 +1189,55 @@ die Abweichung sichtbar, und zwar dort, wo sie entstand.
 - Verwandt mit `panel.md`, „Der Arbiter stuft nach EINER Regel über alle
   Runden": Dort geht es um die Schwere eines Funds, hier um die Zählung einer
   Bewertung — dieselbe Klasse, zwei Anwendungen.
+
+## 28. Eine Auslagerung macht die Regel prüfbar und schiebt die Verdrahtung in ungeprüften Code
+
+**Was passierte (#78, 20.09.2026).** Dieselbe Gruppierungsregel lag dreimal im
+Frontend und ein viertes Mal im Backend. Der Slice zog sie in ein Modul
+(`lib/albumGroups.ts`) und gab ihr eine eigene Testdatei. Der Bau-Text zählte
+danach „7 Mutationen, 7 gefangen".
+
+Alle sieben waren Mutationen **im Modul**, gefangen von der Testdatei des
+Moduls. Zwei Panel-Stimmen haben unabhängig gemessen, dass sich die drei
+aufrufenden Komponenten vollständig auf den alten Schlüssel zurückbauen
+ließen — `npm test` und `tsc --noEmit` blieben grün. Die Auslagerung hatte die
+Abdeckungszahl verbessert und den **Ort des Defekts** nicht berührt.
+
+Eine Runde später dieselbe Form eine Ebene tiefer: Das Store-Doppel in einem
+Backend-Test lieferte für die neue Methode eine Konstante. Damit verdeckte der
+Test genau die Verdrahtung, die zu prüfen war — beide Erzeugungsstellen ließen
+sich durch eine feste falsche Kennung ersetzen, 69 Tests blieben grün.
+
+**Die Regel.** Wer eine Regel auslagert, hat zwei Dinge zu prüfen, nicht eins:
+die Regel **und** dass die Aufrufer sie benutzen. Die Mutationsliste eines
+Slices gehört an die **Aufrufstelle**, nicht nur in das neue Modul. Eine
+Attrappe, die den ausgelagerten Helfer nachbildet, prüft die Verdrahtung nicht
+— sie verbirgt sie; an dieser Stelle gehört das echte Objekt in den Test.
+
+**Verwandt mit §16** („Eine Prüfung rutscht zu dem, was leichter zu messen
+ist"): Das Modul ist leichter zu messen als die Komponente, und genau dorthin
+ist die Prüfung gerutscht.
+
+## 29. Ein Test, der auf das Endergebnis wartet, übersieht einen toten Zwischenzustand
+
+**Was passierte (#78, Nacharbeit 2).** Ein Sammel-Abgleich setzt vor dem Lauf
+für jede Gruppe eine Marke „läuft" und schreibt danach je Gruppe das Ergebnis.
+Die Nacharbeit stellte vier von fünf Stellen auf den neuen Schlüssel um — die
+**Saat-Zeile** blieb auf dem alten. Geschrieben wurde also mit dem einen
+Schlüssel, gelesen mit dem anderen.
+
+Der neue Test dagegen war grün. Er klickte, wartete auf die Ergebnisse und fand
+sie — denn die Ergebnisse werden mit dem **neuen** Schlüssel geschrieben. Tot
+war nur der Zustand **dazwischen**: Der Spinner erschien nie. Gemessen: Die
+Mutation überlebte einen Test, der eigens gegen sie geschrieben worden war.
+
+**Die Regel.** Wo ein Ablauf einen Zwischenzustand hat — „läuft", „wartet",
+„gesperrt" —, ist dieser Zustand ein eigenes Verhalten und braucht eine eigene
+Zusicherung. Der Test muss den Ablauf **anhalten** (eine Zusage, die nicht
+auflöst) und im Halt prüfen. Ein Test, der nur das Ende betrachtet, deckt die
+Hälfte ab, die sich am lautesten meldet, und lässt die stille Hälfte offen.
+
+**Und die Zählung dazu:** Eine Mutation gilt erst als gefangen, wenn sie **den
+Test rot macht, der für sie geschrieben wurde**. „Irgendwo rot" ist keine
+Deckung — genau deshalb führt das Mutationsskript dieses Projekts je Fall einen
+Erwartungstext mit.
