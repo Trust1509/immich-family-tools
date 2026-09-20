@@ -3,8 +3,12 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Trash2, Disc, AlertTriangle, User, Clock, Timer } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry } from "../api/client";
 import { formatDate, LANG_LOCALES, useT } from "../i18n";
+import { bucketByGroup, mergePersonRefs } from "../lib/albumGroups";
 
 interface AlbumGroup {
+  // Die IDENTITAET der Gruppe. Der Name ist Anzeigetext und seit #78
+  // nicht mehr eindeutig — zwei Gruppen duerfen gleich heissen.
+  group_id: string;
   album_name: string;
   albums: ManagedAlbum[];
   total_assets: number;
@@ -14,25 +18,8 @@ interface AlbumGroup {
 }
 
 function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
-  const map = new Map<string, ManagedAlbum[]>();
-  for (const a of albums) {
-    const key = a.album_name.trim().toLowerCase();
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(a);
-  }
-
-  return Array.from(map.values()).map((group) => {
-    const seen = new Set<string>();
-    const personRefs: ManagedAlbum["person_refs"] = [];
-    for (const album of group) {
-      for (const ref of album.person_refs) {
-        const key = `${ref.account_id}::${ref.person_id}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          personRefs.push(ref);
-        }
-      }
-    }
+  return bucketByGroup(albums).map((group) => {
+    const personRefs = mergePersonRefs(group);
     const dates = group.map((a) => a.last_synced_at).filter(Boolean) as string[];
     const lastSync = dates.length ? dates.sort().reverse()[0] : undefined;
     const first = group[0];
@@ -43,6 +30,7 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
     )[0];
 
     return {
+      group_id: first.group_id,
       album_name: first.album_name,
       albums: group,
       total_assets: mostRecent.total_assets,
@@ -288,7 +276,7 @@ export default function AlbumsOverview() {
   const handleRefreshAll = async () => {
     setRefreshingAll(true);
     // Mark all groups as "syncing"
-    setBulkSyncState(new Map(groups.map((g) => [g.album_name, null])));
+    setBulkSyncState(new Map(groups.map((g) => [g.group_id, null])));
 
     for (const group of groups) {
       const groupLogs: SyncLogEntry[] = [];
@@ -298,7 +286,7 @@ export default function AlbumsOverview() {
         } catch (_) {}
       }
       // Update this group's results immediately, keep others in their current state
-      setBulkSyncState((prev) => new Map(prev).set(group.album_name, groupLogs));
+      setBulkSyncState((prev) => new Map(prev).set(group.group_id, groupLogs));
     }
 
     setRefreshingAll(false);
@@ -347,13 +335,13 @@ export default function AlbumsOverview() {
       ) : (
         <div className="space-y-4">
           {groups.map((group) => {
-            const bulkEntry = bulkSyncState.get(group.album_name);
+            const bulkEntry = bulkSyncState.get(group.group_id);
             // null in map = currently syncing; array = done with results
-            const externalSyncing = bulkSyncState.has(group.album_name) && bulkEntry === null;
+            const externalSyncing = bulkSyncState.has(group.group_id) && bulkEntry === null;
             const externalLogs = bulkEntry ?? undefined;
             return (
               <AlbumGroupCard
-                key={group.album_name}
+                key={group.group_id}
                 group={group}
                 externalLogs={externalLogs}
                 externalSyncing={externalSyncing}

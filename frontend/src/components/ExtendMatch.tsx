@@ -3,10 +3,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, User, Clock, Disc, CheckCircle, XCircle, ChevronRight, Plus } from "lucide-react";
 import { api, ManagedAlbum, SyncLogEntry, Account, Person } from "../api/client";
 import { formatDate, LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
+import { bucketByGroup, mergePersonRefs } from "../lib/albumGroups";
 
-// ── Re-use groupAlbums logic ───────────────────────────────────────────────
+// ── Gruppenform dieser Ansicht; die Gruppierungsregel liegt in lib/albumGroups ──
 
 interface AlbumGroup {
+  // Die IDENTITAET der Gruppe. Der Name ist Anzeigetext und seit #78
+  // nicht mehr eindeutig — zwei Gruppen duerfen gleich heissen.
+  group_id: string;
   album_name: string;
   albums: ManagedAlbum[];
   total_assets: number;
@@ -17,24 +21,8 @@ interface AlbumGroup {
 }
 
 function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
-  const map = new Map<string, ManagedAlbum[]>();
-  for (const a of albums) {
-    const key = a.album_name.trim().toLowerCase();
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(a);
-  }
-  return Array.from(map.values()).map((group) => {
-    const seen = new Set<string>();
-    const personRefs: ManagedAlbum["person_refs"] = [];
-    for (const album of group) {
-      for (const ref of album.person_refs) {
-        const key = `${ref.account_id}::${ref.person_id}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          personRefs.push(ref);
-        }
-      }
-    }
+  return bucketByGroup(albums).map((group) => {
+    const personRefs = mergePersonRefs(group);
     const dates = group.map((a) => a.last_synced_at).filter(Boolean) as string[];
     const lastSync = dates.length ? dates.sort().reverse()[0] : undefined;
     const primary = [...group].sort((a, b) =>
@@ -45,6 +33,7 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
       (b.last_synced_at ?? "").localeCompare(a.last_synced_at ?? "")
     )[0];
     return {
+      group_id: primary.group_id,
       album_name: primary.album_name,
       albums: group,
       total_assets: mostRecent.total_assets,
@@ -242,13 +231,13 @@ export default function ExtendMatch() {
 
   const groups = useMemo(() => groupAlbums(rawAlbums), [rawAlbums]);
 
-  const [selectedGroupName, setSelectedGroupName] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [newAccountId, setNewAccountId] = useState("");
   const [newPersonId, setNewPersonId] = useState("");
   const [syncName, setSyncName] = useState(true);
   const [result, setResult] = useState<SyncLogEntry[] | null>(null);
 
-  const selectedGroup = groups.find((g) => g.album_name === selectedGroupName) ?? null;
+  const selectedGroup = groups.find((g) => g.group_id === selectedGroupId) ?? null;
 
   // Derived canonical name = album name (what existing people are named)
   const canonicalName = selectedGroup?.album_name ?? "";
@@ -275,7 +264,7 @@ export default function ExtendMatch() {
     setNewAccountId("");
     setNewPersonId("");
     setResult(null);
-  }, [selectedGroupName]);
+  }, [selectedGroupId]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -316,11 +305,11 @@ export default function ExtendMatch() {
           <div className="space-y-2">
             {groups.map((g) => (
               <AlbumGroupCard
-                key={g.album_name}
+                key={g.group_id}
                 group={g}
-                selected={selectedGroupName === g.album_name}
+                selected={selectedGroupId === g.group_id}
                 onSelect={() =>
-                  setSelectedGroupName(selectedGroupName === g.album_name ? null : g.album_name)
+                  setSelectedGroupId(selectedGroupId === g.group_id ? null : g.group_id)
                 }
               />
             ))}

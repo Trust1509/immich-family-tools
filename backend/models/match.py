@@ -40,7 +40,21 @@ class ManagedAlbum(BaseModel):
     id: str                      # internal UUID
     match_id: str                # original match or manual ID
     album_id: str                # Immich album UUID (in owner account)
-    album_name: str
+    album_name: str              # reiner Anzeigetext — NICHT der Gruppenschluessel
+    # Stabile Gruppenkennung (#78). Alben mit derselben Kennung gehoeren
+    # zusammen; ihre Personen gelten als transitiv verbunden.
+    #
+    # PFLICHTFELD OHNE VORGABEWERT, und das ist Absicht: Ein
+    # `Optional[str] = None` gaebe jedem Album ohne Kennung denselben
+    # Schluessel und verschmoelze alle zu EINER Gruppe — genau der Defekt,
+    # den diese Kennung behebt, nur schlimmer. Eine vergessene Zuweisung
+    # muss laut scheitern. Fuer Altbestaende fuellt `_migrate()` das Feld.
+    #
+    # `min_length=1`, weil der Kommentar sonst mehr behauptet als der Typ
+    # haelt: Gemessen vom Panel blieb die Mutation `group_id=""` an beiden
+    # Erzeugungsstellen gruen — und eine leere Kennung tut genau das, wovor
+    # der Absatz oben warnt, nur ohne den lauten Fehler.
+    group_id: str = Field(min_length=1)
     owner_account_id: str        # account that owns the album
     person_refs: list[dict]      # [{"account_id", "person_id", "person_name", "account_name", "account_color"}]
     linked_match_ids: list[str] = Field(default_factory=list)

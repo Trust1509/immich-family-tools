@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import tempfile
+import uuid
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from pathlib import Path
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigStore:
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, path: str, log_retention_days: int = 90):
         self._path = Path(path)
@@ -116,9 +117,127 @@ class ConfigStore:
                 album["linked_match_ids"] = computed
                 changed = True
 
+        if self._backfill_group_ids(albums):
+            changed = True
+
         if changed:
             logger.info("Config migration applied; saving.")
             self._save()
+
+    @staticmethod
+    def _name_key(album_name: str) -> str:
+        """Die Normalisierung, die bis v1.6.0 der Gruppenschluessel WAR.
+
+        Sie lebt weiter — aber nur noch als Zuordnungshilfe beim Anlegen und
+        beim einmaligen Uebernehmen von Altbestaenden, nicht mehr als
+        Identitaet einer Gruppe.
+        """
+        # `str()` statt einer Typzusicherung: Ein handbearbeiteter Nicht-String
+        # (album_name: 42) liess die Wanderung bis zur zweiten Nacharbeit mit
+        # AttributeError abbrechen, und `_load` machte daraus ein
+        # "Configuration is invalid" — die App startete GAR NICHT MEHR, wo sie
+        # vorher startete und erst beim Lesen der Alben scheiterte. Eine
+        # Wanderung darf einen Bestand nicht unstartbar machen; die
+        # Typpruefung gehoert ins Modell, nicht hierher.
+        if album_name is None:
+            return ""
+        return str(album_name).strip().lower()
+
+    def _backfill_group_ids(self, albums: list[dict]) -> bool:
+        """Vergibt fehlende Gruppenkennungen aus der bisherigen Namensregel.
+
+        VERHALTENSERHALTEND, AUSDRUECKLICH AUCH IM FALSCHEN: Zwei Alben, die
+        zufaellig gleich heissen und nichts miteinander zu tun haben, bildeten
+        bis hierher EINE Gruppe (#78, Fall A). Diese Wanderung uebernimmt das
+        unveraendert. Aus den Daten allein ist nicht unterscheidbar, ob eine
+        Gruppe gewollt war, und eine bestehende Gruppe still zu zerlegen ist
+        der schwerere Fehler: Der Nutzer saehe Alben auseinanderfallen, ohne
+        etwas getan zu haben.
+
+        ZWEI AUSNAHMEN, in denen der Name NICHTS ueber Zugehoerigkeit sagt und
+        deshalb nicht geraten wird — beide vom Panel gemessen:
+
+        * MEHRDEUTIG: Tragen bereits zwei VERSCHIEDENE Gruppen denselben
+          Namen, haengte die erste Fassung ein kennungsloses Album still an
+          die in der Datei zuerst stehende. Vertauschte man zwei Zeilen,
+          kippte das Ergebnis. Ein Zufall der Dateireihenfolge darf keine
+          Zugehoerigkeit stiften.
+        * LEER: Ein leerer Name (auch reiner Leerraum) ist keine Aussage. Die
+          alte Namensregel verschmolz alle namenlosen Alben; das war
+          voruebergehend, weil ein Name es aufloeste. Eine Kennung friert es
+          dauerhaft ein.
+
+        In beiden Faellen bekommt das Album eine EIGENE Gruppe. Das ist die
+        einzige Abweichung von der Verhaltenserhaltung, und sie geht in die
+        sichere Richtung — nicht weil sich das eine rueckgaengig machen
+        liesse und das andere nicht (beides kann die App heute nicht), sondern
+        weil die Folgen verschieden SICHTBAR sind: Eine falsche Trennung zeigt
+        einen Vorschlag zu viel. Eine falsche Verschmelzung UNTERDRUECKT einen
+        Vorschlag, und nichts deutet darauf hin, dass er fehlt.
+
+        Zwei Durchgaenge, damit bereits vergebene Kennungen gewinnen. Sonst
+        bekaeme ein Album, das zwischen zwei Starts dazukommt, eine neue
+        Kennung und risse die Gruppe des ersten Starts entzwei.
+        """
+        bekannt = self._gruppen_je_name(albums)
+
+        # Kennungslose Alben gleichen Namens bilden untereinander eine Gruppe —
+        # das ist der Normalfall beim ersten Start, wo noch KEINE Kennung
+        # existiert und die alte Namensgruppierung uebernommen werden muss.
+        frisch: dict[str, str] = {}
+
+        changed = False
+        for album in albums:
+            if album.get("group_id"):
+                continue
+            schluessel = self._name_key(album.get("album_name", ""))
+            kandidaten = bekannt.get(schluessel, set())
+            if not schluessel or len(kandidaten) > 1:
+                album["group_id"] = str(uuid.uuid4())
+            elif len(kandidaten) == 1:
+                album["group_id"] = next(iter(kandidaten))
+            else:
+                album["group_id"] = frisch.setdefault(schluessel, str(uuid.uuid4()))
+            changed = True
+        return changed
+
+    def _gruppen_je_name(self, albums: list[dict]) -> dict[str, set[str]]:
+        """Normalisierter Name -> alle Gruppenkennungen, die ihn tragen.
+
+        Mehr als eine bedeutet: Der Name ist mehrdeutig geworden.
+        """
+        karte: dict[str, set[str]] = {}
+        for album in albums:
+            if album.get("group_id"):
+                karte.setdefault(self._name_key(album.get("album_name", "")),
+                                 set()).add(album["group_id"])
+        return karte
+
+    def group_id_for_name(self, album_name: str) -> str:
+        """Kennung der Gruppe mit diesem Namen — sonst eine neue.
+
+        Damit bleibt "Gruppieren durch gleiches Benennen" als Bedienmuster
+        erhalten: Wer ein zweites Album genauso nennt, tritt der bestehenden
+        Gruppe bei, wie bisher. Der Unterschied ist, dass die Zugehoerigkeit
+        ab dem Anlegen festliegt und ein spaeteres Umbenennen sie nicht mehr
+        aufloest.
+
+        Dieselben zwei Ausnahmen wie in `_backfill_group_ids`: Bei einem
+        mehrdeutigen oder leeren Namen wird nicht geraten, sondern eine eigene
+        Gruppe geoeffnet.
+
+        Einziger Eigentuemer dieser Regel — die Stellen, die frueher je eigene
+        Namensgruppen bildeten, fragen ab jetzt nur noch nach group_id.
+        """
+        schluessel = self._name_key(album_name)
+        if not schluessel:
+            return str(uuid.uuid4())
+        kandidaten = self._gruppen_je_name(self._data.get("managed_albums", [])).get(
+            schluessel, set()
+        )
+        if len(kandidaten) == 1:
+            return next(iter(kandidaten))
+        return str(uuid.uuid4())
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

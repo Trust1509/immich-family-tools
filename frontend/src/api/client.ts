@@ -146,7 +146,10 @@ export interface ManagedAlbum {
   id: string;
   match_id: string;
   album_id: string;
+  /** Reiner Anzeigetext — NICHT der Gruppenschluessel (siehe group_id). */
   album_name: string;
+  /** Stabile Gruppenkennung (#78). Alben mit gleicher Kennung gehoeren zusammen. */
+  group_id: string;
   owner_account_id: string;
   person_refs: {
     account_id: string;

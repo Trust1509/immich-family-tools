@@ -18,6 +18,7 @@ import {
 import { api, Match, Account, ManagedAlbum } from "../api/client";
 import FaceCompare from "./FaceCompare";
 import { useT, type ServerErrorLike } from "../i18n";
+import { createGroupLookup } from "../lib/albumGroups";
 
 // ── Album Dialog ───────────────────────────────────────────────────────────
 
@@ -536,20 +537,8 @@ export default function MatchSuggestions() {
     },
   });
 
-  // Precompute transitive person groups: normalised album-name → Set<person_id>
-  // Same logic as backend _enrich — group albums by name, collect all person_ids.
-  // Used to find the managed album for a match and to count group size.
-  const albumNameGroups = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const album of managedAlbums) {
-      const key = album.album_name.trim().toLowerCase();
-      if (!map.has(key)) map.set(key, new Set());
-      for (const ref of album.person_refs) {
-        map.get(key)!.add(ref.person_id);
-      }
-    }
-    return map;
-  }, [managedAlbums]);
+  // Einmal je Zeichnung, nicht je Zeile — siehe createGroupLookup.
+  const gruppenSuche = useMemo(() => createGroupLookup(managedAlbums), [managedAlbums]);
 
   const displayed = useMemo(() => {
     const pool = filters.showDismissed ? matches : pending;
@@ -623,20 +612,14 @@ export default function MatchSuggestions() {
       ) : (
         <div className="space-y-4">
           {displayed.map((m) => {
-            // Find the album whose name-group contains BOTH persons of this match.
-            // Uses transitive person-ref lookup (same principle as backend _enrich)
-            // so this works even if linked_match_ids is stale or missing.
-            const managedAlbum = managedAlbums
-              .filter((a) => {
-                const group = albumNameGroups.get(a.album_name.trim().toLowerCase());
-                return group?.has(m.person_a.person_id) && group?.has(m.person_b.person_id);
-              })
-              .sort((a, b) => b.person_refs.length - a.person_refs.length)[0];
-
-            // Total unique persons in this album's name-group
-            const groupPersonCount = managedAlbum
-              ? (albumNameGroups.get(managedAlbum.album_name.trim().toLowerCase())?.size ?? 0)
-              : 0;
+            // Das Album, dessen GRUPPE beide Personen dieses Matches enthaelt,
+            // und die Groesse dieser Gruppe. Die Regel liegt in
+            // lib/albumGroups und ist dort geprueft — hier steht nur noch der
+            // Aufruf (#78, Nacharbeit).
+            const { album: managedAlbum, groupPersonCount } = gruppenSuche.forPair(
+              m.person_a.person_id,
+              m.person_b.person_id
+            );
 
             return (
               <MatchCard

@@ -290,6 +290,9 @@ async def create_shared_album(
         match_id=match_id,
         album_id=album_id,
         album_name=album_name,
+        # Gleicher Name -> bestehende Gruppe, sonst eine neue (#78). Ab hier
+        # traegt die Kennung die Zugehoerigkeit, nicht mehr der Name.
+        group_id=store.group_id_for_name(album_name),
         owner_account_id=owner_account.id,
         person_refs=person_refs,
         created_at=_now(),
@@ -377,7 +380,8 @@ async def link_existing_album(
 
     managed = ManagedAlbum(
         id=str(uuid.uuid4()), match_id=match_id, album_id=album_id,
-        album_name=album_name, owner_account_id=owner_account.id,
+        album_name=album_name, group_id=store.group_id_for_name(album_name),
+        owner_account_id=owner_account.id,
         person_refs=person_refs, created_at=_now(), last_synced_at=_now(),
         total_assets=total_assets,
         status="partial" if any(entry.status == "error" for entry in logs) else "active",

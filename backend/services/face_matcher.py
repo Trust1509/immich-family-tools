@@ -229,17 +229,22 @@ def enrich_matches(
 
     Pure business logic — no HTTP, no request object.
     """
-    # Group albums by normalised name and collect all unique person_ids per group.
-    # Transitive album membership: if the same person appears in multiple albums
-    # with the same name, all pairwise combinations are considered to have an album.
-    by_name: dict[str, set[str]] = defaultdict(set)
+    # Group albums by their stable group_id and collect all unique person_ids
+    # per group. Transitive album membership: if the same person appears in
+    # several albums of one group, all pairwise combinations count as covered.
+    #
+    # Bis v1.6.0 war der Schluessel hier der normalisierte ALBUMNAME, und der
+    # Kommentar nannte das als Absicht. Er war keine: Zwei fremde Alben
+    # gleichen Namens verschmolzen zu einer Gruppe, und dann galt ein Paar als
+    # versorgt, fuer das kein Album existiert — der Vorschlag verschwand
+    # stillschweigend (#78). Der Name ist jetzt reiner Anzeigetext.
+    by_group: dict[str, set[str]] = defaultdict(set)
     for ma in managed_albums:
-        key = ma.album_name.strip().lower()
         for ref in ma.person_refs:
-            by_name[key].add(ref["person_id"])
+            by_group[ma.group_id].add(ref["person_id"])
 
     all_linked_ids: set[str] = set()
-    for person_ids in by_name.values():
+    for person_ids in by_group.values():
         for a, b in combinations(sorted(person_ids), 2):
             k = "_".join(sorted([a, b]))
             all_linked_ids.add(hashlib.md5(k.encode()).hexdigest())

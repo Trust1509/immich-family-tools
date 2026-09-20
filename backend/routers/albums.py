@@ -14,6 +14,38 @@ def _resolve_match(match_id: str, matches: list):
     return next((m for m in matches if m.id == match_id), None)
 
 
+async def _name_des_bestehenden_albums(owner, album_id: str, angegeben: str | None) -> str:
+    """Der Anzeigename eines bereits in Immich vorhandenen Albums.
+
+    Ohne diese Aufloesung stand bis zur Nacharbeit zu #78 an beiden
+    Verknuepfungsstellen `album_name = body.album_name or
+    body.existing_album_id` — die Album-UUID landete im NAMENSFELD. Ueber
+    `ManualMatch.tsx` ist das der Normalweg, wenn das Namensfeld leer bleibt;
+    es ist ja fuer den Anlegen-Modus gedacht.
+
+    Der Fremdpruefer hat gezeigt, dass das mehr verdirbt als die Anzeige:
+    `link_existing_album` reicht diesen Wert an `group_id_for_name` weiter,
+    also bestimmt die UUID die DAUERHAFTE Gruppenkennung. Ein spaeter
+    korrigierter Anzeigename holt die falsche Zuordnung nicht zurueck.
+
+    Wir holen deshalb den echten Namen aus Immich. Geht das nicht, wird
+    abgelehnt statt geraten — eine UUID ist kein Name.
+    """
+    if angegeben and angegeben.strip():
+        return angegeben
+    from services.immich_client import ImmichClient
+
+    try:
+        info = await ImmichClient(owner.immich_url, owner.api_key).get_album_info(album_id)
+        name = (info.get("albumName") or "").strip()
+    except Exception:
+        name = ""
+    if not name:
+        raise errors.album_name_required()
+    return name
+
+
+
 @router.post("/names", response_model=list[SyncLogEntry])
 async def sync_names(body: SyncNamesRequest, request: Request):
     store = request.app.state.store
@@ -76,6 +108,28 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     if requested_album and any(a.match_id == manual_match_id for a in store.get_managed_albums()):
         raise errors.album_already_managed()
 
+    # ALLES, WAS ABLEHNEN KANN, GEHOERT VOR DEN ERSTEN SCHREIBVORGANG.
+    #
+    # Gemessen vom Blindpruefer an der ersten Nacharbeit: Die Aufloesung des
+    # Albumnamens stand NACH sync_names_multi. Schlug sie fehl (Netz, 401,
+    # geloeschtes Album), waren die Personen in Immich bereits umbenannt, das
+    # Protokoll geschrieben und die Paare als abgeglichen markiert — und der
+    # Aufrufer bekam 422 "album_name erforderlich fuer neues Album", was
+    # weder stimmte noch half.
+    #
+    # Dieselbe Klasse traf schon vorher `owner_account_id_not_found`: auch das
+    # lehnte erst ab, nachdem umbenannt war. Beides steht jetzt davor.
+    owner = None
+    album_name_vorab = None
+    if requested_album:
+        owner = store.get_account(owner_id)
+        if not owner:
+            raise errors.owner_account_id_not_found(owner_id)
+        if body.existing_album_id:
+            album_name_vorab = await _name_des_bestehenden_albums(
+                owner, body.existing_album_id, body.album_name
+            )
+
     logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
     store.append_log(logs)
 
@@ -85,13 +139,11 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
 
     wants_album = (body.album_name or body.existing_album_id) and all(e.status == "success" for e in logs)
     if wants_album:
-        owner = store.get_account(owner_id)
-        if not owner:
-            raise errors.owner_account_id_not_found(owner_id)
+        assert owner is not None  # oben aufgeloest, sonst waere hier nichts gewollt
         match_id = manual_match_id
         all_accounts = store.list_accounts()
         if body.existing_album_id:
-            album_name = body.album_name or body.existing_album_id
+            album_name = album_name_vorab
             _, album_logs = await sync_service.link_existing_album(
                 match_id=match_id,
                 owner_account=owner,
@@ -184,7 +236,9 @@ async def create_album(body: SyncAlbumRequest, request: Request):
 
     if body.existing_album_id:
         # Link existing album
-        album_name = body.album_name or body.existing_album_id
+        album_name = await _name_des_bestehenden_albums(
+            owner, body.existing_album_id, body.album_name
+        )
         _, logs = await sync_service.link_existing_album(
             match_id=body.match_id,
             owner_account=owner,
