@@ -2,6 +2,44 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.7.0] – 2026-09-21
+
+**Risk: data migration** — read the upgrade notes before you rebuild.
+
+### Album groups no longer hang on the album name
+
+The app groups managed albums so that several real Immich albums — one per account — count as _one_ family album. Until now that grouping was done **by name**: two albums were the same group if they happened to be called the same thing.
+
+That had two consequences you could actually hit:
+
+- **Two unrelated albums that share a name were treated as one group.** A face pair could then be counted as "already has an album" when in fact no album contained both — and the suggestion was **silently dropped**. A missing suggestion is harder to notice than a duplicate one.
+- **A name you typed slightly differently made a second group.** "Familie 2024" and "Familie" never found each other.
+
+Each group now carries an identifier of its own. The name is only a label. Renaming an album — in the app or directly in Immich — cannot split a group any more.
+
+### Error messages from the server are translated (#74)
+
+Every message the server sends now carries a key, and the app renders it in your language. Previously these were German no matter which language you had picked. If the app meets a message it does not know, it still shows the German sentence rather than an empty box.
+
+### A smaller fix you may notice
+
+When you link an **existing** Immich album and leave the name field empty, the app now fetches the album's real name instead of storing its internal id. Album lists used to show a long string of letters and digits in that case.
+
+### Upgrade notes
+
+- **This release migrates `accounts.json`.** On first start, every managed album is given a group identifier, derived once from the names you have today — so your existing groups stay exactly as they are.
+- **The migration is reversible.** Measured: an older container reads a migrated file without complaint, and going back and forth leaves the groups and the data untouched. A `.bak` is written next to the file as usual; a ZFS snapshot beforehand is still the better safety net.
+- **One deliberate change at migration time:** albums whose name is **empty or only spaces** each get their own group instead of sharing one. An empty name says nothing about belonging, and unlike before, the grouping is now permanent. If you have no such albums, nothing changes for you. To check beforehand:
+  ```
+  python -c "import json;d=json.load(open('accounts.json'));print([a['album_name'] for a in d.get('managed_albums',[]) if not str(a.get('album_name','')).strip()])"
+  ```
+  An empty list means this does not affect you.
+- Rebuild the container so backend and frontend both report `1.7.0`.
+
+### Still open
+
+Creating an album still joins a group **by name**, so two albums you name the same still end up together whether you meant it or not. Choosing the group explicitly is tracked as #81.
+
 ## [1.6.0] – 2026-09-06
 
 **Risk: safe**
