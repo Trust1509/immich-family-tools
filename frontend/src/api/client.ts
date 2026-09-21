@@ -142,6 +142,13 @@ export interface Match {
   names_synced: boolean;
 }
 
+/** Die Gruppe, der ein neues Album beitreten wuerde (#81). */
+export interface AlbumGroupPreview {
+  group_id: string;
+  album_names: string[];
+  person_refs: ManagedAlbum["person_refs"];
+}
+
 export interface ManagedAlbum {
   id: string;
   match_id: string;
@@ -237,6 +244,9 @@ export const api = {
       album_name?: string;
       existing_album_id?: string;
       owner_account_id?: string;
+      /** Ausdrueckliche Gruppenwahl (#81); ohne beides entscheidet der Name. */
+      group_id?: string;
+      force_new_group?: boolean;
     }) =>
       request<SyncLogEntry[]>("/sync/names-multi", {
         method: "POST",
@@ -247,11 +257,19 @@ export const api = {
       owner_account_id: string;
       album_name?: string;
       existing_album_id?: string;
+      /** Ausdrueckliche Gruppenwahl (#81); ohne beides entscheidet der Name. */
+      group_id?: string;
+      force_new_group?: boolean;
     }) =>
       request<SyncLogEntry[]>("/sync/album", {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    /** Welcher Gruppe wuerde ein Album mit diesem Namen beitreten? null = keiner. */
+    albumGroupPreview: (albumName: string) =>
+      request<AlbumGroupPreview | null>(
+        `/sync/album-group?album_name=${encodeURIComponent(albumName)}`
+      ),
     refreshAlbum: (managedAlbumId: string) =>
       request<SyncLogEntry[]>(`/sync/album/${managedAlbumId}/refresh`, { method: "POST" }),
     albums: () => request<ManagedAlbum[]>("/sync/albums"),

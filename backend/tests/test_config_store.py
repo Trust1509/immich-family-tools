@@ -752,3 +752,154 @@ def test_migrate_macht_einen_kaputten_albumnamen_nicht_unstartbar(tmp_path):
 
     with pytest.raises(Exception):
         store.get_managed_albums()  # erst hier faellt der Typ auf
+
+
+# ----------------------------------------------------------------------
+# Ausdrueckliche Gruppenwahl (#81)
+#
+# Seit #78 traegt group_id die Zugehoerigkeit — beim ANLEGEN entscheidet aber
+# weiter der Name. Diese Tests sichern die Trennung von ABFRAGE (welche Gruppe
+# wuerde der Name treffen?) und VERGABE (welche wird es wirklich?).
+# ----------------------------------------------------------------------
+
+
+def test_existing_group_for_name_findet_die_bestehende_gruppe(tmp_path):
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    assert store.existing_group_for_name("  TESTALBUM ") == "gruppe-1"
+
+
+def test_existing_group_for_name_meldet_nichts_statt_zu_raten(tmp_path):
+    """Kein Treffer, mehrdeutig, leer — drei Wege, die alle None ergeben.
+
+    Die Vorschau darf nichts behaupten, wo die Vergabe nichts wuesste. Die
+    beiden Ausnahmen aus #78 gelten hier unveraendert.
+    """
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+        _album("a3", "   ", ["p3"], group_id="gruppe-leer"),
+    ])
+    store = ConfigStore(str(path))
+
+    assert store.existing_group_for_name("Kennt keiner") is None, "kein Treffer"
+    assert store.existing_group_for_name("Doppelt") is None, "mehrdeutig"
+    assert store.existing_group_for_name("  ") is None, "leer"
+
+
+def test_resolve_group_id_ohne_angabe_verhaelt_sich_wie_bisher(tmp_path):
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    assert store.resolve_group_id("Testalbum") == "gruppe-1"
+    neu = store.resolve_group_id("Ganz anders")
+    assert neu and neu != "gruppe-1"
+
+
+def test_resolve_group_id_erzwingt_eine_eigene_gruppe(tmp_path):
+    """force_new schlaegt den Namenstreffer — das ist der Sinn des Slices."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    eigen = store.resolve_group_id("Testalbum", force_new=True)
+
+    assert eigen != "gruppe-1"
+    assert eigen
+
+
+def test_resolve_group_id_nimmt_die_gewaehlte_gruppe_auch_gegen_den_namen(tmp_path):
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Eins", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Zwei", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    assert store.resolve_group_id("Eins", chosen="gruppe-2") == "gruppe-2"
+
+
+def test_resolve_group_id_lehnt_eine_geratene_kennung_ab(tmp_path):
+    """Eine unbekannte Kennung darf keine Gruppe ERFINDEN.
+
+    Sonst legt ein Tippfehler im Aufruf eine Geistergruppe an, zu der nie ein
+    zweites Album findet — und niemand sieht es, weil das Anlegen gelingt.
+    """
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    # BEWUSST der konkrete Typ UND der Schluessel: `pytest.raises(Exception)`
+    # faengt auch den AttributeError einer noch fehlenden Methode, und
+    # `AppError` allein ist die Basisklasse ALLER Anwendungsfehler — ein
+    # vertauschter Schluessel (404 statt 422) kaeme durch, obwohl
+    # test_errors die Statuscodes eigens festnagelt (Zweitstimme 21.09.2026).
+    with pytest.raises(AppError) as fehler:
+        store.resolve_group_id("Testalbum", chosen="gibt-es-nicht")
+    assert fehler.value.key == "err_group_not_found"
+
+
+def test_resolve_group_id_lehnt_widerspruechliche_angaben_ab(tmp_path):
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as fehler:
+        store.resolve_group_id("Testalbum", chosen="gruppe-1", force_new=True)
+    assert fehler.value.key == "err_group_choice_conflict"
+
+    # Eine LEERE Kennung ist eine Angabe, keine Auslassung.
+    with pytest.raises(AppError) as leer:
+        store.resolve_group_id("Testalbum", chosen="", force_new=True)
+    assert leer.value.key == "err_group_choice_conflict"
+
+
+def test_group_details_zeigt_wem_man_beitritt(tmp_path):
+    """Die Vorschau muss die Personen der GANZEN Gruppe fuehren, entdoppelt.
+
+    Ohne sie waere die Bestaetigung eine leere Geste: Der Nutzer soll sehen,
+    WEM er beitritt, nicht nur DASS er beitritt.
+    """
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Testalbum", ["p1", "p2"], group_id="gruppe-1"),
+        _album("a2", "Anders benannt", ["p2", "p3"], group_id="gruppe-1"),
+        _album("a3", "Testalbum", ["p9"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    details = store.group_details("gruppe-1")
+
+    assert [r["person_id"] for r in details["person_refs"]] == ["p1", "p2", "p3"]
+    assert sorted(details["album_names"]) == ["Anders benannt", "Testalbum"]
+
+
+def test_group_details_haelt_gleiche_personen_aus_zwei_konten_auseinander(tmp_path):
+    """Der Schluessel traegt Konto UND Person.
+
+    Zwei Immich-Instanzen koennen dieselbe Personen-Kennung vergeben. Die
+    Entdopplung nur ueber person_id wuerde eine der beiden verschlucken — und
+    der Nutzer saehe nicht, wem er wirklich beitritt. Gemessen: Ohne den
+    Kontoanteil blieb die Suite gruen, weil alle Testpersonen in einem Konto
+    lagen (Gegenpruefer 21.09.2026).
+    """
+    path = tmp_path / "accounts.json"
+    eins = _album("a1", "Testalbum", ["p1"], group_id="gruppe-1")
+    zwei = _album("a2", "Testalbum", ["p1"], group_id="gruppe-1")
+    zwei["person_refs"][0]["account_id"] = "konto-2"
+    zwei["person_refs"][0]["account_name"] = "Konto Zwei"
+    _write_albums(path, [eins, zwei])
+    store = ConfigStore(str(path))
+
+    details = store.group_details("gruppe-1")
+
+    assert len(details["person_refs"]) == 2
+    assert {r["account_id"] for r in details["person_refs"]} == {"acc-1", "konto-2"}

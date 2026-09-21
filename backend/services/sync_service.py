@@ -198,6 +198,7 @@ async def create_shared_album(
     person_refs: list[dict],   # [{"account_id": ..., "person_id": ...}]
     album_name: str,
     store: ConfigStore,
+    group_id: str,
 ) -> tuple[ManagedAlbum | None, list[SyncLogEntry]]:
     """
     Create a shared album in the owner account, share it with all other
@@ -290,9 +291,16 @@ async def create_shared_album(
         match_id=match_id,
         album_id=album_id,
         album_name=album_name,
-        # Gleicher Name -> bestehende Gruppe, sonst eine neue (#78). Ab hier
-        # traegt die Kennung die Zugehoerigkeit, nicht mehr der Name.
-        group_id=store.group_id_for_name(album_name),
+        # Die Kennung loest der AUFRUFER auf (ConfigStore.resolve_group_id),
+        # weil dort die ausdrueckliche Wahl des Nutzers ankommt (#81).
+        #
+        # PFLICHT, kein Rueckfall auf die Namensregel: Ein `or`-Rueckfall
+        # haette genau das getan, wovor der Kommentar am Modell warnt — wer
+        # die Wahl des Nutzers vergisst, bekaeme stilles Raten statt eines
+        # lauten Fehlers. Gemessen: Mit Rueckfall ueberlebte die Mutation
+        # "Router verwirft die aufgeloeste Kennung" die volle Suite
+        # (Gegenpruefer 21.09.2026).
+        group_id=group_id,
         owner_account_id=owner_account.id,
         person_refs=person_refs,
         created_at=_now(),
@@ -312,6 +320,7 @@ async def link_existing_album(
     all_accounts: list[Account],
     person_refs: list[dict],
     store: ConfigStore,
+    group_id: str,
 ) -> tuple[ManagedAlbum | None, list[SyncLogEntry]]:
     """Link an existing Immich album to a match, share it, and fill with assets."""
     logs: list[SyncLogEntry] = []
@@ -380,7 +389,7 @@ async def link_existing_album(
 
     managed = ManagedAlbum(
         id=str(uuid.uuid4()), match_id=match_id, album_id=album_id,
-        album_name=album_name, group_id=store.group_id_for_name(album_name),
+        album_name=album_name, group_id=group_id,
         owner_account_id=owner_account.id,
         person_refs=person_refs, created_at=_now(), last_synced_at=_now(),
         total_assets=total_assets,

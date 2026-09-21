@@ -10,6 +10,23 @@ from services import sync_service
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 
+@router.get("/album-group")
+async def album_group_preview(album_name: str, request: Request):
+    """Welcher Gruppe wuerde ein Album mit diesem Namen beitreten? (#81)
+
+    `null`, wenn keine — oder wenn der Name nichts aussagt (leer, mehrdeutig).
+    Die Regel liegt in ConfigStore; hier steht nur der Aufruf, damit es bei
+    EINEM Eigentuemer bleibt.
+    """
+    store = request.app.state.store
+    group_id = store.existing_group_for_name(album_name)
+    if not group_id:
+        return None
+    details = store.group_details(group_id)
+    details["person_refs"] = _mit_lebenden_kontodaten(store, details["person_refs"])
+    return details
+
+
 def _resolve_match(match_id: str, matches: list):
     return next((m for m in matches if m.id == match_id), None)
 
@@ -119,8 +136,17 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     #
     # Dieselbe Klasse traf schon vorher `owner_account_id_not_found`: auch das
     # lehnte erst ab, nachdem umbenannt war. Beides steht jetzt davor.
+    # Eine Gruppenangabe wird IMMER geprueft, auch ohne Album — Widerspruch
+    # UND unbekannte Kennung. Sonst nimmt derselbe Koerper einmal 422 und
+    # einmal 200, je nach einem Feld, das damit nichts zu tun hat; fuer einen
+    # fremden Client ist das eine Schnittstelle, die nach Tageslaune prueft
+    # (Blind- und Gegenpruefer 21.09.2026, unabhaengig gemessen).
+    if body.group_id is not None or body.force_new_group:
+        store.resolve_group_id("", chosen=body.group_id, force_new=body.force_new_group)
+
     owner = None
     album_name_vorab = None
+    gruppe_vorab = None
     if requested_album:
         owner = store.get_account(owner_id)
         if not owner:
@@ -129,6 +155,23 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
             album_name_vorab = await _name_des_bestehenden_albums(
                 owner, body.existing_album_id, body.album_name
             )
+        # Auch die Gruppenaufloesung kann ablehnen (unbekannte Kennung,
+        # widerspruechliche Angaben) und gehoert deshalb HIERHER. Die erste
+        # Fassung dieses Slices hat sie unter `wants_album` gesetzt — also
+        # hinter das Umbenennen, genau die Klasse, die der Absatz oben
+        # beschreibt und die einen Commit zuvor in derselben Datei behoben
+        # wurde (Blindpruefer 21.09.2026).
+        #
+        # `album_name_vorab` ZUERST, und zwar genau so weit, wie der Code es
+        # haelt: Beim Verknuepfen OHNE mitgeschickten Namen ist es der echte
+        # Name aus Immich; MIT mitgeschicktem Namen ist es dieser. Die erste
+        # Fassung behauptete im Kommentar mehr ("der echte Name, nicht der
+        # mitgeschickte") — das war falsch und hat einen Defekt im Aufrufer
+        # verdeckt (Blindpruefer 21.09.2026).
+        gruppe_vorab = store.resolve_group_id(
+            album_name_vorab or body.album_name or "",
+            chosen=body.group_id, force_new=body.force_new_group,
+        )
 
     logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
     store.append_log(logs)
@@ -142,6 +185,7 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         assert owner is not None  # oben aufgeloest, sonst waere hier nichts gewollt
         match_id = manual_match_id
         all_accounts = store.list_accounts()
+        gruppe = gruppe_vorab
         if body.existing_album_id:
             album_name = album_name_vorab
             _, album_logs = await sync_service.link_existing_album(
@@ -152,6 +196,7 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
                 all_accounts=all_accounts,
                 person_refs=person_refs,
                 store=store,
+                group_id=gruppe,
             )
         else:
             _, album_logs = await sync_service.create_shared_album(
@@ -161,6 +206,7 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
                 person_refs=person_refs,
                 album_name=body.album_name,
                 store=store,
+                group_id=gruppe,
             )
         store.append_log(album_logs)
         logs.extend(album_logs)
@@ -239,6 +285,9 @@ async def create_album(body: SyncAlbumRequest, request: Request):
         album_name = await _name_des_bestehenden_albums(
             owner, body.existing_album_id, body.album_name
         )
+        gruppe = store.resolve_group_id(
+            album_name, chosen=body.group_id, force_new=body.force_new_group
+        )
         _, logs = await sync_service.link_existing_album(
             match_id=body.match_id,
             owner_account=owner,
@@ -247,11 +296,15 @@ async def create_album(body: SyncAlbumRequest, request: Request):
             all_accounts=all_accounts,
             person_refs=person_refs,
             store=store,
+            group_id=gruppe,
         )
     else:
         # Create new album
         if not body.album_name:
             raise errors.album_name_required()
+        gruppe = store.resolve_group_id(
+            body.album_name, chosen=body.group_id, force_new=body.force_new_group
+        )
         _, logs = await sync_service.create_shared_album(
             match_id=body.match_id,
             owner_account=owner,
@@ -259,6 +312,7 @@ async def create_album(body: SyncAlbumRequest, request: Request):
             person_refs=person_refs,
             album_name=body.album_name,
             store=store,
+            group_id=gruppe,
         )
 
     store.append_log(logs)
@@ -279,19 +333,31 @@ async def refresh_album(managed_album_id: str, request: Request):
     return logs
 
 
+def _mit_lebenden_kontodaten(store, person_refs: list[dict]) -> list[dict]:
+    """Farbe und Kontoname aus den LEBENDEN Konten nachziehen.
+
+    Die Albumliste tat das seit jeher, die Gruppenvorschau nicht — und
+    ausgerechnet dort soll der Nutzer einer Zuordnung zustimmen, die sich
+    nicht mehr trennen laesst. Gemessen: Nach einem Farbwechsel zeigte die
+    Vorschau die alte Farbe, die Liste daneben die neue (Blindpruefer
+    21.09.2026). Jetzt EINE Routine fuer beide Stellen.
+    """
+    account_map = {a.id: a for a in store.list_accounts()}
+    for ref in person_refs:
+        acc = account_map.get(ref.get("account_id", ""))
+        if acc:
+            ref["account_color"] = acc.color
+            if not ref.get("account_name"):
+                ref["account_name"] = acc.name
+    return person_refs
+
+
 @router.get("/albums", response_model=list[ManagedAlbum])
 async def list_managed_albums(request: Request):
     store = request.app.state.store
     albums = store.get_managed_albums()
-    # Always inject live account_color and account_name so frontend never shows stale data
-    account_map = {a.id: a for a in store.list_accounts()}
     for album in albums:
-        for ref in album.person_refs:
-            acc = account_map.get(ref.get("account_id", ""))
-            if acc:
-                ref["account_color"] = acc.color
-                if not ref.get("account_name"):
-                    ref["account_name"] = acc.name
+        _mit_lebenden_kontodaten(store, album.person_refs)
     return albums
 
 

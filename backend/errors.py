@@ -245,3 +245,18 @@ def antwort(fehler: AppError) -> dict[str, Any]:
         "error_key": fehler.key,
         "error_params": fehler.params,
     }
+
+
+def group_choice_conflict() -> AppError:
+    return AppError(
+        422, "err_group_choice_conflict",
+        "Entweder eine bestehende Gruppe wählen ODER eine eigene anlegen, nicht beides",
+    )
+
+
+def group_not_found(group_id: str) -> AppError:
+    return AppError(
+        404, "err_group_not_found",
+        f"Gruppe {group_id} existiert nicht",
+        {"group_id": group_id},
+    )

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle, Loader2 } from "lucide-react";
 import { api, type Account, type Person, type SyncLogEntry } from "../api/client";
 import { LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
+import { GruppenWahl } from "./GruppenWahl";
 
 interface PersonSelection {
   account_id: string;
@@ -203,6 +204,10 @@ function AlbumSection({
   onAlbumNameChange,
   existingAlbumId,
   onExistingAlbumIdChange,
+  eigeneGruppe,
+  onEigeneGruppeChange,
+  onGruppeChange,
+  namensVorgabe,
 }: {
   accounts: Account[];
   ownerAccountId: string;
@@ -213,6 +218,11 @@ function AlbumSection({
   onAlbumNameChange: (v: string) => void;
   existingAlbumId: string;
   onExistingAlbumIdChange: (id: string) => void;
+  eigeneGruppe: boolean;
+  onEigeneGruppeChange: (wert: boolean) => void;
+  onGruppeChange: (groupId: string | null) => void;
+  /** Rueckfall fuer den Albumnamen, wenn das Feld leer bleibt. */
+  namensVorgabe: string;
 }) {
   const { t } = useT();
 
@@ -222,6 +232,14 @@ function AlbumSection({
     enabled: albumMode === "existing" && !!ownerAccountId,
     staleTime: 30_000,
   });
+
+  // Der Name, um den es beim Gruppieren geht — hier berechnet, weil hier die
+  // Albumliste liegt. Beim Verknuepfen ist es der Name des gewaehlten Albums,
+  // beim Anlegen das Feld oder ersatzweise der gemeinsame Name.
+  const wirksamerName =
+    albumMode === "new"
+      ? albumName.trim() || namensVorgabe
+      : (existingAlbums.find((a) => a.id === existingAlbumId)?.name ?? "");
 
   return (
     <div className="space-y-3">
@@ -299,6 +317,16 @@ function AlbumSection({
             </select>
           ))}
 
+        {/* Auch beim VERKNUEPFEN, nicht nur beim Anlegen: Das Backend
+            gruppiert dort genauso ueber den Namen, und ohne die Anzeige
+            verschmilzt es still (Blindpruefer 21.09.2026). */}
+        <GruppenWahl
+          albumName={wirksamerName}
+          eigeneGruppe={eigeneGruppe}
+          onEigeneGruppeChange={onEigeneGruppeChange}
+          onGruppeChange={onGruppeChange}
+        />
+
         <p className="text-xs text-gray-600">
           {albumMode === "new" ? t("album_new_desc") : t("album_existing_desc")}
         </p>
@@ -344,6 +372,8 @@ export default function ManualMatch() {
   const [canonicalName, setCanonicalName] = useState("");
   const [albumMode, setAlbumMode] = useState<"new" | "existing">("new");
   const [albumName, setAlbumName] = useState("");
+  const [eigeneGruppe, setEigeneGruppe] = useState(false);
+  const [gruppeId, setGruppeId] = useState<string | null>(null);
   const [ownerAccountId, setOwnerAccountId] = useState("");
   const [existingAlbumId, setExistingAlbumId] = useState("");
   const [result, setResult] = useState<SyncLogEntry[] | null>(null);
@@ -358,9 +388,17 @@ export default function ManualMatch() {
         persons: selections.map((s) => ({ account_id: s.account_id, person_id: s.person_id })),
         canonical_name: canonicalName.trim(),
         owner_account_id: effectiveOwner || undefined,
+        ...(eigeneGruppe ? { force_new_group: true } : gruppeId ? { group_id: gruppeId } : {}),
         ...(albumMode === "new"
           ? { album_name: albumName.trim() || canonicalName.trim() }
-          : { existing_album_id: existingAlbumId, album_name: albumName.trim() || undefined }),
+          : // BEWUSST OHNE album_name: Das Feld gehoert dem Anlege-Modus und
+            // wird beim Umschalten nur AUSGEBLENDET — sein Wert lebt weiter.
+            // Mitgeschickt entschied er ueber die Gruppe, waehrend die
+            // Vorschau nach dem Namen des IMMICH-Albums gefragt hatte. Ein
+            // stehengebliebenes "Urlaub" liess das Album still einer fremden
+            // Gruppe beitreten (Blindpruefer 21.09.2026, gemessen). Den
+            // echten Namen holt der Server.
+            { existing_album_id: existingAlbumId }),
       }),
     onSuccess: (data) => {
       setResult(data);
@@ -453,6 +491,10 @@ export default function ManualMatch() {
         onAlbumNameChange={setAlbumName}
         existingAlbumId={existingAlbumId}
         onExistingAlbumIdChange={setExistingAlbumId}
+        eigeneGruppe={eigeneGruppe}
+        onEigeneGruppeChange={setEigeneGruppe}
+        onGruppeChange={setGruppeId}
+        namensVorgabe={canonicalName.trim()}
       />
 
       {/* Submit */}

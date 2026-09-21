@@ -421,6 +421,30 @@ export const translations = {
     "pt-BR": "— Selecionar álbum —",
     "es-ES": "— Selecciona un álbum —",
   },
+  group_joins: {
+    de: "Tritt der bestehenden Gruppe bei",
+    en: "Joins the existing group",
+    "es-ES": "Se une al grupo existente",
+    "pt-BR": "Entra no grupo existente",
+  },
+  group_own: {
+    de: "Eigene Gruppe anlegen",
+    en: "Start its own group",
+    "es-ES": "Crear un grupo propio",
+    "pt-BR": "Criar um grupo próprio",
+  },
+  group_own_hint: {
+    de: "Das Album bleibt von der gleichnamigen Gruppe getrennt.",
+    en: "The album stays separate from the group with the same name.",
+    "es-ES": "El álbum se mantiene separado del grupo con el mismo nombre.",
+    "pt-BR": "O álbum permanece separado do grupo com o mesmo nome.",
+  },
+  group_checking: {
+    de: "Wird geprüft …",
+    en: "Checking …",
+    "es-ES": "Comprobando …",
+    "pt-BR": "Verificando …",
+  },
   album_new_desc: {
     de: "Neues Album wird erstellt, mit den beteiligten Accounts geteilt und Fotos automatisch hinzugefügt.",
     en: "New album will be created, shared with participating accounts, and photos added automatically.",
@@ -1029,6 +1053,18 @@ export const translations = {
       `La versión ${major}.${minor} de Immich no es compatible — esta herramienta necesita Immich v3.x`,
     "pt-BR": (major: string, minor: string) =>
       `A versão ${major}.${minor} do Immich não é compatível — esta ferramenta precisa do Immich v3.x`,
+  },
+  err_group_choice_conflict: {
+    de: "Entweder eine bestehende Gruppe wählen oder eine eigene anlegen — nicht beides",
+    en: "Either join an existing group or start your own — not both",
+    "es-ES": "O bien unirse a un grupo existente o crear uno propio, no ambas cosas",
+    "pt-BR": "Ou entrar em um grupo existente ou criar um próprio — não os dois",
+  },
+  err_group_not_found: {
+    de: "Diese Albumgruppe existiert nicht mehr",
+    en: "That album group no longer exists",
+    "es-ES": "Ese grupo de álbumes ya no existe",
+    "pt-BR": "Esse grupo de álbuns não existe mais",
   },
   err_album_name_required: {
     de: "Für ein neues Album wird ein Name benötigt",

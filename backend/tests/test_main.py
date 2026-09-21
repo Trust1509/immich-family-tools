@@ -251,3 +251,135 @@ async def test_unauffindbares_album_lehnt_ab_BEVOR_umbenannt_wird(monkeypatch, t
 
     assert umbenannt == [], "es darf nichts umbenannt worden sein"
     assert store.get_log() == [], "es darf nichts protokolliert worden sein"
+
+
+# ----------------------------------------------------------------------
+# Vorschau und ausdrueckliche Gruppenwahl (#81)
+# ----------------------------------------------------------------------
+
+
+def _store_mit_gruppen(tmp_path):
+    import json
+
+    from services.config_store import ConfigStore
+
+    def album(aid, name, gid, personen):
+        return {
+            "id": aid, "match_id": f"m-{aid}", "album_id": f"ia-{aid}",
+            "album_name": name, "group_id": gid, "owner_account_id": "konto-1",
+            "person_refs": [{"account_id": "konto-1", "person_id": p,
+                             "person_name": p, "account_name": "Konto Eins",
+                             "account_color": "#111111"} for p in personen],
+            "created_at": "2026-01-01T00:00:00+00:00", "last_synced_at": None,
+            "total_assets": 0, "status": "active",
+        }
+
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({"accounts": {}, "managed_albums": [
+        album("a1", "Testalbum", "gruppe-1", ["p1", "p2"]),
+        album("a2", "Anders benannt", "gruppe-1", ["p2", "p3"]),
+    ]}), encoding="utf-8")
+    return ConfigStore(str(pfad))
+
+
+@pytest.mark.asyncio
+async def test_vorschau_nennt_die_gruppe_und_wem_man_beitritt(tmp_path):
+    from routers import albums as albums_router
+
+    store = _store_mit_gruppen(tmp_path)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+
+    treffer = await albums_router.album_group_preview("  TESTALBUM ", request)
+
+    assert treffer["group_id"] == "gruppe-1"
+    # Die GANZE Gruppe, nicht nur das namensgleiche Album — sonst sieht der
+    # Nutzer nicht, wem er wirklich beitritt.
+    assert [r["person_id"] for r in treffer["person_refs"]] == ["p1", "p2", "p3"]
+
+
+@pytest.mark.asyncio
+async def test_vorschau_behauptet_nichts_ohne_treffer(tmp_path):
+    from routers import albums as albums_router
+
+    store = _store_mit_gruppen(tmp_path)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+
+    assert await albums_router.album_group_preview("Kennt keiner", request) is None
+    assert await albums_router.album_group_preview("   ", request) is None
+
+
+@pytest.mark.asyncio
+async def test_anlegen_folgt_der_ausdruecklichen_wahl(tmp_path, monkeypatch):
+    """Die VERDRAHTUNG, nicht die Regel.
+
+    lehren.md §28: Bei #78 ueberlebte genau diese Klasse zweimal — die Regel
+    war geprueft, der Aufrufer nicht. Hier wird deshalb durch den Router
+    angelegt, mit einem echten ConfigStore, und nachgesehen, was GESPEICHERT
+    wurde.
+    """
+    from models.match import SyncAlbumRequest
+    from routers import albums as albums_router
+    from services import sync_service
+
+    store = _store_mit_gruppen(tmp_path)
+    bestehend = "gruppe-1"
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def create_album(self, _name, _ids):
+            return {"id": "neues-immich-album"}
+
+        async def get_person_assets(self, _pid):
+            return []
+
+    async def fake_share(*_a, **_k):
+        return []
+
+    class Konto:
+        id = "konto-1"
+        name = "Konto Eins"
+        color = "#111111"
+        immich_url = "http://beispiel.invalid"
+        api_key = "platzhalter"
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
+    monkeypatch.setattr(store, "get_account", lambda _id: Konto())
+
+    treffer = SimpleNamespace(
+        id="match-neu",
+        person_a=SimpleNamespace(account_id="konto-1", person_id="p7",
+                                 person_name="Person G", account_name="Konto Eins",
+                                 account_color="#111111"),
+        person_b=SimpleNamespace(account_id="konto-1", person_id="p8",
+                                 person_name="Person H", account_name="Konto Eins",
+                                 account_color="#111111"),
+    )
+    monkeypatch.setattr(albums_router, "get_matches", lambda _r: [treffer], raising=False)
+
+    async def hole_matches(_request):
+        return [treffer]
+
+    import routers.faces as faces
+    monkeypatch.setattr(faces, "get_matches", hole_matches)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+
+    # 1) Ohne Angabe: der Name entscheidet, wie bisher.
+    await albums_router.create_album(
+        SyncAlbumRequest(match_id="match-neu", owner_account_id="konto-1",
+                         album_name="Testalbum"), request)
+    ohne = {a.match_id: a.group_id for a in store.get_managed_albums()}["match-neu"]
+    assert ohne == bestehend, "gleicher Name tritt der bestehenden Gruppe bei"
+
+    # 2) Mit force_new_group: eine eigene Gruppe, TROTZ passendem Namen.
+    store._data["managed_albums"] = [
+        a for a in store._data["managed_albums"] if a["match_id"] != "match-neu"
+    ]
+    await albums_router.create_album(
+        SyncAlbumRequest(match_id="match-neu", owner_account_id="konto-1",
+                         album_name="Testalbum", force_new_group=True), request)
+    eigen = {a.match_id: a.group_id for a in store.get_managed_albums()}["match-neu"]
+    assert eigen != bestehend, "force_new_group muss den Namenstreffer schlagen"

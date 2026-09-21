@@ -213,6 +213,90 @@ class ConfigStore:
                                  set()).add(album["group_id"])
         return karte
 
+    def existing_group_for_name(self, album_name: str) -> Optional[str]:
+        """Kennung der Gruppe mit diesem Namen — None, wenn keine oder mehrere.
+
+        Die ABFRAGE, getrennt von der VERGABE (#81). `group_id_for_name` gibt
+        bei Nicht-Treffer eine frische Kennung zurueck; fuer eine Vorschau
+        taugt das nicht, die braucht "trifft / trifft nicht".
+
+        Die beiden Ausnahmen aus #78 gelten unveraendert: Ein leerer und ein
+        mehrdeutiger Name sagen nichts ueber Zugehoerigkeit, also wird nicht
+        geraten.
+
+        BENANNTE DRITTE GRENZE, gemessen statt behauptet: Die Normalisierung
+        ist `strip().lower()` — keine Unicode-Normalform, kein `casefold`.
+        Zwei sichtbar gleiche Namen koennen daher als verschieden gelten
+        (NFC gegen NFD bei "Café", "istanbul" gegen "İstanbul", ein
+        unsichtbares Trennzeichen davor), und dann sagt diese Abfrage "keine
+        Gruppe", obwohl eine da ist. Das ist Erbe aus #78 — neu ist, dass
+        daraus seit #81 eine ZUSAGE AN DEN NUTZER wird. Als Folge-Issue
+        vermerkt, nicht hier behoben: Eine Normalisierung aendert die
+        Schluessel und ist damit selbst eine Datenwanderung.
+        """
+        schluessel = self._name_key(album_name)
+        if not schluessel:
+            return None
+        kandidaten = self._gruppen_je_name(self._data.get("managed_albums", [])).get(
+            schluessel, set()
+        )
+        return next(iter(kandidaten)) if len(kandidaten) == 1 else None
+
+    def group_details(self, group_id: str) -> dict:
+        """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.
+
+        Ohne das waere die Bestaetigung beim Anlegen eine leere Geste: Der
+        Nutzer soll sehen, WEM er beitritt, nicht nur DASS er beitritt.
+
+        Die Personen werden ueber Konto UND Person entdoppelt; zwei
+        Immich-Instanzen koennen dieselbe Personen-Kennung vergeben.
+        """
+        alben = [a for a in self._data.get("managed_albums", [])
+                 if a.get("group_id") == group_id]
+        gesehen: set[str] = set()
+        refs: list[dict] = []
+        for album in alben:
+            for ref in album.get("person_refs", []):
+                schluessel = f"{ref.get('account_id')}::{ref.get('person_id')}"
+                if schluessel not in gesehen:
+                    gesehen.add(schluessel)
+                    refs.append(ref)
+        return {
+            "group_id": group_id,
+            "album_names": sorted({a.get("album_name", "") for a in alben}),
+            "person_refs": refs,
+        }
+
+    def resolve_group_id(self, album_name: str, *,
+                         chosen: Optional[str] = None,
+                         force_new: bool = False) -> str:
+        """Welche Gruppe es WIRKLICH wird — einziger Eigentuemer der Regel.
+
+        Ohne Angabe bleibt es beim heutigen Verhalten (der Name entscheidet).
+        Eine ausdrueckliche Wahl schlaegt den Namen; eine unbekannte Kennung
+        wird ABGELEHNT, statt eine Gruppe zu erfinden — sonst legt ein
+        Tippfehler eine Geistergruppe an, zu der nie ein zweites Album findet,
+        und niemand sieht es, weil das Anlegen gelingt.
+        """
+        import errors
+
+        # `is not None`, nicht Wahrheitswert: Eine ausdrueckliche leere
+        # Kennung ist eine ANGABE, keine Auslassung. Mit dem Wahrheitswert
+        # galt `group_id=""` als "nicht gesetzt" — der Widerspruch mit
+        # force_new_group wurde nicht erkannt, und die Namensregel griff
+        # still (Zweitstimme 21.09.2026, gemessen).
+        angegeben = chosen is not None
+        if angegeben and force_new:
+            raise errors.group_choice_conflict()
+        if force_new:
+            return str(uuid.uuid4())
+        if angegeben:
+            bekannt = {a.get("group_id") for a in self._data.get("managed_albums", [])}
+            if chosen not in bekannt:
+                raise errors.group_not_found(chosen)
+            return chosen
+        return self.group_id_for_name(album_name)
+
     def group_id_for_name(self, album_name: str) -> str:
         """Kennung der Gruppe mit diesem Namen — sonst eine neue.
 
@@ -229,15 +313,8 @@ class ConfigStore:
         Einziger Eigentuemer dieser Regel — die Stellen, die frueher je eigene
         Namensgruppen bildeten, fragen ab jetzt nur noch nach group_id.
         """
-        schluessel = self._name_key(album_name)
-        if not schluessel:
-            return str(uuid.uuid4())
-        kandidaten = self._gruppen_je_name(self._data.get("managed_albums", [])).get(
-            schluessel, set()
-        )
-        if len(kandidaten) == 1:
-            return next(iter(kandidaten))
-        return str(uuid.uuid4())
+        treffer = self.existing_group_for_name(album_name)
+        return treffer if treffer else str(uuid.uuid4())
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

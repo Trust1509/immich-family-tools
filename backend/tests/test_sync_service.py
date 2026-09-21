@@ -67,7 +67,8 @@ async def test_album_is_shared_only_with_participants(monkeypatch):
         {"account_id": "participant", "person_id": "p2"},
     ]
     await sync_service.create_shared_album(
-        "match", owner, [owner, participant, unrelated], refs, "Album", Store()
+        "match", owner, [owner, participant, unrelated], refs, "Album", Store(),
+        group_id="gruppe-testdoppel",
     )
     assert captured == ["participant"]
 
@@ -330,10 +331,13 @@ async def _lege_album_an(monkeypatch, store, album_name: str):
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
     owner = account("owner")
+    # Wie ein echter Aufrufer: erst aufloesen, dann uebergeben. Die Kennung
+    # ist Pflicht — es gibt keinen stillen Rueckfall mehr.
     return await sync_service.create_shared_album(
         "match-neu", owner, [owner],
         [{"account_id": "owner", "person_id": "p1"}],
         album_name, store,
+        group_id=store.resolve_group_id(album_name),
     )
 
 
@@ -409,7 +413,54 @@ async def test_verknuepftes_album_tritt_der_gruppe_mit_gleichem_namen_bei(monkey
         all_accounts=[owner],
         person_refs=[{"account_id": "owner", "person_id": "p1"}],
         store=store,
+        group_id=store.resolve_group_id("  TESTALBUM "),
     )
 
     assert managed is not None
     assert managed.group_id == "gruppe-1"
+
+
+@pytest.mark.asyncio
+async def test_verknuepfen_folgt_der_uebergebenen_kennung(monkeypatch, tmp_path):
+    """Die uebergebene Gruppe schlaegt den Namen — auch beim Verknuepfen.
+
+    Gemessen vom Blindpruefer: Die Mutation, die `group_id` hier verwirft und
+    wieder ueber den Namen aufloest, ueberlebte die volle Suite. Der
+    vorhandene Test reichte nicht, weil er die Kennung gar nicht uebergab und
+    damit nur den Rueckfall pruefte.
+    """
+    store = _store_mit_album(tmp_path, "Testalbum", "gruppe-1")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets(self, _album_id):
+            return []
+
+        async def get_person_assets(self, _pid):
+            return []
+
+        async def add_assets_to_album(self, _album_id, _ids):
+            return []
+
+    async def fake_share(*_a, **_k):
+        return []
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
+    owner = account("owner")
+
+    managed, _ = await sync_service.link_existing_album(
+        match_id="match-verknuepft",
+        owner_account=owner,
+        album_id="immich-bestehend",
+        album_name="Testalbum",          # wuerde gruppe-1 treffen
+        all_accounts=[owner],
+        person_refs=[{"account_id": "owner", "person_id": "p1"}],
+        store=store,
+        group_id="eigene-gruppe",        # schlaegt den Namen
+    )
+
+    assert managed is not None
+    assert managed.group_id == "eigene-gruppe"

@@ -181,6 +181,8 @@ STATUSCODES = {
     "err_account_not_found": 404,
     "err_album_already_managed": 409,
     "err_album_name_required": 422,
+    "err_group_choice_conflict": 422,
+    "err_group_not_found": 404,
     "err_immich_request_failed": 502,
     "err_immich_unreachable": 422,
     "err_invalid_content_length": 400,
