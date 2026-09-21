@@ -162,12 +162,12 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         # beschreibt und die einen Commit zuvor in derselben Datei behoben
         # wurde (Blindpruefer 21.09.2026).
         #
+        # Hier wird ABGELEHNT und die ausdrueckliche Wahl FESTGELEGT — beides
+        # vor jedem Schreibvorgang.
+        #
         # `album_name_vorab` ZUERST, und zwar genau so weit, wie der Code es
         # haelt: Beim Verknuepfen OHNE mitgeschickten Namen ist es der echte
-        # Name aus Immich; MIT mitgeschicktem Namen ist es dieser. Die erste
-        # Fassung behauptete im Kommentar mehr ("der echte Name, nicht der
-        # mitgeschickte") — das war falsch und hat einen Defekt im Aufrufer
-        # verdeckt (Blindpruefer 21.09.2026).
+        # Name aus Immich; MIT mitgeschicktem Namen ist es dieser.
         gruppe_vorab = store.resolve_group_id(
             album_name_vorab or body.album_name or "",
             chosen=body.group_id, force_new=body.force_new_group,
@@ -185,29 +185,44 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         assert owner is not None  # oben aufgeloest, sonst waere hier nichts gewollt
         match_id = manual_match_id
         all_accounts = store.list_accounts()
-        gruppe = gruppe_vorab
-        if body.existing_album_id:
-            album_name = album_name_vorab
-            _, album_logs = await sync_service.link_existing_album(
-                match_id=match_id,
-                owner_account=owner,
-                album_id=body.existing_album_id,
-                album_name=album_name,
-                all_accounts=all_accounts,
-                person_refs=person_refs,
-                store=store,
-                group_id=gruppe,
-            )
-        else:
-            _, album_logs = await sync_service.create_shared_album(
-                match_id=match_id,
-                owner_account=owner,
-                all_accounts=all_accounts,
-                person_refs=person_refs,
-                album_name=body.album_name,
-                store=store,
-                group_id=gruppe,
-            )
+        name_fuer_gruppe = album_name_vorab or body.album_name or ""
+        festgelegt = body.group_id is not None or body.force_new_group
+        # Speichern unter dem Schloss (#84) — und NUR die Namensregel wird
+        # darunter frisch ausgewertet.
+        #
+        # Die erste Fassung loeste hier in JEDEM Fall neu auf. Damit konnte
+        # `resolve_group_id` nach dem Umbenennen ablehnen (404, wenn die
+        # gewaehlte Gruppe inzwischen verschwunden ist) — dieselbe Klasse, die
+        # der Absatz oben beschreibt, von mir zum dritten Mal in dieser Datei
+        # eingebaut (Blindpruefer 21.09.2026, gemessen).
+        #
+        # Die ausdrueckliche Wahl steht schon fest und ist vor dem ersten
+        # Schreibvorgang geprueft. Frischen Blick braucht allein die
+        # Namensregel — und die kann nicht ablehnen.
+        async with store.gruppen_schloss(name_fuer_gruppe):
+            gruppe = gruppe_vorab if festgelegt else store.group_id_for_name(name_fuer_gruppe)
+            if body.existing_album_id:
+                album_name = album_name_vorab
+                _, album_logs = await sync_service.link_existing_album(
+                    match_id=match_id,
+                    owner_account=owner,
+                    album_id=body.existing_album_id,
+                    album_name=album_name,
+                    all_accounts=all_accounts,
+                    person_refs=person_refs,
+                    store=store,
+                    group_id=gruppe,
+                )
+            else:
+                _, album_logs = await sync_service.create_shared_album(
+                    match_id=match_id,
+                    owner_account=owner,
+                    all_accounts=all_accounts,
+                    person_refs=person_refs,
+                    album_name=body.album_name,
+                    store=store,
+                    group_id=gruppe,
+                )
         store.append_log(album_logs)
         logs.extend(album_logs)
 
@@ -285,35 +300,39 @@ async def create_album(body: SyncAlbumRequest, request: Request):
         album_name = await _name_des_bestehenden_albums(
             owner, body.existing_album_id, body.album_name
         )
-        gruppe = store.resolve_group_id(
-            album_name, chosen=body.group_id, force_new=body.force_new_group
-        )
-        _, logs = await sync_service.link_existing_album(
-            match_id=body.match_id,
-            owner_account=owner,
-            album_id=body.existing_album_id,
-            album_name=album_name,
-            all_accounts=all_accounts,
-            person_refs=person_refs,
-            store=store,
-            group_id=gruppe,
-        )
+        # Aufloesen UND Speichern unter demselben Schloss (#84) — zwischen
+        # beidem liegen die Immich-Aufrufe.
+        async with store.gruppen_schloss(album_name):
+            gruppe = store.resolve_group_id(
+                album_name, chosen=body.group_id, force_new=body.force_new_group
+            )
+            _, logs = await sync_service.link_existing_album(
+                match_id=body.match_id,
+                owner_account=owner,
+                album_id=body.existing_album_id,
+                album_name=album_name,
+                all_accounts=all_accounts,
+                person_refs=person_refs,
+                store=store,
+                group_id=gruppe,
+            )
     else:
         # Create new album
         if not body.album_name:
             raise errors.album_name_required()
-        gruppe = store.resolve_group_id(
-            body.album_name, chosen=body.group_id, force_new=body.force_new_group
-        )
-        _, logs = await sync_service.create_shared_album(
-            match_id=body.match_id,
-            owner_account=owner,
-            all_accounts=all_accounts,
-            person_refs=person_refs,
-            album_name=body.album_name,
-            store=store,
-            group_id=gruppe,
-        )
+        async with store.gruppen_schloss(body.album_name):
+            gruppe = store.resolve_group_id(
+                body.album_name, chosen=body.group_id, force_new=body.force_new_group
+            )
+            _, logs = await sync_service.create_shared_album(
+                match_id=body.match_id,
+                owner_account=owner,
+                all_accounts=all_accounts,
+                person_refs=person_refs,
+                album_name=body.album_name,
+                store=store,
+                group_id=gruppe,
+            )
 
     store.append_log(logs)
     return logs

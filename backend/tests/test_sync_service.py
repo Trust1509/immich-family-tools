@@ -464,3 +464,70 @@ async def test_verknuepfen_folgt_der_uebergebenen_kennung(monkeypatch, tmp_path)
 
     assert managed is not None
     assert managed.group_id == "eigene-gruppe"
+
+
+def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
+    """Die Behauptung "Klasse behoben, nicht Instanz" — durch die ECHTE Funktion.
+
+    Ein `asyncio.Lock` gehoert der Schleife, in der es zuerst UMKAEMPFT
+    wurde. Ein Register, das nur nach `managed.id` schluesselt, liefert beim
+    naechsten Lauf in einer ANDEREN Schleife dasselbe Objekt aus, und der
+    Zugriff endet mit "is bound to a different event loop".
+
+    ZWEI Fallen, beide gemessen und beide hier vermieden:
+    * Ohne WETTSTREIT bindet sich das Schloss gar nicht — ein unbestrittenes
+      `async with` beruehrt die Schleife nie. Die erste Fassung war deshalb
+      in beide Richtungen gruen.
+    * Baut der Test das Muster NACH, statt `refresh_managed_album` zu rufen,
+      prueft er die Regel und nicht die Verdrahtung. Die Mutation an der
+      Produktionszeile ueberlebte ihn (lehren.md §28, zum wiederholten Mal).
+    """
+    import asyncio
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets(self, _album_id):
+            await asyncio.sleep(0.01)      # erzeugt den Wettstreit
+            return []
+
+        async def get_person_assets(self, _pid):
+            return []
+
+        async def add_assets_to_album(self, _album_id, _ids):
+            return []
+
+    async def skip_sharing(*_args, **_k):
+        return []
+
+    class Store:
+        def update_managed_album(self, _album):
+            pass
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
+    owner = account("owner")
+
+    def frisches_album():
+        return ManagedAlbum(
+            id="managed-schloss",                     # DIESELBE Kennung
+            match_id="m-schloss",
+            album_id="ia-schloss",
+            album_name="Testalbum",
+            group_id="gruppe-1",
+            owner_account_id=owner.id,
+            person_refs=[{"account_id": owner.id, "person_id": "p1"}],
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+
+    async def umkaempft():
+        await asyncio.gather(
+            sync_service.refresh_managed_album(frisches_album(), [owner], Store()),
+            sync_service.refresh_managed_album(frisches_album(), [owner], Store()),
+        )
+        return True
+
+    # Zwei getrennte Schleifen, dasselbe Album.
+    assert asyncio.run(umkaempft())
+    assert asyncio.run(umkaempft()), "zweite Schleife scheiterte"

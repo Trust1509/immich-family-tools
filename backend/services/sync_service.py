@@ -11,7 +11,10 @@ from models.account import Account
 from models.match import ManagedAlbum, SyncLogEntry
 
 logger = logging.getLogger(__name__)
-_album_locks: dict[str, asyncio.Lock] = {}
+# Der Schluessel traegt die EREIGNISSCHLEIFE mit — siehe die ausfuehrliche
+# Begruendung bei `config_store._gruppen_schloesser`. Dieselbe Schwaeche lag
+# hier seit jeher; behoben wird die Klasse, nicht die Instanz.
+_album_locks: dict[tuple[int, str], asyncio.Lock] = {}
 
 
 def _now() -> str:
@@ -507,7 +510,9 @@ async def refresh_managed_album(
     store: ConfigStore,
 ) -> list[SyncLogEntry]:
     """Serialize refreshes per album across manual and automatic sync."""
-    lock = _album_locks.setdefault(managed.id, asyncio.Lock())
+    lock = _album_locks.setdefault(
+        (id(asyncio.get_running_loop()), managed.id), asyncio.Lock()
+    )
     async with lock:
         return await _refresh_managed_album_unlocked(managed, all_accounts, store)
 

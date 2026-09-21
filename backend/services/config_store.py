@@ -2,6 +2,7 @@
 Persistent config storage: accounts + dismissed match IDs + sync log + managed albums.
 Backed by a JSON file on the Docker volume.
 """
+import asyncio
 import hashlib
 import json
 import logging
@@ -20,6 +21,29 @@ from models.account import Account, AccountCreate
 from models.match import ManagedAlbum, SyncLogEntry
 
 logger = logging.getLogger(__name__)
+
+# Ein Schloss je normalisiertem Albumnamen.
+#
+# Zwischen "welche Gruppe wird es?" und "das Album ist gespeichert" liegen die
+# Immich-Aufrufe, und an jedem `await` kann eine zweite Anfrage drankommen.
+# Beide sehen dann "diesen Namen gibt es noch nicht" und oeffnen je eine
+# Gruppe. Danach ist der Name dauerhaft MEHRDEUTIG: Die Vorschau schweigt fuer
+# immer, jedes weitere Album bekommt wieder eine eigene Gruppe, und die
+# Oberflaeche bietet keinen Weg zurueck — sie kann nur beitreten, was
+# angezeigt wird (Gegenpruefer zu #81, mit asyncio.gather gemessen).
+#
+# Modulweit, nicht je ConfigStore: Der Container faehrt einen Prozess mit
+# einem Store, und ein Schloss, das mit seinem Besitzer entsteht, schuetzt
+# nichts. Dasselbe Muster benutzt `sync_service._album_locks` fuer den
+# Abgleich.
+#
+# Der Schluessel traegt die EREIGNISSCHLEIFE mit. In der Anwendung gibt es
+# genau eine, dort aendert das nichts — aber ein `asyncio.Lock` gehoert der
+# Schleife, in der es zuerst benutzt wurde, und ein Zugriff aus einer anderen
+# endet mit "is bound to a different event loop". Ohne den Schleifenanteil
+# war die Registrierung von der Reihenfolge abhaengig: Dieselbe Probe lief
+# allein gruen und in der vollen Suite rot (gemessen 21.09.2026).
+_gruppen_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 
 
 class ConfigStore:
@@ -430,6 +454,17 @@ class ConfigStore:
                 raise errors.group_not_found(chosen)
             return chosen
         return self.group_id_for_name(album_name)
+
+    def gruppen_schloss(self, album_name: str) -> asyncio.Lock:
+        """Das Schloss fuer diesen Albumnamen.
+
+        Der Aufrufer haelt es ueber die GANZE Strecke von der Aufloesung bis
+        zum Speichern — sonst schuetzt es die Luecke nicht, um die es geht.
+        Gesperrt wird nur gegen Anlagen mit DEMSELBEN Namen; alles andere
+        laeuft weiter.
+        """
+        schluessel = (id(asyncio.get_running_loop()), self._name_key(album_name))
+        return _gruppen_schloesser.setdefault(schluessel, asyncio.Lock())
 
     def group_id_for_name(self, album_name: str) -> str:
         """Kennung der Gruppe mit diesem Namen — sonst eine neue.
