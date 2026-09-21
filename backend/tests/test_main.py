@@ -315,6 +315,54 @@ async def test_fehler_nach_dem_schreiben_gibt_sich_nicht_als_immich_fehler_aus(
     assert store._data["accounts"]["konto-1"]["user_id"] == "u1-neu"
 
 
+@pytest.mark.asyncio
+async def test_immich_antwortet_2xx_ohne_objekt_bleibt_ein_502(monkeypatch, tmp_path):
+    """Die Grenze des verengten `try` — gemessen statt behauptet.
+
+    Das Verengen des `try` in refresh_account (#87) hat `.get("id")` aus dem
+    Fang herausgenommen. Antwortet Immich mit 2xx, aber KEINEM Objekt, waere
+    daraus ein AttributeError und damit 500 geworden — und refresh_account
+    waere als einziger der drei Konten-Endpunkte aus der Reihe gefallen;
+    `add_account` und `update_account` antworten in derselben Lage 502.
+
+    Gemessen vom Blindpruefer an der Nacharbeit, bevor die Pruefung hier
+    stand: `AttributeError: 'list' object has no attribute 'get'`.
+    """
+    import json
+
+    from errors import AppError
+    from routers import accounts as accounts_router
+    from services.config_store import ConfigStore
+
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({
+        "accounts": {
+            "konto-1": {"id": "konto-1", "name": "Konto Eins",
+                        "immich_url": "http://beispiel.invalid",
+                        "api_key": "platzhalter", "color": "#111111"},
+        },
+        "managed_albums": [],
+    }), encoding="utf-8")
+    store = ConfigStore(str(pfad))
+
+    class Client:
+        async def validate(self):
+            return ["kein", "objekt"]        # 2xx, aber kein Objekt
+
+    class Pool:
+        def get_for_account(self, _acc):
+            return Client()
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        store=store, client_pool=Pool())))
+
+    with pytest.raises(AppError) as fehler:
+        await accounts_router.refresh_account("konto-1", request)
+
+    assert fehler.value.status_code == 502
+    assert fehler.value.key == "err_immich_request_failed"
+
+
 # ----------------------------------------------------------------------
 # Vorschau und ausdrueckliche Gruppenwahl (#81)
 # ----------------------------------------------------------------------

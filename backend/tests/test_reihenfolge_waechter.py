@@ -20,7 +20,17 @@ als Eingabefehler ausgibt — und die der Nutzer nicht zurueckdrehen kann.
 ZWEI TEILE, UND WARUM ES ZWEI BRAUCHT
 -------------------------------------
 TEIL A (statisch) nimmt die Endpunkte, die die Anwendung WIRKLICH montiert
-hat, liest ihren Quelltext als Baum und prueft JEDEN Ausfuehrungspfad.
+hat, liest ihren Quelltext als Baum und verzweigt wie das Programm.
+
+Hier stand "prueft JEDEN Ausfuehrungspfad". Das war zu weit, und der
+Blindpruefer hat es widerlegt: Ein Schleifenkoerper wird nur EINMAL
+gelaufen. Steht eine Ablehnung oben und ein Schreibvorgang unten im selben
+Koerper ("je Feld pruefen, dann schreiben"), liegt die Ablehnung ab der
+zweiten Runde hinter einem Schreibvorgang — und Teil A sieht es nicht.
+Diese und die uebrigen Luecken stehen am Ende dieser Datei unter BENANNTE
+GRENZEN, jede mit einem Issue. Eine zu weite Zusage ausgerechnet in der
+Datei, die Disziplin durch einen Waechter ersetzen soll, ist der Fehler,
+der spaeter jemanden trifft.
 
 TEIL B (zur Laufzeit) faehrt je Endpunkt EINEN Ablehnungsfall durch die echte
 Tuer und prueft, dass genau die erwartete Ablehnung ankommt UND nichts
@@ -34,8 +44,14 @@ ist fast immer der FRUEHESTE. Der Defekt lebt am SPAETESTEN.
 
 Umgekehrt haelt Teil A einen AUFRUF fuer eine WIRKUNG:
 `store.delete_account("gibt-es-nicht")` kehrt zurueck, ohne etwas zu aendern.
-Solche Faelle stehen in ERLAUBT — mit der genauen Fundsignatur, sodass ein
-ZUSAETZLICHER Fund in derselben Funktion weiter rot ist.
+Solche Faelle stehen in ERLAUBT — mit dem genauen Fundtext, sodass ein
+zusaetzlicher Fund mit ANDEREM Text in derselben Funktion weiter rot ist.
+
+Auch hier stand mehr, naemlich "ein ZUSAETZLICHER Fund in derselben
+Funktion". Gemessen gilt das nur fuer einen anderen TEXT: Ein zweiter,
+echter Fund mit demselben Text wird mitgedeckt — und `account_not_found`
+ist in `accounts.py` ausgerechnet der haeufigste. Issue dazu unter
+BENANNTE GRENZEN.
 
 WAS DIE ERSTE FASSUNG FALSCH HATTE
 ----------------------------------
@@ -1100,3 +1116,67 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
         "von Zustaenden — sie sieht deshalb auch einen Schreibvorgang, der "
         "denselben Inhalt zurueckschreibt."
     )
+
+
+# ---------------------------------------------------------------------------
+# BENANNTE GRENZEN
+# ---------------------------------------------------------------------------
+#
+# Was dieser Waechter NICHT kann. Die Liste ist nicht aus Bescheidenheit
+# geschrieben, sondern weil zwei Zusagen im Kopf dieser Datei schon einmal
+# weiter reichten als die Messung — und eine zu weite Zusage ausgerechnet
+# hier ist der Fehler, der spaeter jemanden trifft.
+#
+# Jeder Punkt ist von einer Pruefstimme GEMESSEN worden, nicht vermutet, und
+# hat ein Issue. Beide Nacharbeitsrunden dieses Slices waren verbraucht
+# (Owner-Regel: hoechstens zwei, danach landen und melden).
+#
+# TEIL A — Kontrollfluss (#89)
+#   * Ein Schleifenkoerper wird nur EINMAL gelaufen. Ablehnung oben,
+#     Schreibvorgang unten im selben Koerper ("je Feld pruefen, dann
+#     schreiben") ist ab der zweiten Runde ein Verstoss und bleibt
+#     unsichtbar. Das ist die folgenreichste Luecke.
+#   * `for ... else` ebenso.
+#   * `try`/`finally` mit `return` im Rumpf erzeugt einen FEHLFUND.
+#   * Keine Auswertungsreihenfolge innerhalb eines Ausdrucks: bei
+#     `a() or b()` gilt beides als ausgefuehrt. Bei `match` wird nie
+#     angenommen, dass die Faelle erschoepfend sind.
+#
+# TEIL A — Reichweite (#90)
+#   * Ablehnende Helfer werden nur INNERHALB der Endpunkt-Datei verfolgt.
+#     `_check_immich_version` liegt heute zufaellig in `accounts.py`; nach
+#     `services/` gezogen, waere sie unsichtbar.
+#   * Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A nicht.
+#   * FastAPI-eigene Routen (Swagger, OpenAPI) werden mitanalysiert und
+#     polstern die Mindestzahl um drei.
+#   * Erkannt wird der METHODENNAME ohne Empfaenger: ein gleichnamiger
+#     Aufruf auf einem fremden Objekt zaehlt mit.
+#
+# AUSNAHMELISTEN (#91)
+#   * ERLAUBT deckt nach TEXT. Ein zweiter, ECHTER Fund mit demselben Text
+#     in derselben Funktion wird mitgedeckt — und `account_not_found` ist in
+#     `accounts.py` der haeufigste.
+#   * OHNE_ABLEHNUNG prueft, dass die Zeile eine echte Route trifft, aber
+#     nicht, ob die BEGRUENDUNG noch gilt.
+#
+# ABLEHNUNGSFORMEN (#92)
+#   * `fehler = errors.x(); raise fehler`, `raise _fabrik()` und eine
+#     Ablehnung als `JSONResponse` erkennt Teil A nicht. Teil B faengt sie,
+#     sofern der Endpunkt einen Tabellenfall hat, der die Stelle erreicht.
+#
+# TEIL A — grundsaetzlich
+#   * Er kennt nur NAMEN. `getattr(store, "clear_log")()` ist unsichtbar.
+#     Dafuer ist Teil B da: Der misst die Senke, nicht den Aufrufer.
+#
+# TEIL B — grundsaetzlich
+#   * Je Endpunkt EIN Ablehnungsweg, und zwar der spaeteste, den man ohne
+#     echte Immich-Instanz ausloesen kann.
+#   * `sync_service` hat zwei private Helfer mit echter Schreibwirkung
+#     (`_refresh_managed_album_unlocked`, `_share_album_if_needed`). Teil A
+#     zaehlt nur oeffentliche Dienstfunktionen; ihre WIRKUNG sieht Teil B,
+#     weil sie durch die Immich-Senken laeuft.
+#
+# BEIDE
+#   * Sie pruefen die REIHENFOLGE, nicht die Umkehrbarkeit. Ob ein
+#     Schreibvorgang zurueckgerollt wird, ist eine andere Frage und hier
+#     nicht beantwortet.
