@@ -1241,3 +1241,61 @@ Hälfte ab, die sich am lautesten meldet, und lässt die stille Hälfte offen.
 Test rot macht, der für sie geschrieben wurde**. „Irgendwo rot" ist keine
 Deckung — genau deshalb führt das Mutationsskript dieses Projekts je Fall einen
 Erwartungstext mit.
+
+## 30. Ein Wächter von außen sieht den frühesten Weg, der Defekt lebt am spätesten
+
+**Der Vorfall.** Die Regel „alles, was ablehnen kann, gehört vor den ersten
+Schreibvorgang" war in `routers/albums.py` dreimal verletzt worden (#81, #82,
+#84), jedes Mal vom selben Bauer, jedes Mal nachdem er sie im Slice davor
+behoben hatte. Die Folgerung war richtig und steht in §18: Eine Invariante, die
+nur von Aufmerksamkeit getragen wird, ist Disziplin, kein Wächter.
+
+Der Wächter, der daraufhin gebaut wurde, fuhr für jeden schreibenden Endpunkt
+**einen Ablehnungsfall über echtes HTTP** und prüfte, dass bis zur Ablehnung
+nichts geschrieben war. Die Bauform ist die naheliegende — durch die echte Tür,
+Zustand statt Aufruf, kein Nachpflegen von Listen.
+
+**Gemessen:** Der dritte Vorfall wurde absichtlich wieder eingebaut. Der
+Wächter blieb **grün**.
+
+**Warum.** Eine Prüfung von außen kann je Eingang nur den Ablehnungsweg
+auslösen, den sie **erreicht**. Das ist fast immer der **früheste** — spätere
+Wege sind durch vorgelagerte Schranken, fehlende Fremdsysteme oder Zustände
+abgeschirmt, die man von außen nicht herstellt. Der Defekt „Ablehnung hinter
+dem Schreibvorgang" lebt aber definitionsgemäß am **spätesten** Weg. Der
+gewählte Testfall (unbekannte Gruppenkennung) wurde von einer Schranke aus #81
+abgefangen, weit vor jedem Schreibvorgang, und konnte über die späte Stelle
+nichts aussagen.
+
+Das ist kein schlecht gewählter Testfall. Es ist die Bauform.
+
+**Die Regel.** Bevor ein Wächter gebaut wird, wird eine Frage beantwortet:
+**Liegt der Defekt vor oder hinter dem, was von außen auslösbar ist?** Liegt er
+dahinter, braucht es zusätzlich eine Prüfung, die **alle** Wege sieht — eine
+statische Analyse des eigenen Codes. Die beiden Bauformen decken verschiedene
+Klassen ab und ersetzen einander nicht:
+
+- **von außen** kennt **Zustände** (was wirklich geschrieben wurde) und nur
+  einen Weg je Eingang;
+- **statisch** kennt **alle Wege** und nur **Namen** — ein Aufruf über einen
+  Alias oder `getattr` ist unsichtbar, und ein Aufruf gilt ihr als Wirkung,
+  auch wenn die Funktion gar nichts tut.
+
+Der Wächter in `backend/tests/test_reihenfolge_waechter.py` hat deshalb beide
+Teile. An den drei echten Vorfällen gemessen: 3 von 3 — aber Vorfall 2 und 3
+fängt **nur** der statische Teil.
+
+**Und die Zusage dazu.** Bis der Rot-Beweis gelaufen ist, heißt es „soll
+fangen", nicht „fängt". Hier stand die Zusage „er hätte alle drei Vorfälle
+gefangen" schon in einer Empfehlung an ein anderes Repo, bevor sie gemessen
+war — und sie war falsch. Das ist §24 in einer anderen Verkleidung: Freitext,
+den niemand nachrechnet, der aber als Tatsache weiterwandert.
+
+**Nebenbefund, der die Rechtfertigung eines Wächters betrifft.** Dieselbe
+Messung zeigte: Alle drei Vorfälle waren **längst gefangen** — von den gezielten
+Tests aus den jeweiligen Nacharbeiten. Ein Wächter für eine mehrfach behobene
+Klasse rechtfertigt sich also **nicht** damit, dass er die bekannten Vorfälle
+fängt; die sind abgedeckt. Er rechtfertigt sich damit, dass er die Klasse dort
+abdeckt, **wo noch niemand hingesehen hat**. Belegt hat sich das sofort: Der
+statische Teil meldete am sauberen Baum einen Fund, den kein bestehender Test
+sieht (#87).
