@@ -567,6 +567,20 @@ class ConfigStore:
         return set(self._data.get("dismissed_match_ids", []))
 
     def dismiss_match(self, match_id: str) -> None:
+        """Merkt eine abgelehnte Paarung — OHNE zu pruefen, ob es sie gibt.
+
+        Das ist Absicht (Owner-Entscheid 21.09.2026, Issue #88), und der
+        Grund liegt in der Natur der Sache: Eine Ablehnung ist eine Aussage
+        ueber ZWEI PERSONEN, nicht ueber einen Vorschlag, der gerade auf dem
+        Bildschirm steht. Vorschlaege werden aus den Gesichtsdaten gerechnet
+        und nicht gespeichert; sie koennen verschwinden (Gesicht geloescht,
+        Schwelle geaendert) und spaeter wiederkommen. Eine strenge Pruefung
+        wuerde dann eine Ablehnung verweigern, die der Nutzer bewusst setzt.
+
+        Der Preis ist benannt: Eine Kennung, die zu keinem Vorschlag gehoert
+        — Tippfehler, veralteter Browser-Tab — wird angenommen und bleibt in
+        der Liste. Das ist ein Eintrag je Fall und wird nicht geraeumt.
+        """
         ids = self._data.setdefault("dismissed_match_ids", [])
         if match_id not in ids:
             ids.append(match_id)
