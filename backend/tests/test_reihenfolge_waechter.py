@@ -22,15 +22,16 @@ ZWEI TEILE, UND WARUM ES ZWEI BRAUCHT
 TEIL A (statisch) nimmt die Endpunkte, die die Anwendung WIRKLICH montiert
 hat, liest ihren Quelltext als Baum und verzweigt wie das Programm.
 
-Hier stand "prueft JEDEN Ausfuehrungspfad". Das war zu weit, und der
-Blindpruefer hat es widerlegt: Ein Schleifenkoerper wird nur EINMAL
-gelaufen. Steht eine Ablehnung oben und ein Schreibvorgang unten im selben
-Koerper ("je Feld pruefen, dann schreiben"), liegt die Ablehnung ab der
-zweiten Runde hinter einem Schreibvorgang — und Teil A sieht es nicht.
-Diese und die uebrigen Luecken stehen am Ende dieser Datei unter BENANNTE
-GRENZEN, jede mit einem Issue. Eine zu weite Zusage ausgerechnet in der
-Datei, die Disziplin durch einen Waechter ersetzen soll, ist der Fehler,
-der spaeter jemanden trifft.
+Hier stand einmal "prueft JEDEN Ausfuehrungspfad". Das war zu weit, und der
+Blindpruefer hat es widerlegt: Der Schleifenkoerper lief nur EINMAL, also
+blieb "je Feld pruefen, dann schreiben" unsichtbar — ab der zweiten Runde
+liegt die Ablehnung dort hinter einem Schreibvorgang. Behoben (#89), samt
+`for ... else` und einem Fehlfund bei `try`/`finally` mit `return`.
+
+Der Satz kommt trotzdem nicht zurueck. Was Teil A NICHT sieht, steht
+vollstaendig am Ende dieser Datei unter BENANNTE GRENZEN, jeder Punkt mit
+Issue. Eine zu weite Zusage ausgerechnet in der Datei, die Disziplin durch
+einen Waechter ersetzen soll, ist der Fehler, der spaeter jemanden trifft.
 
 TEIL B (zur Laufzeit) faehrt je Endpunkt EINEN Ablehnungsfall durch die echte
 Tuer und prueft, dass genau die erwartete Ablehnung ankommt UND nichts
@@ -44,14 +45,14 @@ ist fast immer der FRUEHESTE. Der Defekt lebt am SPAETESTEN.
 
 Umgekehrt haelt Teil A einen AUFRUF fuer eine WIRKUNG:
 `store.delete_account("gibt-es-nicht")` kehrt zurueck, ohne etwas zu aendern.
-Solche Faelle stehen in ERLAUBT — mit dem genauen Fundtext, sodass ein
-zusaetzlicher Fund mit ANDEREM Text in derselben Funktion weiter rot ist.
+Solche Faelle stehen in ERLAUBT — mit einer ANZAHL je Fundtext, sodass
+jeder zusaetzliche Fund in derselben Funktion rot ist, auch einer mit
+demselben Text.
 
-Auch hier stand mehr, naemlich "ein ZUSAETZLICHER Fund in derselben
-Funktion". Gemessen gilt das nur fuer einen anderen TEXT: Ein zweiter,
-echter Fund mit demselben Text wird mitgedeckt — und `account_not_found`
-ist in `accounts.py` ausgerechnet der haeufigste. Issue dazu unter
-BENANNTE GRENZEN.
+Die Anzahl ist teuer bezahlt: Vorher stand dort eine Menge von Texten, und
+ein zweiter, ECHTER Fund mit demselben Text wurde mitgedeckt — bei
+`account_not_found`, dem haeufigsten in `accounts.py`. Gemessen vom
+Blindpruefer, der genau das gebaut hat (#91).
 
 WAS DIE ERSTE FASSUNG FALSCH HATTE
 ----------------------------------
@@ -329,8 +330,28 @@ def _pfad_pruefen(stmts, geschrieben, funde, listen):
         elif isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
             # Ein Schleifenkoerper kann laufen oder nicht; beides ist moeglich,
             # also traegt er nicht "endet", wohl aber seinen Schreibvorgang.
+            #
+            # ZWEI RUNDEN, und das ist der Punkt (#89): Der Koerper laeuft in
+            # der Wirklichkeit mehrfach. Was Runde 1 geschrieben hat, steht
+            # fuer Runde 2 VOR dem Schleifenkopf — eine Ablehnung oben im
+            # Koerper liegt dann hinter einem Schreibvorgang.
+            #
+            # Die Form ist nicht konstruiert, sie ist die naheliegende:
+            #
+            #     for feld, wert in updates.items():
+            #         if feld not in ERLAUBTE_FELDER:
+            #             raise errors.account_not_found()
+            #         store.update_account(kennung, {feld: wert})
+            #
+            # Feld 3 ungueltig ⇒ Felder 1-2 sind geschrieben, der Aufrufer
+            # bekommt 404. Genau die bewachte Klasse — und die erste Fassung
+            # sah sie nicht (Blindpruefer, gemessen).
             a, _ = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
-            b, _ = _pfad_pruefen(stmt.orelse, geschrieben, funde, listen)
+            if a is not None and a is not geschrieben:
+                _pfad_pruefen(stmt.body, a, funde, listen)
+            # Das `else` einer Schleife laeuft NACH dem Koerper und sieht
+            # dessen Schreibvorgang deshalb ebenfalls.
+            b, _ = _pfad_pruefen(stmt.orelse, a or geschrieben, funde, listen)
             geschrieben = geschrieben or a or b
         elif isinstance(stmt, (ast.With, ast.AsyncWith)):
             a, ea = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
@@ -361,13 +382,37 @@ def _pfad_pruefen(stmts, geschrieben, funde, listen):
             basis = geschrieben or _erster(weiter)
             fin, e_fin = _pfad_pruefen(stmt.finalbody, basis, funde, listen)
             geschrieben = basis or fin
-            endet = endet or e_fin
+            # Ein `try` wird verlassen, wenn das `finally` es verlaesst ODER
+            # wenn jeder Weg hindurch es tut: der Rumpf (bzw. sein `else`) und
+            # JEDER Handler. Die erste Fassung sah nur das `finally` — und
+            # meldete deshalb eine unerreichbare Ablehnung nach
+            # `try: ... return / finally: pass` als FEHLFUND (#89,
+            # Blindpruefer, gemessen).
+            durch_den_rumpf = e_else if stmt.orelse else e_try
+            alle_wege = durch_den_rumpf and all(e for _w, e in handler)
+            endet = endet or e_fin or alle_wege
         elif isinstance(stmt, ENDE_TYPEN):
             endet = True
 
         if endet:
             break
     return geschrieben, endet
+
+
+def _ohne_dubletten(funde):
+    """Derselbe Fund zaehlt einmal, auch wenn zwei Pfade ihn erreichen.
+
+    Noetig, seit der Schleifenkoerper ZWEIMAL gelaufen wird (#89): Ein Fund
+    aus Runde 1 taucht in Runde 2 wieder auf. Geschluesselt wird auf (Zeile,
+    Text) — zwei verschiedene Ablehnungen in derselben Zeile gibt es nicht.
+    """
+    gesehen, aus = set(), []
+    for zeile, text, quelle in funde:
+        if (zeile, text) in gesehen:
+            continue
+        gesehen.add((zeile, text))
+        aus.append((zeile, text, quelle))
+    return aus
 
 
 def _erster(paare):
@@ -396,14 +441,14 @@ def _ist_endpunkt(knoten) -> bool:
 # Neues zu decken.
 ERLAUBT = {
     ("accounts.py", "delete_account"): (
-        {"raise errors.account_not_found()"},
+        {"raise errors.account_not_found()": 1},
         "`store.delete_account` liefert bei unbekannter Kennung False, OHNE zu "
         "schreiben; die Ablehnung danach IST diese Antwort. Dass dabei wirklich "
         "nichts geschrieben wird, prueft Teil B "
         "(DELETE /api/accounts/gibt-es-nicht).",
     ),
     ("albums.py", "delete_managed_album"): (
-        {"raise errors.managed_album_not_found()"},
+        {"raise errors.managed_album_not_found()": 1},
         "Wie oben, mit `store.delete_managed_album`; geprueft von Teil B "
         "(DELETE /api/sync/albums/gibt-es-nicht).",
     ),
@@ -463,7 +508,7 @@ def _endpunkt_funde(quelltext: str, listen) -> dict:
         funde = []
         _pfad_pruefen(knoten.body, None, funde, listen)
         if funde:
-            aus[knoten.name] = funde
+            aus[knoten.name] = _ohne_dubletten(funde)
     return aus
 
 
@@ -548,6 +593,35 @@ def noch_tiefer():
     raise errors.nein()
 
 @router.post("/x")
+def ablehnung_oben_schreiben_unten(store, xs):
+    for x in xs:
+        if not x:
+            raise errors.nein()
+        store.schreib()
+
+@router.post("/x")
+def schreiben_und_ablehnung_im_koerper(store, xs):
+    for x in xs:
+        store.schreib()
+        raise errors.nein()
+
+@router.post("/x")
+def schleife_mit_else(store, xs):
+    for x in xs:
+        store.schreib()
+    else:
+        raise errors.nein()
+
+@router.post("/x")
+def try_mit_return_dann_ablehnung(store):
+    try:
+        store.schreib()
+        return 1
+    finally:
+        pass
+    raise errors.nein()
+
+@router.post("/x")
 def nach_einer_schleife(store, xs):
     for x in xs:
         store.schreib()
@@ -575,6 +649,9 @@ MECHANIK_FUNDE = {
     "handler_schreibt_dann_ablehnung",  # der Handler schreibt, danach Ablehnung
     "ueber_zwei_aufrufe",               # Ablehnung ueber eine Aufrufkette
     "nach_einer_schleife",              # Schreibvorgang im Schleifenkoerper
+    "ablehnung_oben_schreiben_unten",   # ab Runde 2 liegt die Ablehnung dahinter
+    "schleife_mit_else",                # das `else` laeuft NACH dem Koerper
+    "schreiben_und_ablehnung_im_koerper",  # beides im Koerper: nur EIN Fund
     "in_einer_funktion",                # Endpunkt, der nicht auf Modulebene steht
 }
 MECHANIK_NICHT_FUNDE = {
@@ -583,6 +660,8 @@ MECHANIK_NICHT_FUNDE = {
     "in_getrennten_faellen": "match/case ebenso",
     "zweig_endet_mit_return": "der schreibende Zweig verlaesst die Funktion",
     "nur_in_einer_inneren_funktion": "die innere Funktion wird hier nicht gerufen",
+    "try_mit_return_dann_ablehnung": "der Rumpf verlaesst die Funktion, die "
+                                     "Ablehnung danach ist unerreichbar",
 }
 
 
@@ -593,6 +672,17 @@ def test_mechanik_trennt_pfade_und_folgt_aufrufen():
     listen = ({"schreib"}, set(), set(), _ablehnende_huelle(fns, namen),
               _schreibende_huelle(fns, {"schreib"}, set()), namen)
     gefunden = set(_endpunkt_funde(MECHANIK_QUELLE, listen))
+
+    # Derselbe Fund darf nur EINMAL dastehen. Seit der Schleifenkoerper
+    # zweimal gelaufen wird (#89), erreicht Runde 2 die Funde aus Runde 1
+    # erneut — `ablehnung_oben_schreiben_unten` ist genau dieser Fall. Ohne
+    # Entdopplung meldet die Ausgabe doppelt, und die ANZAHLEN in ERLAUBT
+    # waeren von der Rundenzahl abhaengig statt von der Sache.
+    alle = _endpunkt_funde(MECHANIK_QUELLE, listen)
+    for name, funde in alle.items():
+        stellen = [(z, t) for z, t, _q in funde]
+        assert len(stellen) == len(set(stellen)), (
+            f"{name} meldet denselben Fund mehrfach: {stellen}")
 
     assert gefunden == MECHANIK_FUNDE, (
         "Die Mechanik von Teil A hat sich geaendert.\n"
@@ -661,12 +751,24 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
         funde: list = []
         _pfad_pruefen(_quelle_einer_funktion(fn).body[0].body, None, funde, listen)
         if funde:
-            gemeldet[(datei.name, fn.__name__)] = funde
+            gemeldet[(datei.name, fn.__name__)] = _ohne_dubletten(funde)
 
     unerwartet = {}
     for schluessel, funde in gemeldet.items():
-        erlaubte = ERLAUBT.get(schluessel, (set(), ""))[0]
-        uebrig = [f for f in funde if f[1] not in erlaubte]
+        # ERLAUBT deckt eine ANZAHL je Fundtext, nicht den Text als solchen.
+        #
+        # Vorher war es der Text: Ein zweiter, ECHTER Fund mit demselben Text
+        # in derselben Funktion wurde damit mitgedeckt — und
+        # `account_not_found` ist in `accounts.py` ausgerechnet der
+        # haeufigste. Gemessen vom Blindpruefer, der genau das gebaut hat
+        # (#91).
+        rest = dict(ERLAUBT.get(schluessel, ({}, ""))[0])
+        uebrig = []
+        for f in funde:
+            if rest.get(f[1], 0) > 0:
+                rest[f[1]] -= 1
+            else:
+                uebrig.append(f)
         if uebrig:
             unerwartet[schluessel] = uebrig
 
@@ -689,12 +791,20 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
         "Diese ERLAUBT-Eintraege haben keinen Fund mehr und gehoeren entfernt, "
         f"sonst deckt die Ausnahme irgendwann etwas Neues: {veraltet}"
     )
-    zu_weit = {k: sorted(ERLAUBT[k][0] - {f[1] for f in gemeldet.get(k, [])})
-               for k in ERLAUBT}
-    zu_weit = {k: v for k, v in zu_weit.items() if v}
+    # Und die Anzahlen: Eine Ausnahme, die MEHR deckt, als es Funde gibt,
+    # wartet nur darauf, den naechsten echten Fund zu verschlucken.
+    zu_weit = {}
+    for k, (erwartet, _grund) in ERLAUBT.items():
+        wirklich: dict = {}
+        for _z, text, _q in gemeldet.get(k, []):
+            wirklich[text] = wirklich.get(text, 0) + 1
+        ueberschuss = {t: n - wirklich.get(t, 0)
+                       for t, n in erwartet.items() if n > wirklich.get(t, 0)}
+        if ueberschuss:
+            zu_weit[k] = ueberschuss
     assert not zu_weit, (
-        "Diese ERLAUBT-Texte treffen keinen Fund mehr — die Ausnahme ist "
-        f"groesser als ihr Anlass: {zu_weit}"
+        "Diese ERLAUBT-Eintraege decken mehr, als es Funde gibt — die Ausnahme "
+        f"ist groesser als ihr Anlass: {zu_weit}"
     )
 
 
@@ -1131,16 +1241,15 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 # hat ein Issue. Beide Nacharbeitsrunden dieses Slices waren verbraucht
 # (Owner-Regel: hoechstens zwei, danach landen und melden).
 #
-# TEIL A — Kontrollfluss (#89)
-#   * Ein Schleifenkoerper wird nur EINMAL gelaufen. Ablehnung oben,
-#     Schreibvorgang unten im selben Koerper ("je Feld pruefen, dann
-#     schreiben") ist ab der zweiten Runde ein Verstoss und bleibt
-#     unsichtbar. Das ist die folgenreichste Luecke.
-#   * `for ... else` ebenso.
-#   * `try`/`finally` mit `return` im Rumpf erzeugt einen FEHLFUND.
-#   * Keine Auswertungsreihenfolge innerhalb eines Ausdrucks: bei
+# TEIL A — Kontrollfluss
+#   * ERLEDIGT (#89): Der Schleifenkoerper laeuft jetzt ZWEI Runden, das
+#     `else` einer Schleife sieht den Koerper, und `try`/`finally` mit
+#     `return` im Rumpf erzeugt keinen Fehlfund mehr.
+#   * OFFEN: Keine Auswertungsreihenfolge innerhalb eines Ausdrucks — bei
 #     `a() or b()` gilt beides als ausgefuehrt. Bei `match` wird nie
-#     angenommen, dass die Faelle erschoepfend sind.
+#     angenommen, dass die Faelle erschoepfend sind. Beides erzeugt
+#     hoechstens FEHLFUNDE, keine Luecken; dafuer gibt es bisher keinen
+#     gemessenen Fall im Baum.
 #
 # TEIL A — Reichweite (#90)
 #   * Ablehnende Helfer werden nur INNERHALB der Endpunkt-Datei verfolgt.
@@ -1152,12 +1261,12 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 #   * Erkannt wird der METHODENNAME ohne Empfaenger: ein gleichnamiger
 #     Aufruf auf einem fremden Objekt zaehlt mit.
 #
-# AUSNAHMELISTEN (#91)
-#   * ERLAUBT deckt nach TEXT. Ein zweiter, ECHTER Fund mit demselben Text
-#     in derselben Funktion wird mitgedeckt — und `account_not_found` ist in
-#     `accounts.py` der haeufigste.
-#   * OHNE_ABLEHNUNG prueft, dass die Zeile eine echte Route trifft, aber
-#     nicht, ob die BEGRUENDUNG noch gilt.
+# AUSNAHMELISTEN
+#   * ERLEDIGT (#91): ERLAUBT deckt eine ANZAHL je Fundtext. Ein zweiter
+#     Fund mit demselben Text ist rot, und eine Ausnahme, die mehr deckt als
+#     es Funde gibt, ebenfalls.
+#   * OFFEN (#91): OHNE_ABLEHNUNG prueft, dass die Zeile eine echte Route
+#     trifft, aber nicht, ob die BEGRUENDUNG noch gilt.
 #
 # ABLEHNUNGSFORMEN (#92)
 #   * `fehler = errors.x(); raise fehler`, `raise _fabrik()` und eine
