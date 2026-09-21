@@ -277,31 +277,32 @@ def test_die_schreibflaeche_des_stores_ist_die_erwartete():
 #     `services/immich_client.py` gibt es heute schon drei `__init__`.
 
 
-def _projekt_dateien() -> list:
-    """Alle Projektmodule unter WURZEL — ohne Tests und ohne Fremdcode."""
+def _projekt_dateien(wurzel=None) -> list:
+    """Alle Projektmodule unter der Wurzel — ohne Tests und ohne Fremdcode."""
+    wurzel = wurzel or WURZEL
     aus = []
-    for pfad in sorted(WURZEL.rglob("*.py")):
-        teile = set(pfad.relative_to(WURZEL).parts)
+    for pfad in sorted(wurzel.rglob("*.py")):
+        teile = set(pfad.relative_to(wurzel).parts)
         if teile & {"tests", "__pycache__", ".venv", "venv", "site-packages"}:
             continue
         aus.append(pfad)
     return aus
 
 
-def _modul_datei(modulname: str):
-    """`services.sync_service` -> WURZEL/services/sync_service.py, falls es sie gibt."""
+def _modul_datei(modulname: str, wurzel=None):
+    """`services.sync_service` -> <wurzel>/services/sync_service.py, falls vorhanden."""
     if not modulname:
         return None
-    kandidat = WURZEL.joinpath(*modulname.split("."))
+    kandidat = (wurzel or WURZEL).joinpath(*modulname.split("."))
     for p in (kandidat.with_suffix(".py"), kandidat / "__init__.py"):
         if p.exists():
             return p
     return None
 
 
-def _modulname(datei: pathlib.Path) -> str:
+def _modulname(datei: pathlib.Path, wurzel=None) -> str:
     """Der Punktname dieses Moduls, relativ zur Wurzel."""
-    rel = datei.relative_to(WURZEL)
+    rel = datei.relative_to(wurzel or WURZEL)
     teile = list(rel.parts)
     teile[-1] = teile[-1][:-3]            # ".py" ab
     if teile[-1] == "__init__":
@@ -309,7 +310,7 @@ def _modulname(datei: pathlib.Path) -> str:
     return ".".join(teile)
 
 
-def _aufloesen_relativ(datei: pathlib.Path, modul, ebene: int) -> str:
+def _aufloesen_relativ(datei: pathlib.Path, modul, ebene: int, wurzel=None) -> str:
     """`from .x import y` in `services/a.py` -> `services.x`.
 
     Die erste Fassung hat `ImportFrom.level` schlicht ignoriert und damit
@@ -317,14 +318,14 @@ def _aufloesen_relativ(datei: pathlib.Path, modul, ebene: int) -> str:
     """
     if not ebene:
         return modul or ""
-    basis = _modulname(datei).split(".")
+    basis = _modulname(datei, wurzel).split(".")
     if datei.name == "__init__.py":
         basis.append("")                  # das Paket selbst ist die Basis
     hoch = basis[:len(basis) - ebene] if ebene <= len(basis) else []
     return ".".join([t for t in hoch if t] + ([modul] if modul else []))
 
 
-def _importe(datei: pathlib.Path, baum: ast.AST) -> tuple:
+def _importe(datei: pathlib.Path, baum: ast.AST, wurzel=None) -> tuple:
     """(Namen-Importe, Modul-Aliase, nicht aufloesbar) dieser Datei.
 
     Namen-Importe: `from services.x import y as z` -> {z: (datei_von_x, "y")}
@@ -337,22 +338,22 @@ def _importe(datei: pathlib.Path, baum: ast.AST) -> tuple:
     namen, aliase, unklar = {}, {}, []
     for n in ast.walk(baum):
         if isinstance(n, ast.ImportFrom):
-            voll = _aufloesen_relativ(datei, n.module, n.level or 0)
-            eigen = _modul_datei(voll)
+            voll = _aufloesen_relativ(datei, n.module, n.level or 0, wurzel)
+            eigen = _modul_datei(voll, wurzel)
             for a in n.names:
                 if a.name == "*":
                     if eigen is not None:
                         unklar.append(f"from {voll} import *")
                     continue
                 lokal = a.asname or a.name
-                unter = _modul_datei(f"{voll}.{a.name}" if voll else a.name)
+                unter = _modul_datei(f"{voll}.{a.name}" if voll else a.name, wurzel)
                 if unter is not None:
                     aliase[lokal] = unter          # `from services import x`
                 elif eigen is not None:
                     namen[lokal] = (eigen, a.name)
         elif isinstance(n, ast.Import):
             for a in n.names:
-                ziel = _modul_datei(a.name)
+                ziel = _modul_datei(a.name, wurzel)
                 if ziel is None:
                     continue
                 if a.asname:
@@ -364,7 +365,7 @@ def _importe(datei: pathlib.Path, baum: ast.AST) -> tuple:
                     # laengste Kette zuerst.
                     aliase[a.name] = ziel
                     kopf = a.name.split(".")[0]
-                    kopf_datei = _modul_datei(kopf)
+                    kopf_datei = _modul_datei(kopf, wurzel)
                     if kopf_datei is not None:
                         aliase.setdefault(kopf, kopf_datei)
     return namen, aliase, unklar
@@ -386,12 +387,20 @@ def _qualifizierte_funktionen(baum: ast.AST) -> dict:
     aus = {}
 
     def lauf(knoten, praefix):
-        for k in knoten.body:
+        # Ueber ALLE Kindknoten, nicht nur `knoten.body`: Eine Funktion unter
+        # `if`, `try` oder `with` fiel sonst aus dem Graphen. Das Muster ist
+        # gewoehnlich — ein Import-Fallback mit `except ImportError: def ...` —
+        # und die VORIGE Fassung fing es, weil sie ueber `ast.walk` lief.
+        # Ein Waechter, der gegen seine Vorfassung Boden verliert, ist ein
+        # Rueckschritt, kein Restposten (Blindpruefer, gemessen).
+        for k in ast.iter_child_nodes(knoten):
             if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 aus[praefix + k.name] = k
                 lauf(k, praefix + k.name + ".")
             elif isinstance(k, ast.ClassDef):
                 lauf(k, praefix + k.name + ".")
+            else:
+                lauf(k, praefix)
 
     lauf(baum, "")
     return aus
@@ -417,19 +426,29 @@ _stand_puffer: dict = {}
 
 
 def _projekt_stand() -> dict:
-    """Einmal je Lauf: Baeume, Funktionen, Importe und die beiden Huellen."""
-    if _stand_puffer:
-        return _stand_puffer
+    """Einmal je Lauf, fuer das echte Projekt."""
+    if not _stand_puffer:
+        _stand_puffer.update(_stand_bauen(
+            WURZEL, _schreibende_store_methoden(), _immich_schreibsenken()))
+    return _stand_puffer
 
-    schreibt_store = _schreibende_store_methoden()
-    schreibt_immich = _immich_schreibsenken()
 
+def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
+    """Baeume, Funktionen, Importe und die beiden Huellen — fuer EINE Wurzel.
+
+    Die Wurzel ist ein Parameter, damit `test_der_aufrufgraph_folgt_den_importen`
+    dieselbe Maschinerie auf einer ERFUNDENEN Quelle fahren kann. Ohne diese
+    Probe liess sich die gesamte modulueberschreitende Analyse abschalten,
+    ohne dass ein Test faellt — der Blindpruefer hat beide Huellen auf `set()`
+    gesetzt und bekam 167 gruen. Nach dem Massstab dieser Datei war sie damit
+    Disziplin, kein Waechter.
+    """
     dateien = {}
-    for pfad in _projekt_dateien():
+    for pfad in _projekt_dateien(wurzel):
         # Mit Dateinamen, damit ein Syntaxfehler sagt, WO er steht — die
         # erste Fassung meldete nur `<unknown>` (Zweitstimme, Hinweis).
         baum = ast.parse(io.open(pfad, encoding="utf-8").read(), filename=str(pfad))
-        namen, aliase, unklar = _importe(pfad, baum)
+        namen, aliase, unklar = _importe(pfad, baum, wurzel)
         dateien[pfad] = {
             "fns": _qualifizierte_funktionen(baum),
             "klassen": _klassen(baum),
@@ -467,7 +486,7 @@ def _projekt_stand() -> dict:
                     aus[z.id] = ziel
         return aus
 
-    def ziele(pfad, knoten):
+    def ziele(pfad, umgebung, knoten):
         """Die (Datei, qualifizierter Name), die diese Funktion aufruft."""
         d = dateien[pfad]
         gebunden = bindungen(pfad, knoten)
@@ -477,6 +496,12 @@ def _projekt_stand() -> dict:
                 continue
             f = c.func
             if isinstance(f, ast.Name):
+                # Nackte Namen treffen nur Funktionen der Modulebene. Eine
+                # INNERE Funktion braucht hier keine Kante: `_gerufene_namen`
+                # laeuft ueber `ast.walk` und sieht ihren Rumpf ohnehin, also
+                # traegt die umgebende Funktion deren Saat schon. Eine
+                # Aufloesung ueber das Umfeld war nicht rot-beweisbar und ist
+                # deshalb wieder raus.
                 if f.id in d["fns"]:
                     aus.add((pfad, f.id))
                 elif f.id in d["namen"]:
@@ -496,6 +521,15 @@ def _projekt_stand() -> dict:
                 #    Verstoss).
                 traeger = f.value
                 herkunft = None
+                # `self.x()` / `cls.x()`: die umgebende Klasse steht im
+                # Praefix des qualifizierten Namens. Ohne diese Kante ist
+                # "Dienst als Klasse" nur EINE Ebene tief geschlossen — eine
+                # Delegation innerhalb derselben Klasse kam durch
+                # (Blindpruefer, gemessen).
+                if (isinstance(traeger, ast.Name) and traeger.id in ("self", "cls")
+                        and "." in umgebung):
+                    aus.add((pfad, umgebung.rsplit(".", 1)[0] + "." + f.attr))
+                    continue
                 if isinstance(traeger, ast.Call) and isinstance(traeger.func, ast.Name):
                     herkunft = klasse_von(pfad, traeger.func.id)
                 elif isinstance(traeger, ast.Name):
@@ -518,7 +552,7 @@ def _projekt_stand() -> dict:
     saat_lehnt, saat_schreibt = set(), set()
     for pfad, d in dateien.items():
         for name, knoten in d["fns"].items():
-            kanten[(pfad, name)] = ziele(pfad, knoten)
+            kanten[(pfad, name)] = ziele(pfad, name, knoten)
             if _lehnt_direkt_ab(knoten, d["fehlernamen"]):
                 saat_lehnt.add((pfad, name))
             # Ein Schreibvorgang ist: eine schreibende ConfigStore-Methode
@@ -553,15 +587,208 @@ def _projekt_stand() -> dict:
             rand.extend(rueck.get(k, ()))
         return erreicht
 
-    _stand_puffer.update({
+    return {
         "dateien": dateien,
         "kanten": kanten,
         "schreibt_store": schreibt_store,
         "schreibt_immich": schreibt_immich,
         "lehnt": huelle(saat_lehnt),
         "schreibt": huelle(saat_schreibt),
-    })
-    return _stand_puffer
+    }
+
+
+# Eine erfundene Projektstruktur, an der die MODULUEBERGREIFENDE Mechanik
+# haengt — das Gegenstueck zu MECHANIK_QUELLE, nur fuer den Aufrufgraphen.
+#
+# Ohne sie war die ganze Neuerung unbewiesen: Der Blindpruefer hat beide
+# Huellen auf `set()` gesetzt, die Importaufloesung entwaffnet, die
+# Klassenbindung entfernt, die Punktkette gekappt — jedes Mal 167 gruen.
+# Und die beiden Importformen, um die es geht (relativ, `import a.b`),
+# kommen im echten Baum gar nicht vor; sie waren also von nichts gedeckt.
+GRAPH_QUELLE = {
+    "senke.py": '''
+def schreibt(store):
+    store.schreib()
+
+
+def lehnt_ab():
+    raise errors.nein()
+''',
+    "paket/__init__.py": "",
+    "paket/tief.py": '''
+def schreibt_tief(store):
+    store.schreib()
+''',
+    "absolut.py": '''
+from senke import schreibt
+
+
+def ueber_absoluten_import(store):
+    schreibt(store)
+''',
+    "paket/relativ.py": '''
+from .tief import schreibt_tief
+
+
+def ueber_relativen_import(store):
+    schreibt_tief(store)
+''',
+    "alias.py": '''
+import senke as s
+
+
+def ueber_modulalias(store):
+    s.schreibt(store)
+''',
+    "punktkette.py": '''
+import paket.tief
+
+
+def ueber_punktkette(store):
+    paket.tief.schreibt_tief(store)
+''',
+    "klasse.py": '''
+class Dienst:
+    def __init__(self, store):
+        self._store = store
+
+    def _raeumt_auf(self):
+        self._store.schreib()
+
+    def aeussere(self):
+        self._raeumt_auf()
+
+
+def ueber_eine_instanz(store):
+    Dienst(store).aeussere()
+''',
+    "verschachtelt.py": '''
+def aussen(store):
+    def innen():
+        store.schreib()
+    innen()
+
+
+def unter_einem_try(store):
+    try:
+        pass
+    except ImportError:
+        def ersatz():
+            store.schreib()
+        ersatz()
+''',
+    "tuer.py": '''
+import paket.tief
+from klasse import Dienst
+
+
+@router.post("/a")
+def ueber_punktkette(store):
+    paket.tief.schreibt_tief(store)
+    raise errors.nein()
+
+
+@router.post("/b")
+def ueber_projektklasse(store):
+    Dienst(store).aeussere()
+    raise errors.nein()
+
+
+@router.post("/c")
+def ueber_innere_funktion(store):
+    def raeumt_auf():
+        store.schreib()
+    raeumt_auf()
+    raise errors.nein()
+
+
+@router.post("/d")
+def richtige_reihenfolge(store):
+    raise errors.nein()
+    paket.tief.schreibt_tief(store)
+''',
+}
+
+# Was die EREIGNIS-Schicht in `tuer.py` finden MUSS. Jeder Eintrag steht fuer
+# eine Entwaffnung, die die Graph-Probe allein ueberlebt hat.
+GRAPH_FUNDE = {
+    "ueber_punktkette": "modul.untermodul.funktion() am Aufrufort",
+    "ueber_projektklasse": "Methode einer Projektklasse am Aufrufort",
+    "ueber_innere_funktion": "innere Funktion, unter nacktem Namen gerufen",
+}
+
+GRAPH_SCHREIBT = {
+
+    ("senke.py", "schreibt"): "die Senke selbst",
+    ("absolut.py", "ueber_absoluten_import"): "from x import y",
+    ("paket/relativ.py", "ueber_relativen_import"): "from .x import y",
+    ("alias.py", "ueber_modulalias"): "import x as y",
+    ("punktkette.py", "ueber_punktkette"): "import a.b, Aufruf als a.b.f()",
+    ("klasse.py", "Dienst._raeumt_auf"): "Methode einer Projektklasse",
+    ("klasse.py", "Dienst.aeussere"): "self.x() — Delegation in derselben Klasse",
+    ("klasse.py", "ueber_eine_instanz"): "Konstruktor-Bindung: `Klasse(x).m()`",
+    ("verschachtelt.py", "aussen.innen"): "innere Funktion",
+    ("verschachtelt.py", "aussen"): "Aufruf einer inneren Funktion",
+    ("verschachtelt.py", "unter_einem_try.ersatz"): "Funktion unter except",
+    ("verschachtelt.py", "unter_einem_try"): "Aufruf davon",
+}
+
+
+def test_der_aufrufgraph_folgt_den_importen(tmp_path):
+    """Die modulueberschreitende Mechanik gegen eine erfundene Quelle.
+
+    Sie steht hier, weil das echte Projekt heute WEDER einen relativen
+    Import NOCH ein `import a.b` enthaelt: Diese Zweige waeren von nichts
+    gedeckt, und genau das hat der Blindpruefer gemessen.
+    """
+    for rel, inhalt in GRAPH_QUELLE.items():
+        ziel = tmp_path / rel
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_text(inhalt, encoding="utf-8")
+
+    stand = _stand_bauen(tmp_path, {"schreib"}, set())
+    schreibt = {(pfad.relative_to(tmp_path).as_posix(), name)
+                for pfad, name in stand["schreibt"]}
+
+    fehlt = {k: warum for k, warum in GRAPH_SCHREIBT.items() if k not in schreibt}
+    assert not fehlt, (
+        "Diese Wege erreichen den Schreibvorgang nicht mehr:\n  "
+        + "\n  ".join(f"{d}:{n} — {w}" for (d, n), w in fehlt.items()))
+
+    # Und die Gegenrichtung: eine Ablehnung, die niemand ruft, faerbt nichts.
+    lehnt = {(pfad.relative_to(tmp_path).as_posix(), name)
+             for pfad, name in stand["lehnt"]}
+    assert ("senke.py", "lehnt_ab") in lehnt
+    assert ("absolut.py", "ueber_absoluten_import") not in lehnt, (
+        "Eine Funktion, die den Ablehner NICHT ruft, darf nicht in der "
+        "Ablehnungs-Huelle liegen — sonst faerbt die Huelle alles ein.")
+
+
+def test_die_ereignisse_folgen_den_importen(tmp_path):
+    """Die EREIGNIS-Schicht gegen dieselbe erfundene Quelle.
+
+    Die Graph-Probe allein genuegt nicht: Vier Entwaffnungen der Mechanik
+    haben sie ueberlebt, weil sie nur die Huellen prueft. Ob an der
+    AUFRUFSTELLE ein Ereignis entsteht, entscheidet sich in `_listen_bauen`
+    und `_ereignisse` — und das ist die Schicht, an der die bewachte
+    Eigenschaft haengt.
+    """
+    for rel, inhalt in GRAPH_QUELLE.items():
+        ziel = tmp_path / rel
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_text(inhalt, encoding="utf-8")
+
+    stand = _stand_bauen(tmp_path, {"schreib"}, set())
+    tuer = tmp_path / "tuer.py"
+    funde = _endpunkt_funde(tuer.read_text(encoding="utf-8"),
+                            _listen_bauen(stand, tuer))
+
+    fehlt = {n: w for n, w in GRAPH_FUNDE.items() if n not in funde}
+    assert not fehlt, (
+        "An diesen Aufrufstellen entsteht kein Ereignis mehr:\n  "
+        + "\n  ".join(f"{n} — {w}" for n, w in fehlt.items()))
+    assert "richtige_reihenfolge" not in funde, (
+        "Eine Ablehnung VOR dem Schreibvorgang ist kein Fund.")
 
 
 def test_keine_unaufloesbaren_projektimporte():
@@ -633,7 +860,16 @@ def _ereignisse(stmt, schreibt_store, lehnt_store, lehnt_helfer,
                 # Ablehnung, sobald jemand ihrer Funktion ein `_save()` gibt.
                 if f.attr in lehnt_store:
                     aus.append((( k.lineno, k.col_offset), "lehnt_ab", f"{f.attr}() lehnt ab"))
-                if (basis, f.attr) in modul_lehnt or f.attr in objekt_lehnt:
+                # Die laengste passende Punktkette, nicht nur `name.attr`:
+                # `ziele` loest `services.protokoll.raeumen()` auf, `_ereignisse`
+                # tat es nicht — die Kante entstand, das EREIGNIS nicht. Zwei
+                # Schreibweisen desselben Imports, ein Unterschied zwischen rot
+                # und gruen (Blindpruefer, gemessen).
+                paare = [(basis, f.attr)]
+                kette = _punktkette(f)
+                for schnitt in range(len(kette) - 1, 0, -1):
+                    paare.append((".".join(kette[:schnitt]), ".".join(kette[schnitt:])))
+                if any(p in modul_lehnt for p in paare) or f.attr in objekt_lehnt:
                     aus.append(((k.lineno, k.col_offset), "lehnt_ab",
                                 f"{basis or '<objekt>'}.{f.attr}() lehnt ab"))
                 if f.attr in schreibt_store:
@@ -647,7 +883,8 @@ def _ereignisse(stmt, schreibt_store, lehnt_store, lehnt_helfer,
                     # (Blindpruefer, gemessen).
                     aus.append(((k.lineno, k.col_offset), "schreibt",
                                 f"immich.{f.attr}()"))
-                elif (basis, f.attr) in modul_schreibt or f.attr in objekt_schreibt:
+                elif (any(p in modul_schreibt for p in paare)
+                      or f.attr in objekt_schreibt):
                     aus.append(((k.lineno, k.col_offset), "schreibt",
                                 f"{basis or '<objekt>'}.{f.attr}()"))
             elif isinstance(f, ast.Name):
@@ -1732,8 +1969,17 @@ def _methoden_von_projektklassen(huelle) -> set:
     """
     aus = set()
     for _datei, qual in huelle:
-        if "." in qual:
-            aus.add(qual.rsplit(".", 1)[1])
+        if "." not in qual:
+            continue
+        methode = qual.rsplit(".", 1)[1]
+        # Kein Innenleben — derselbe Filter wie bei der Schreibflaeche des
+        # Stores, und aus demselben Grund: `__init__` in dieser Menge macht
+        # jeden `super().__init__()`-Aufruf im Projekt zum Schreibvorgang.
+        # Gemessen an zwei fuer sich voellig gewoehnlichen Aenderungen
+        # (Blindpruefer): ein Konstruktor, der die Datei anlegt, und einer,
+        # der seine Eingabe prueft.
+        if not methode.startswith("_"):
+            aus.add(methode)
     return aus
 
 
@@ -1749,11 +1995,31 @@ def _listen_fuer_datei(datei: pathlib.Path):
     Projektmodule — vorher endete die Analyse an der Dateigrenze (#90).
     """
     if datei not in _listen_puffer:
-        stand = _projekt_stand()
+        _listen_puffer[datei] = _listen_bauen(_projekt_stand(), datei)
+    return _listen_puffer[datei]
+
+
+def _listen_bauen(stand, datei):
+    """Dieselben Listen, aber fuer einen beliebigen Stand.
+
+    Getrennt, damit `test_die_ereignisse_folgen_den_importen` die
+    Ereignis-Schicht auf einer erfundenen Quelle pruefen kann. Ohne das war
+    sie unbewiesen: Vier Entwaffnungen der Mechanik ueberlebten die
+    Graph-Probe, weil die nur die Huellen prueft.
+    """
+    if True:
         d = stand["dateien"][datei]
 
         def lokal(huelle):
-            aus = {name for name in d["fns"] if (datei, name) in huelle}
+            aus = set()
+            for name in d["fns"]:
+                if (datei, name) not in huelle:
+                    continue
+                aus.add(name)
+                # Und der letzte Namensteil: Eine INNERE Funktion wird unter
+                # ihrem nackten Namen gerufen, steht aber als `aussen.innen`
+                # im Index.
+                aus.add(name.rsplit(".", 1)[-1])
             aus |= {lokal_name for lokal_name, ziel in d["namen"].items()
                     if ziel in huelle}
             return aus
@@ -1764,7 +2030,7 @@ def _listen_fuer_datei(datei: pathlib.Path):
                     for name in stand["dateien"].get(ziel, {}).get("fns", {})
                     if (ziel, name) in huelle}
 
-        _listen_puffer[datei] = (
+        return (
             # `_save` MUSS mit: Es ist die Senke selbst. Ohne es sieht die
             # Analyse INNERHALB von `ConfigStore` keinen Schreibvorgang —
             # die Methode landet zwar als Kandidat in der Huelle, aber im
@@ -1782,7 +2048,6 @@ def _listen_fuer_datei(datei: pathlib.Path):
             _methoden_von_projektklassen(stand["lehnt"]),
             _methoden_von_projektklassen(stand["schreibt"]),
         )
-    return _listen_puffer[datei]
 
 
 def _funktion_schreibt(fn) -> bool:
@@ -1959,47 +2224,54 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 #     gemessenen Fall im Baum.
 #
 # TEIL A — Reichweite
-#   Die erste Fassung dieses Abschnitts meldete #90 als ERLEDIGT. Zwei
-#   Pruefstimmen haben danach FUENF Wege gemessen, auf denen ein Verstoss
-#   bei vollstaendig gruener Suite durchkam. Was jetzt gilt, ist einzeln
-#   rot bewiesen; was offen ist, steht darunter.
+#   Zwei Fassungen dieses Abschnitts haben #90 als ERLEDIGT gemeldet, und
+#   beide Male haben Pruefstimmen danach Wege gemessen, auf denen ein
+#   Verstoss bei gruener Suite durchkommt — beim zweiten Mal sogar einen
+#   RUECKSCHRITT gegen den Stand davor. Was hier als geschlossen steht, ist
+#   deshalb einzeln rot bewiesen, gegen eine erfundene Projektstruktur
+#   (`GRAPH_QUELLE`) statt gegen den Zufall des echten Baums.
 #
 #   GESCHLOSSEN, je mit Rot-Beweis:
-#   * Der Aufrufgraph geht ueber MODULGRENZEN, aufgeloest ueber die Importe
-#     — absolut, relativ (`from .x import y`), als Modulalias und als
-#     Punktkette. Namensgleichheit allein genuegt nicht.
-#   * Analysiert wird nicht nur, was ein Endpunkt erreicht, sondern jede
-#     Funktion in `lehnt & schreibt` — sonst ist KEINE `ConfigStore`-Methode
-#     je geprueft, und durch die laeuft jeder Schreibvorgang.
-#   * Methoden von PROJEKTKLASSEN zaehlen an der Aufrufstelle. Ein Dienst
-#     als Klasse ist ein gewoehnlicher Umbau und oeffnete die Dateigrenze
-#     erneut.
-#   * Immich-Schreibvorgaenge zaehlen auch INNERHALB einer Funktion, nicht
-#     nur als Saat der Huelle.
-#   * `functools.wraps` am Endpunkt verschiebt die Datei-Zuordnung nicht
-#     mehr (`inspect.unwrap`). NICHT einzeln rot beweisbar, seit der
-#     Huellen-Schnitt dieselbe Funktion ohnehin analysiert — es steht als
-#     Richtigstellung da, nicht als bewiesener Waechter.
-#   * FastAPI-eigene Routen (Swagger, OpenAPI, ReDoc) werden ausgelassen.
-#   * `from projektmodul import *` macht die Suite rot statt still
-#     unaufloesbar zu bleiben.
+#   * Der Aufrufgraph geht ueber MODULGRENZEN, aufgeloest ueber die Importe:
+#     absolut, relativ (`from .x import y`), als Modulalias und als
+#     Punktkette (`import a.b` + `a.b.f()`) — Letzteres sowohl fuer die
+#     Kante als auch fuer das EREIGNIS an der Aufrufstelle. Die ersten
+#     beiden Formen kommen im echten Baum gar nicht vor; ohne die erfundene
+#     Quelle waeren sie von nichts gedeckt.
+#   * Funktionen unter `if`, `try` oder `with` sind im Index — der Abstieg
+#     laeuft ueber `ast.iter_child_nodes`, nicht ueber `knoten.body`.
+#   * Methoden von PROJEKTKLASSEN zaehlen an der Aufrufstelle, ebenso
+#     `self.x()` (Delegation innerhalb derselben Klasse) und
+#     `Klasse(x).m()` in einer Funktion, die selbst kein Endpunkt ist.
+#   * Innere Funktionen: der Aufruf unter nacktem Namen findet sie.
+#   * Analysiert wird jede Funktion in `lehnt & schreibt`, nicht nur was ein
+#     Endpunkt erreicht — sonst ist KEINE `ConfigStore`-Methode je geprueft.
+#   * Immich-Schreibvorgaenge zaehlen auch INNERHALB einer Funktion.
+#   * `__init__` und anderes Innenleben stehen NICHT im Objekt-Namensraum.
+#     Sonst wird jeder `super().__init__()`-Aufruf zum Schreibvorgang.
+#   * FastAPI-eigene Routen werden ausgelassen.
+#   * `from projektmodul import *` macht die Suite rot.
+#
+#   NICHT BEWIESEN, aber drin:
+#   * `inspect.unwrap` vor `getsourcefile` stellt die Datei-Zuordnung bei
+#     einem `functools.wraps`-Dekorator richtig. Einzeln rot beweisbar ist
+#     es nicht, seit der Huellen-Schnitt dieselbe Funktion ohnehin
+#     analysiert. Es steht als Richtigstellung da, nicht als Waechter.
 #
 #   OFFEN:
-#   * Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A
-#     nicht; `_montierte_endpunkte` steigt nur ueber `original_router` ab.
+#   * Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A nicht.
 #   * Bei Aufrufen auf einem OBJEKT zaehlt der METHODENNAME ohne
-#     Empfaenger — sowohl bei `store.x()` als auch bei Methoden von
-#     Projektklassen. Ein gleichnamiger Aufruf auf einem fremden Objekt
-#     zaehlt mit. Das ist bewusst: Eine Typinferenz waere das Mehrfache an
+#     Empfaenger — bei `store.x()`, bei den Immich-Senken und bei Methoden
+#     von Projektklassen. Ein gleichnamiger Aufruf auf einem fremden Objekt
+#     zaehlt mit. Bewusst: Eine Typinferenz waere das Mehrfache an
 #     Maschinerie fuer denselben Zweck.
 #   * Rueckrufe, `functools.partial` und dynamische Aufrufe (`getattr`)
 #     erzeugen keine Kante. Sie fallen still aus dem Graphen.
-#   * Die Analyse einer erreichbaren Funktion kennt ihre ARGUMENTE nicht.
-#     Damit gilt hier die staerkere Regel "kein erreichbarer Helfer darf
-#     einen solchen Pfad ENTHALTEN" statt "kein ausfuehrbarer Anfragepfad
-#     hat ihn". Das ist eine andere Regel als die im Kopf behauptete, und
-#     sie kann einen Helfer melden, dessen gefaehrlicher Zweig am einzigen
-#     Aufruf unerreichbar ist (Zweitstimme).
+#   * Die Analyse kennt die ARGUMENTE nicht. Damit gilt hier die staerkere
+#     Regel "kein erreichbarer Helfer darf einen solchen Pfad ENTHALTEN"
+#     statt "kein ausfuehrbarer Anfragepfad hat ihn". Das ist eine andere
+#     Regel als die im Kopf behauptete, und sie kann einen Helfer melden,
+#     dessen gefaehrlicher Zweig am einzigen Aufruf unerreichbar ist.
 #
 # AUSNAHMELISTEN
 #   * ERLEDIGT (#91): ERLAUBT deckt eine ANZAHL je (Ablehnung,
