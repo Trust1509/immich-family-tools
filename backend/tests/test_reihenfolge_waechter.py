@@ -262,7 +262,7 @@ def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store,
         if isinstance(k, ast.Raise):
             text = _ist_ablehnung(k, fehlernamen)
             if text:
-                aus.append((k.lineno, "lehnt_ab", text))
+                aus.append(((k.lineno, k.col_offset), "lehnt_ab", text))
         elif isinstance(k, ast.Call):
             f = k.func
             if isinstance(f, ast.Attribute):
@@ -273,18 +273,18 @@ def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store,
                 # Dann zaehlt sie als beides — sonst verschwindet eine
                 # Ablehnung, sobald jemand ihrer Funktion ein `_save()` gibt.
                 if f.attr in lehnt_store:
-                    aus.append((k.lineno, "lehnt_ab", f"{f.attr}() lehnt ab"))
+                    aus.append((( k.lineno, k.col_offset), "lehnt_ab", f"{f.attr}() lehnt ab"))
                 if f.attr in schreibt_store:
-                    aus.append((k.lineno, "schreibt", f"store.{f.attr}()"))
+                    aus.append(((k.lineno, k.col_offset), "schreibt", f"store.{f.attr}()"))
                 elif basis == "sync_service" and f.attr in schreibt_dienst:
-                    aus.append((k.lineno, "schreibt", f"sync_service.{f.attr}()"))
+                    aus.append(((k.lineno, k.col_offset), "schreibt", f"sync_service.{f.attr}()"))
             elif isinstance(f, ast.Name):
                 # Ein Helfer kann ebenfalls BEIDES. Reihenfolge wie oben:
                 # erst ablehnen, dann schreiben.
                 if f.id in lehnt_helfer:
-                    aus.append((k.lineno, "lehnt_ab", f"{f.id}() lehnt ab"))
+                    aus.append(((k.lineno, k.col_offset), "lehnt_ab", f"{f.id}() lehnt ab"))
                 if f.id in schreibt_helfer:
-                    aus.append((k.lineno, "schreibt", f"{f.id}() schreibt"))
+                    aus.append(((k.lineno, k.col_offset), "schreibt", f"{f.id}() schreibt"))
     # Bei gleicher Zeile zuerst die Ablehnung: Ein Aufruf, der beides kann,
     # lehnt ab, BEVOR er schreibt — sonst deckt er sich selbst zu.
     aus.sort(key=lambda e: (e[0], 0 if e[1] == "lehnt_ab" else 1))
@@ -297,17 +297,36 @@ def _pfad_pruefen(stmts, geschrieben, funde, listen):
     `geschrieben` ist (Zeile, Text) des ersten Schreibvorgangs auf DIESEM
     Pfad — oder None.
 
-    Rueckgabe: `(geschrieben, endet)`. `endet` sagt, ob der Block IMMER
-    verlassen wird (`return`, `raise`, `break`, `continue`). Das ist nicht
-    Feinschliff, sondern zwei gemessene Fehler auf einmal:
+    Rueckgabe: `(geschrieben, endet, aus_break, aus_continue)`.
 
-    * Ohne die Angabe wurde ein Schreibvorgang aus einem Zweig, der mit
-      `return` endet, hinter das `if` getragen — eine Ablehnung danach war
-      ein FEHLFUND.
-    * Und ein Schreibvorgang aus einem `except`-Handler wurde gar nicht
-      weitergetragen — eine Ablehnung danach war eine LUECKE.
+    * `endet` — der Block wird IMMER verlassen (`return`, `raise`, `break`,
+      `continue`). Ohne die Angabe wurde ein Schreibvorgang aus einem Zweig,
+      der mit `return` endet, hinter das `if` getragen; eine Ablehnung danach
+      war ein FEHLFUND. Und ein Schreibvorgang aus einem `except`-Handler
+      wurde gar nicht weitergetragen; eine Ablehnung danach war eine LUECKE.
+
+    * `aus_break` / `aus_continue` — der Schreibstand an einem `break` bzw.
+      `continue`. DIE brauchte es, weil `endet` allein vier verschiedene
+      Dinge in einen Topf wirft: `return` und `raise` verlassen die FUNKTION,
+      `break` und `continue` nur den BLOCK. Ein Schreibvorgang vor einem
+      `continue` lebt weiter — er erreicht den Schleifenkopf und steht damit
+      in Runde 2 vor der Ablehnung.
+
+      Gemessen vom Blindpruefer an der haeufigsten Form ueberhaupt:
+
+          for eintrag in eintraege:
+              if eintrag.id in bekannt:
+                  store.aktualisieren(eintrag)
+                  continue
+              raise errors.unbekannt()
+
+      Die kam durch, obwohl der Slice davor genau diese Klasse zu schliessen
+      behauptete. Eine Schleife VERBRAUCHT die beiden Werte; nach aussen
+      gibt sie sie nicht weiter, denn ein `break` gehoert der innersten
+      Schleife.
     """
     endet = False
+    aus_break = aus_continue = None
     for stmt in stmts:
         # Eine verschachtelte Funktion wird HIER nicht ausgefuehrt. Ihre
         # Zeilen gehoeren nicht in diesen Pfad; ist sie selbst ein Endpunkt,
@@ -315,28 +334,25 @@ def _pfad_pruefen(stmts, geschrieben, funde, listen):
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
 
-        for zeile, art, text in _ereignisse(stmt, *listen):
+        for stelle, art, text in _ereignisse(stmt, *listen):
             if art == "lehnt_ab" and geschrieben:
-                funde.append((zeile, text, geschrieben))
+                funde.append((stelle, text, geschrieben))
             elif art == "schreibt" and not geschrieben:
-                geschrieben = (zeile, text)
+                geschrieben = (stelle, text)
 
         if isinstance(stmt, ast.If):
-            a, ea = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
-            b, eb = _pfad_pruefen(stmt.orelse, geschrieben, funde, listen)
+            a, ea, ba, ca = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
+            b, eb, bb, cb = _pfad_pruefen(stmt.orelse, geschrieben, funde, listen)
+            aus_break = aus_break or ba or bb
+            aus_continue = aus_continue or ca or cb
             geschrieben = geschrieben or _erster(((a, ea), (b, eb)))
             if ea and eb and stmt.orelse:
                 endet = True
         elif isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
-            # Ein Schleifenkoerper kann laufen oder nicht; beides ist moeglich,
-            # also traegt er nicht "endet", wohl aber seinen Schreibvorgang.
-            #
             # ZWEI RUNDEN, und das ist der Punkt (#89): Der Koerper laeuft in
             # der Wirklichkeit mehrfach. Was Runde 1 geschrieben hat, steht
             # fuer Runde 2 VOR dem Schleifenkopf — eine Ablehnung oben im
-            # Koerper liegt dann hinter einem Schreibvorgang.
-            #
-            # Die Form ist nicht konstruiert, sie ist die naheliegende:
+            # Koerper liegt dann hinter einem Schreibvorgang:
             #
             #     for feld, wert in updates.items():
             #         if feld not in ERLAUBTE_FELDER:
@@ -344,74 +360,123 @@ def _pfad_pruefen(stmts, geschrieben, funde, listen):
             #         store.update_account(kennung, {feld: wert})
             #
             # Feld 3 ungueltig ⇒ Felder 1-2 sind geschrieben, der Aufrufer
-            # bekommt 404. Genau die bewachte Klasse — und die erste Fassung
-            # sah sie nicht (Blindpruefer, gemessen).
-            a, _ = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
-            if a is not None and a is not geschrieben:
-                _pfad_pruefen(stmt.body, a, funde, listen)
-            # Das `else` einer Schleife laeuft NACH dem Koerper und sieht
-            # dessen Schreibvorgang deshalb ebenfalls.
-            b, _ = _pfad_pruefen(stmt.orelse, a or geschrieben, funde, listen)
-            geschrieben = geschrieben or a or b
+            # bekommt 404. Genau die bewachte Klasse.
+            a, ea, ba, ca = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
+
+            # Drei verschiedene Wege aus dem Koerper, und sie fuehren an
+            # verschiedene Orte:
+            durchgelaufen = None if ea else a      # faellt unten heraus
+            zum_kopf = durchgelaufen or ca         # erreicht den Kopf wieder
+            hinter_die_schleife = zum_kopf or ba   # steht danach
+
+            # Runde 2 sieht nur, was den Kopf WIRKLICH wieder erreicht.
+            # Endet jeder Koerperpfad mit `break`, laeuft die Schleife
+            # hoechstens einmal — dann gibt es keine zweite Runde und damit
+            # auch keinen Fehlfund (auch das gemessen).
+            if zum_kopf is not None and zum_kopf is not geschrieben:
+                # Bei `while` gehoert der KOPF zu jeder Runde: Seine
+                # Bedingung wird vor der zweiten Iteration erneut
+                # ausgewertet, und wenn sie ablehnen kann, steht die
+                # Ablehnung dann hinter dem Schreibvorgang der ersten
+                # (Zweitstimme, gemessen). Bei `for` nicht: Das Iterable
+                # wird genau einmal ausgewertet.
+                if isinstance(stmt, ast.While):
+                    for _stelle, _art, _text in _ereignisse(stmt, *listen):
+                        if _art == "lehnt_ab":
+                            funde.append((_stelle, _text, zum_kopf))
+                _pfad_pruefen(stmt.body, zum_kopf, funde, listen)
+
+            # Das `else` laeuft, wenn die Schleife OHNE `break` endet — es
+            # sieht den Koerper, aber nicht den `break`-Zweig.
+            b, _eb, _bb, _cb = _pfad_pruefen(
+                stmt.orelse, zum_kopf or geschrieben, funde, listen)
+            geschrieben = geschrieben or hinter_die_schleife or b
         elif isinstance(stmt, (ast.With, ast.AsyncWith)):
-            a, ea = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
+            a, ea, ba, ca = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
+            aus_break = aus_break or ba
+            aus_continue = aus_continue or ca
             geschrieben = geschrieben or a
             endet = endet or ea
         elif isinstance(stmt, ast.Match):
             # Jeder Fall laeuft gegen den Stand VOR dem `match` — sonst sieht
             # `case _` den Schreibvorgang aus `case 1`, und die Zweigtrennung
-            # ist wieder aufgehoben. Genau so ist dieser Zweig beim ersten
-            # Lauf durchgefallen.
+            # ist wieder aufgehoben.
             #
             # Ob die Faelle erschoepfend sind, sagt der Baum nicht; deshalb
             # nie "endet", aber jeder Fall traegt seinen Schreibvorgang weiter.
             vorher = geschrieben
             zweige = [_pfad_pruefen(fall.body, vorher, funde, listen)
                       for fall in stmt.cases]
-            geschrieben = vorher or _erster(zweige)
+            for _w, _e, bz, cz in zweige:
+                aus_break = aus_break or bz
+                aus_continue = aus_continue or cz
+            geschrieben = vorher or _erster([(w, e) for w, e, _b, _c in zweige])
         elif isinstance(stmt, TRY_TYPEN):
-            im_try, e_try = _pfad_pruefen(stmt.body, geschrieben, funde, listen)
+            im_try, e_try, b_try, c_try = _pfad_pruefen(
+                stmt.body, geschrieben, funde, listen)
             # Ein `except` laeuft NACH dem, was im `try` schon passiert ist.
             handler = []
             for h in stmt.handlers:
                 handler.append(_pfad_pruefen(
                     h.body, im_try or geschrieben, funde, listen))
-            nach, e_else = _pfad_pruefen(
+            nach, e_else, b_else, c_else = _pfad_pruefen(
                 stmt.orelse, im_try or geschrieben, funde, listen)
-            weiter = [(im_try, e_try), (nach, e_else)] + handler
+            weiter = ([(im_try, e_try), (nach, e_else)]
+                      + [(w, e) for w, e, _b, _c in handler])
             basis = geschrieben or _erster(weiter)
-            fin, e_fin = _pfad_pruefen(stmt.finalbody, basis, funde, listen)
+            fin, e_fin, b_fin, c_fin = _pfad_pruefen(
+                stmt.finalbody, basis, funde, listen)
             geschrieben = basis or fin
+            for bz, cz in ([(b_try, c_try), (b_else, c_else), (b_fin, c_fin)]
+                           + [(b, c) for _w, _e, b, c in handler]):
+                aus_break = aus_break or bz
+                aus_continue = aus_continue or cz
             # Ein `try` wird verlassen, wenn das `finally` es verlaesst ODER
             # wenn jeder Weg hindurch es tut: der Rumpf (bzw. sein `else`) und
             # JEDER Handler. Die erste Fassung sah nur das `finally` — und
             # meldete deshalb eine unerreichbare Ablehnung nach
-            # `try: ... return / finally: pass` als FEHLFUND (#89,
-            # Blindpruefer, gemessen).
-            durch_den_rumpf = e_else if stmt.orelse else e_try
-            alle_wege = durch_den_rumpf and all(e for _w, e in handler)
+            # `try: ... return / finally: pass` als FEHLFUND (#89).
+            # `e_try OR e_else`, nicht nur `e_else`: Terminiert der Rumpf
+            # immer, ist das `else` unerreichbar — die erste Fassung hielt
+            # den Weg dann faelschlich fuer offen und meldete eine
+            # unerreichbare Ablehnung danach (Zweitstimme, gemessen).
+            durch_den_rumpf = (e_try or e_else) if stmt.orelse else e_try
+            alle_wege = durch_den_rumpf and all(e for _w, e, _b, _c in handler)
             endet = endet or e_fin or alle_wege
-        elif isinstance(stmt, ENDE_TYPEN):
+        elif isinstance(stmt, ast.Break):
+            aus_break = aus_break or geschrieben
+            endet = True
+        elif isinstance(stmt, ast.Continue):
+            aus_continue = aus_continue or geschrieben
+            endet = True
+        elif isinstance(stmt, (ast.Return, ast.Raise)):
             endet = True
 
         if endet:
             break
-    return geschrieben, endet
+    return geschrieben, endet, aus_break, aus_continue
 
 
 def _ohne_dubletten(funde):
     """Derselbe Fund zaehlt einmal, auch wenn zwei Pfade ihn erreichen.
 
     Noetig, seit der Schleifenkoerper ZWEIMAL gelaufen wird (#89): Ein Fund
-    aus Runde 1 taucht in Runde 2 wieder auf. Geschluesselt wird auf (Zeile,
-    Text) — zwei verschiedene Ablehnungen in derselben Zeile gibt es nicht.
+    aus Runde 1 taucht in Runde 2 wieder auf.
+
+    Geschluesselt wird auf die AST-STELLE (Zeile UND Spalte) plus den Text.
+    Hier stand einmal nur die Zeile, mit der Begruendung, zwei verschiedene
+    Ablehnungen in derselben Zeile gebe es nicht. Das ist falsch:
+    `ablehner(a); ablehner(b)` sind zwei erreichbare Stellen mit demselben
+    Text in derselben Zeile — der erste Aufruf kann zurueckkehren und der
+    zweite ablehnen. Die Zeilen-Entdopplung hat den zweiten verschluckt
+    (Zweitstimme, gemessen). Mit der Spalte bleiben beide stehen.
     """
     gesehen, aus = set(), []
-    for zeile, text, quelle in funde:
-        if (zeile, text) in gesehen:
+    for stelle, text, quelle in funde:
+        if (stelle, text) in gesehen:
             continue
-        gesehen.add((zeile, text))
-        aus.append((zeile, text, quelle))
+        gesehen.add((stelle, text))
+        aus.append((stelle, text, quelle))
     return aus
 
 
@@ -441,14 +506,14 @@ def _ist_endpunkt(knoten) -> bool:
 # Neues zu decken.
 ERLAUBT = {
     ("accounts.py", "delete_account"): (
-        {"raise errors.account_not_found()": 1},
+        {("raise errors.account_not_found()", "store.delete_account()"): 1},
         "`store.delete_account` liefert bei unbekannter Kennung False, OHNE zu "
         "schreiben; die Ablehnung danach IST diese Antwort. Dass dabei wirklich "
         "nichts geschrieben wird, prueft Teil B "
         "(DELETE /api/accounts/gibt-es-nicht).",
     ),
     ("albums.py", "delete_managed_album"): (
-        {"raise errors.managed_album_not_found()": 1},
+        {("raise errors.managed_album_not_found()", "store.delete_managed_album()"): 1},
         "Wie oben, mit `store.delete_managed_album`; geprueft von Teil B "
         "(DELETE /api/sync/albums/gibt-es-nicht).",
     ),
@@ -512,8 +577,12 @@ def _endpunkt_funde(quelltext: str, listen) -> dict:
     return aus
 
 
-# Eine Quelle, die es nur fuer diesen Test gibt: elf Endpunkte mit bekanntem
-# Ergebnis. Sie prueft die Mechanik von Teil A gegen eine Vorlage, die sich
+# Eine Quelle, die es nur fuer diesen Test gibt: Endpunkte mit bekanntem
+# Ergebnis — wie viele, zaehlt der Test selbst.
+#
+# Hier stand eine Zahl, und sie war nach zwei Slices falsch (elf statt
+# zweiundzwanzig). In dieser Datei zaehlt so eine Zahl; also steht jetzt
+# keine mehr da, die niemand nachrechnet. Sie prueft die Mechanik von Teil A gegen eine Vorlage, die sich
 # NICHT mitbewegt, wenn jemand die Router umbaut.
 #
 # Ohne sie waere die Mechanik nur so lange bewiesen, wie zufaellig ein echter
@@ -600,6 +669,77 @@ def ablehnung_oben_schreiben_unten(store, xs):
         store.schreib()
 
 @router.post("/x")
+def continue_traegt_den_schreibvorgang(store, eintraege, bekannt):
+    for e in eintraege:
+        if e in bekannt:
+            store.schreib()
+            continue
+        raise errors.nein()
+
+@router.post("/x")
+def break_traegt_nach_aussen(store, xs):
+    for x in xs:
+        if x:
+            store.schreib()
+            break
+    raise errors.nein()
+
+@router.post("/x")
+def continue_in_der_inneren_schleife(store, xs):
+    for x in xs:
+        for y in x:
+            if y:
+                store.schreib()
+                continue
+            raise errors.nein()
+
+def ablehner(x):
+    raise errors.nein()
+
+@router.post("/x")
+def while_kopf_lehnt_ab(store, x):
+    while ablehner(x):
+        store.schreib()
+
+@router.post("/x")
+def for_kopf_lehnt_ab(store, x):
+    for y in ablehner(x):
+        store.schreib()
+
+@router.post("/x")
+def try_else_nach_return(store):
+    try:
+        store.schreib()
+        return 1
+    except Exception:
+        return 2
+    else:
+        pass
+    raise errors.nein()
+
+@router.post("/x")
+def zwei_ablehnungen_in_einer_zeile(store, a, b):
+    store.schreib()
+    ablehner(a); ablehner(b)
+
+@router.post("/x")
+def koerper_endet_immer_mit_break(store, xs):
+    for x in xs:
+        if not x:
+            raise errors.nein()
+        store.schreib()
+        break
+
+@router.post("/x")
+def suchschleife_mit_else(store, xs):
+    for x in xs:
+        if x:
+            store.schreib()
+            break
+    else:
+        raise errors.nein()
+
+@router.post("/x")
 def schreiben_und_ablehnung_im_koerper(store, xs):
     for x in xs:
         store.schreib()
@@ -652,8 +792,18 @@ MECHANIK_FUNDE = {
     "ablehnung_oben_schreiben_unten",   # ab Runde 2 liegt die Ablehnung dahinter
     "schleife_mit_else",                # das `else` laeuft NACH dem Koerper
     "schreiben_und_ablehnung_im_koerper",  # beides im Koerper: nur EIN Fund
+    "continue_traegt_den_schreibvorgang",  # `continue` erreicht den Kopf wieder
+    "break_traegt_nach_aussen",            # `break` traegt ihn hinter die Schleife
+    "continue_in_der_inneren_schleife",    # und das auch verschachtelt
+    "while_kopf_lehnt_ab",                 # der `while`-Kopf laeuft vor JEDER Runde
+    "zwei_ablehnungen_in_einer_zeile",     # zwei Stellen, nicht eine
     "in_einer_funktion",                # Endpunkt, der nicht auf Modulebene steht
 }
+# Wo die Anzahl der Funde der Sache nach feststeht, steht sie hier.
+MECHANIK_ANZAHL = {
+    "zwei_ablehnungen_in_einer_zeile": 2,
+}
+
 MECHANIK_NICHT_FUNDE = {
     "vor_dem_schreiben": "richtige Reihenfolge",
     "in_getrennten_zweigen": "if/else sind nie derselbe Pfad",
@@ -662,6 +812,14 @@ MECHANIK_NICHT_FUNDE = {
     "nur_in_einer_inneren_funktion": "die innere Funktion wird hier nicht gerufen",
     "try_mit_return_dann_ablehnung": "der Rumpf verlaesst die Funktion, die "
                                      "Ablehnung danach ist unerreichbar",
+    "koerper_endet_immer_mit_break": "jeder Koerperpfad endet mit `break`, die "
+                                     "Schleife laeuft hoechstens EINMAL",
+    "suchschleife_mit_else": "das `else` laeuft nur OHNE `break` — es sieht den "
+                             "Schreibvorgang des break-Zweigs nie",
+    "for_kopf_lehnt_ab": "das Iterable eines `for` wird GENAU EINMAL ausgewertet, "
+                         "anders als eine `while`-Bedingung",
+    "try_else_nach_return": "der Rumpf verlaesst die Funktion immer, also ist das "
+                            "`else` und alles danach unerreichbar",
 }
 
 
@@ -671,18 +829,28 @@ def test_mechanik_trennt_pfade_und_folgt_aufrufen():
     namen = _fehlernamen(ast.parse(MECHANIK_QUELLE))
     listen = ({"schreib"}, set(), set(), _ablehnende_huelle(fns, namen),
               _schreibende_huelle(fns, {"schreib"}, set()), namen)
-    gefunden = set(_endpunkt_funde(MECHANIK_QUELLE, listen))
+    alle = _endpunkt_funde(MECHANIK_QUELLE, listen)
+    gefunden = set(alle)
 
     # Derselbe Fund darf nur EINMAL dastehen. Seit der Schleifenkoerper
     # zweimal gelaufen wird (#89), erreicht Runde 2 die Funde aus Runde 1
     # erneut — `ablehnung_oben_schreiben_unten` ist genau dieser Fall. Ohne
     # Entdopplung meldet die Ausgabe doppelt, und die ANZAHLEN in ERLAUBT
     # waeren von der Rundenzahl abhaengig statt von der Sache.
-    alle = _endpunkt_funde(MECHANIK_QUELLE, listen)
     for name, funde in alle.items():
-        stellen = [(z, t) for z, t, _q in funde]
+        stellen = [(st, t) for st, t, _q in funde]
         assert len(stellen) == len(set(stellen)), (
             f"{name} meldet denselben Fund mehrfach: {stellen}")
+
+    # Und wo die ANZAHL der Sache nach feststeht, wird sie gezaehlt. Ohne das
+    # merkte niemand, dass die Entdopplung eine von zwei Stellen verschluckt:
+    # Der Endpunkt stand weiter in der Fundmenge, nur mit einem Fund statt
+    # zwei (gemessen an der Mutation, die auf die Zeile statt auf die
+    # AST-Stelle entdoppelt).
+    for name, erwartet in MECHANIK_ANZAHL.items():
+        assert len(alle.get(name, [])) == erwartet, (
+            f"{name}: {len(alle.get(name, []))} Funde statt {erwartet} — "
+            "zwei Aufrufe in einer Zeile sind ZWEI erreichbare Stellen.")
 
     assert gefunden == MECHANIK_FUNDE, (
         "Die Mechanik von Teil A hat sich geaendert.\n"
@@ -712,6 +880,81 @@ def schreibt_gar_nicht(self):
     assert _erreichbar(fns, direkt) == {
         "schreibt_direkt", "schreibt_ueber_eine_stufe", "schreibt_ueber_zwei_stufen",
     }, "Ohne Fixpunkt bleibt ein Schreibvorgang ueber zwei Stufen unsichtbar."
+
+
+def _uebrige(funde, erlaubt):
+    """Die Funde, die eine Ausnahme NICHT deckt.
+
+    Geschluesselt auf (Ablehnung, SCHREIBVORGANG) und auf eine ANZAHL — beides
+    ist gemessen noetig:
+
+    * Nur der Ablehnungstext: Ein zweiter, ECHTER Fund mit demselben Text in
+      derselben Funktion wurde mitgedeckt.
+    * Ohne den Schreibvorgang: Ein ANDERER, echter Schreibvorgang vor
+      derselben Ablehnung wurde mitgedeckt — gemessen an `delete_account`
+      mit einem eingebauten `dismiss_match`, 18 Tests gruen. Die Begruendung
+      der Ausnahme nennt den Schreibvorgang ohnehin im Klartext; jetzt tut es
+      der Schluessel auch.
+    """
+    rest = dict(erlaubt)
+    aus = []
+    for stelle, text, quelle in funde:
+        schluessel = (text, quelle[1])
+        if rest.get(schluessel, 0) > 0:
+            rest[schluessel] -= 1
+        else:
+            aus.append((stelle, text, quelle))
+    return aus
+
+
+def _ueberschuss(funde, erlaubt):
+    """Was eine Ausnahme deckt, ohne dass es dafuer noch Funde gibt."""
+    wirklich: dict = {}
+    for _stelle, text, quelle in funde:
+        schluessel = (text, quelle[1])
+        wirklich[schluessel] = wirklich.get(schluessel, 0) + 1
+    return {s: n - wirklich.get(s, 0) for s, n in erlaubt.items()
+            if n > wirklich.get(s, 0)}
+
+
+def test_ausnahmen_decken_genau_ihren_anlass():
+    """Selbstprobe fuer die Ausnahmelogik — gegen eine feste Vorlage.
+
+    Fuer die Mechanik von Teil A gab es diese Vorlage von Anfang an, fuer die
+    Ausnahmelogik nicht: Sie stand inline im Testrumpf und war deshalb nicht
+    pruefbar. Der Blindpruefer hat gemessen, dass man die Anzahl-Verrechnung
+    ersatzlos entfernen kann, ohne dass ein Test rot wird — also war die
+    Kernneuerung des Slices, der sie eingefuehrt hat, unbewiesen.
+    """
+    schreib = (7, "store.schreib()")
+    fremd = (9, "store.etwas_anderes()")
+    erlaubt = {("raise errors.x()", "store.schreib()"): 1}
+    gedeckt = [(8, "raise errors.x()", schreib)]
+
+    assert _uebrige(gedeckt, erlaubt) == []
+    assert _ueberschuss(gedeckt, erlaubt) == {}
+
+    zweimal = gedeckt + [(12, "raise errors.x()", schreib)]
+    assert len(_uebrige(zweimal, erlaubt)) == 1, (
+        "Ein ZWEITER Fund mit demselben Text muss uebrig bleiben.")
+
+    anderer_schreibvorgang = [(8, "raise errors.x()", fremd)]
+    assert _uebrige(anderer_schreibvorgang, erlaubt) == anderer_schreibvorgang, (
+        "Dieselbe Ablehnung nach einem ANDEREN Schreibvorgang ist ein eigener "
+        "Fund und darf nicht mitgedeckt werden.")
+
+    assert _ueberschuss([], erlaubt) == {("raise errors.x()", "store.schreib()"): 1}
+
+
+def test_jede_ausnahme_deckt_mindestens_einen_fall():
+    """Eine Anzahl von 0 oder weniger deckt nichts und meldet auch nichts.
+
+    Ein stiller Blindeintrag also — und der faellt niemandem auf, weil beide
+    Gegenpruefungen ihn ueberspringen (Blindpruefer, HINWEIS).
+    """
+    for schluessel, (erlaubt, _grund) in ERLAUBT.items():
+        for anlass, anzahl in erlaubt.items():
+            assert anzahl >= 1, f"{schluessel}: {anlass} deckt {anzahl} Faelle"
 
 
 def test_keine_ablehnung_hinter_einem_schreibvorgang():
@@ -755,20 +998,7 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
 
     unerwartet = {}
     for schluessel, funde in gemeldet.items():
-        # ERLAUBT deckt eine ANZAHL je Fundtext, nicht den Text als solchen.
-        #
-        # Vorher war es der Text: Ein zweiter, ECHTER Fund mit demselben Text
-        # in derselben Funktion wurde damit mitgedeckt — und
-        # `account_not_found` ist in `accounts.py` ausgerechnet der
-        # haeufigste. Gemessen vom Blindpruefer, der genau das gebaut hat
-        # (#91).
-        rest = dict(ERLAUBT.get(schluessel, ({}, ""))[0])
-        uebrig = []
-        for f in funde:
-            if rest.get(f[1], 0) > 0:
-                rest[f[1]] -= 1
-            else:
-                uebrig.append(f)
+        uebrig = _uebrige(funde, ERLAUBT.get(schluessel, ({}, ""))[0])
         if uebrig:
             unerwartet[schluessel] = uebrig
 
@@ -776,8 +1006,8 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
     for (datei, fn), funde in unerwartet.items():
         erste = funde[0][2]
         zeilen.append(f"{datei}:{fn} — erster Schreibvorgang Zeile "
-                      f"{erste[0]} ({erste[1]}), danach:")
-        zeilen += [f"    Zeile {z}: {t}" for z, t, _ in funde]
+                      f"{erste[0][0]} ({erste[1]}), danach:")
+        zeilen += [f"    Zeile {st[0]}: {t}" for st, t, _ in funde]
     zeilen += [
         "",
         "Alles, was ablehnen kann, gehoert VOR den ersten Schreibvorgang —",
@@ -793,15 +1023,9 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
     )
     # Und die Anzahlen: Eine Ausnahme, die MEHR deckt, als es Funde gibt,
     # wartet nur darauf, den naechsten echten Fund zu verschlucken.
-    zu_weit = {}
-    for k, (erwartet, _grund) in ERLAUBT.items():
-        wirklich: dict = {}
-        for _z, text, _q in gemeldet.get(k, []):
-            wirklich[text] = wirklich.get(text, 0) + 1
-        ueberschuss = {t: n - wirklich.get(t, 0)
-                       for t, n in erwartet.items() if n > wirklich.get(t, 0)}
-        if ueberschuss:
-            zu_weit[k] = ueberschuss
+    zu_weit = {k: _ueberschuss(gemeldet.get(k, []), erwartet)
+               for k, (erwartet, _grund) in ERLAUBT.items()}
+    zu_weit = {k: v for k, v in zu_weit.items() if v}
     assert not zu_weit, (
         "Diese ERLAUBT-Eintraege decken mehr, als es Funde gibt — die Ausnahme "
         f"ist groesser als ihr Anlass: {zu_weit}"
@@ -1242,9 +1466,13 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 # (Owner-Regel: hoechstens zwei, danach landen und melden).
 #
 # TEIL A — Kontrollfluss
-#   * ERLEDIGT (#89): Der Schleifenkoerper laeuft jetzt ZWEI Runden, das
-#     `else` einer Schleife sieht den Koerper, und `try`/`finally` mit
-#     `return` im Rumpf erzeugt keinen Fehlfund mehr.
+#   * ERLEDIGT (#89): Zwei Schleifenrunden; `break` und `continue` tragen
+#     ihren Schreibvorgang weiter (der Kopf sieht `continue`, hinter der
+#     Schleife steht auch `break`, das `else` sieht `break` NICHT); ein
+#     `try`, dessen Wege alle die Funktion verlassen, beendet den Pfad.
+#     Die erste Fassung dieses Slices meldete das als erledigt, ohne dass es
+#     stimmte: `break`/`continue` lagen mit `return`/`raise` in einem Topf
+#     und warfen den Schreibvorgang weg. Der Blindpruefer hat es gemessen.
 #   * OFFEN: Keine Auswertungsreihenfolge innerhalb eines Ausdrucks — bei
 #     `a() or b()` gilt beides als ausgefuehrt. Bei `match` wird nie
 #     angenommen, dass die Faelle erschoepfend sind. Beides erzeugt
@@ -1262,11 +1490,21 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 #     Aufruf auf einem fremden Objekt zaehlt mit.
 #
 # AUSNAHMELISTEN
-#   * ERLEDIGT (#91): ERLAUBT deckt eine ANZAHL je Fundtext. Ein zweiter
-#     Fund mit demselben Text ist rot, und eine Ausnahme, die mehr deckt als
-#     es Funde gibt, ebenfalls.
+#   * ERLEDIGT (#91): ERLAUBT deckt eine ANZAHL je (Ablehnung,
+#     Schreibvorgang). Ein zweiter Fund mit demselben Text ist rot, ein
+#     ANDERER Schreibvorgang vor derselben Ablehnung ebenfalls, und eine
+#     Ausnahme, die mehr deckt als es Funde gibt, auch. Die Logik hat eine
+#     eigene Selbstprobe gegen eine feste Vorlage — ohne sie liess sie sich
+#     ersatzlos zurueckdrehen, ohne dass ein Test rot wurde.
 #   * OFFEN (#91): OHNE_ABLEHNUNG prueft, dass die Zeile eine echte Route
 #     trifft, aber nicht, ob die BEGRUENDUNG noch gilt.
+#   * OFFEN, und es ist die Stelle, an der diese Datei einmal leise
+#     verstummen wird: Die EINZIGE Probe von Teil A am echten Baum sind die
+#     zwei ERLAUBT-Eintraege. Baut jemand `delete_account` so um, dass die
+#     Existenzpruefung vor dem Loeschen steht, fordert die Fehlermeldung
+#     woertlich auf, sie zu entfernen — und danach hat Teil A am echten Baum
+#     keinen Fund mehr, der zeigt, dass er ueberhaupt noch etwas sieht. Die
+#     Mechanik-Vorlage laeuft weiter gruen, weil sie erfunden ist.
 #
 # ABLEHNUNGSFORMEN (#92)
 #   * `fehler = errors.x(); raise fehler`, `raise _fabrik()` und eine
