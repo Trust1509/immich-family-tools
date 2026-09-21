@@ -100,14 +100,22 @@ async def refresh_account(account_id: str, request: Request):
     if not account:
         raise errors.account_not_found()
     client = request.app.state.client_pool.get_for_account(account)
+    # Der `try` umfasst NUR den Immich-Aufruf. Die erste Fassung wickelte auch
+    # `update_account` und den Antwortbau mit ein — ein Fehler danach kam als
+    # 502 "Immich-Anfrage fehlgeschlagen" heraus, obwohl geschrieben worden
+    # war und Immich in Ordnung war. Der Aufrufer erfaehrt dann eine falsche
+    # Ursache zu einem Zustand, der sich bereits geaendert hat.
+    #
+    # Gefunden vom Reihenfolge-Waechter am sauberen Baum, danach von der
+    # Zweitstimme bis zur Antwort durchgemessen (#87).
     try:
         user_info = await client.validate()
-        user_id = user_info.get("id")
-        if user_id:
-            request.app.state.store.update_account(account_id, {"user_id": user_id})
-        return AccountPublic.from_account(request.app.state.store.get_account(account_id))
-    except Exception as exc:
+    except Exception:
         raise errors.immich_request_failed()
+    user_id = user_info.get("id")
+    if user_id:
+        request.app.state.store.update_account(account_id, {"user_id": user_id})
+    return AccountPublic.from_account(request.app.state.store.get_account(account_id))
 
 
 @router.get("/{account_id}/albums")

@@ -253,6 +253,68 @@ async def test_unauffindbares_album_lehnt_ab_BEVOR_umbenannt_wird(monkeypatch, t
     assert store.get_log() == [], "es darf nichts protokolliert worden sein"
 
 
+@pytest.mark.asyncio
+async def test_fehler_nach_dem_schreiben_gibt_sich_nicht_als_immich_fehler_aus(
+        monkeypatch, tmp_path):
+    """#87: Der `except` in refresh_account umfasste auch den Schreibvorgang.
+
+    Schlug irgendetwas NACH `update_account` fehl, bekam der Aufrufer 502
+    "Immich-Anfrage fehlgeschlagen" — obwohl geschrieben worden war und
+    Immich in Ordnung war. Er erfaehrt damit eine falsche Ursache zu einem
+    Zustand, der sich bereits geaendert hat.
+
+    Gefunden vom Reihenfolge-Waechter am sauberen Baum, von der Zweitstimme
+    bis zur Antwort durchgemessen.
+    """
+    import json
+
+    from routers import accounts as accounts_router
+    from services.config_store import ConfigStore
+
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({
+        "accounts": {
+            "konto-1": {"id": "konto-1", "name": "Konto Eins",
+                        "immich_url": "http://beispiel.invalid",
+                        "api_key": "platzhalter", "color": "#111111"},
+        },
+        "managed_albums": [],
+    }), encoding="utf-8")
+    store = ConfigStore(str(pfad))
+
+    class Client:
+        async def validate(self):
+            return {"id": "u1-neu"}          # Immich antwortet einwandfrei
+
+    class Pool:
+        def get_for_account(self, _acc):
+            return Client()
+
+    # Der Fehler kommt NACH dem Schreibvorgang und hat mit Immich nichts zu tun.
+    echt = store.get_account
+
+    def bricht_nach_dem_schreiben(kennung):
+        konto = echt(kennung)
+        if konto is not None and konto.user_id == "u1-neu":
+            raise RuntimeError("irgendetwas nach dem Schreibvorgang")
+        return konto
+
+    monkeypatch.setattr(store, "get_account", bricht_nach_dem_schreiben)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        store=store, client_pool=Pool())))
+
+    # Vorher war das ein AppError mit 502 "Immich-Anfrage fehlgeschlagen".
+    # Jetzt kommt der echte Fehler durch — ein Serverfehler bleibt ein
+    # Serverfehler und gibt sich nicht als Ursache aus, die er nicht ist.
+    with pytest.raises(RuntimeError):
+        await accounts_router.refresh_account("konto-1", request)
+
+    # Der Schreibvorgang IST passiert — genau deshalb darf die Antwort ihn
+    # nicht als Immich-Fehler ausgeben.
+    assert store._data["accounts"]["konto-1"]["user_id"] == "u1-neu"
+
+
 # ----------------------------------------------------------------------
 # Vorschau und ausdrueckliche Gruppenwahl (#81)
 # ----------------------------------------------------------------------
