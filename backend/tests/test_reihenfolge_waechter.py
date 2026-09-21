@@ -218,10 +218,41 @@ def _schreibende_huelle(fns: dict, schreibt: set) -> set:
 
 
 def _schreibende_store_methoden() -> set:
-    """Jede ConfigStore-Methode, die `self._save()` erreicht — auch ueber Umwege."""
+    """Die OEFFENTLICHEN ConfigStore-Methoden, die `self._save()` erreichen.
+
+    Nur oeffentliche, und das ist gemessen noetig: `__init__`, `_load` und
+    `_migrate` erreichen `_save` ebenfalls, aber sie sind das Innenleben des
+    Stores — kein Router ruft sie auf `store` auf. Solange dieser Abgleich
+    ueber den blossen METHODENNAMEN laeuft, machte `__init__` in der Menge
+    jeden Konstruktor im Projekt zum Schreibvorgang, der `super().__init__()`
+    ruft. Drei Fehlfunde auf einen Schlag, gemessen beim ersten Lauf des
+    Modulgraphen.
+    """
     fns = _funktionen(_baum("services/config_store.py"))
     direkt = {name for name, k in fns.items() if "_save" in _gerufene_namen(k)}
-    return _erreichbar(fns, direkt) - {"_save"}
+    return {n for n in _erreichbar(fns, direkt) if not n.startswith("_")}
+
+
+# Die Schreibflaeche des Stores, ausgeschrieben.
+#
+# Sie steht hier, weil die Ableitung ueber den Namen `_save` laeuft und damit
+# an einer Implementierungs-Innerlichkeit haengt: Verschiebt jemand den
+# Rumpf von `_save` nach `_persist` und laesst `_save` als leere Huelle
+# stehen, faellt jede Methode aus der Menge, die nur noch `_persist` ruft —
+# lautlos. Die Zweitstimme hat genau das gebaut und damit die statische UND
+# die Laufzeit-Sicht zugleich umgangen (165 Tests gruen bei echtem Verstoss).
+STORE_SCHREIBT = {
+    "add_account", "add_managed_album", "append_log", "clear_log",
+    "delete_account", "delete_managed_album", "dismiss_match",
+    "mark_all_pairs_synced", "mark_log_undone", "mark_names_synced",
+    "set_auto_sync_config", "undismiss_match", "update_account",
+    "update_managed_album",
+}
+
+
+def test_die_schreibflaeche_des_stores_ist_die_erwartete():
+    """Faellt eine Methode aus der Ableitung, ist das hier rot statt lautlos."""
+    assert _schreibende_store_methoden() == STORE_SCHREIBT
 
 
 # ---------------------------------------------------------------------------
@@ -231,26 +262,19 @@ def _schreibende_store_methoden() -> set:
 # Die Huellen liefen frueher je Endpunkt-DATEI. Damit endete die Analyse an
 # der Dateigrenze, und ein voellig gewoehnlicher Umbau hat den Waechter
 # blind gemacht — die Zweitstimme hat es gemessen und als Blocker eingestuft:
+# Endpunkt delegiert an `services/...`, dort wird geschrieben und danach
+# abgelehnt, und 20 Tests bleiben gruen.
 #
-#     # routers/accounts.py
-#     from services.konten import aktualisiere_konto
-#     ...
-#     return aktualisiere_konto(request, account_id, updates)
+# Jeder Knoten des Graphen ist ein PAAR aus Datei und qualifiziertem Namen
+# (`Klasse.methode` bei Methoden). Beides ist teuer bezahlt:
 #
-#     # services/konten.py
-#     def aktualisiere_konto(request, account_id, updates):
-#         request.app.state.store.clear_log()
-#         raise errors.account_not_found()
-#
-# Schreiben, dann ablehnen — und 20 Tests gruen. `_check_immich_version`
-# liegt heute nur ZUFAELLIG in `accounts.py`; nach `services/` gezogen waere
-# sie genauso verschwunden.
-#
-# Jetzt wird der Graph ueber alle Projektmodule gebildet und ueber die
-# IMPORTE aufgeloest, nicht ueber blosse Namensgleichheit: `from services.x
-# import y` und `import services.x as z` fuehren beide auf dieselbe Datei.
-# Namensgleiche Funktionen in verschiedenen Modulen bleiben dadurch
-# verschieden.
+#   * Ohne die DATEI im Schluessel sind `routers/accounts.py:delete_account`
+#     und `services/accounts.py:delete_account` dieselbe Funktion. Die
+#     Zweitstimme hat genau das gemessen: Ein echter Verstoss im
+#     ausgelagerten Modul wurde als erlaubter Altfall verbucht, weil die
+#     Ausnahme auf den DATEINAMEN lief. 165 Tests gruen.
+#   * Ohne die KLASSE kollidieren gleichnamige Methoden. In
+#     `services/immich_client.py` gibt es heute schon drei `__init__`.
 
 
 def _projekt_dateien() -> list:
@@ -275,41 +299,125 @@ def _modul_datei(modulname: str):
     return None
 
 
-def _importe(baum: ast.AST) -> tuple:
-    """(Namen-Importe, Modul-Aliase) dieser Datei.
+def _modulname(datei: pathlib.Path) -> str:
+    """Der Punktname dieses Moduls, relativ zur Wurzel."""
+    rel = datei.relative_to(WURZEL)
+    teile = list(rel.parts)
+    teile[-1] = teile[-1][:-3]            # ".py" ab
+    if teile[-1] == "__init__":
+        teile.pop()
+    return ".".join(teile)
+
+
+def _aufloesen_relativ(datei: pathlib.Path, modul, ebene: int) -> str:
+    """`from .x import y` in `services/a.py` -> `services.x`.
+
+    Die erste Fassung hat `ImportFrom.level` schlicht ignoriert und damit
+    jeden relativen Import ins Leere laufen lassen (Zweitstimme, gemessen).
+    """
+    if not ebene:
+        return modul or ""
+    basis = _modulname(datei).split(".")
+    if datei.name == "__init__.py":
+        basis.append("")                  # das Paket selbst ist die Basis
+    hoch = basis[:len(basis) - ebene] if ebene <= len(basis) else []
+    return ".".join([t for t in hoch if t] + ([modul] if modul else []))
+
+
+def _importe(datei: pathlib.Path, baum: ast.AST) -> tuple:
+    """(Namen-Importe, Modul-Aliase, nicht aufloesbar) dieser Datei.
 
     Namen-Importe: `from services.x import y as z` -> {z: (datei_von_x, "y")}
-    Modul-Aliase:  `from services import x` / `import services.x as z`
-                   -> {x bzw. z: datei_von_x}
+    Modul-Aliase:  `from services import x`, `import services.x as z`,
+                   `import services.x` (dann unter "services" UND "services.x")
+    Nicht aufloesbar: Sternchenimporte aus einem Projektmodul. Die stehen
+    einzeln da, statt still zu verschwinden — ein `from x import *` bringt
+    Namen mit, die dieser Graph nicht kennt.
     """
-    namen, aliase = {}, {}
+    namen, aliase, unklar = {}, {}, []
     for n in ast.walk(baum):
-        if isinstance(n, ast.ImportFrom) and n.module:
-            eigen = _modul_datei(n.module)
+        if isinstance(n, ast.ImportFrom):
+            voll = _aufloesen_relativ(datei, n.module, n.level or 0)
+            eigen = _modul_datei(voll)
             for a in n.names:
+                if a.name == "*":
+                    if eigen is not None:
+                        unklar.append(f"from {voll} import *")
+                    continue
                 lokal = a.asname or a.name
-                unter = _modul_datei(f"{n.module}.{a.name}")
+                unter = _modul_datei(f"{voll}.{a.name}" if voll else a.name)
                 if unter is not None:
-                    aliase[lokal] = unter       # `from services import x`
+                    aliase[lokal] = unter          # `from services import x`
                 elif eigen is not None:
                     namen[lokal] = (eigen, a.name)
         elif isinstance(n, ast.Import):
             for a in n.names:
-                datei = _modul_datei(a.name)
-                if datei is not None:
-                    aliase[a.asname or a.name.split(".")[0]] = datei
-    return namen, aliase
+                ziel = _modul_datei(a.name)
+                if ziel is None:
+                    continue
+                if a.asname:
+                    aliase[a.asname] = ziel
+                else:
+                    # `import services.x` bindet den NAMEN `services`, der
+                    # Aufruf steht dann als `services.x.f()` da. Beide Formen
+                    # werden eingetragen; die Aufloesung unten probiert die
+                    # laengste Kette zuerst.
+                    aliase[a.name] = ziel
+                    kopf = a.name.split(".")[0]
+                    kopf_datei = _modul_datei(kopf)
+                    if kopf_datei is not None:
+                        aliase.setdefault(kopf, kopf_datei)
+    return namen, aliase, unklar
+
+
+def _kurz(datei: pathlib.Path) -> str:
+    """`routers/accounts.py` statt nur `accounts.py`.
+
+    Der blosse Dateiname reicht NICHT: `routers/accounts.py:delete_account`
+    und `services/accounts.py:delete_account` waeren dieselbe Funktion, und
+    beide Pruefstimmen haben damit einen echten Verstoss als erlaubten
+    Altfall verbuchen lassen — 165 Tests gruen.
+    """
+    return datei.relative_to(WURZEL).as_posix()
+
+
+def _qualifizierte_funktionen(baum: ast.AST) -> dict:
+    """{qualifizierter Name: Knoten} — Methoden als `Klasse.methode`."""
+    aus = {}
+
+    def lauf(knoten, praefix):
+        for k in knoten.body:
+            if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                aus[praefix + k.name] = k
+                lauf(k, praefix + k.name + ".")
+            elif isinstance(k, ast.ClassDef):
+                lauf(k, praefix + k.name + ".")
+
+    lauf(baum, "")
+    return aus
+
+
+def _klassen(baum: ast.AST) -> set:
+    return {k.name for k in ast.walk(baum) if isinstance(k, ast.ClassDef)}
+
+
+def _punktkette(knoten) -> list:
+    """`a.b.c` -> ["a", "b", "c"]; alles andere -> []."""
+    teile = []
+    while isinstance(knoten, ast.Attribute):
+        teile.append(knoten.attr)
+        knoten = knoten.value
+    if not isinstance(knoten, ast.Name):
+        return []
+    teile.append(knoten.id)
+    return list(reversed(teile))
 
 
 _stand_puffer: dict = {}
 
 
 def _projekt_stand() -> dict:
-    """Einmal je Lauf: Baeume, Funktionen, Importe und die beiden Huellen.
-
-    Die Huellen sind Mengen von (Datei, Funktionsname) — also modulweit
-    eindeutig, nicht nach blossem Namen.
-    """
+    """Einmal je Lauf: Baeume, Funktionen, Importe und die beiden Huellen."""
     if _stand_puffer:
         return _stand_puffer
 
@@ -318,18 +426,51 @@ def _projekt_stand() -> dict:
 
     dateien = {}
     for pfad in _projekt_dateien():
-        baum = ast.parse(io.open(pfad, encoding="utf-8").read())
-        namen, aliase = _importe(baum)
+        # Mit Dateinamen, damit ein Syntaxfehler sagt, WO er steht — die
+        # erste Fassung meldete nur `<unknown>` (Zweitstimme, Hinweis).
+        baum = ast.parse(io.open(pfad, encoding="utf-8").read(), filename=str(pfad))
+        namen, aliase, unklar = _importe(pfad, baum)
         dateien[pfad] = {
-            "fns": _funktionen(baum),
+            "fns": _qualifizierte_funktionen(baum),
+            "klassen": _klassen(baum),
             "fehlernamen": _fehlernamen(baum),
             "namen": namen,
             "aliase": aliase,
+            "unklar": unklar,
         }
 
-    def ziele(pfad, knoten):
-        """Die (Datei, Name), die diese Funktion nachweislich aufruft."""
+    def klasse_von(pfad, name):
+        """Wo ist diese Klasse definiert? (Datei, Klassenname) oder None."""
         d = dateien[pfad]
+        if name in d["klassen"]:
+            return (pfad, name)
+        if name in d["namen"]:
+            ziel, original = d["namen"][name]
+            if original in dateien.get(ziel, {}).get("klassen", set()):
+                return (ziel, original)
+        return None
+
+    def bindungen(pfad, knoten):
+        """{lokale Variable: (Datei, Klasse)} aus `x = KlasseAusProjekt(...)`."""
+        aus = {}
+        for k in ast.walk(knoten):
+            if not isinstance(k, ast.Assign) or not isinstance(k.value, ast.Call):
+                continue
+            f = k.value.func
+            if not isinstance(f, ast.Name):
+                continue
+            ziel = klasse_von(pfad, f.id)
+            if ziel is None:
+                continue
+            for z in k.targets:
+                if isinstance(z, ast.Name):
+                    aus[z.id] = ziel
+        return aus
+
+    def ziele(pfad, knoten):
+        """Die (Datei, qualifizierter Name), die diese Funktion aufruft."""
+        d = dateien[pfad]
+        gebunden = bindungen(pfad, knoten)
         aus = set()
         for c in ast.walk(knoten):
             if not isinstance(c, ast.Call):
@@ -340,10 +481,37 @@ def _projekt_stand() -> dict:
                     aus.add((pfad, f.id))
                 elif f.id in d["namen"]:
                     aus.add(d["namen"][f.id])
+                    ziel, original = d["namen"][f.id]
+                    # `Klasse()` zaehlt als Aufruf von `Klasse.__init__`.
+                    if original in dateien.get(ziel, {}).get("klassen", set()):
+                        aus.add((ziel, f"{original}.__init__"))
+                elif f.id in d["klassen"]:
+                    aus.add((pfad, f"{f.id}.__init__"))
             elif isinstance(f, ast.Attribute):
-                basis = f.value.id if isinstance(f.value, ast.Name) else None
-                if basis in d["aliase"]:
-                    aus.add((d["aliase"][basis], f.attr))
+                # 1. `Klasse(...).methode(...)` und `variable.methode(...)`,
+                #    wo die Variable aus einem Projekt-Konstruktor stammt.
+                #    Ein Dienst als KLASSE ist ein ganz gewoehnlicher Umbau,
+                #    und ohne diesen Zweig oeffnet er die Dateigrenze erneut
+                #    (Zweitstimme, gemessen: 165 Tests gruen bei echtem
+                #    Verstoss).
+                traeger = f.value
+                herkunft = None
+                if isinstance(traeger, ast.Call) and isinstance(traeger.func, ast.Name):
+                    herkunft = klasse_von(pfad, traeger.func.id)
+                elif isinstance(traeger, ast.Name):
+                    herkunft = gebunden.get(traeger.id) or klasse_von(pfad, traeger.id)
+                if herkunft is not None:
+                    aus.add((herkunft[0], f"{herkunft[1]}.{f.attr}"))
+                    continue
+                # 2. `modul.funktion()` und `paket.modul.funktion()` — die
+                #    laengste passende Kette gewinnt.
+                kette = _punktkette(f)
+                for schnitt in range(len(kette) - 1, 0, -1):
+                    praefix = ".".join(kette[:schnitt])
+                    if praefix in d["aliase"]:
+                        rest = ".".join(kette[schnitt:])
+                        aus.add((d["aliase"][praefix], rest))
+                        break
         return aus
 
     kanten = {}
@@ -357,19 +525,33 @@ def _projekt_stand() -> dict:
             # ODER eine veraendernde ImmichClient-Methode. Die zweite Haelfte
             # ist noetig, damit `sync_service.sync_names_multi` weiter als
             # Schreibvorgang gilt — es ruft `client.update_person`.
-            if _gerufene_namen(knoten) & (schreibt_store | schreibt_immich):
+            # `_save` gehoert in die SAAT, obwohl es nicht in
+            # `schreibt_store` steht: Diese Menge ist die oeffentliche
+            # Schreibflaeche fuer Aufrufe auf `store`, und `_save` ist
+            # ConfigStore-intern. Ohne es hier waere keine einzige
+            # ConfigStore-Methode ein Schreibvorgang — und durch die
+            # laeuft jeder Schreibvorgang dieser Anwendung.
+            if _gerufene_namen(knoten) & (schreibt_store | schreibt_immich
+                                          | {"_save"}):
                 saat_schreibt.add((pfad, name))
 
+    # Rueckwaertsgraph einmal aufbauen, dann EINE Breitensuche je Saat. Die
+    # frueher hier stehende Fixpunktschleife lief quadratisch in der Zahl der
+    # Funktionen (Zweitstimme: 16000 Knoten -> 17,7 s).
+    rueck: dict = {}
+    for knoten, z in kanten.items():
+        for ziel in z:
+            rueck.setdefault(ziel, set()).add(knoten)
+
     def huelle(saat):
-        kann = set(saat)
-        while True:
-            neu = set(kann)
-            for knoten, z in kanten.items():
-                if knoten not in kann and z & kann:
-                    neu.add(knoten)
-            if neu == kann:
-                return kann
-            kann = neu
+        erreicht, rand = set(), list(saat)
+        while rand:
+            k = rand.pop()
+            if k in erreicht:
+                continue
+            erreicht.add(k)
+            rand.extend(rueck.get(k, ()))
+        return erreicht
 
     _stand_puffer.update({
         "dateien": dateien,
@@ -380,6 +562,22 @@ def _projekt_stand() -> dict:
         "schreibt": huelle(saat_schreibt),
     })
     return _stand_puffer
+
+
+def test_keine_unaufloesbaren_projektimporte():
+    """Ein `from projektmodul import *` bringt Namen mit, die der Graph nicht kennt.
+
+    Er stuende sonst still da: Der Import loest sich auf nichts auf, die
+    Kante entsteht nicht, und der Waechter meldet gruen. Also lieber rot mit
+    Ansage (Zweitstimme, Fund 4).
+    """
+    unklar = {pfad.name: d["unklar"]
+              for pfad, d in _projekt_stand()["dateien"].items() if d["unklar"]}
+    assert not unklar, (
+        "Diese Importe kann der Aufrufgraph nicht aufloesen, also sieht er die "
+        f"damit geholten Funktionen nicht: {unklar}\n"
+        "Entweder die Namen einzeln importieren oder diesen Waechter erweitern."
+    )
 
 
 TRY_TYPEN = (ast.Try,) + ((ast.TryStar,) if hasattr(ast, "TryStar") else ())
@@ -414,7 +612,9 @@ def _eigene_knoten(stmt: ast.stmt):
 
 def _ereignisse(stmt, schreibt_store, lehnt_store, lehnt_helfer,
                 schreibt_helfer, fehlernamen=frozenset(),
-                modul_lehnt=frozenset(), modul_schreibt=frozenset()):
+                modul_lehnt=frozenset(), modul_schreibt=frozenset(),
+                schreibt_immich=frozenset(),
+                objekt_lehnt=frozenset(), objekt_schreibt=frozenset()):
     """(Zeile, 'schreibt'|'lehnt_ab', Text) fuer dieses eine Statement."""
     aus = []
     for k in _eigene_knoten(stmt):
@@ -433,14 +633,23 @@ def _ereignisse(stmt, schreibt_store, lehnt_store, lehnt_helfer,
                 # Ablehnung, sobald jemand ihrer Funktion ein `_save()` gibt.
                 if f.attr in lehnt_store:
                     aus.append((( k.lineno, k.col_offset), "lehnt_ab", f"{f.attr}() lehnt ab"))
-                if (basis, f.attr) in modul_lehnt:
+                if (basis, f.attr) in modul_lehnt or f.attr in objekt_lehnt:
                     aus.append(((k.lineno, k.col_offset), "lehnt_ab",
-                                f"{basis}.{f.attr}() lehnt ab"))
+                                f"{basis or '<objekt>'}.{f.attr}() lehnt ab"))
                 if f.attr in schreibt_store:
                     aus.append(((k.lineno, k.col_offset), "schreibt", f"store.{f.attr}()"))
-                elif (basis, f.attr) in modul_schreibt:
+                elif f.attr in schreibt_immich:
+                    # Die Immich-Senken waren bisher NUR Saat der Huelle.
+                    # Innerhalb einer Funktion zaehlte ein Immich-Schreibvorgang
+                    # damit nicht — folgenlos, solange `sync_service.py` gar
+                    # nicht gelesen wurde, und ein Loch, seit sie gelesen wird.
+                    # Ausgerechnet dort, wo die Umbenennungen passieren
+                    # (Blindpruefer, gemessen).
                     aus.append(((k.lineno, k.col_offset), "schreibt",
-                                f"{basis}.{f.attr}()"))
+                                f"immich.{f.attr}()"))
+                elif (basis, f.attr) in modul_schreibt or f.attr in objekt_schreibt:
+                    aus.append(((k.lineno, k.col_offset), "schreibt",
+                                f"{basis or '<objekt>'}.{f.attr}()"))
             elif isinstance(f, ast.Name):
                 # Ein Helfer kann ebenfalls BEIDES. Reihenfolge wie oben:
                 # erst ablehnen, dann schreiben.
@@ -668,14 +877,14 @@ def _ist_endpunkt(knoten) -> bool:
 # eine Ausnahme, die niemand mehr braucht, verschwindet, statt stumm etwas
 # Neues zu decken.
 ERLAUBT = {
-    ("accounts.py", "delete_account"): (
+    ("routers/accounts.py", "delete_account"): (
         {("raise errors.account_not_found()", "store.delete_account()"): 1},
         "`store.delete_account` liefert bei unbekannter Kennung False, OHNE zu "
         "schreiben; die Ablehnung danach IST diese Antwort. Dass dabei wirklich "
         "nichts geschrieben wird, prueft Teil B "
         "(DELETE /api/accounts/gibt-es-nicht).",
     ),
-    ("albums.py", "delete_managed_album"): (
+    ("routers/albums.py", "delete_managed_album"): (
         {("raise errors.managed_album_not_found()", "store.delete_managed_album()"): 1},
         "Wie oben, mit `store.delete_managed_album`; geprueft von Teil B "
         "(DELETE /api/sync/albums/gibt-es-nicht).",
@@ -712,6 +921,15 @@ def _montierte_endpunkte():
             # Huelle geparst, und sie polsterten die Mindestzahl um drei auf
             # (Blindpruefer). Sie gehoeren uns nicht und koennen unsere Regel
             # nicht verletzen.
+            # `inspect.unwrap` ZUERST: `getsourcefile` entpackt ein
+            # `functools.wraps` nicht, `getsourcelines` aber schon. Ohne das
+            # wird der Rumpf des Endpunkts mit den Listen der DEKORATOR-Datei
+            # gelesen — dort fehlen die lokalen Helfer, die `errors`-Importe
+            # und die Modul-Aliase (Blindpruefer). Nicht einzeln rot
+            # beweisbar, seit der Huellen-Schnitt dieselbe Funktion ohnehin
+            # analysiert; es steht als Richtigstellung der Datei-Zuordnung da,
+            # nicht als bewiesener Waechter.
+            fn = inspect.unwrap(fn)
             quelle = inspect.getsourcefile(fn)
             if quelle is None or not pathlib.Path(quelle).is_relative_to(WURZEL):
                 continue
@@ -1175,21 +1393,39 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
         funde: list = []
         _pfad_pruefen(_quelle_einer_funktion(fn).body[0].body, None, funde, listen)
         if funde:
-            gemeldet[(datei.name, fn.__name__)] = _ohne_dubletten(funde)
+            gemeldet.setdefault((_kurz(datei), fn.__name__), []).extend(funde)
 
-    # UND jede Projektfunktion, die ein Endpunkt erreicht.
+    # UND jede Projektfunktion, in der ein Verstoss ueberhaupt stehen KANN.
     #
     # Ohne das bleibt die Luecke aus #90 offen, auch mit Aufrufgraph: Liegt
     # der Verstoss IM Helfer (erst schreiben, dann ablehnen), sieht die
     # Aufrufstelle nur "schreibt und lehnt ab" — welche Reihenfolge darin
     # gilt, steht dort nicht. Gemessen: Der Umbau der Zweitstimme blieb auch
     # mit Graph gruen, bis die Analyse in die Funktion selbst hineinging.
-    for datei, name in sorted(_erreichbare_projektfunktionen(funktionen)):
-        knoten = _projekt_stand()["dateien"][datei]["fns"][name]
+    stand = _projekt_stand()
+    kandidaten = _erreichbare_projektfunktionen(funktionen)
+    # `lehnt & schreibt` sind genau die Funktionen, in denen die bewachte
+    # Klasse auftreten kann. Sie NUR ueber die Erreichbarkeit zu suchen
+    # reicht nicht: `store.update_account()` erzeugt keine Kante (der Store
+    # kommt aus `request.app.state`), also war KEINE einzige ConfigStore-
+    # Methode je analysiert — durch die aber laeuft jeder Schreibvorgang
+    # dieser Anwendung. Der Blindpruefer hat den Verstoss dort eingebaut:
+    # 165 Tests gruen.
+    kandidaten |= stand["lehnt"] & stand["schreibt"]
+    assert len(kandidaten) >= 25, (
+        f"Nur {len(kandidaten)} Projektfunktionen zu pruefen. Der Aufrufgraph "
+        "hat aufgehoert zu arbeiten — dann prueft dieser Teil fast nichts "
+        "mehr und bleibt trotzdem gruen. Sieh nach, ob `_modul_datei` die "
+        "Module noch findet."
+    )
+    for datei, name in sorted(kandidaten):
+        knoten = stand["dateien"][datei]["fns"][name]
         funde = []
         _pfad_pruefen(knoten.body, None, funde, _listen_fuer_datei(datei))
         if funde:
-            gemeldet[(datei.name, name)] = _ohne_dubletten(funde)
+            gemeldet.setdefault((_kurz(datei), name), []).extend(funde)
+
+    gemeldet = {k: _ohne_dubletten(v) for k, v in gemeldet.items()}
 
     unerwartet = {}
     for schluessel, funde in gemeldet.items():
@@ -1480,6 +1716,27 @@ OHNE_ABLEHNUNG = {
 
 SCHREIB_VERBEN = {"POST", "PUT", "PATCH", "DELETE"}
 
+def _methoden_von_projektklassen(huelle) -> set:
+    """Methodennamen aus PROJEKTKLASSEN, die in dieser Huelle liegen.
+
+    Ein Dienst als KLASSE ist ein gewoehnlicher Umbau, und beide
+    Pruefstimmen haben gemessen, dass er die Dateigrenze wieder oeffnet:
+    Der Graph kennt zwar die Kante von `Kontopflege(request).lehnt_ab()`,
+    aber an der AUFRUFSTELLE entstand kein Ereignis, weil der Empfaenger ein
+    Konstruktoraufruf ist und kein Modulname.
+
+    Aufgeloest wird das wie bei `store.x()` auch: ueber den METHODENNAMEN,
+    ohne den Empfaenger anzusehen. Das ist die bereits benannte Grenze
+    dieser Datei, hier bewusst ein zweites Mal in Kauf genommen — eine
+    Typinferenz waere das Mehrfache an Maschinerie fuer denselben Zweck.
+    """
+    aus = set()
+    for _datei, qual in huelle:
+        if "." in qual:
+            aus.add(qual.rsplit(".", 1)[1])
+    return aus
+
+
 _listen_puffer: dict = {}
 
 
@@ -1508,13 +1765,22 @@ def _listen_fuer_datei(datei: pathlib.Path):
                     if (ziel, name) in huelle}
 
         _listen_puffer[datei] = (
-            stand["schreibt_store"],
+            # `_save` MUSS mit: Es ist die Senke selbst. Ohne es sieht die
+            # Analyse INNERHALB von `ConfigStore` keinen Schreibvorgang —
+            # die Methode landet zwar als Kandidat in der Huelle, aber im
+            # Rumpf passiert fuer sie nichts. Gemessen: Der Verstoss, den
+            # der Blindpruefer in `update_account` eingebaut hat, blieb
+            # genau daran gruen.
+            stand["schreibt_store"] | {"_save"},
             _ablehnende_huelle(_funktionen(_baum("services/config_store.py"))),
             lokal(stand["lehnt"]),
             lokal(stand["schreibt"]),
             d["fehlernamen"],
             ueber_module(stand["lehnt"]),
             ueber_module(stand["schreibt"]),
+            stand["schreibt_immich"],
+            _methoden_von_projektklassen(stand["lehnt"]),
+            _methoden_von_projektklassen(stand["schreibt"]),
         )
     return _listen_puffer[datei]
 
@@ -1693,20 +1959,47 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 #     gemessenen Fall im Baum.
 #
 # TEIL A — Reichweite
-#   * ERLEDIGT (#90): Der Aufrufgraph geht ueber MODULGRENZEN, aufgeloest
-#     ueber die Importe (nicht ueber blosse Namensgleichheit). Und jede
-#     Projektfunktion, die ein Endpunkt ERREICHT, wird selbst analysiert —
-#     ohne das bleibt die Luecke offen, wenn der Verstoss IM Helfer liegt:
-#     Die Aufrufstelle sieht dann nur "schreibt und lehnt ab" und kann die
-#     Reihenfolge darin nicht kennen.
-#   * ERLEDIGT: FastAPI-eigene Routen (Swagger, OpenAPI, ReDoc) werden
-#     ausgelassen — sie gehoeren uns nicht und polsterten die Mindestzahl.
-#   * OFFEN: Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A
+#   Die erste Fassung dieses Abschnitts meldete #90 als ERLEDIGT. Zwei
+#   Pruefstimmen haben danach FUENF Wege gemessen, auf denen ein Verstoss
+#   bei vollstaendig gruener Suite durchkam. Was jetzt gilt, ist einzeln
+#   rot bewiesen; was offen ist, steht darunter.
+#
+#   GESCHLOSSEN, je mit Rot-Beweis:
+#   * Der Aufrufgraph geht ueber MODULGRENZEN, aufgeloest ueber die Importe
+#     — absolut, relativ (`from .x import y`), als Modulalias und als
+#     Punktkette. Namensgleichheit allein genuegt nicht.
+#   * Analysiert wird nicht nur, was ein Endpunkt erreicht, sondern jede
+#     Funktion in `lehnt & schreibt` — sonst ist KEINE `ConfigStore`-Methode
+#     je geprueft, und durch die laeuft jeder Schreibvorgang.
+#   * Methoden von PROJEKTKLASSEN zaehlen an der Aufrufstelle. Ein Dienst
+#     als Klasse ist ein gewoehnlicher Umbau und oeffnete die Dateigrenze
+#     erneut.
+#   * Immich-Schreibvorgaenge zaehlen auch INNERHALB einer Funktion, nicht
+#     nur als Saat der Huelle.
+#   * `functools.wraps` am Endpunkt verschiebt die Datei-Zuordnung nicht
+#     mehr (`inspect.unwrap`). NICHT einzeln rot beweisbar, seit der
+#     Huellen-Schnitt dieselbe Funktion ohnehin analysiert — es steht als
+#     Richtigstellung da, nicht als bewiesener Waechter.
+#   * FastAPI-eigene Routen (Swagger, OpenAPI, ReDoc) werden ausgelassen.
+#   * `from projektmodul import *` macht die Suite rot statt still
+#     unaufloesbar zu bleiben.
+#
+#   OFFEN:
+#   * Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A
 #     nicht; `_montierte_endpunkte` steigt nur ueber `original_router` ab.
-#   * OFFEN: Bei Aufrufen auf einem OBJEKT (`store.x()`) zaehlt der
-#     METHODENNAME ohne Empfaenger — ein gleichnamiger Aufruf auf einem
-#     fremden Objekt zaehlt mit. Bei Modul- und Namensaufrufen nicht mehr:
-#     die gehen ueber die Importe.
+#   * Bei Aufrufen auf einem OBJEKT zaehlt der METHODENNAME ohne
+#     Empfaenger — sowohl bei `store.x()` als auch bei Methoden von
+#     Projektklassen. Ein gleichnamiger Aufruf auf einem fremden Objekt
+#     zaehlt mit. Das ist bewusst: Eine Typinferenz waere das Mehrfache an
+#     Maschinerie fuer denselben Zweck.
+#   * Rueckrufe, `functools.partial` und dynamische Aufrufe (`getattr`)
+#     erzeugen keine Kante. Sie fallen still aus dem Graphen.
+#   * Die Analyse einer erreichbaren Funktion kennt ihre ARGUMENTE nicht.
+#     Damit gilt hier die staerkere Regel "kein erreichbarer Helfer darf
+#     einen solchen Pfad ENTHALTEN" statt "kein ausfuehrbarer Anfragepfad
+#     hat ihn". Das ist eine andere Regel als die im Kopf behauptete, und
+#     sie kann einen Helfer melden, dessen gefaehrlicher Zweig am einzigen
+#     Aufruf unerreichbar ist (Zweitstimme).
 #
 # AUSNAHMELISTEN
 #   * ERLEDIGT (#91): ERLAUBT deckt eine ANZAHL je (Ablehnung,
