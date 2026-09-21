@@ -4,7 +4,9 @@ All notable changes to Immich Family Tools are documented here.
 
 ## [1.7.0] – 2026-09-21
 
-**Risk: backup** — this release migrates `accounts.json`. Read the upgrade notes before you rebuild.
+**Risk: backup**
+
+This release migrates `accounts.json`. Read the upgrade notes before you rebuild.
 
 ### Album groups no longer hang on the album name
 
