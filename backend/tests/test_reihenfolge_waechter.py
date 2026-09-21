@@ -146,27 +146,58 @@ def _erreichbar(fns: dict, direkt: set) -> set:
 ABLEHNUNGS_TYPEN = {"HTTPException", "AppError"}
 
 
-def _ist_ablehnung(raise_knoten) -> str | None:
+def _fehlernamen(baum: ast.AST) -> set:
+    """Namen, die diese Datei direkt aus `errors` importiert hat.
+
+    `from errors import match_not_found` ist dieselbe Ablehnung wie
+    `errors.match_not_found()`, nur anders geschrieben — und die vorige
+    Fassung sah sie nicht (Zweitstimme, gemessen: Verstoss im Baum, Suite
+    gruen).
+    """
+    aus = set()
+    for n in ast.walk(baum):
+        if isinstance(n, ast.ImportFrom) and n.module:
+            if n.module.split(".")[-1] == "errors":
+                aus |= {a.asname or a.name for a in n.names}
+    return aus
+
+
+def _ist_ablehnung(raise_knoten, fehlernamen=frozenset()) -> str | None:
     if not isinstance(raise_knoten.exc, ast.Call):
         return None
     f = raise_knoten.exc.func
     if (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
             and f.value.id == "errors"):
         return f"raise errors.{f.attr}()"
-    if isinstance(f, ast.Name) and f.id in ABLEHNUNGS_TYPEN:
+    if isinstance(f, ast.Name) and (f.id in ABLEHNUNGS_TYPEN or f.id in fehlernamen):
         return f"raise {f.id}()"
     if isinstance(f, ast.Attribute) and f.attr in ABLEHNUNGS_TYPEN:
         return f"raise {f.attr}()"
     return None
 
 
-def _lehnt_direkt_ab(knoten: ast.AST) -> bool:
-    return any(_ist_ablehnung(k) for k in ast.walk(knoten)
+def _lehnt_direkt_ab(knoten: ast.AST, fehlernamen=frozenset()) -> bool:
+    return any(_ist_ablehnung(k, fehlernamen) for k in ast.walk(knoten)
                if isinstance(k, ast.Raise))
 
 
-def _ablehnende_huelle(fns: dict) -> set:
-    return _erreichbar(fns, {n for n, k in fns.items() if _lehnt_direkt_ab(k)})
+def _ablehnende_huelle(fns: dict, fehlernamen=frozenset()) -> set:
+    return _erreichbar(fns, {n for n, k in fns.items()
+                             if _lehnt_direkt_ab(k, fehlernamen)})
+
+
+def _schreibende_huelle(fns: dict, schreibt_store: set, schreibt_dienst: set) -> set:
+    """Funktionen DIESER Datei, die einen Schreibvorgang erreichen.
+
+    Fuer Ablehnungen gab es diese Huelle von Anfang an, fuer Schreibvorgaenge
+    nicht. Gemessen von der Zweitstimme: Schon das harmlose Auslagern von
+    `store.clear_log()` in eine gewoehnliche Modul-Hilfsfunktion liess Teil A
+    den Schreibvorgang verlieren — eine Ablehnung danach war kein Fund mehr,
+    und die ganze Suite blieb gruen.
+    """
+    direkt = {n for n, k in fns.items()
+              if _gerufene_namen(k) & (schreibt_store | schreibt_dienst)}
+    return _erreichbar(fns, direkt)
 
 
 def _schreibende_store_methoden() -> set:
@@ -206,12 +237,13 @@ def _eigene_knoten(stmt: ast.stmt):
         yield from ast.walk(q)
 
 
-def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store, lehnt_helfer):
+def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store,
+                lehnt_helfer, schreibt_helfer, fehlernamen=frozenset()):
     """(Zeile, 'schreibt'|'lehnt_ab', Text) fuer dieses eine Statement."""
     aus = []
     for k in _eigene_knoten(stmt):
         if isinstance(k, ast.Raise):
-            text = _ist_ablehnung(k)
+            text = _ist_ablehnung(k, fehlernamen)
             if text:
                 aus.append((k.lineno, "lehnt_ab", text))
         elif isinstance(k, ast.Call):
@@ -229,8 +261,13 @@ def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store, lehnt_helfer
                     aus.append((k.lineno, "schreibt", f"store.{f.attr}()"))
                 elif basis == "sync_service" and f.attr in schreibt_dienst:
                     aus.append((k.lineno, "schreibt", f"sync_service.{f.attr}()"))
-            elif isinstance(f, ast.Name) and f.id in lehnt_helfer:
-                aus.append((k.lineno, "lehnt_ab", f"{f.id}() lehnt ab"))
+            elif isinstance(f, ast.Name):
+                # Ein Helfer kann ebenfalls BEIDES. Reihenfolge wie oben:
+                # erst ablehnen, dann schreiben.
+                if f.id in lehnt_helfer:
+                    aus.append((k.lineno, "lehnt_ab", f"{f.id}() lehnt ab"))
+                if f.id in schreibt_helfer:
+                    aus.append((k.lineno, "schreibt", f"{f.id}() schreibt"))
     # Bei gleicher Zeile zuerst die Ablehnung: Ein Aufruf, der beides kann,
     # lehnt ab, BEVOR er schreibt — sonst deckt er sich selbst zu.
     aus.sort(key=lambda e: (e[0], 0 if e[1] == "lehnt_ab" else 1))
@@ -421,6 +458,21 @@ def _endpunkt_funde(quelltext: str, listen) -> dict:
 # Ohne sie waere die Mechanik nur so lange bewiesen, wie zufaellig ein echter
 # Fund im Baum steht (`docs/agents/lehren.md` §18).
 MECHANIK_QUELLE = '''
+from errors import nein_direkt
+
+@router.post("/x")
+def ablehnung_ueber_direkten_import(store):
+    store.schreib()
+    raise nein_direkt()
+
+def schreibender_helfer(store):
+    store.schreib()
+
+@router.post("/x")
+def schreibt_ueber_einen_helfer(store):
+    schreibender_helfer(store)
+    raise errors.nein()
+
 @router.post("/x")
 def nach_dem_schreiben(store):
     store.schreib()
@@ -500,6 +552,8 @@ def bedingt_eingehaengt():
 '''
 
 MECHANIK_FUNDE = {
+    "ablehnung_ueber_direkten_import",  # `from errors import ...`
+    "schreibt_ueber_einen_helfer",      # Schreibvorgang in einen Helfer ausgelagert
     "nach_dem_schreiben",               # der einfache Fall
     "im_handler",                       # `except` laeuft NACH dem try-Block
     "handler_schreibt_dann_ablehnung",  # der Handler schreibt, danach Ablehnung
@@ -519,7 +573,9 @@ MECHANIK_NICHT_FUNDE = {
 def test_mechanik_trennt_pfade_und_folgt_aufrufen():
     """Teil A gegen eine erfundene Quelle mit bekanntem Ergebnis."""
     fns = _funktionen(ast.parse(MECHANIK_QUELLE))
-    listen = ({"schreib"}, set(), set(), _ablehnende_huelle(fns))
+    namen = _fehlernamen(ast.parse(MECHANIK_QUELLE))
+    listen = ({"schreib"}, set(), set(), _ablehnende_huelle(fns, namen),
+              _schreibende_huelle(fns, {"schreib"}, set()), namen)
     gefunden = set(_endpunkt_funde(MECHANIK_QUELLE, listen))
 
     assert gefunden == MECHANIK_FUNDE, (
@@ -577,9 +633,15 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
     for fn in funktionen:
         datei = pathlib.Path(inspect.getsourcefile(fn))
         if datei not in huellen:
-            huellen[datei] = _ablehnende_huelle(
-                _funktionen(ast.parse(io.open(datei, encoding="utf-8").read())))
-        listen = (schreibt_store, schreibt_dienst, lehnt_store, huellen[datei])
+            baum_der_datei = ast.parse(io.open(datei, encoding="utf-8").read())
+            fns_der_datei = _funktionen(baum_der_datei)
+            namen = _fehlernamen(baum_der_datei)
+            huellen[datei] = (
+                _ablehnende_huelle(fns_der_datei, namen),
+                _schreibende_huelle(fns_der_datei, schreibt_store, schreibt_dienst),
+                namen,
+            )
+        listen = (schreibt_store, schreibt_dienst, lehnt_store) + huellen[datei]
         funde: list = []
         _pfad_pruefen(_quelle_einer_funktion(fn).body[0].body, None, funde, listen)
         if funde:
@@ -646,28 +708,77 @@ ALBUM = {
     "total_assets": 0, "status": "active",
 }
 
-# Was als SCHREIBVORGANG gilt: die WIRKUNG, nicht der Aufruf.
+# WO Teil B den Schreibvorgang abgreift — und warum genau dort.
 #
-# Die erste Fassung zaehlte Aufrufe der Mutatoren und meldete zwei FEHLFUNDE:
-# `delete_account` und `delete_managed_album` kehren bei unbekannter Kennung
-# zurueck, OHNE etwas zu aendern.
+# Erste Fassung: Zustandsvergleich (Datei + `store._data`) plus die
+# oeffentlichen Funktionen von `sync_service`. Die Zweitstimme hat beides
+# gebrochen, jeweils mit vollstaendig gruener Suite:
 #
-# Geprueft wird deshalb der ZUSTAND: die Datei UND `store._data`. Fuer Immich
-# geht das nicht — dort hinterlaesst ein Schreibvorgang in unserem Zustand
-# keine Spur. Da IST der Aufruf die Wirkung. Die Liste dafuer kommt aus dem
-# BAUM, nicht aus einer gepflegten Aufzaehlung: Die erste Fassung hatte sie
-# von Hand, und eine neue Funktion waere stumm nicht instrumentiert worden.
+#  * Ein Schreibvorgang, der denselben Inhalt zurueckschreibt, ist im
+#    Zustandsvergleich UNSICHTBAR — gemessen an `DELETE /api/sync/log` bei
+#    leerem Protokoll: `bytes_equal=True`, waehrend Inode und
+#    `.bak`-Sicherung sich sehr wohl geaendert hatten.
+#  * Die Dienst-Attrappen haengen am MODUL `sync_service`. Ein Router, der
+#    `from services.sync_service import sync_names_multi` schreibt, haelt die
+#    alte Referenz und laeuft daran vorbei — gemessen, Marker gesetzt, 17
+#    Tests gruen.
+#
+# Beides ist behoben, indem nicht mehr die AUFRUFER instrumentiert werden,
+# sondern die tiefsten echten SCHREIBSENKEN, und zwar auf der KLASSE:
+#
+#  * `ConfigStore._save` — jeder Schreibvorgang auf die Datei geht dort
+#    durch, auch der, der nichts aendert.
+#  * die schreibenden `ImmichClient`-Methoden — abgeleitet daraus, welche
+#    davon `put`/`post`/`patch`/`delete` benutzen, nicht aus einer Liste.
+#
+# An der Klasse zu patchen macht die Importform der Aufrufer gleichgueltig.
+# Der Zustandsvergleich bleibt zusaetzlich bestehen, als zweite Sicht.
+
+# POST heisst bei Immich nicht immer "schreiben": Die Suche nimmt ihre
+# Filter im Koerper entgegen. Benannt statt stillschweigend uebergangen —
+# und wenn die Methode verschwindet, faellt die Zusicherung darunter auf.
+IMMICH_LIEST_MIT_POST = {"_search_metadata_all_pages"}
 
 
-def _dienst_schreibt() -> list:
-    return sorted(n for n in _funktionen(_baum("services/sync_service.py"))
-                  if not n.startswith("_"))
+def _immich_schreibsenken() -> set:
+    """ImmichClient-Methoden, die eine veraendernde HTTP-Methode benutzen."""
+    baum = _baum("services/immich_client.py")
+    klasse = next(n for n in baum.body
+                  if isinstance(n, ast.ClassDef) and n.name == "ImmichClient")
+    aus = set()
+    for m in klasse.body:
+        if not isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+               and c.func.attr in {"post", "put", "patch", "delete"}
+               for c in ast.walk(m)):
+            aus.add(m.name)
+    return aus - IMMICH_LIEST_MIT_POST
+
+
+def test_die_immich_schreibsenken_sind_die_erwarteten():
+    """Ein Fehlgriff bei der Ableitung darf nicht still passieren.
+
+    Diese Liste ist die einzige Stelle, an der Teil B einen Schreibvorgang
+    nach aussen ueberhaupt sehen kann. Eine neue Methode gehoert entweder
+    dazu oder mit Grund nach IMMICH_LIEST_MIT_POST.
+    """
+    assert _immich_schreibsenken() == {
+        "update_person", "create_album", "add_assets_to_album",
+        "share_album_with_users",
+    }
+    assert IMMICH_LIEST_MIT_POST <= set(
+        _funktionen(_baum("services/immich_client.py"))), (
+        "Eine Ausnahme in IMMICH_LIEST_MIT_POST zeigt auf eine Methode, die es "
+        "nicht mehr gibt — dann deckt sie irgendwann etwas Neues."
+    )
 
 
 @pytest.fixture
 def aufbau(tmp_path, monkeypatch):
     """Client plus eine Liste, in die JEDER Schreibvorgang seinen Namen legt."""
-    from services import sync_service
+    from services.config_store import ConfigStore
+    from services.immich_client import ImmichClient
 
     pfad = tmp_path / "accounts.json"
     pfad.write_text(json.dumps({
@@ -692,20 +803,34 @@ def aufbau(tmp_path, monkeypatch):
 
     geschrieben: list[str] = []
 
-    def merke_dienst(name):
-        echt = getattr(sync_service, name)
+    def merke_immich(name):
+        echt = getattr(ImmichClient, name)
 
-        async def gemerkt(*a, **k):
-            geschrieben.append(f"dienst.{name}")
-            return await echt(*a, **k)
+        async def gemerkt(self, *a, **k):
+            geschrieben.append(f"immich.{name}")
+            return await echt(self, *a, **k)
+
+        return gemerkt
+
+    def merke_speichern():
+        echt = ConfigStore._save
+
+        def gemerkt(self, *a, **k):
+            geschrieben.append("store._save")
+            return echt(self, *a, **k)
 
         return gemerkt
 
     with TestClient(main.app) as client:
         # Erst NACH dem Start instrumentieren: Der Startup selbst schreibt
         # legitim (Wanderung, user_id-Nachtrag) und gehoert nicht zur Anfrage.
-        for name in _dienst_schreibt():
-            monkeypatch.setattr(sync_service, name, merke_dienst(name))
+        #
+        # An der KLASSE, nicht am Modul des Aufrufers: Damit ist es
+        # gleichgueltig, wie ein Router die Funktion importiert hat — genau
+        # daran ist die vorige Fassung vorbeigelaufen.
+        monkeypatch.setattr(ConfigStore, "_save", merke_speichern())
+        for name in sorted(_immich_schreibsenken()):
+            monkeypatch.setattr(ImmichClient, name, merke_immich(name))
 
         class Konto:
             async def get_person(self, _pid):
@@ -721,7 +846,11 @@ def aufbau(tmp_path, monkeypatch):
             def invalidate(self, *_a, **_k):
                 pass
 
-        main.app.state.client_pool = Pool()
+        # Ueber monkeypatch, nicht per Zuweisung: Der App-Zustand ist global
+        # und ueberlebt das Lifespan des Testclients. Die vorige Fassung liess
+        # die Attrappe fuer alle folgenden Tests stehen (Zweitstimme,
+        # gemessen: `same fake object after: True`).
+        monkeypatch.setattr(main.app.state, "client_pool", Pool(), raising=False)
         geschrieben.clear()
         yield client, geschrieben, pfad, main.app.state.store
 
@@ -803,6 +932,41 @@ OHNE_ABLEHNUNG = {
 }
 
 
+SCHREIB_VERBEN = {"POST", "PUT", "PATCH", "DELETE"}
+
+_listen_puffer: dict = {}
+
+
+def _listen_fuer_datei(datei: pathlib.Path):
+    """Die vier Mengen, mit denen Teil A eine Datei liest — je Datei einmal."""
+    if datei not in _listen_puffer:
+        baum = ast.parse(io.open(datei, encoding="utf-8").read())
+        fns = _funktionen(baum)
+        namen = _fehlernamen(baum)
+        schreibt_store = _schreibende_store_methoden()
+        schreibt_dienst = {n for n in _funktionen(_baum("services/sync_service.py"))
+                           if not n.startswith("_")}
+        _listen_puffer[datei] = (
+            schreibt_store, schreibt_dienst,
+            _ablehnende_huelle(_funktionen(_baum("services/config_store.py"))),
+            _ablehnende_huelle(fns, namen),
+            _schreibende_huelle(fns, schreibt_store, schreibt_dienst),
+            namen,
+        )
+    return _listen_puffer[datei]
+
+
+def _funktion_schreibt(fn) -> bool:
+    """Erreicht diese Endpunkt-Funktion irgendwo einen Schreibvorgang?"""
+    listen = _listen_fuer_datei(pathlib.Path(inspect.getsourcefile(fn)))
+    for stmt in ast.walk(_quelle_einer_funktion(fn)):
+        if not isinstance(stmt, ast.stmt):
+            continue
+        if any(art == "schreibt" for _z, art, _t in _ereignisse(stmt, *listen)):
+            return True
+    return False
+
+
 def _schreibende_endpunkte() -> set:
     """Aus dem, was die Anwendung nach aussen anbietet.
 
@@ -810,8 +974,19 @@ def _schreibende_endpunkte() -> set:
     und die erste Fassung bekam deshalb die LEERE MENGE — ein
     Vollstaendigkeitstest, der nie rot werden konnte.
     """
-    return {(m.upper(), p) for p, ops in main.app.openapi()["paths"].items()
-            for m in ops if m.upper() in {"POST", "PUT", "PATCH", "DELETE"}}
+    aus = {(m.upper(), p) for p, ops in main.app.openapi()["paths"].items()
+           for m in ops if m.upper() in SCHREIB_VERBEN}
+
+    # Und das Verb ist nicht die Wirkung: Ein Endpunkt, der bei GET schreibt,
+    # faellt sonst heraus, und diese Menge waere eine Menge von VERBEN statt
+    # von schreibenden Endpunkten (Zweitstimme, gemessen — sie hat einen
+    # schreibenden GET eingehaengt und er blieb unbemerkt).
+    for pfad, methoden, fn in _montierte_endpunkte():
+        if any(m in SCHREIB_VERBEN for m in methoden):
+            continue
+        if _funktion_schreibt(fn):
+            aus |= {(m, pfad) for m in methoden if m != "HEAD"}
+    return aus
 
 
 def _passt(pfad: str, muster: str) -> bool:
@@ -837,6 +1012,19 @@ def test_jeder_schreibende_endpunkt_hat_einen_ablehnungsfall():
         "Die Endpunktmenge ist LEER. Damit prueft dieser Test nichts mehr — "
         "genau der Zustand, in dem die erste Fassung gruen war. Sieh nach, ob "
         "`app.openapi()` noch die erwartete Form hat."
+    )
+
+    # `_passt` behandelt jeden `{...}`-Abschnitt als GENAU EIN Segment. Ein
+    # Starlette-Konverter bricht das: `{id:int}` wuerde auch auf Nicht-Zahlen
+    # passen, `{rest:path}` gar nicht mehr auf mehrere Segmente (Zweitstimme,
+    # gemessen). Heute benutzt dieses Projekt keinen; taucht einer auf, ist
+    # das hier rot statt still falsch.
+    mit_konverter = sorted(p for _m, p in alle if ":" in p)
+    assert not mit_konverter, (
+        "Diese Routen benutzen einen Starlette-Konverter, und `_passt` kann ihn "
+        f"nicht abbilden: {mit_konverter}.\n"
+        "Entweder den Konverter vermeiden oder `_passt` durch Starlettes "
+        "eigenes `route.matches(scope)` ersetzen."
     )
 
     abgedeckt = set()
@@ -905,6 +1093,10 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
         "Auch ohne Schreibvorgang auf die Platte sieht die laufende Anwendung das sofort."
     )
     assert geschrieben == [], (
-        f"{methode} {pfad} hat VOR der Ablehnung nach Immich geschrieben ({warum}): "
-        f"{geschrieben}"
+        f"{methode} {pfad} hat VOR der Ablehnung geschrieben ({warum}): "
+        f"{geschrieben}\n"
+        "Diese Liste kommt aus den Schreibsenken selbst (`ConfigStore._save` und "
+        "den veraendernden `ImmichClient`-Methoden), nicht aus einem Vergleich "
+        "von Zustaenden — sie sieht deshalb auch einen Schreibvorgang, der "
+        "denselben Inhalt zurueckschreibt."
     )
