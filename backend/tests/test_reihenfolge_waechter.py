@@ -203,7 +203,7 @@ def _ablehnende_huelle(fns: dict, fehlernamen=frozenset()) -> set:
                              if _lehnt_direkt_ab(k, fehlernamen)})
 
 
-def _schreibende_huelle(fns: dict, schreibt_store: set, schreibt_dienst: set) -> set:
+def _schreibende_huelle(fns: dict, schreibt: set) -> set:
     """Funktionen DIESER Datei, die einen Schreibvorgang erreichen.
 
     Fuer Ablehnungen gab es diese Huelle von Anfang an, fuer Schreibvorgaenge
@@ -213,7 +213,7 @@ def _schreibende_huelle(fns: dict, schreibt_store: set, schreibt_dienst: set) ->
     und die ganze Suite blieb gruen.
     """
     direkt = {n for n, k in fns.items()
-              if _gerufene_namen(k) & (schreibt_store | schreibt_dienst)}
+              if _gerufene_namen(k) & schreibt}
     return _erreichbar(fns, direkt)
 
 
@@ -222,6 +222,164 @@ def _schreibende_store_methoden() -> set:
     fns = _funktionen(_baum("services/config_store.py"))
     direkt = {name for name, k in fns.items() if "_save" in _gerufene_namen(k)}
     return _erreichbar(fns, direkt) - {"_save"}
+
+
+# ---------------------------------------------------------------------------
+# Der Aufrufgraph ueber MODULGRENZEN (#90)
+# ---------------------------------------------------------------------------
+#
+# Die Huellen liefen frueher je Endpunkt-DATEI. Damit endete die Analyse an
+# der Dateigrenze, und ein voellig gewoehnlicher Umbau hat den Waechter
+# blind gemacht — die Zweitstimme hat es gemessen und als Blocker eingestuft:
+#
+#     # routers/accounts.py
+#     from services.konten import aktualisiere_konto
+#     ...
+#     return aktualisiere_konto(request, account_id, updates)
+#
+#     # services/konten.py
+#     def aktualisiere_konto(request, account_id, updates):
+#         request.app.state.store.clear_log()
+#         raise errors.account_not_found()
+#
+# Schreiben, dann ablehnen — und 20 Tests gruen. `_check_immich_version`
+# liegt heute nur ZUFAELLIG in `accounts.py`; nach `services/` gezogen waere
+# sie genauso verschwunden.
+#
+# Jetzt wird der Graph ueber alle Projektmodule gebildet und ueber die
+# IMPORTE aufgeloest, nicht ueber blosse Namensgleichheit: `from services.x
+# import y` und `import services.x as z` fuehren beide auf dieselbe Datei.
+# Namensgleiche Funktionen in verschiedenen Modulen bleiben dadurch
+# verschieden.
+
+
+def _projekt_dateien() -> list:
+    """Alle Projektmodule unter WURZEL — ohne Tests und ohne Fremdcode."""
+    aus = []
+    for pfad in sorted(WURZEL.rglob("*.py")):
+        teile = set(pfad.relative_to(WURZEL).parts)
+        if teile & {"tests", "__pycache__", ".venv", "venv", "site-packages"}:
+            continue
+        aus.append(pfad)
+    return aus
+
+
+def _modul_datei(modulname: str):
+    """`services.sync_service` -> WURZEL/services/sync_service.py, falls es sie gibt."""
+    if not modulname:
+        return None
+    kandidat = WURZEL.joinpath(*modulname.split("."))
+    for p in (kandidat.with_suffix(".py"), kandidat / "__init__.py"):
+        if p.exists():
+            return p
+    return None
+
+
+def _importe(baum: ast.AST) -> tuple:
+    """(Namen-Importe, Modul-Aliase) dieser Datei.
+
+    Namen-Importe: `from services.x import y as z` -> {z: (datei_von_x, "y")}
+    Modul-Aliase:  `from services import x` / `import services.x as z`
+                   -> {x bzw. z: datei_von_x}
+    """
+    namen, aliase = {}, {}
+    for n in ast.walk(baum):
+        if isinstance(n, ast.ImportFrom) and n.module:
+            eigen = _modul_datei(n.module)
+            for a in n.names:
+                lokal = a.asname or a.name
+                unter = _modul_datei(f"{n.module}.{a.name}")
+                if unter is not None:
+                    aliase[lokal] = unter       # `from services import x`
+                elif eigen is not None:
+                    namen[lokal] = (eigen, a.name)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                datei = _modul_datei(a.name)
+                if datei is not None:
+                    aliase[a.asname or a.name.split(".")[0]] = datei
+    return namen, aliase
+
+
+_stand_puffer: dict = {}
+
+
+def _projekt_stand() -> dict:
+    """Einmal je Lauf: Baeume, Funktionen, Importe und die beiden Huellen.
+
+    Die Huellen sind Mengen von (Datei, Funktionsname) — also modulweit
+    eindeutig, nicht nach blossem Namen.
+    """
+    if _stand_puffer:
+        return _stand_puffer
+
+    schreibt_store = _schreibende_store_methoden()
+    schreibt_immich = _immich_schreibsenken()
+
+    dateien = {}
+    for pfad in _projekt_dateien():
+        baum = ast.parse(io.open(pfad, encoding="utf-8").read())
+        namen, aliase = _importe(baum)
+        dateien[pfad] = {
+            "fns": _funktionen(baum),
+            "fehlernamen": _fehlernamen(baum),
+            "namen": namen,
+            "aliase": aliase,
+        }
+
+    def ziele(pfad, knoten):
+        """Die (Datei, Name), die diese Funktion nachweislich aufruft."""
+        d = dateien[pfad]
+        aus = set()
+        for c in ast.walk(knoten):
+            if not isinstance(c, ast.Call):
+                continue
+            f = c.func
+            if isinstance(f, ast.Name):
+                if f.id in d["fns"]:
+                    aus.add((pfad, f.id))
+                elif f.id in d["namen"]:
+                    aus.add(d["namen"][f.id])
+            elif isinstance(f, ast.Attribute):
+                basis = f.value.id if isinstance(f.value, ast.Name) else None
+                if basis in d["aliase"]:
+                    aus.add((d["aliase"][basis], f.attr))
+        return aus
+
+    kanten = {}
+    saat_lehnt, saat_schreibt = set(), set()
+    for pfad, d in dateien.items():
+        for name, knoten in d["fns"].items():
+            kanten[(pfad, name)] = ziele(pfad, knoten)
+            if _lehnt_direkt_ab(knoten, d["fehlernamen"]):
+                saat_lehnt.add((pfad, name))
+            # Ein Schreibvorgang ist: eine schreibende ConfigStore-Methode
+            # ODER eine veraendernde ImmichClient-Methode. Die zweite Haelfte
+            # ist noetig, damit `sync_service.sync_names_multi` weiter als
+            # Schreibvorgang gilt — es ruft `client.update_person`.
+            if _gerufene_namen(knoten) & (schreibt_store | schreibt_immich):
+                saat_schreibt.add((pfad, name))
+
+    def huelle(saat):
+        kann = set(saat)
+        while True:
+            neu = set(kann)
+            for knoten, z in kanten.items():
+                if knoten not in kann and z & kann:
+                    neu.add(knoten)
+            if neu == kann:
+                return kann
+            kann = neu
+
+    _stand_puffer.update({
+        "dateien": dateien,
+        "kanten": kanten,
+        "schreibt_store": schreibt_store,
+        "schreibt_immich": schreibt_immich,
+        "lehnt": huelle(saat_lehnt),
+        "schreibt": huelle(saat_schreibt),
+    })
+    return _stand_puffer
 
 
 TRY_TYPEN = (ast.Try,) + ((ast.TryStar,) if hasattr(ast, "TryStar") else ())
@@ -254,8 +412,9 @@ def _eigene_knoten(stmt: ast.stmt):
         yield from ast.walk(q)
 
 
-def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store,
-                lehnt_helfer, schreibt_helfer, fehlernamen=frozenset()):
+def _ereignisse(stmt, schreibt_store, lehnt_store, lehnt_helfer,
+                schreibt_helfer, fehlernamen=frozenset(),
+                modul_lehnt=frozenset(), modul_schreibt=frozenset()):
     """(Zeile, 'schreibt'|'lehnt_ab', Text) fuer dieses eine Statement."""
     aus = []
     for k in _eigene_knoten(stmt):
@@ -274,10 +433,14 @@ def _ereignisse(stmt, schreibt_store, schreibt_dienst, lehnt_store,
                 # Ablehnung, sobald jemand ihrer Funktion ein `_save()` gibt.
                 if f.attr in lehnt_store:
                     aus.append((( k.lineno, k.col_offset), "lehnt_ab", f"{f.attr}() lehnt ab"))
+                if (basis, f.attr) in modul_lehnt:
+                    aus.append(((k.lineno, k.col_offset), "lehnt_ab",
+                                f"{basis}.{f.attr}() lehnt ab"))
                 if f.attr in schreibt_store:
                     aus.append(((k.lineno, k.col_offset), "schreibt", f"store.{f.attr}()"))
-                elif basis == "sync_service" and f.attr in schreibt_dienst:
-                    aus.append(((k.lineno, k.col_offset), "schreibt", f"sync_service.{f.attr}()"))
+                elif (basis, f.attr) in modul_schreibt:
+                    aus.append(((k.lineno, k.col_offset), "schreibt",
+                                f"{basis}.{f.attr}()"))
             elif isinstance(f, ast.Name):
                 # Ein Helfer kann ebenfalls BEIDES. Reihenfolge wie oben:
                 # erst ablehnen, dann schreiben.
@@ -542,8 +705,17 @@ def _montierte_endpunkte():
                 continue
             fn = getattr(r, "endpoint", None)
             pfad = getattr(r, "path", None) or ""
-            if fn is not None and pfad.startswith("/api/"):
-                aus.append((pfad, sorted(getattr(r, "methods", None) or []), fn))
+            if fn is None or not pfad.startswith("/api/"):
+                continue
+            # Nur PROJEKTCODE. FastAPI haengt eigene Endpunkte ein (Swagger,
+            # OpenAPI, ReDoc); fuer die wurde `fastapi/applications.py` als
+            # Huelle geparst, und sie polsterten die Mindestzahl um drei auf
+            # (Blindpruefer). Sie gehoeren uns nicht und koennen unsere Regel
+            # nicht verletzen.
+            quelle = inspect.getsourcefile(fn)
+            if quelle is None or not pathlib.Path(quelle).is_relative_to(WURZEL):
+                continue
+            aus.append((pfad, sorted(getattr(r, "methods", None) or []), fn))
 
     lauf(main.app.routes)
     return aus
@@ -827,8 +999,8 @@ def test_mechanik_trennt_pfade_und_folgt_aufrufen():
     """Teil A gegen eine erfundene Quelle mit bekanntem Ergebnis."""
     fns = _funktionen(ast.parse(MECHANIK_QUELLE))
     namen = _fehlernamen(ast.parse(MECHANIK_QUELLE))
-    listen = ({"schreib"}, set(), set(), _ablehnende_huelle(fns, namen),
-              _schreibende_huelle(fns, {"schreib"}, set()), namen)
+    listen = ({"schreib"}, set(), _ablehnende_huelle(fns, namen),
+              _schreibende_huelle(fns, {"schreib"}), namen)
     alle = _endpunkt_funde(MECHANIK_QUELLE, listen)
     gefunden = set(alle)
 
@@ -957,13 +1129,32 @@ def test_jede_ausnahme_deckt_mindestens_einen_fall():
             assert anzahl >= 1, f"{schluessel}: {anlass} deckt {anzahl} Faelle"
 
 
+def _erreichbare_projektfunktionen(endpunkte) -> set:
+    """(Datei, Name) jeder Projektfunktion, die ein Endpunkt erreicht.
+
+    Endpunkte selbst sind nicht dabei — die werden ueber ihr Funktionsobjekt
+    analysiert, mit den Zeilennummern der echten Datei.
+    """
+    stand = _projekt_stand()
+    kanten = stand["kanten"]
+    rand = set()
+    eigene = set()
+    for fn in endpunkte:
+        datei = pathlib.Path(inspect.getsourcefile(fn))
+        eigene.add((datei, fn.__name__))
+        rand |= kanten.get((datei, fn.__name__), set())
+    erreicht = set()
+    while rand:
+        knoten = rand.pop()
+        if knoten in erreicht or knoten not in kanten:
+            continue
+        erreicht.add(knoten)
+        rand |= kanten[knoten] - erreicht
+    return erreicht - eigene
+
+
 def test_keine_ablehnung_hinter_einem_schreibvorgang():
     """Teil A: auf KEINEM Pfad steht eine Ablehnung hinter einem Schreibvorgang."""
-    schreibt_store = _schreibende_store_methoden()
-    dienst = _funktionen(_baum("services/sync_service.py"))
-    schreibt_dienst = {n for n in dienst if not n.startswith("_")}
-    lehnt_store = _ablehnende_huelle(_funktionen(_baum("services/config_store.py")))
-
     funktionen = {fn for _pfad, _methoden, fn in _montierte_endpunkte()}
     # EINE Zusicherung, nicht zwei: "nicht leer" kann nichts allein rot
     # machen, was diese Zahl nicht auch faengt — und eine Zusicherung, die
@@ -977,24 +1168,28 @@ def test_keine_ablehnung_hinter_einem_schreibvorgang():
         "und ob `_montierte_endpunkte` ihnen noch folgt."
     )
 
-    huellen: dict = {}
     gemeldet: dict = {}
     for fn in funktionen:
         datei = pathlib.Path(inspect.getsourcefile(fn))
-        if datei not in huellen:
-            baum_der_datei = ast.parse(io.open(datei, encoding="utf-8").read())
-            fns_der_datei = _funktionen(baum_der_datei)
-            namen = _fehlernamen(baum_der_datei)
-            huellen[datei] = (
-                _ablehnende_huelle(fns_der_datei, namen),
-                _schreibende_huelle(fns_der_datei, schreibt_store, schreibt_dienst),
-                namen,
-            )
-        listen = (schreibt_store, schreibt_dienst, lehnt_store) + huellen[datei]
+        listen = _listen_fuer_datei(datei)
         funde: list = []
         _pfad_pruefen(_quelle_einer_funktion(fn).body[0].body, None, funde, listen)
         if funde:
             gemeldet[(datei.name, fn.__name__)] = _ohne_dubletten(funde)
+
+    # UND jede Projektfunktion, die ein Endpunkt erreicht.
+    #
+    # Ohne das bleibt die Luecke aus #90 offen, auch mit Aufrufgraph: Liegt
+    # der Verstoss IM Helfer (erst schreiben, dann ablehnen), sieht die
+    # Aufrufstelle nur "schreibt und lehnt ab" — welche Reihenfolge darin
+    # gilt, steht dort nicht. Gemessen: Der Umbau der Zweitstimme blieb auch
+    # mit Graph gruen, bis die Analyse in die Funktion selbst hineinging.
+    for datei, name in sorted(_erreichbare_projektfunktionen(funktionen)):
+        knoten = _projekt_stand()["dateien"][datei]["fns"][name]
+        funde = []
+        _pfad_pruefen(knoten.body, None, funde, _listen_fuer_datei(datei))
+        if funde:
+            gemeldet[(datei.name, name)] = _ohne_dubletten(funde)
 
     unerwartet = {}
     for schluessel, funde in gemeldet.items():
@@ -1276,9 +1471,10 @@ OHNE_ABLEHNUNG = {
                                       "aus Immich, nicht aus der Anfrage",
     ("POST", "/api/matches/{match_id}/dismiss"):
         "nimmt JEDE Kennung an, antwortet 204 und schreibt — es gibt keinen "
-        "Ablehnungsweg. Das ist gemessen und selbst fragwuerdig: Issue #88. "
-        "Bis das entschieden ist, steht der Endpunkt hier, damit die Luecke "
-        "sichtbar bleibt statt zu fehlen.",
+        "Ablehnungsweg, und das ist Absicht (Owner-Entscheid 21.09.2026, "
+        "#88): Eine Ablehnung ist eine Aussage ueber zwei PERSONEN, nicht "
+        "ueber einen Vorschlag, der gerade angezeigt wird. Begruendung an "
+        "`ConfigStore.dismiss_match`.",
 }
 
 
@@ -1288,20 +1484,37 @@ _listen_puffer: dict = {}
 
 
 def _listen_fuer_datei(datei: pathlib.Path):
-    """Die vier Mengen, mit denen Teil A eine Datei liest — je Datei einmal."""
+    """Alles, was Teil A ueber EINE Datei wissen muss — je Datei einmal.
+
+    Die Helfer-Mengen enthalten AUCH importierte Namen, und die
+    Modul-Paare loesen `modul.funktion()` ueber den Import auf. Beides
+    kommt aus `_projekt_stand()`, also aus einem Graphen ueber alle
+    Projektmodule — vorher endete die Analyse an der Dateigrenze (#90).
+    """
     if datei not in _listen_puffer:
-        baum = ast.parse(io.open(datei, encoding="utf-8").read())
-        fns = _funktionen(baum)
-        namen = _fehlernamen(baum)
-        schreibt_store = _schreibende_store_methoden()
-        schreibt_dienst = {n for n in _funktionen(_baum("services/sync_service.py"))
-                           if not n.startswith("_")}
+        stand = _projekt_stand()
+        d = stand["dateien"][datei]
+
+        def lokal(huelle):
+            aus = {name for name in d["fns"] if (datei, name) in huelle}
+            aus |= {lokal_name for lokal_name, ziel in d["namen"].items()
+                    if ziel in huelle}
+            return aus
+
+        def ueber_module(huelle):
+            return {(alias, name)
+                    for alias, ziel in d["aliase"].items()
+                    for name in stand["dateien"].get(ziel, {}).get("fns", {})
+                    if (ziel, name) in huelle}
+
         _listen_puffer[datei] = (
-            schreibt_store, schreibt_dienst,
+            stand["schreibt_store"],
             _ablehnende_huelle(_funktionen(_baum("services/config_store.py"))),
-            _ablehnende_huelle(fns, namen),
-            _schreibende_huelle(fns, schreibt_store, schreibt_dienst),
-            namen,
+            lokal(stand["lehnt"]),
+            lokal(stand["schreibt"]),
+            d["fehlernamen"],
+            ueber_module(stand["lehnt"]),
+            ueber_module(stand["schreibt"]),
         )
     return _listen_puffer[datei]
 
@@ -1479,15 +1692,21 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 #     hoechstens FEHLFUNDE, keine Luecken; dafuer gibt es bisher keinen
 #     gemessenen Fall im Baum.
 #
-# TEIL A — Reichweite (#90)
-#   * Ablehnende Helfer werden nur INNERHALB der Endpunkt-Datei verfolgt.
-#     `_check_immich_version` liegt heute zufaellig in `accounts.py`; nach
-#     `services/` gezogen, waere sie unsichtbar.
-#   * Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A nicht.
-#   * FastAPI-eigene Routen (Swagger, OpenAPI) werden mitanalysiert und
-#     polstern die Mindestzahl um drei.
-#   * Erkannt wird der METHODENNAME ohne Empfaenger: ein gleichnamiger
-#     Aufruf auf einem fremden Objekt zaehlt mit.
+# TEIL A — Reichweite
+#   * ERLEDIGT (#90): Der Aufrufgraph geht ueber MODULGRENZEN, aufgeloest
+#     ueber die Importe (nicht ueber blosse Namensgleichheit). Und jede
+#     Projektfunktion, die ein Endpunkt ERREICHT, wird selbst analysiert —
+#     ohne das bleibt die Luecke offen, wenn der Verstoss IM Helfer liegt:
+#     Die Aufrufstelle sieht dann nur "schreibt und lehnt ab" und kann die
+#     Reihenfolge darin nicht kennen.
+#   * ERLEDIGT: FastAPI-eigene Routen (Swagger, OpenAPI, ReDoc) werden
+#     ausgelassen — sie gehoeren uns nicht und polsterten die Mindestzahl.
+#   * OFFEN: Per `app.mount(...)` eingehaengte Unter-Anwendungen sieht Teil A
+#     nicht; `_montierte_endpunkte` steigt nur ueber `original_router` ab.
+#   * OFFEN: Bei Aufrufen auf einem OBJEKT (`store.x()`) zaehlt der
+#     METHODENNAME ohne Empfaenger — ein gleichnamiger Aufruf auf einem
+#     fremden Objekt zaehlt mit. Bei Modul- und Namensaufrufen nicht mehr:
+#     die gehen ueber die Importe.
 #
 # AUSNAHMELISTEN
 #   * ERLEDIGT (#91): ERLAUBT deckt eine ANZAHL je (Ablehnung,
