@@ -22,6 +22,17 @@ cleared in the UI.
 Removing an account clears its local data and caches. It does not delete photos,
 people, albums, or users in Immich.
 
+**Rollback copies are the exception, and the operator has to act on it.** Before
+anything it cannot undo — a schema migration, an album-identifier assignment —
+the app writes `accounts.json.vor-schema-<N>.bak` or
+`accounts.json.vor-kennungsvergabe.bak`. These hold the full configuration at
+that moment: API keys, including those of accounts removed afterwards, and log
+entries past the 90-day window. Nothing rotates or deletes them.
+
+The two statements above therefore hold for `accounts.json`, not for those
+copies. Delete them once an upgrade is confirmed good — `docs/BACKUP_RESTORE.md`
+says where and when.
+
 ## Operator responsibility
 
 The operator determines the lawful purpose, access permissions, backup policy,

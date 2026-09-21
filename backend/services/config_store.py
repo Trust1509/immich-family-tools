@@ -76,15 +76,149 @@ class ConfigStore:
             except Exception as exc:
                 raise RuntimeError(
                     f"Configuration {self._path} is invalid and was left untouched. "
-                    f"Restore {self._path}.bak or a ZFS snapshot."
+                    f"Restore a ZFS snapshot, {self._path}.vor-schema-*.bak "
+                    f"(the state before the last schema migration) or "
+                    f"{self._path}.bak (may already carry the migrated state)."
                 ) from exc
+
+    def _sichere_vor_schemasprung(self, *, einmalig: bool) -> None:
+        """Einmalige, versionierte Sicherung vor einem Schemasprung.
+
+        Die gewoehnliche `.bak` traegt den Vor-Zustand nur bis zum naechsten
+        Schreibvorgang — und in der laufenden Anwendung ist das das
+        `_backfill_user_ids` im Startup, das fuer GENAU die alten
+        Installationen feuert, die auch die Wanderung brauchen. Der Rueckweg
+        lebte also Millisekunden (Gegenpruefer zu #78, gemessen).
+
+        Ein BRAUCHBARER Rueckweg wird nie ueberschrieben — auch nicht bei
+        einem zweiten Sprung (hoch, zurueck auf die alte Fassung, wieder
+        hoch). Ein UNBRAUCHBARER dagegen schon: `exists()` allein
+        unterschied eine abgeschnittene Teildatei nicht von einer gueltigen
+        Sicherung und machte den kaputten Zustand dauerhaft und stumm — mit
+        einem Dateinamen davor, der Sicherheit vortaeuscht (beide
+        Panel-Stimmen 21.09.2026, gemessen).
+
+        Geschrieben wird wie in `_save`: Temp-Datei, `fsync`, `os.replace`.
+        Ein blankes `copy2` waere weniger haltbar als die Datei, die es
+        sichern soll — ausgerechnet in dem Szenario, fuer das es da ist.
+        """
+        if einmalig:
+            # EINMALIG, nie ueberschrieben: der Schemasprung. Er passiert je
+            # Version genau einmal, und der Zustand davor ist der einzige, zu
+            # dem man zurueck WILL.
+            ziel = self._path.parent / f"{self._path.name}.vor-schema-{self.SCHEMA_VERSION}.bak"
+            if self._rueckweg_brauchbar(ziel):
+                return
+        else:
+            # EINE GENERATION, jedes Mal erneuert: die Kennungsvergabe. Sie
+            # kann sich wiederholen (eine aeltere Fassung legt ein Album ohne
+            # Kennung an), und dann ist der gewollte Rueckweg der Zustand vor
+            # dem LETZTEN Lauf — nicht der von vor Monaten.
+            #
+            # Die erste Fassung benutzte fuer beides dieselbe Datei. Folge,
+            # gemessen: Nach der ersten Wanderung bekam jede weitere
+            # Kennungsvergabe gar keinen Rueckweg mehr, und wer die
+            # vorhandene Sicherung zurueckspielte, verlor alles seither
+            # (Blindpruefer 21.09.2026).
+            ziel = self._path.parent / f"{self._path.name}.vor-kennungsvergabe.bak"
+
+        if ziel.exists() and not self._rueckweg_brauchbar(ziel):
+            logger.warning("Unbrauchbarer Rueckweg wird ersetzt: %s", ziel)
+
+        temp_name = None
+        try:
+            roh = self._path.read_bytes()
+            fd, temp_name = tempfile.mkstemp(prefix=f".{ziel.name}.", dir=ziel.parent)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(roh)
+                handle.flush()
+                # NICHT durch einen Test beweisbar, und das steht hier statt
+                # eines Wachters: Haltbarkeit zeigt sich erst bei einem
+                # Strom- oder Kernel-Ausfall. `_save` tut dasselbe aus
+                # demselben Grund. Ohne diese Zeile waere die Sicherung
+                # weniger haltbar als die Datei, die sie sichert —
+                # ausgerechnet in dem Szenario, fuer das sie da ist.
+                os.fsync(handle.fileno())
+            os.chmod(temp_name, 0o600)
+            os.replace(temp_name, ziel)
+            temp_name = None
+        except OSError:
+            # Ein fehlgeschlagener Rueckweg darf den Start nicht verhindern.
+            # Diese Zeile ist die Zusage, dass eine kaputte Konfiguration
+            # gemeldet wird und eine fehlende SICHERUNG nicht — ohne sie
+            # startet die Anwendung gar nicht mehr und behauptet dabei, die
+            # Konfiguration sei ungueltig, obwohl sie unversehrt ist
+            # (Blindpruefer 21.09.2026, gemessen).
+            logger.warning("Sicherung vor Schemasprung nicht moeglich: %s", ziel)
+            return
+        finally:
+            # EIGENER Fang: Ein gescheitertes Aufraeumen lief am Zweig darueber
+            # VORBEI, und `_load` machte daraus wieder "Configuration is
+            # invalid" — die Anwendung startete nicht, obwohl die
+            # Konfiguration unversehrt war. Erreichbar genau dort, wofuer die
+            # Sicherung da ist: voller Datentraeger (Blindpruefer 21.09.2026,
+            # gemessen).
+            if temp_name:
+                try:
+                    if os.path.exists(temp_name):
+                        os.unlink(temp_name)
+                except OSError:
+                    logger.warning("Temp-Datei der Sicherung blieb liegen: %s", temp_name)
+        logger.info("Sicherung vor Schemasprung: %s", ziel)
+
+    @staticmethod
+    def _rueckweg_brauchbar(ziel: Path) -> bool:
+        """Ist an dieser Stelle eine Sicherung, mit der man WIRKLICH zurueck kann?
+
+        Nicht "liegt da etwas" — gemessen wurden drei Zustaende, die alle
+        `exists()` bestehen und keinen Rueckweg bieten: eine abgeschnittene
+        Teildatei nach vollem Datentraeger, ein Verzeichnis, und ein Verweis
+        auf eine fremde Datei. Die ersten beiden faengt diese Pruefung; der
+        dritte nur, solange die fremde Datei kein formgleiches JSON ist
+        (siehe die benannte Grenze unten).
+
+        BENANNTE GRENZE: Geprueft wird auf lesbares JSON mit einem
+        `accounts`-Schluessel. Ein Verweis auf eine FREMDE, aber
+        formgleiche Konfiguration kaeme durch. Weiter zu gehen hiesse, den
+        Inhalt gegen die laufende Datei zu vergleichen — und genau die soll
+        er ja NICHT sein.
+        """
+        try:
+            # Kein `is_file()` davor: Ein Verzeichnis laesst `read_text`
+            # ohnehin mit OSError scheitern, und ein Verweis auf eine Datei
+            # gilt `is_file()` als Datei — die Zeile fing also nichts, was
+            # der Fang darunter nicht schon faengt. Gemessen: Ihre Mutation
+            # ueberlebte die volle Suite.
+            inhalt = json.loads(ziel.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(inhalt, dict) and "accounts" in inhalt
 
     def _migrate(self) -> None:
         """One-time repair of managed_albums: fill missing fields from live account data."""
         accounts = self._data.get("accounts", {})
         albums = self._data.get("managed_albums", [])
         changed = False
-        if self._data.get("schema_version") != self.SCHEMA_VERSION:
+
+        # Der Rueckweg haengt an der unumkehrbaren ARBEIT, nicht an der
+        # Versionsnummer — und er wird aus der PLATTE kopiert, nicht aus
+        # `self._data`. Eine fruehere Fassung begruendete die Platzierung mit
+        # "VOR jeder Aenderung, danach waere der Vor-Zustand schon weg". Das
+        # stimmte nicht: Solange `_save()` nicht gelaufen ist, liegt der
+        # Vor-Zustand unveraendert auf der Platte. Tragend ist nur, dass die
+        # Sicherung VOR dem ersten `_save()` passiert (Gegenpruefer
+        # 21.09.2026, gemessen). `_backfill_group_ids` vergibt dauerhafte
+        # Gruppenkennungen auch ohne Schemasprung — etwa fuer ein Album, das
+        # eine aeltere Fassung ohne Kennung angelegt hat. Die erste Fassung
+        # haengte die Sicherung allein an die Version und liess genau diesen
+        # Pfad ungesichert (Gegenpruefer 21.09.2026, gemessen).
+        sprung = self._data.get("schema_version") != self.SCHEMA_VERSION
+        kennungen_fehlen = any(not a.get("group_id") for a in albums)
+        if sprung:
+            self._sichere_vor_schemasprung(einmalig=True)
+        if kennungen_fehlen:
+            self._sichere_vor_schemasprung(einmalig=False)
+        if sprung:
             self._data["schema_version"] = self.SCHEMA_VERSION
             changed = True
         self._data.setdefault("accounts", {})

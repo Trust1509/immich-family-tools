@@ -130,6 +130,53 @@ describe("ExtendMatch: Gruppen gleichen Namens", () => {
     await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
   });
 
+  it("vergibt eindeutige Schluessel, auch bei gleichem Namen", async () => {
+    // Ein doppelter React-Schluessel rendert TROTZDEM zwei Karten — deshalb
+    // faengt ihn kein Test, der nur zaehlt (gemessen: die Mutation
+    // `key={g.album_name}` ueberlebte die volle Suite). React meldet ihn nur
+    // als Warnung; hier wird genau diese Warnung zum Pruefgegenstand.
+    //
+    // Folge eines doppelten Schluessels: React haelt zwei Karten fuer
+    // dieselbe und kann ihren Zustand vertauschen, wenn sich die Liste
+    // aendert — bei einer Auswahl, die ein Album in Immich veraendert, ist
+    // das kein Schoenheitsfehler.
+    const warnungen: string[] = [];
+    const echt = console.error;
+    console.error = (...args: unknown[]) => {
+      warnungen.push(args.map(String).join(" "));
+    };
+    try {
+      zeichne();
+      await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
+    } finally {
+      console.error = echt;
+    }
+
+    const passendeWarnung = (w: string) => /same key|unique "key"|duplicate key/i.test(w);
+    expect(warnungen.filter(passendeWarnung)).toEqual([]);
+
+    // SELBSTPROBE: Ein Negativ-Waechter muss zeigen, dass sein Kanal lebt.
+    // Sonst wird er lautlos gruen, wenn React die Formulierung aendert, der
+    // Lauf unter einem Produktionsbau stattfindet oder die Konsole anderswo
+    // stummgeschaltet wird (Blindpruefer 21.09.2026).
+    const probe: string[] = [];
+    console.error = (...args: unknown[]) => {
+      probe.push(args.map(String).join(" "));
+    };
+    try {
+      render(
+        <ul>
+          {["x", "x"].map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      );
+    } finally {
+      console.error = echt;
+    }
+    expect(probe.filter(passendeWarnung).length).toBeGreaterThan(0);
+  });
+
   it("waehlt nur die angeklickte Gruppe aus", async () => {
     zeichne();
     await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));

@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -439,6 +440,32 @@ def _write_albums(path, albums):
     )
 
 
+def test_zweiter_start_schreibt_gar_nicht_mehr(tmp_path, monkeypatch):
+    """Nicht "der Inhalt ist gleich", sondern "es wurde nicht geschrieben".
+
+    Der Dateivergleich daneben laesst ein folgenloses Neuschreiben durch
+    (`changed` immer wahr, identischer Inhalt) — gemessen, er blieb dagegen
+    gruen. Das ist kein Schoenheitsfehler: Jeder Schreibvorgang auf die
+    einzige persistente Datei des Projekts bringt das Risiko eines Abbruchs
+    mitten im Schreiben zurueck, und bei jedem Start statt einmalig.
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    ConfigStore(str(path))  # erster Start: hier DARF geschrieben werden
+
+    schreibvorgaenge = []
+    echtes_save = ConfigStore._save
+
+    def gezaehlt(self):
+        schreibvorgaenge.append(1)
+        return echtes_save(self)
+
+    monkeypatch.setattr(ConfigStore, "_save", gezaehlt)
+    ConfigStore(str(path))
+
+    assert schreibvorgaenge == [], "der zweite Start hat geschrieben"
+
+
 def test_migrate_laesst_jedes_album_feld_unangetastet(tmp_path):
     """Datenerhalt der ALBUM-Felder — die Haelfte, die CLAUDE.md verlangt.
 
@@ -559,11 +586,9 @@ def test_migrate_schreibt_beim_zweiten_start_nichts_mehr(tmp_path):
     Gruppenkennungen die gefaehrlichste Form, weil dann jeder Neustart die
     Gruppen anders schneidet und niemand es der Datei ansieht.
 
-    BENANNTE LUECKE, gemessen statt behauptet: Ein folgenloses Neuschreiben
-    (`changed` immer wahr, identischer Inhalt) kommt hier durch — der Test
-    vergleicht Inhalt, nicht Schreibvorgaenge. Gegen diese Mutation ist er
-    gruen geblieben. Wer sie fangen will, braucht eine Beobachtung von
-    `_save`, nicht einen Dateivergleich.
+    Die frueher hier benannte Luecke — ein folgenloses Neuschreiben mit
+    identischem Inhalt — deckt jetzt der Test darunter ab, der `_save`
+    BEOBACHTET statt Dateien zu vergleichen (#82).
     """
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
@@ -903,3 +928,343 @@ def test_group_details_haelt_gleiche_personen_aus_zwei_konten_auseinander(tmp_pa
 
     assert len(details["person_refs"]) == 2
     assert {r["account_id"] for r in details["person_refs"]} == {"acc-1", "konto-2"}
+
+
+# ----------------------------------------------------------------------
+# Rueckweg einer Schemawanderung (#82)
+# ----------------------------------------------------------------------
+
+
+def test_schemasprung_hinterlaesst_eine_sicherung_die_bleibt(tmp_path):
+    """Die `.bak` traegt den Vor-Zustand nur bis zum naechsten Schreibvorgang.
+
+    Gemessen vom Gegenpruefer zu #78: Nach der Wanderung steht der alte Stand
+    in der `.bak` — und der naechste `_save()` ueberschreibt ihn. In der
+    laufenden Anwendung ist das `_backfill_user_ids` im Startup, das fuer
+    GENAU die alten Installationen feuert, die auch die Wanderung brauchen.
+    Der Rueckweg lebte also Millisekunden.
+
+    Deshalb zusaetzlich eine EINMALIGE, versionierte Sicherung vor dem
+    Schemasprung, die kein spaeterer Schreibvorgang anfasst.
+    """
+    path = tmp_path / "accounts.json"
+    vorher = _write_legacy_config(path)
+    alt_text = path.read_text(encoding="utf-8")
+
+    store = ConfigStore(str(path))
+    # Irgendein spaeterer Schreibvorgang — in der Anwendung das Startup.
+    store.append_log([SyncLogEntry(
+        id="nach-der-wanderung", timestamp=datetime.now(timezone.utc).isoformat(),
+        action="album_sync", details="spaeter", status="success",
+    )])
+
+    sicherung = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    assert sicherung.exists(), "es gibt keine versionierte Sicherung"
+    assert sicherung.read_text(encoding="utf-8") == alt_text, (
+        "die Sicherung traegt nicht den Zustand VOR der Wanderung"
+    )
+    # Und sie ist noch dieselbe Datei, nicht die gewoehnliche .bak.
+    gewoehnlich = path.parent / f"{path.name}.bak"
+    assert gewoehnlich.read_text(encoding="utf-8") != alt_text, (
+        "die gewoehnliche .bak wurde erwartungsgemaess ueberschrieben — "
+        "genau deshalb braucht es die versionierte"
+    )
+    assert vorher["managed_albums"][0]["id"] == "album-1"
+
+
+def test_versionierte_sicherung_wird_nie_ueberschrieben(tmp_path):
+    """Ein zweiter Lauf darf den Rueckweg nicht zerstoeren.
+
+    BENANNTE GRENZE: Der zweite Start erreicht die Sicherungsroutine gar
+    nicht (kein Sprung, keine fehlenden Kennungen) — dieser Test zeigt also
+    das ERGEBNIS, nicht die Schranke. Die Schranke selbst haelt
+    `test_zweiter_sprung_zerstoert_den_rueckweg_nicht` (Blindpruefer
+    21.09.2026, gemessen).
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    alt_text = path.read_text(encoding="utf-8")
+
+    ConfigStore(str(path))
+    sicherung = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    erste = sicherung.read_text(encoding="utf-8")
+
+    # Zweiter Start, danach noch ein Schreibvorgang.
+    zweiter = ConfigStore(str(path))
+    zweiter.append_log([SyncLogEntry(
+        id="noch-spaeter", timestamp=datetime.now(timezone.utc).isoformat(),
+        action="album_sync", details="noch spaeter", status="success",
+    )])
+
+    assert sicherung.read_text(encoding="utf-8") == erste == alt_text
+
+
+def test_zweiter_sprung_zerstoert_den_rueckweg_nicht(tmp_path):
+    """Hoch, zurueck auf die alte Fassung, wieder hoch.
+
+    Das ist kein Gedankenspiel: Fuer #78 wurde gemessen, dass ein aelterer
+    Container eine gewanderte Datei anstandslos liest — und dabei
+    `schema_version` wieder auf SEINEN Stand setzt. Beim naechsten Start der
+    neuen Fassung ist die Version also erneut verschieden, die Wanderung
+    laeuft ein zweites Mal, und ohne die Schranke wuerde sie die Sicherung
+    mit dem BEREITS GEWANDERTEN Stand ueberschreiben. Der Rueckweg waere
+    genau dann weg, wenn man ihn braucht.
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    alt_text = path.read_text(encoding="utf-8")
+
+    ConfigStore(str(path))  # hoch
+    sicherung = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    assert sicherung.read_text(encoding="utf-8") == alt_text
+
+    # Die alte Fassung setzt beim Lesen ihre eigene Version zurueck.
+    stand = json.loads(path.read_text(encoding="utf-8"))
+    stand["schema_version"] = ConfigStore.SCHEMA_VERSION - 1
+    path.write_text(json.dumps(stand, indent=2), encoding="utf-8")
+
+    ConfigStore(str(path))  # wieder hoch — zweiter Sprung
+
+    assert sicherung.read_text(encoding="utf-8") == alt_text, (
+        "die Sicherung traegt nicht mehr den urspruenglichen Stand"
+    )
+
+
+def test_ohne_schemasprung_entsteht_keine_sicherung(tmp_path):
+    """Kein Sprung, kein Rueckweg noetig — sonst sammelt sich Muell an."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    # Erster Lauf setzt die Version; danach ist der Stand aktuell.
+    ConfigStore(str(path))
+    sicherung = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    erste_existiert = sicherung.exists()
+    sicherung.unlink(missing_ok=True)
+
+    ConfigStore(str(path))
+
+    assert erste_existiert, "der erste Lauf war ein Sprung und braucht die Sicherung"
+    assert not sicherung.exists(), "der zweite Lauf ist kein Sprung"
+
+
+def test_gescheiterte_sicherung_verhindert_den_start_nicht(tmp_path, monkeypatch, caplog):
+    """Die gefaehrlichste Zeile des Rueckwegs — und sie war ungeprueft.
+
+    Gemessen vom Blindpruefer: Ersetzt man den Fehlerzweig durch ein
+    `raise`, bleiben 127 von 127 Tests gruen — und die Anwendung startet
+    danach gar nicht mehr, mit der Meldung "Configuration is invalid and was
+    left untouched". Sie ist aber UNVERSEHRT; nur die Sicherung schlug fehl.
+    Zwischen "kein Rueckweg" und "keine Anwendung" liegt genau dieser Zweig.
+    """
+    import os as _os
+
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert(*args, **kwargs):
+        if str(kwargs.get("dir", "")) == str(path.parent) and \
+           str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-schema"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert)
+
+    with caplog.at_level("WARNING"):
+        store = ConfigStore(str(path))  # darf NICHT werfen
+
+    assert store.get_managed_albums(), "die Konfiguration ist unversehrt"
+    assert any("nicht moeglich" in eintrag.getMessage() for eintrag in caplog.records), (
+        "der Ausfall wurde nicht benannt"
+    )
+    assert _os.path.exists(str(path)), "die Konfiguration liegt unveraendert da"
+
+
+def test_unbrauchbarer_rueckweg_wird_ersetzt_und_gemeldet(tmp_path, caplog):
+    """`exists()` allein macht einen kaputten Rueckweg dauerhaft und stumm.
+
+    Gemessen von beiden Panel-Stimmen: eine abgeschnittene Teildatei (voller
+    Datentraeger), ein Verzeichnis, ein Verweis auf eine fremde Datei — alle
+    bestehen `exists()`, keiner traegt zurueck.
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    original = path.read_text(encoding="utf-8")
+    ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    ziel.write_text('{"accounts": {"acc-1"', encoding="utf-8")  # abgeschnitten
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    assert ziel.read_text(encoding="utf-8") == original, "die Teildatei blieb liegen"
+    assert any("Unbrauchbar" in s.message for s in caplog.records), (
+        "der Ersatz wurde nicht benannt"
+    )
+
+
+def test_ein_verzeichnis_an_der_stelle_wird_nicht_fuer_eine_sicherung_gehalten(tmp_path, caplog):
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    ziel.mkdir()
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))  # darf nicht werfen
+
+    assert ziel.is_dir(), "das Verzeichnis steht noch da"
+    # Der Kommentar hier behauptete frueher, der Ausfall werde gemeldet —
+    # geprueft wurde nur `is_dir()` (Blindpruefer 21.09.2026). Jetzt steht
+    # die Meldung selbst im Test.
+    meldungen = [e.getMessage() for e in caplog.records]
+    assert any("Unbrauchbar" in m for m in meldungen), meldungen
+    assert any("nicht moeglich" in m for m in meldungen), meldungen
+
+
+def test_sicherung_bekommt_enge_rechte(tmp_path, monkeypatch):
+    """Die Datei traegt die Immich-Schluessel im Klartext.
+
+    Unter Windows sind die POSIX-Bits nicht messbar (`st_mode` liefert
+    immer 0o666), deshalb wird der AUFRUF geprueft — das ist die Zeile, die
+    unter Linux wirkt, und sie war ungedeckt (Blindpruefer 21.09.2026).
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    rechte: list[int] = []
+    echtes_chmod = os.chmod
+
+    def merkt_sich(ziel, modus, *a, **k):
+        if ".vor-schema-" in str(ziel):
+            rechte.append(modus)
+        return echtes_chmod(ziel, modus, *a, **k)
+
+    monkeypatch.setattr(os, "chmod", merkt_sich)
+    ConfigStore(str(path))
+
+    assert rechte == [0o600], f"erwartet 0600, gesetzt: {[oct(r) for r in rechte]}"
+
+
+def test_kennungsvergabe_ohne_schemasprung_bekommt_einen_rueckweg(tmp_path):
+    """Der Rueckweg haengt an der ARBEIT, nicht an der Versionsnummer.
+
+    Eine aeltere Fassung kann ein Album OHNE Kennung anlegen, waehrend
+    `schema_version` schon aktuell ist. Dann vergibt die Wanderung eine
+    dauerhafte Gruppenkennung — und die erste Fassung dieses Rueckwegs sah
+    dabei nicht hin (Gegenpruefer 21.09.2026, gemessen).
+    """
+    path = tmp_path / "accounts.json"
+    ohne_kennung = _album("a1", "Testalbum", ["p1"])
+    path.write_text(json.dumps({
+        "schema_version": ConfigStore.SCHEMA_VERSION,   # KEIN Sprung
+        "accounts": LEGACY_ACCOUNTS,
+        "managed_albums": [ohne_kennung],
+    }, indent=2), encoding="utf-8")
+    original = path.read_text(encoding="utf-8")
+
+    store = ConfigStore(str(path))
+
+    assert store.get_managed_albums()[0].group_id, "es wurde eine Kennung vergeben"
+    ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+    assert ziel.exists(), "unumkehrbare Arbeit ohne Rueckweg"
+    assert ziel.read_text(encoding="utf-8") == original
+
+
+def test_jede_kennungsvergabe_bekommt_ihren_eigenen_rueckweg(tmp_path):
+    """Eine Generation, jedes Mal erneuert — nicht die Sicherung von damals.
+
+    Die erste Fassung benutzte fuer Schemasprung und Kennungsvergabe
+    DIESELBE Datei. Gemessen vom Blindpruefer: Nach der ersten Wanderung
+    bekam jede weitere Kennungsvergabe gar keinen Rueckweg mehr, und wer die
+    vorhandene Sicherung zurueckspielte, verlor alles, was seither
+    dazugekommen war.
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    ConfigStore(str(path))  # Schemasprung — legt vor-schema-N an
+
+    # Spaeter: ein Album ohne Kennung kommt dazu (aeltere Fassung), und ein
+    # zweites, das es vorher nicht gab.
+    stand = json.loads(path.read_text(encoding="utf-8"))
+    stand["managed_albums"].append(_album("spaeter", "Spaeter", ["p9"]))
+    path.write_text(json.dumps(stand, indent=2), encoding="utf-8")
+    vor_der_vergabe = path.read_text(encoding="utf-8")
+
+    ConfigStore(str(path))
+
+    kennungen = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+    assert kennungen.read_text(encoding="utf-8") == vor_der_vergabe, (
+        "der Rueckweg zeigt nicht auf den Zustand vor DIESER Vergabe"
+    )
+    # Und die einmalige Sicherung ist davon unberuehrt geblieben.
+    schema = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    assert "spaeter" not in schema.read_text(encoding="utf-8")
+
+
+def test_rueckweg_ohne_accounts_schluessel_gilt_nicht(tmp_path, caplog):
+    """Gueltiges JSON ist noch kein Rueckweg.
+
+    Der Test daneben legt eine abgeschnittene Datei ab, die schon an
+    `json.loads` scheitert — die Inhaltspruefung wurde dabei nie erreicht
+    (Blindpruefer 21.09.2026, gemessen).
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    original = path.read_text(encoding="utf-8")
+    ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    ziel.write_text('{"foo": 1}', encoding="utf-8")  # gueltig, aber keine Konfiguration
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    assert ziel.read_text(encoding="utf-8") == original
+    assert any("Unbrauchbar" in e.getMessage() for e in caplog.records)
+
+
+def test_fehlermeldung_nennt_den_versionierten_rueckweg(tmp_path):
+    """Die einzige Meldung, die ein Betreiber im Ernstfall sieht.
+
+    Sie nannte nur `.bak` — also genau die Datei, die nach einer Wanderung
+    nicht mehr der Vor-Zustand ist. Die Korrektur war bis hierher von keinem
+    Test gedeckt und konnte beim naechsten Umbau lautlos zurueckfallen.
+    """
+    path = tmp_path / "accounts.json"
+    path.write_text("{kaputt", encoding="utf-8")
+
+    with pytest.raises(RuntimeError) as fehler:
+        ConfigStore(str(path))
+
+    assert "vor-schema-" in str(fehler.value)
+
+
+def test_gescheitertes_aufraeumen_verhindert_den_start_nicht(tmp_path, monkeypatch, caplog):
+    """Der ZWEITE Pfad in denselben Abbruch — und er war noch offen.
+
+    Gemessen vom Blindpruefer: Scheitert `os.replace` und danach auch das
+    Entfernen der Temp-Datei, lief der Fehler am Fang VORBEI (er stand im
+    `finally`), und `_load` machte daraus wieder "Configuration is invalid".
+    Erreichbar genau dort, wofuer die Sicherung da ist: voller Datentraeger.
+    """
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+
+    echtes_replace = os.replace
+    echtes_unlink = os.unlink
+
+    def replace_scheitert(quelle, ziel, *a, **k):
+        if ".vor-schema-" in str(ziel):
+            raise OSError(28, "kein Platz")
+        return echtes_replace(quelle, ziel, *a, **k)
+
+    def unlink_scheitert(pfad, *a, **k):
+        if ".vor-schema-" in str(pfad):
+            raise OSError(16, "in Benutzung")
+        return echtes_unlink(pfad, *a, **k)
+
+    monkeypatch.setattr(os, "replace", replace_scheitert)
+    monkeypatch.setattr(os, "unlink", unlink_scheitert)
+
+    with caplog.at_level("WARNING"):
+        store = ConfigStore(str(path))  # darf NICHT werfen
+
+    assert store.get_managed_albums(), "die Konfiguration ist unversehrt"
+    meldungen = [e.getMessage() for e in caplog.records]
+    assert any("blieb liegen" in m for m in meldungen), meldungen

@@ -112,6 +112,50 @@ describe("AlbumsOverview", () => {
     expect(screen.getByText("Person A")).toBeTruthy();
     expect(screen.getByText("Person B")).toBeTruthy();
   });
+
+  it("vergibt eindeutige Schluessel, auch bei gleichem Namen", async () => {
+    // Dieselbe Tuer wie in ExtendMatch, und sie war offen: Die Mutation
+    // `key={group.album_name}` ueberlebte die volle Suite (Gegenpruefer
+    // 21.09.2026). Ein doppelter Schluessel rendert trotzdem zwei Karten —
+    // zaehlen faengt ihn nicht. Hier haelt React zwei Karten fuer dieselbe,
+    // und an dieser Ansicht haengen der Sammel-Spinner und der
+    // "Alle synchronisieren"-Knopf.
+    const warnungen: string[] = [];
+    const echt = console.error;
+    console.error = (...args: unknown[]) => {
+      warnungen.push(args.map(String).join(" "));
+    };
+    const passendeWarnung = (w: string) => /same key|unique "key"|duplicate key/i.test(w);
+    try {
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <LanguageProvider>
+            <AlbumsOverview />
+          </LanguageProvider>
+        </QueryClientProvider>
+      );
+      await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
+      expect(warnungen.filter(passendeWarnung)).toEqual([]);
+
+      // SELBSTPROBE: zeigt, dass der Kanal ueberhaupt lebt.
+      const probe: string[] = [];
+      console.error = (...args: unknown[]) => {
+        probe.push(args.map(String).join(" "));
+      };
+      render(
+        <ul>
+          {["x", "x"].map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      );
+      expect(probe.filter(passendeWarnung).length).toBeGreaterThan(0);
+    } finally {
+      console.error = echt;
+    }
+  });
 });
 
 describe("AlbumsOverview: Sammel-Synchronisierung", () => {

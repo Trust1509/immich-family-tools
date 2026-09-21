@@ -30,7 +30,29 @@ When you link an **existing** Immich album and leave the name field empty, the a
 ### Upgrade notes
 
 - **This release migrates `accounts.json`.** On first start, every managed album is given a group identifier, derived once from the names you have today — so your existing groups stay exactly as they are.
-- **The migration is reversible.** Measured: an older container reads a migrated file without complaint, and going back and forth leaves the groups and the data untouched. A `.bak` is written next to the file as usual; a ZFS snapshot beforehand is still the better safety net.
+- **The migration is reversible.** Measured: an older container reads a migrated file without complaint, and going back and forth leaves the groups and the data untouched. A ZFS snapshot beforehand is still the better safety net.
+
+  > **Correction, 2026-09-21 — please read this before upgrading.** This entry
+  > originally said "a `.bak` is written next to the file as usual", implying it
+  > is a usable fallback after the migration. It is not. The ordinary `.bak` is
+  > rewritten on the next save — and the account backfill at startup runs
+  > seconds after the migration, so the pre-migration state survives only
+  > moments. If you are upgrading **to 1.7.0**, take a ZFS snapshot first; do
+  > not rely on `accounts.json.bak`.
+  >
+  > Releases **after** 1.7.0 write `accounts.json.vor-schema-<N>.bak` once
+  > before a migration and never overwrite it. That file does not exist in
+  > 1.7.0 — an image that reports version 1.7.0 and writes it is a build from
+  > after the tag, not this release.
+  >
+  > _Why this correction is here at all:_ `docs/agents/release-ritual.md` says
+  > old entries are not amended retroactively, because the changelog documents
+  > what happened. This is a deliberate deviation, disclosed rather than made
+  > quietly: the original sentence is quoted above verbatim and nothing was
+  > removed, and the claim it made is one an operator acts on **before** an
+  > upgrade they have not run yet. A correction that only appears in the next
+  > release would arrive after the moment it is needed.
+
 - **One deliberate change at migration time:** albums whose name is **empty or only spaces** each get their own group instead of sharing one. An empty name says nothing about belonging, and unlike before, the grouping is now permanent. If you have no such albums, nothing changes for you. To check beforehand:
   ```
   python -c "import json;d=json.load(open('accounts.json'));print([a['album_name'] for a in d.get('managed_albums',[]) if not str(a.get('album_name','')).strip()])"
