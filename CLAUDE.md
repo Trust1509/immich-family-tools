@@ -304,6 +304,12 @@ nicht):\*\*
   lokal und nur nach einem `npm install` in der Wurzel; ohne diesen Lauf wäre
   seine Abdeckung reine Behauptung. Sie fährt echte Commits in Wegwerf-Repos
   und prüft, was git **speichert**, nicht nur, was der Hook sieht.
+- Backend: `python scripts/faltung-sonde-selbsttest.py` — die Selbstprobe der
+  Faltungs-Sonde (#83). Hier aus demselben Grund wie die beiden darüber, nur
+  schärfer: Die Sonde trägt eine Owner-Entscheidung über eine **unumkehrbare**
+  Datenwanderung, und ihre erste Fassung meldete „folgenlos" für einen
+  Bestand, in dem sich sehr wohl etwas ändert. Gefunden haben das zwei
+  Prüfstimmen, nicht ihre eigenen grünen Proben.
 - Frontend (in `frontend/`): `npm ci`
 - Frontend (in `frontend/`): `npm test` — seit #72 unter einem **echten DOM**
   (`happy-dom`, gewählt gegen `jsdom`: gemessen +9 statt +37 Pakete im Baum —
