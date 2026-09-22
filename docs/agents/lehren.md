@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Dreiundzwanzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Einundvierzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -967,9 +967,10 @@ einen Stand, der nie draußen war — und es fällt nicht auf, weil er ja
 ordentlich „nach dem grünen Lauf" gesetzt wurde.
 
 **Für uns der Anlass:** Genau diese Lücke stand in unserem eigenen
-`release-ritual.md` — Schritt 7 endete mit Taggen/Pushen/Release, das
+`release-ritual.md` — der damalige Schritt 7 (heute 8) endete mit
+Taggen/Pushen/Release, das
 Ausrollen auf TrueNAS tauchte gar nicht auf (siehe `release-ritual.md`,
-Schritt 8, in diesem Abgleich ergänzt).
+Schritt 9, in einem früheren Abgleich ergänzt).
 
 ---
 
@@ -1106,9 +1107,12 @@ Für uns besonders scharf, weil unser Release-Ritual genau diese Form hat: Der
 Tag geht der Auslieferung voraus, und ein nachgezogener Tag benennt einen
 Stand, der nie draußen war (§23).
 
-## 26. Was der Owner ausführt, wird auf seinem Rechner gemessen
+## 26. Was der Owner ausführt, wird dort gemessen, wo er es ausführt
 
-**Vorlage §31.** Ein Ritual-Skript lief im Container grün und auf dem
+**Vorlage §31.** Die Überschrift hieß bis zum Abgleich auf v1.16.0 „auf
+seinem Rechner" — die Vorlage hat sie umformuliert, und zwar aus dem Grund,
+der unten als Lehre 2 steht: Es gibt **zwei** Owner-Rechner. Ein Ritual-Skript
+lief im Container grün und auf dem
 Windows-Host des Owners rot. **Keine Stimme kann das sehen** — alle drei
 prüfen dieselbe Umgebung, und die ist nicht die, in der das Skript benutzt
 wird.
@@ -1158,7 +1162,7 @@ Selbstproben belegen.
    naheliegenderweise den Auslieferungs-Host.
 3. **Die Anweisung ist Teil des Werkzeugs.** Der teuerste der acht Punkte war
    nicht Code, sondern ein Satz von mir. Er lief an Panel und Gates vorbei —
-   §28 in seiner unauffälligsten Form: nicht ein Bau-Brief, sondern eine
+   §32 in seiner unauffälligsten Form: nicht ein Bau-Brief, sondern eine
    beiläufige Zeile in einer Nachricht.
 
 **Und: Der Rückstands-Check ist wesensmäßig periodisch.** Er beantwortet die
@@ -1167,7 +1171,7 @@ die zwischen zwei Auslieferungen entsteht, nicht bei einer. Ein Check, der nur
 im Release-Ritual läuft, kann sie strukturell nicht beantworten: In einem
 anderen Projekt blieben so **17 Tage** stiller Rückstand unbemerkt. Bei uns
 hängt das an Issue #54; bis dahin ist die Auslieferungs-Selbstprüfung in
-Schritt 8 des Rituals ausdrücklich **nicht** der Rückstands-Check.
+Schritt 9 des Rituals ausdrücklich **nicht** der Rückstands-Check.
 
 ## 27. Eine Bewertung, die zweimal dasselbe verschieden zählt, trägt keine Entscheidung
 
@@ -1190,7 +1194,299 @@ die Abweichung sichtbar, und zwar dort, wo sie entstand.
   Runden": Dort geht es um die Schwere eines Funds, hier um die Zählung einer
   Bewertung — dieselbe Klasse, zwei Anwendungen.
 
-## 28. Eine Auslagerung macht die Regel prüfbar und schiebt die Verdrahtung in ungeprüften Code
+## 28. Was der Ausführende nicht leisten kann, wird zur stillen Schuldenliste
+
+Eine Pflicht-Verifikation, die der Ausführende **strukturell** nicht erbringen
+kann (Browser-Abnahme ohne erreichbare Testinstanz, echter Klick ohne Desktop),
+erzeugt ehrliche Berichte mit dem Vermerk „ausstehend" — und niemand hängt sie
+als Gate ein. Die Schuld wächst, sichtbar in jedem Report, wirksam in keinem.
+
+**Zwei zulässige Antworten:** die Pflicht an den binden, der sie erbringen kann
+(Owner-Aufgabe mit Termin), oder sie durch die **stärkste erreichbare Sonde**
+ersetzen und die verbleibende Lücke benennen. Unzulässig ist, sie als Pflicht
+stehen zu lassen und je Slice neu zu vertagen.
+
+## 29. Ein Schritt, der nur den leichten Fall probt, gibt Sicherheit, die er nicht hat
+
+Ein Bereitschafts-Test lief durch, weil sein Aufruf keinen Dateizugriff brauchte —
+der Ernstfall scheiterte genau daran. Ein Vorab-Schritt muss den **Engpass** des
+Ernstfalls enthalten, nicht nur seinen Weg. Verwandt: ein Wächter, dessen Fixture
+den Arbeitsfall nie erzeugt, zertifiziert das Gegenteil dessen, was er prüfen soll;
+und ein Mechanismus-Test statt eines Flow-Tests belegt Wirksamkeit nicht — der
+Beweis muss durch die echte Tür.
+
+## 30. Eine Notmaßnahme kann ihre Prämisse verlieren, bevor ihr Datum kommt
+
+§11 verlangt ein Rückdreh-Datum. Das reicht nicht: In einem Fall entfiel der
+Grund der Maßnahme vorher, das Datum stand aber weiter. **Ein Datum ist eine
+Erinnerung, keine Prüfung.** Ins Rückdreh-Issue gehört deshalb auch die
+**Bedingung**, unter der die Maßnahme überhaupt noch nötig ist — und wer sie
+beim Rückbau prüft.
+
+## 31. Ein Fix, der das Abbild nie erreicht, ist kein Fix
+
+Eine Korrektur, die im Quellbaum liegt, aber nicht im gebauten Abbild landet,
+ist keine. Der Update-Pfad gehört gegen die Bau-Kette geprüft, nicht gegen das
+Arbeitsverzeichnis. Verwandt: **der Bezugswert einer Messung kann vom gesuchten
+Fehler mitbewegt werden** — misst man Überlauf gegen eine Breite, die mit dem
+Überlauf wächst, lautet der Vergleich am Ende „901 ≤ 901" und ist immer wahr.
+
+## 32. Den Orchestrator prüft niemand — außer er bestellt die Prüfung
+
+Das Panel liest den Diff des Bauers, die Gates laufen gegen den Code. Was der
+Orchestrator selbst schreibt — Bau-Briefe, Prüfaufträge, Release-Notizen,
+Issue-Texte, Commit-Botschaften — geht durch keine dieser Instanzen. In einer
+Serie hat sich das dreimal gerächt: ein Brief, der die Schwächung autorisierte,
+vor der er warnte; eine Empfehlung auf einer Prämisse, die Stunden zuvor
+widerlegt worden war; acht von zehn Release-Notizen mit ASCII-Umschreibungen
+gegen einen wörtlichen Styleguide, fünf Slices lang unbemerkt. Die Ursache des
+dritten Falls: eine Gewohnheit aus einem anderen Kanal (Commit-Betreffe dürfen
+ASCII sein, sichtbarer Text nicht) — **Gewohnheiten wandern zwischen Kanälen
+mit verschiedenen Regeln**, und das ist kein Konzentrationsfehler, sondern die
+Sorte Abweichung, für die es Wächter gibt.
+
+Der Benchmark über drei Läufe zählt dasselbe von der anderen Seite: In jedem
+Lauf trafen bestätigte Funde den Auftraggeber, nicht den Bauer (sieben von
+neunundzwanzig in einem Slice; ein Nacharbeits-Brief bestellte eine Option,
+die im Test-Abbild nicht existierte, und erzeugte damit einen Totalausfall).
+**Der Orchestrator ist Teil des gemessenen Systems, keine neutrale
+Transportinstanz.**
+
+**Regeln** (die Umsetzung steht je Datei beim Eigentümer):
+
+- Ausgelieferte Orchestrator-Texte gehen durch dieselbe Prüfung wie Bauer-Code
+  (`bau-brief.md`, Randbedingungen; `panel.md`, Prüfaufträge).
+- Die Klausel „prüfe meine Einschätzung, statt sie zu übernehmen" steht in
+  jedem Brief mit Empfehlung; Verhaltensvorgaben des Briefs sind
+  Widerlegungs-Auftrag einer Stimme (`bau-brief.md`, Wahrheit des Briefs).
+- Eine widerlegte Behauptung des Prüfauftrags ist ein Fund (`panel.md`).
+- Der Herkunftsstempel wird vom Orchestrator gesetzt (`CLAUDE.md`) — nicht
+  weil der Bauer lügt, sondern weil er seine Kennung nicht kennt (4/4).
+- In Bilanzen wird gezählt, welche Fehler der Orchestrator selbst eingebracht
+  hat — als festes Feld im Panel-Kommentar (`panel-kommentar.md`). **Ein Fund
+  trifft den Orchestrator**, wenn seine Ursache in einem Text liegt, den keine
+  Stimme und kein Gate gesehen hat (Brief, Prüfauftrag, Issue-Text,
+  Release-Notiz, Meldung an die Vorlage) — das gilt auch in Projekten, in denen
+  der Hauptagent selbst baut. Gemessen über drei Projekte: 6 von 13, 6 von 24,
+  7 von 15.
+- **Umgebungsaussagen in `CLAUDE.md` sind Behauptungen und werden gemessen.**
+  „Kein Node/npm lokal auf diesem Rechner" stand in fünf Projektständen; auf dem
+  Rechner lagen Node 24 und npm 11. Ein Bauer baute sein Ritual auf die Aussage,
+  und das Ritual vernichtete auf genau diesem Rechner Daten. Beim Abgleich und
+  vor jedem Ritual-Slice: je Umgebungsaussage ein Kommando mit Exit-Code.
+- **Reparaturen am Prüfstand werden getrennt bilanziert.** Wer zwischen zwei
+  Läufen seine Messumgebung repariert, darf den zweiten Lauf nicht als
+  Verbesserung des Geprüften melden. Vier Zahlen: Produktrunden, Reparaturen,
+  Eingriffe des Owners, Diagnosezeit. Gemessen: neun Reparaturereignisse
+  zwischen drei Läufen — ohne die Trennung hätten die späteren Läufe schlicht
+  besser ausgesehen.
+- **Eine Meldung an die Vorlage ist ebenfalls Orchestrator-Text.** Nur die
+  lokale Notiz im eigenen Repo bringt sie vor ein Panel; gemessen kam die
+  Korrektur einer fehlerhaften Meldung aus genau so einem Panel-Diff. Eine
+  eigene Meldung wird **sichtbar** korrigiert (Nachtrag mit Datum), nicht still
+  editiert.
+
+## 33. Konvergenz der Stimmen ist ein Grund zu messen, kein Grund aufzuhören
+
+Drei Läufe desselben eingefrorenen Slices, jeweils drei Stimmen, dazu Gates und
+Rauchtest auf dem Host. Ergebnis: **In jedem Lauf mit Testausführung fanden
+zwei bis drei Blocker ausschließlich die Messung** — ein Test-Abbild ohne die
+Datei, die der Test las (null von drei Stimmen, obwohl eine das Abbild-Rezept
+und die Testdatei „vollständig" gelesen hatte); ein Init-Script, das den
+Zustand bei jedem Neuladen zurücksetzt; ein Gate, das auf dem Rechner des
+Owners den falschen Pfad nimmt. Und in einem Fall erklärten **drei von drei
+Stimmen** einen roten Test unabhängig mit derselben falschen Ursache (ein
+Overlay über dem Umschalter); gemessen war es ein Substring-Locator, der ein
+Nachbarelement traf. Drei übereinstimmende Stimmen sind drei Lesarten
+desselben Textes, keine Reproduktion.
+
+Die Umkehrung gilt ebenso: Ein Fund, den niemand sonst hatte, kann der
+wichtigste sein — der Erst-Rollout-Fehler (§34) wurde in 27 Review-Läufen
+einmal gefunden, von der Stimme mit der Rahmung „Bestandsnutzer nach dem
+Deploy". **Regeln:** Jeder Blocker wird reproduziert, auch der einstimmige.
+Was ausführbar ist, wird ausgeführt, bevor es gelesen wird (`panel.md`, Sonde
+vor Hypothese). Und Messartefakte des Orchestrators liegen nicht im Baum, den
+die Stimmen lesen — sonst zitiert eine Stimme die Messung als eigenen Fund.
+
+**Nachtrag v1.15.0 — „nur die Messung fand es" heißt nicht „nur die Messung
+KONNTE es finden".** Alle 23 bestätigten Blocker dieses Benchmarks (die drei
+Läufe oben plus der Erst-Rollout-Fehler aus dem Prozess-Arm, §34) nachträglich
+nach Entscheidbarkeit eingeteilt:
+
+| Klasse | Entscheidbar durch                           | Anzahl |
+| ------ | -------------------------------------------- | ------ |
+| **S1** | Lesen von Code und Repo (statisch beweisbar) | 19     |
+| **S2** | nur Ausführung (Laufzeit, Host, Abbild)      | 3      |
+| **S3** | nur ein bestimmter Zustand oder eine Persona | 1      |
+
+Auch der Test-Abbild-Fall oben war S1 — beide Dateien waren lesbar, und null
+von drei Stimmen verbanden sie. **Beide Aussagen gelten** (Owner-Entscheid):
+Die Messung bleibt Pflicht, weil sie findet, was Stimmen liegen lassen; und
+ein S1-Fund, den nur die Messung fand, ist ein Befund über die **Prüfer**, kein
+Beleg, dass Lesen nicht reicht. Daraus zwei Fähigkeiten, getrennt zu messen:
+**find_if_decidable** (S1 finden) und **escalate_if_not_decidable** (bei S2/S3
+„nicht entschieden — Probe X" sagen statt eine Ursache zu behaupten,
+`panel.md`). Gemessen in 15 verblindeten Bewertungen der Endstände: **0 von 9**
+Läufen fanden einen im Endstand vorhandenen S1-Defekt, einer erklärte die
+defekte Stelle ausdrücklich für funktional; **0 von 15** eskalierten bei
+S2/S3. Erst eine eigene Sonde am laufenden Stand entschied.
+
+## 34. Ein Owner-Entscheid ist eine Anforderung, kein Abnahmekriterium
+
+Der Owner entschied: „Eine frische Installation zeigt nichts." Der Slice
+führte den Schlüssel ein, an dem „gesehen" hängt, und behandelte „Schlüssel
+fehlt" als frische Installation. **Jeder Bestandsnutzer hatte den Schlüssel
+nicht** — der Erst-Rollout zeigte niemandem etwas, das Feature wirkte erst ab
+dem übernächsten Release, und die mühsam übersetzte Fassung des ersten Releases
+ging an niemandem vorbei live. Der Entscheid war richtig; die Abnahme prüfte
+ihn und nicht seine Folge. Eine Rubrik belohnte das Verhalten sogar („frische
+Installation zeigt nichts: erfüllt").
+
+Die Klasse: Ein Entscheid beschreibt den Zielzustand. Zwischen heute und dem
+Zielzustand liegt der Rollout auf den Bestand, und der hat eine eigene
+Semantik — wer den Schlüssel heute nicht hat, ist nicht dieselbe Person wie
+„frisch". **Regel:** Die Abnahme denkt den Rollout auf Bestandsnutzer mit;
+Prüffrage 10 in `bau-brief.md` stellt sie mechanisch — inzwischen an die Form
+gebunden (vier Ausgangszustände), nicht an den Speicher-Schlüssel. Der Fehler
+stand in einem späteren Vergleich in **vier von fünf** unabhängigen
+Umsetzungen, gemessen am laufenden Stapel. Und eine Stimme mit der
+Rahmung „Betreiber nach dem Deploy" findet sie eher als eine, die den Code
+liest.
+
+## 35. Zeit wird in drei Zuständen gezählt, nicht als eine Wandzeit
+
+Ein Vergleich meldete „9 h 34 gegen 1 h 46" — und war irreführend: Der längere
+Lauf enthielt Stunden, in denen niemand arbeiten konnte, weil ein fremdes
+Kontingent erschöpft war. Neu gerechnet lagen beide in derselben
+Größenordnung. **Wartezeit auf fremde Kapazität ist keine Umsetzungszeit**, und
+wer sie addiert, misst den Tarif, nicht den Prozess.
+
+**Regel** (Owner-Entscheid, gilt für jede Bilanz):
+
+| Zustand                      | Bedeutung                                           | wird                                        |
+| ---------------------------- | --------------------------------------------------- | ------------------------------------------- |
+| **ACTIVE**                   | es wird gearbeitet — auch verworfene Arbeit         | summiert                                    |
+| **PAUSED_EXTERNAL_CAPACITY** | Sitzungslimit, Guthaben, Kontingent eines Anbieters | **gezählt** (Anzahl, Dauer), nicht summiert |
+| **MIXED**                    | Block, der sich nachträglich nicht trennen lässt    | ausgewiesen, **nie geschätzt**              |
+
+Jede Bilanz nennt drei Zahlen: brutto, aktiv, Ausfälle. Eine Untergrenze („≥ 1 h
+40") wird als Untergrenze geschrieben, nie als Zahl. **Warten auf eine
+Entscheidung des Owners** ist weder ACTIVE noch PAUSED und bleibt aus der
+Vergleichsgröße heraus (gemessen: eine Lücke von 7 h 35 in einem Slice). Der
+Orchestrator wird mitgezählt — seine Zeit ist Teil des gemessenen Systems
+(§32).
+
+## 36. Ein Commit, der Dateien still verliert
+
+Zwei Release-Commits der Vorlage löschten zusammen **zwölf Dateien** — CI-,
+Abhängigkeits- und Hook-Vorlagen, das Werkzeug der dritten Stimme, die
+Beispiel-Umgebung, die Geheimnis-Übersicht, die englischen Fassungen samt
+Prüfskript. Keine Commit-Nachricht und kein CHANGELOG-Eintrag erwähnte es. Die
+Doku verwies **25 bzw. 13 Tage** lang weiter auf die fehlenden Dateien, durch
+mehrere Panels und Abgleiche hindurch; gefunden hat es erst eine
+Bestandsprüfung, und dort nur zwei von vier Prüfern.
+
+**Wie es entsteht:** Ein Release-Commit wird aus einer Arbeitskopie gebaut,
+die nicht alle Dateien enthält — ein Teilbestand wird bearbeitet und als
+Ganzes übernommen. Das Muster beider Commits passt dazu: Geändert wurden nur
+Dateien, die ohnehin in Arbeit waren; gelöscht wurden genau die, die niemand
+anfasste. Kein Prüfschritt sah hin, weil jeder den **Inhalt** des Diffs las —
+eine Löschung hat keinen Inhalt, den man lesen könnte, und fällt in einer
+langen Diff-Statistik als eine Zeile unter vielen nicht auf.
+
+**Warum es still bleibt:** Eine gelöschte Datei macht nichts rot. Die
+Verweise auf sie stehen in Prosa, und Prosa wird nicht ausgeführt (§14). Wer
+eine Datei sucht, die fehlt, hält das für einen Fehler seines eigenen Klons.
+
+**Regel (Ritualschritt, im Release-Skript ein Wächter):** Vor jedem Tag listet
+`liste=$(git -c core.quotepath=off log -m --no-renames --diff-filter=D --name-only --format= <letzter-tag>..HEAD) || exit 1`, dann `printf '%s\n' "$liste" | sort -u` (die Zuweisung trägt den Exit — eine Pipe verschluckt ihn, ein falscher Tag sähe aus wie „nichts verloren"; Form und Begründung in `release-ritual.md`, Schritt 7)
+jede gelöschte oder verschobene Datei — `log` statt `diff`, weil ein Diff
+Anfang gegen Ende vergleicht und eine Datei übersieht, die nach dem Tag
+angelegt, verlinkt und wieder gelöscht wurde; ohne `--no-renames` fällt eine
+verschobene Datei als Umbenennung durch, ohne `core.quotepath=off` ein Name
+mit Umlaut als maskierter Pfad, den keine Suche findet —, jede steht mit Grund
+im Notizen-Eintrag, und `git grep -n -i -F "<dateiname>"` (bei Umlaut oder
+Leerzeichen auch in URL-kodierter Form, bei einem ganzen Verzeichnis der
+Verzeichnisname **ohne** Schrägstrich) findet keinen Verweis mehr, der nicht
+gewollt ist; sonst ROT
+(`release-ritual.md`, Schritt 7). Der Schritt prüft nicht, ob
+eine Löschung richtig ist, sondern dass sie **gesagt** wurde und nichts mehr
+auf sie zeigt; das genügt, weil beide Fälle oben keine Absicht waren. Als
+Schritt im Ritual ist er Disziplin — erst im Release-Skript macht sein
+Auslassen etwas rot (§18).
+
+## 37. Ein Zeitlimit beendet nichts
+
+Ein Messbefehl lief in sein Zeitlimit. Die Umgebung verschob ihn in den
+Hintergrund und meldete das — eine Zeile, die aussah wie ein Abschluss. Der
+Aufrufende wiederholte die Messung eine Minute später auf einem anderen Weg
+und ließ den ersten Lauf liegen: **Er lief anderthalb Stunden weiter**, bis er
+jemandem auffiel. Kein Schaden, weil er nur in ein Wegwerf-Verzeichnis
+schrieb — das war Glück, keine Vorkehrung.
+
+**Warum das strukturell ist:** Ein Zeitlimit ist eine Grenze für das _Warten_,
+nicht für den _Prozess_. Die Meldung „in den Hintergrund verschoben" beendet
+den Dialog und wird deshalb wie ein Ergebnis gelesen; danach ist der Lauf aus
+der Aufmerksamkeit, aber nicht aus der Maschine. Dasselbe gilt für jeden
+Abbruch: Ein Abbruch der ANZEIGE ist kein Abbruch der ARBEIT.
+
+**Warum es gerade den Orchestrator trifft:** Die Regel „Läufe im Vordergrund,
+Zeitlimits explizit, keine Hintergrundprozesse" steht im Pflicht-Gerüst des
+Bau-Briefs — sie erreicht damit den Bauer und **nicht den, der sie verteilt**.
+Genau der startet Stimmen, Bauer, Proben und Gates in **fremden Bäumen** (§32:
+den Orchestrator prüft niemand). Ein vergessener Lauf hält dort einen
+Worktree, eine Sperre, ein Temp-Verzeichnis oder einen Port — und die nächste
+Stimme misst einen Baum, der sich bewegt.
+
+**Was macht die Regel rot?** Kein Wächter — deshalb trägt sie die Form:
+**Jeder Bau- und Panel-Bericht endet mit der Zeile „Eigene Läufe am Ende: …"**
+(`panel-kommentar.md`). Eine fehlende Zeile springt ins Auge, ein vergessener
+Prozess nicht — dieselbe Mechanik wie die festen Überschriften im
+Panel-Kommentar. Ein bewusst gestarteter Hintergrundlauf ist erlaubt (Stimmen
+laufen parallel); er gehört in diese Zeile, nicht in die Stille.
+
+**Regel (Wächterfrage; nach jedem Zeitlimit, jedem Abbruch und jedem „in den
+Hintergrund verschoben"):** _Welcher Prozess läuft noch, was hält er (Worktree,
+Sperre, Temp-Verzeichnis, Port), und ist er gestoppt?_ Erst dann die nächste
+Messung. Die Antwort gehört ins Ergebnis, auch wenn sie „keiner" lautet —
+eine Zusage, die nie gesagt werden muss, wird nie geprüft (§18).
+
+**Verwandt, gleiche Wurzel — ein Hintergrundlauf wird für inert gehalten:**
+§25 (das Beenden führt aus, was hinter dem hängenden Kommando steht) und das
+Hintergrund-Warte-Muster in `bau-brief.md` (der Bauer wartet auf seinen eigenen
+Hintergrund-Gate und endet ohne Bericht). Die Folge fürs Panel steht in
+`panel.md`, „Eine Stimme, ein Worktree": vor dem Start einer Stimme ist der
+Baum leer **und kein eigener Lauf mehr offen, der in diesen Baum schreibt** —
+andere Stimmen laufen bewusst parallel und zählen nicht; und **je Runde ein
+neuer Worktree, nie umhängen** — eine Stimme, die mit offener Hintergrundarbeit
+berichtet, gilt als laufend (v1.15.4).
+
+## 38. Eine Nacharbeit behebt den Fund im gemessenen Umfang
+
+Ein Prüfer meldet einen Fund an EINER Stelle: der Tür, dem Pfad, der Eingabe,
+die er gezeigt hat. Der Bauer der Nacharbeit „löst ihn mit" und zieht die
+Prüfung in eine gemeinsame Routine, die jede Tür und jede Bestandszeile sieht —
+und baut damit den nächsten Blocker: Ein gesperrter Beleg mit einer Alt-Zeile,
+die die neue Regel nicht erfüllt, ist nicht mehr überführbar, weil gesperrt
+nicht korrigierbar heißt (Rückmeldung P1, Slice mit drei Nacharbeitsrunden;
+die Nachbarfunktion trug als Kommentar die ältere Auflage „Alt-Daten dürfen
+unverbundene Änderungen nicht blockieren").
+
+Die Klasse: **Ein Fund wird über seinen GEMESSENEN Umfang hinaus behoben.**
+Nacharbeit ist Arbeit unter Zeitdruck mit der Versuchung, das Nachbarloch gleich
+mitzustopfen — und genau dort fehlt der Blick auf Bestandsdaten, den ein
+Bau-Brief für den Erst-Bau erzwingt (Block 2 Befund mit Konsumentenliste,
+Prüffrage 10 „real verschiedene Ausgangszustände"). Die Auflage der Nacharbeit
+kommt als Prüferzeile, nicht als Befund.
+
+**Regel:** Eine Nacharbeit behebt den Fund im gemessenen Umfang. Wer den Fix auf
+weitere Türen, Aufrufer oder Bestandsdaten ausdehnt, beantwortet VORHER
+Prüffrage 3 (Geschwister-Routinen) und Prüffrage 10 (Ausgangszustände) für die
+Erweiterung — sonst wird die Erweiterung ein eigener Slice. Im
+Nacharbeits-Brief steht die Zeile „Umfang der Behebung = gemessener Umfang"
+und je Erweiterung ihre Begründung (`bau-brief.md`, Nacharbeit).
+
+## 39. Eine Auslagerung macht die Regel prüfbar und schiebt die Verdrahtung in ungeprüften Code
 
 **Was passierte (#78, 20.09.2026).** Dieselbe Gruppierungsregel lag dreimal im
 Frontend und ein viertes Mal im Backend. Der Slice zog sie in ein Modul
@@ -1218,7 +1514,7 @@ Attrappe, die den ausgelagerten Helfer nachbildet, prüft die Verdrahtung nicht
 ist"): Das Modul ist leichter zu messen als die Komponente, und genau dorthin
 ist die Prüfung gerutscht.
 
-## 29. Ein Test, der auf das Endergebnis wartet, übersieht einen toten Zwischenzustand
+## 40. Ein Test, der auf das Endergebnis wartet, übersieht einen toten Zwischenzustand
 
 **Was passierte (#78, Nacharbeit 2).** Ein Sammel-Abgleich setzt vor dem Lauf
 für jede Gruppe eine Marke „läuft" und schreibt danach je Gruppe das Ergebnis.
@@ -1242,7 +1538,7 @@ Test rot macht, der für sie geschrieben wurde**. „Irgendwo rot" ist keine
 Deckung — genau deshalb führt das Mutationsskript dieses Projekts je Fall einen
 Erwartungstext mit.
 
-## 30. Ein Wächter von außen sieht den frühesten Weg, der Defekt lebt am spätesten
+## 41. Ein Wächter von außen sieht den frühesten Weg, der Defekt lebt am spätesten
 
 **Der Vorfall.** Die Regel „alles, was ablehnen kann, gehört vor den ersten
 Schreibvorgang" war in `routers/albums.py` dreimal verletzt worden (#81, #82,

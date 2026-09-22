@@ -228,19 +228,19 @@ stehen in `lehren.md`.
 
 ## Randbedingungen, die immer mitmüssen
 
-*Diese Punkte stehen wörtlich in Block 8 jedes Briefs. Deshalb enthalten sie
+_Diese Punkte stehen wörtlich in Block 8 jedes Briefs. Deshalb enthalten sie
 kein Suchwort eines anderen Themas des Prüfskripts — sonst erfüllten sie jenes
 Thema in jedem Brief (gemessen: zwei Suchwörter anderer Themen standen hier
 bis v1.15.2, siehe Grenze „Wörtliche Pflichttexte"). Wer hier ändert, lässt
-die Selbstprobe laufen; sie liest diesen Abschnitt.*
+die Selbstprobe laufen; sie liest diesen Abschnitt._
 
 - **Der Bericht endet mit der Zeile „Eigene Läufe am Ende: …"** — keiner, oder
   welcher Lauf noch offen ist, was er hält und ob er gestoppt wurde. Ein Lauf,
   den ein Zeitlimit ins Hintergrundfach verschoben hat, wird gestoppt, bevor es
-  weitergeht (`lehren.md` §35).
+  weitergeht (`lehren.md` §37).
 - **Alle** Prüfläufe nennen, die die CI fährt — vollständig in Block 6.
   (Reales Beispiel: Die CI fuhr
-  *zwei* Typprüfungen, im Brief stand nur eine — der neue Test war lokal grün
+  _zwei_ Typprüfungen, im Brief stand nur eine — der neue Test war lokal grün
   und im CI rot.)
 - **Jede Option, die der Brief anbietet, nennt die Umgebung, in der sie läuft.**
   Gemessen: Ein Nacharbeits-Brief bot „die Version per Dateizugriff lesen" an —
@@ -371,6 +371,16 @@ jedem Einfügen eines nummerierten Blocks deshalb einmal zählen:_
 ```bash
 grep -o '^## [0-9]*' <brief.md> | sort | uniq -c
 ```
+
+**Umfang der Behebung = gemessener Umfang.** Die Auflage nennt die Tür, den
+Pfad, die Eingabe, die der Prüfer gezeigt hat — dort wird behoben. Wer den Fix
+auf weitere Türen, Aufrufer oder Bestandsdaten ausdehnt, benennt das im Brief
+und beantwortet **vorher** Prüffrage 3 (Geschwister-Routinen) und Prüffrage 10
+(Ausgangszustände) für die Erweiterung; sonst ist sie ein eigener Slice. Im
+Nacharbeits-Brief steht die Zeile „Umfang der Behebung = gemessener Umfang"
+und je Erweiterung ihre Begründung (`lehren.md` §38). Die Gegenrichtung deckt
+der Absatz oben ab: Die schwersten Funde der zweiten Runde sind meist die
+Reparaturen der ersten.
 
 **Keine neuen Tests in der letzten Nacharbeitsrunde.** Wer in der Schlussrunde
 noch einen Test bestellt, bestellt den einzigen Blocker, der am Ende offen

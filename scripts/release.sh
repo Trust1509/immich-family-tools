@@ -226,6 +226,104 @@ pruefe_tag_frei() {
   fi
 }
 
+# Jede Datei, die seit dem letzten Tag verschwunden oder umgezogen ist.
+#
+# WARUM: Zwei Release-Commits der Vorlage haben zusammen zwoelf Dateien
+# geloescht, ohne dass eine Commit-Nachricht oder ein Changelog-Eintrag das
+# erwaehnte; die Doku verwies 25 bzw. 13 Tage weiter auf die fehlenden
+# Dateien. Eine geloeschte Datei macht nichts rot: Sie hat keinen Inhalt, den
+# ein Diff-Leser lesen koennte, und faellt in einer langen Statistik als eine
+# Zeile unter vielen nicht auf (docs/agents/lehren.md Paragraph 36).
+#
+# Diese Pruefung urteilt NICHT darueber, ob eine Loeschung richtig war. Sie
+# prueft zweierlei, beides mechanisch: dass sie GESAGT wurde (der Name steht
+# im Notizen-Eintrag dieser Version) und dass nichts mehr auf sie zeigt.
+pruefe_geloeschte_dateien() {
+  VERSION=$1
+
+  LETZTER_TAG=$(git -C "$WURZEL" describe --tags --abbrev=0 2>/dev/null) || LETZTER_TAG=""
+  if [ -z "$LETZTER_TAG" ]; then
+    ok "Geloeschte Dateien: kein Vorgaenger-Tag, nichts zu vergleichen"
+    return
+  fi
+
+  # Die ZUWEISUNG traegt den Exit. In `git log ... | sort -u` verschluckt die
+  # Pipe ihn, und ein unlesbarer Tag saehe aus wie "nichts verloren" — also
+  # gruen aus dem falschen Grund.
+  #
+  # `log` statt `diff`: Ein Diff vergleicht Anfang gegen Ende und uebersieht
+  # eine Datei, die nach dem Tag angelegt, verlinkt und wieder geloescht wurde.
+  # `--no-renames`, sonst faellt ein Umzug als Umbenennung durch und niemand
+  # erfaehrt, dass der alte Pfad weg ist. `core.quotepath=off`, sonst kommt
+  # ein Name mit Umlaut maskiert zurueck und keine Suche findet ihn.
+  ROH=$(git -C "$WURZEL" -c core.quotepath=off log -m --no-renames --diff-filter=D --name-only --format= "$LETZTER_TAG..HEAD") || {
+    rot "Geloeschte Dateien: $LETZTER_TAG..HEAD nicht lesbar — nicht pruefbar, also ROT"
+    return
+  }
+
+  LISTE=$(printf '%s\n' "$ROH" | sed '/^[[:space:]]*$/d' | sort -u)
+  if [ -z "$LISTE" ]; then
+    ok "Seit $LETZTER_TAG wurde keine Datei geloescht oder verschoben"
+    return
+  fi
+
+  # Der Notizen-Eintrag DIESER Version, nicht die ganze Datei: Ein Name, der
+  # im Eintrag der Vorversion steht, ist fuer diese Loeschung kein Beleg.
+  ABSCHNITT=""
+  KOPF_G=$(changelog_kopfzeile)
+  if [ -n "$KOPF_G" ]; then
+    ZNR=$(echo "$KOPF_G" | cut -d: -f1)
+    ENDE_G=$(awk -v start="$ZNR" 'NR > start && /^## \[/ { print NR; exit }' "$WURZEL/CHANGELOG.md")
+    [ -n "$ENDE_G" ] || ENDE_G=$(wc -l < "$WURZEL/CHANGELOG.md")
+    ABSCHNITT=$(awk -v a="$ZNR" -v b="$ENDE_G" 'NR >= a && NR <= b' "$WURZEL/CHANGELOG.md")
+  fi
+
+  # Zeilenweise iterieren OHNE Pipe: In `... | while read` liefe die Schleife
+  # in einer Subshell, und jedes `rot` darin erhoehte einen Zaehler, den
+  # niemand mehr sieht — das Gate bliebe gruen.
+  ALT_IFS=$IFS
+  IFS='
+'
+  for DATEI in $LISTE; do
+    IFS=$ALT_IFS
+
+    # Geloescht und wieder angelegt: nichts ist verloren.
+    if [ -e "$WURZEL/$DATEI" ]; then
+      IFS='
+'
+      continue
+    fi
+
+    BASIS=$(basename "$DATEI")
+
+    if printf '%s\n' "$ABSCHNITT" | grep -q -F -e "$DATEI" -e "$BASIS"; then
+      GENANNT=ja
+    else
+      GENANNT=nein
+    fi
+
+    # Verweise im Baum. Der Notizen-Eintrag selbst ist der GEWOLLTE Verweis
+    # und wird ausgenommen; alles andere zeigt ins Leere.
+    VERWEISE=$(git -C "$WURZEL" grep -n -i -F -e "$DATEI" -e "$BASIS" -- . 2>/dev/null |
+               grep -v '^CHANGELOG\.md:' || true)
+
+    if [ "$GENANNT" = nein ]; then
+      rot "Geloescht ohne Eintrag in den Notizen: $DATEI"
+    fi
+    if [ -n "$VERWEISE" ]; then
+      rot "Geloescht, aber noch verlinkt: $DATEI"
+      printf '%s\n' "$VERWEISE" | sed 's/^/          /'
+    fi
+    if [ "$GENANNT" = ja ] && [ -z "$VERWEISE" ]; then
+      ok "Geloescht und sauber abgemeldet: $DATEI"
+    fi
+
+    IFS='
+'
+  done
+  IFS=$ALT_IFS
+}
+
 pruefe_baum_sauber() {
   if [ -n "$(git -C "$WURZEL" status --porcelain)" ]; then
     rot "Arbeitsbaum ist nicht sauber — der Tag wuerde einen Stand benennen, der nirgends liegt"
@@ -375,6 +473,7 @@ gate() {
   pruefe_code_stellen "$VERSION"
   pruefe_tag_frei "$VERSION"
   pruefe_baum_sauber
+  pruefe_geloeschte_dateien "$VERSION"
   pruefe_ci
   echo
   if [ "$FEHLER" -eq 0 ]; then

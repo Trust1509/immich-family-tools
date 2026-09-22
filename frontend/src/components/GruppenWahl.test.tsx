@@ -1,6 +1,6 @@
 // Die Gruppenwahl-Komponente fuer sich (#81).
 //
-// Der Zwischenzustand ist ein eigenes Verhalten (`docs/agents/lehren.md` §29):
+// Der Zwischenzustand ist ein eigenes Verhalten (`docs/agents/lehren.md` §40):
 // Ein Hinweis, der zu einer VERALTETEN Eingabe gehoert, ist schlimmer als
 // keiner — der Nutzer bestaetigt dann eine Gruppe, die zu dem Namen, den er
 // gerade tippt, gar nicht passt.

@@ -1,24 +1,38 @@
-# Review-Panel: drei Stimmen über denselben Diff
+# Review-Panel: bis zu drei Stimmen über denselben Diff
 
-Nach **jedem Slice mit Klasse R2 oder höher** (siehe `CLAUDE.md`, „Risikoklasse
-je Slice"), vor dem Landen. Das Panel hat in der Praxis
+Vor dem Landen eines nicht-trivialen Slices; wie viele Stimmen, sagt die
+Risiko-Tabelle in `../../CLAUDE.md`. Das Panel hat in der Praxis
 jeden zweiten Erstbau gestoppt — nicht wegen Kleinigkeiten, sondern wegen Funden,
 die in Produktion wehgetan hätten.
 
-## Warum drei, und warum eine davon blind
+## Warum bis zu drei, und warum eine davon blind
 
-**Stimme 1 — blinde Erststimme.** Ein _frischer_ Reviewer-Subagent, der **nur den
+**Die drei Rollen tragen Namen, die sagen, was sie tun** (v1.15.0; vorher
+„blinde Erststimme", „unabhängige Zweitstimme", „Arm C"/„Zweitblind-Stimme" —
+„Arm C" stammte aus einem Pilot und bedeutete in einem späteren Benchmark etwas
+anderes, niemand konnte es ohne Nachschlagen lesen):
+
+| Name            | Wer                                                                                              | Kennt den Brief?                                                                | Wann                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Blindprüfer** | frischer Claude-Subagent, nur Diff + Repo                                                        | nein                                                                            | immer (ab R2); in der Nacharbeit die Standardbesetzung (Schwelle: `CLAUDE.md`) |
+| **Fremdprüfer** | Modell eines anderen Anbieters, Repo-Zugriff                                                     | kann (dann mit dem Auftrag, gegen den Brief zu messen — `bau-brief.md`, Ablage) | ab R2                                                                          |
+| **Gegenprüfer** | zweite frische Claude-Stimme mit **Widerlegungsauftrag** (Aufsichts-/Angreifer-/Schadensrahmung) | nein                                                                            | Pflicht bei R3, optional bei R2                                                |
+
+Die Überschriften im Panel-Kommentar bleiben nummeriert (`Stimme 1 —
+Blindprüfer`), damit ältere Kommentare vergleichbar bleiben.
+
+**Stimme 1 — Blindprüfer.** Ein _frischer_ Reviewer-Subagent, der **nur den
 Diff und das Repo** bekommt: nicht den Bau-Brief, nicht den Bericht des Bauers,
 nicht die Diskussion. Er darf Sonden fahren (Tests, eigene Messungen), aber nichts
 ändern.
 
 Das ist die wichtigste Regel des ganzen Verfahrens. Wer den Bau begleitet hat —
-auch der Hauptagent — liest die **Absicht** statt des Codes. Die blinde Stimme
+auch der Hauptagent — liest die **Absicht** statt des Codes. Der Blindprüfer
 liefert deshalb überproportional die schwersten Funde: einen rekonstruierbaren
 Kundennamen über die Sortierreihenfolge, einen gemessenen Datenverlust in einer
 Migration, einen Testaufbau, der den eigenen Fix nie berührt.
 
-**Stimme 2 — unabhängiges Modell** über denselben Diff. Bringt eine andere
+**Stimme 2 — Fremdprüfer:** ein unabhängiges Modell über denselben Diff. Bringt eine andere
 Fehler-Intuition mit. Kennt den lokalen Arbeitsbaum nicht, arbeitet über einen
 gepushten Review-Branch.
 
@@ -38,19 +52,19 @@ garantiert, dass es so bleibt? Das ist die Umkehrung der üblichen Richtung:
 Sonst gewinnt die Messung immer, und genau die Messung, die die Repo-Stimmen
 stark macht, macht sie hier milder.
 
-**Stimme 3 — abhängig von der Risikoklasse.** Bei R2 (wenn besetzt): die
-günstige diff-only-Fremdstimme, nur der Diff, kurze Antwort, kostet fast
-nichts. **Bei R3: eine zweite blinde Claude-Repo-Stimme mit adversarialer
-Rahmung** — Begründung und Beleg unter „Verfahren je Risikoklasse". Zur
-diff-only-Stimme: **Erwartung realistisch halten** (Messreihe über fünf
-Projekte): ein exklusiver bestätigter Fund insgesamt, dem rund ein Dutzend
-Fehl- und Überbefunde gegenüberstehen, zweimal aktiv irreführend zur
-Kernfrage.
+**Stimme 3 — abhängig von der Risikoklasse.** Bei R2 (wenn besetzt): entweder
+die günstige diff-only-Fremdstimme oder der **Gegenprüfer** — zu unterscheiden,
+denn gemessen liefern sie Gegensätzliches (siehe „Verfahren je Risikoklasse").
+**Bei R3: der Gegenprüfer** — Begründung und Beleg unter „Verfahren je
+Risikoklasse". Zur
+diff-only-Stimme: **Erwartung realistisch halten** (Messreihe über fünf Projekte): ein
+exklusiver bestätigter Fund insgesamt, dem rund ein Dutzend Fehl- und
+Überbefunde gegenüberstehen, zweimal aktiv irreführend zur Kernfrage.
 
-Der Grund ist strukturell, nicht modellabhängig: **Die schweren Funde liegen
-in der Beziehung zwischen Diff und Umgebung** — ein Bezeichner, der in einer
-nicht mitgelieferten Datei anders lautet; eine Zusicherung in einer Datei, die
-der Diff nicht berührt. Diese Klasse ist diff-only **prinzipiell** unsichtbar.
+Der Grund ist strukturell, nicht modellabhängig: **Die schweren Funde liegen in
+der Beziehung zwischen Diff und Umgebung** — ein Bezeichner, der in einer nicht
+mitgelieferten Datei anders lautet; eine Zusicherung in einer Datei, die der Diff
+nicht berührt. Diese Klasse ist diff-only **prinzipiell** unsichtbar.
 
 Daraus drei Regeln:
 
@@ -80,93 +94,242 @@ nicht, sondern geht ihm voraus.
 
 ## Die Stimmen einrichten
 
-Auf diesem Rechner bereits eingerichtet — hier die konkreten Kommandos für
-dieses Projekt, damit sie kopierbar bleiben.
+Einmal je Rechner, nicht je Projekt. **Ohne diesen Abschnitt kann ein frischer
+Klon das Panel nicht fahren** — die Kommandos gehören anschließend ausgefüllt in
+dieses Dokument, damit sie kopierbar sind.
 
-### Stimme 1 — blinde Erststimme
+### Stimme 1 — Blindprüfer
 
 **Woher:** aus der Agenten-CLI selbst, die ohnehin benutzt wird. Kein Konto,
 keine Kosten, keine Installation.
 
-**Aufsetzen:** frischer Reviewer-Subagent, bekommt **nur Diff + Repo-Pfad**,
-nie den Bau-Brief, nie den Bericht des Bauers. Ein zweites Fenster derselben
-Sitzung ist **kein** Ersatz — es sieht die Historie.
+**Voraussetzung:** Die CLI muss **Subagenten** starten können, die einen eigenen,
+leeren Kontext bekommen. Kann sie das nicht, gibt es keinen Blindprüfer —
+und dann fehlt genau die Stimme, die erfahrungsgemäß die schwersten Funde
+liefert. Ein zweites Fenster derselben Sitzung ist **kein** Ersatz: Es sieht die
+Historie.
 
-### Stimme 2 (GPT über Codex-CLI) — unabhängiges Modell mit Repo-Zugriff
+**Pflichtzeile in jedem Prüfauftrag:** „Beende jeden eigenen Hintergrundlauf
+VOR dem Bericht — über seine Prozessnummer, nie über den Programmnamen — und
+nenne ihn in der Schlusszeile ‚Eigene Läufe am Ende: …'."
+Die Schlusszeile allein reicht nicht — sie ist ein Formfeld, das eine Stimme
+auch mit einem laufenden Prozess wahrheitsgemäß ausfüllen kann. **Kein Gate
+macht das rot**: Der Arbiter sieht die offenen Läufe nur, wenn er selbst
+nachsieht — er tut es, bevor er den Bericht verwertet (`lehren.md` §37).
+Dasselbe gilt für den Nachweisweg der R2-Ausnahme unten: `ast-gleich.py` läuft
+nur, wenn jemand daran denkt.
+
+**Und eine Stimme räumt nur ihre eigenen Prozesse ab.** Gemessen im Panel zu
+v1.16.0: Eine Stimme beendete einen hängenden Lauf mit einem rechnerweiten
+`taskkill /F /IM python.exe` und hat das offengelegt — der Griff trifft jeden
+Python-Prozess auf dem Rechner, auch die einer parallelen Sitzung. In den
+Prüfauftrag gehört deshalb: **eigene Läufe über ihre Prozessnummer beenden,
+nie über den Programmnamen.**
+
+**Aufsetzen:** Der Prüfauftrag enthält den Diff oder den Vergleichsbereich, das
+Repo — und ausdrücklich **nicht** den Bau-Brief, den Bericht des Bauers oder die
+Diskussion. Der Subagent darf lesen und Sonden fahren, aber nichts ändern.
+Den **Tracker-Zugang entziehen, wo möglich** (dort liegt der Brief als
+Issue-Kommentar); wo das Werkzeug ihn trotzdem hat (`gh` über die Shell), ist
+der Blindprüfer nur per Auftrag getrennt — dann gehört die negative Probe unten
+ausdrücklich gegen den Brief-Kommentar gefahren.
+
+**Blindheit wird BELEGT, nicht behauptet.** Ein Auftragstext ohne Brief macht
+eine Stimme nicht blind, wenn sie Brief, Bauer-Bericht oder frühere
+Panel-Kommentare über ihre Werkzeuge trotzdem erreicht (Repo-Ablage, Issue-
+Zugriff, eingehängte Verzeichnisse). Gemessen in einem Benchmark: Die
+Bewertungsrolle bekam das ganze Arbeitsverzeichnis eingehängt — **8 von 8**
+verbotenen Artefakten (Zuordnung, Vorbefunde, Bilanzen) waren lesbar, über
+mehrere Serien unbemerkt. Nach dem Umbau auf „nur das Nötige einhängen" 0 von 8. Deshalb vor einer Serie einmal eine **negative Probe** über die tatsächlichen
+Zugänge der Stimme (versucht, die verbotenen Dateien zu lesen — muss scheitern)
+**und die Gegenprobe**, dass das Nötige da ist. Nur die erste Hälfte ist von
+einem leeren Mount nicht zu unterscheiden.
+
+**Der Prüfauftrag geht als Datei, nicht als Argument.** An der Argumentgrenze
+des Betriebssystems liefert der Aufruf Exit 0 und eine leere Stimme —
+gemessen bei 48 KB, zwei Review-Läufe ungültig, ohne Fehlermeldung.
+
+**Wer nie blind sein kann: der Orchestrator.** Er hat gebaut, gepusht,
+Worktrees angelegt; Diff-Größen, Dateinamen und Reihenfolge verraten ihm jede
+Zuordnung. Gemessen: In einem verblindeten Vergleich war die Zuordnung nach dem
+Aufbereiten faktisch bekannt. Das ist keine Schwäche, die sich wegorganisieren
+lässt — also wird sie **benannt**: Wo Verblindung zählt (Bewertung,
+Vergleich), laufen die Stimmen in einer mechanischen Schleife ohne
+Zwischenentscheidung des Orchestrators, und der Zeitpunkt, ab dem er entblindet
+war, steht im Ergebnis.
+
+### Stimme 2 — Fremdprüfer: unabhängiges Modell mit Repo-Zugriff
+
+**Woher:** die CLI eines _anderen_ Anbieters als dem der Hauptagenten-CLI. Meist
+über ein bestehendes Abo, nicht über einen API-Schlüssel — das ist der günstigste
+Weg, wenn ohnehin eins vorhanden ist.
+
+**Warum containerisiert:** Solche CLIs bringen eine eigene Laufzeit mit. Die
+gehört nicht auf den Arbeitsrechner (siehe `lehren.md` §10, „Zwei Umgebungen,
+eine geprüft"),
+sondern in ein Abbild; die Anmeldung überlebt in einem Volume:
+
+```dockerfile
+# Dockerfile.stimme2 — Beispielgerüst
+FROM <laufzeit-basisabbild>
+RUN <installationsbefehl der Anbieter-CLI>
+WORKDIR /arbeit
+```
+
+```sh
+# stimme2.sh
+docker run --rm -it -v stimme2-home:/root -v "$PWD:/arbeit" stimme2 "$@"
+```
+
+**Einmalig:** Anmeldung im Container (`sh stimme2.sh login`), danach liegt sie im
+Volume.
+
+**Fallstricke, teuer gelernt:**
+
+- Die Stimme kennt den lokalen Arbeitsbaum **nicht**. Sie braucht einen
+  **gepushten Review-Zweig** — ungepushte Commits sieht sie nie.
+- **Einen Windows-Worktree nicht in den Container einhängen.** Seine
+  `.git`-Datei zeigt auf einen Windows-Pfad, den der Linux-Container nicht
+  auflösen kann — jedes `git`-Kommando endet mit Exit 128 (gemessen). Die
+  Stimme bekommt ein vollständiges Repo: einen Klon des Review-Zweigs oder ein
+  `git archive` des gemessenen Commits.
+- Manche CLIs brechen ab, wenn das Arbeitsverzeichnis kein Repo ist, oder wenn
+  ihnen Sandbox-Rechte fehlen. Beides meldet sich erst nach Minuten. Deshalb
+  steht die Erreichbarkeitsprüfung im Ablauf **vor** dem Start.
+- Im Prompt einen Block **„Bewusste Entscheidungen (NICHT als Fund melden)"**
+  mitgeben, sonst verbrennt die Stimme ihren Zug an Design-Entscheidungen.
+- Ein Durchlauf dauert lang und ist gesprächig. Aufruf im Hintergrund starten und
+  **in eine Datei** schreiben, nie in eine Pipe.
+
+### Stimme 3 (R2-Besetzung) — günstige diff-only-Stimme über eine API
+
+**Woher:** ein Anbieter mit OpenAI-kompatibler Schnittstelle; Aggregatoren sind
+praktisch, weil sich das Modell wechseln lässt, ohne etwas umzubauen.
+
+**Kosten:** Größenordnung Cent je Review, nicht Euro. Guthaben aufladen und im
+Blick behalten — ein leeres Guthaben ist der häufigste Ausfall dieser Stimme.
+
+**Fertiges Werkzeug liegt bei:** `docs/vorlagen/panel-stimme3.py`. Es braucht
+zwei Umgebungsvariablen aus einer `.env` **außerhalb** des Repos:
+
+```
+PANEL_API_BASE=https://<anbieter>/api/v1
+PANEL_API_KEY=<schlüssel>
+```
+
+```sh
+git diff <basis>..<kopf> > stimme3.diff || exit 1
+python docs/vorlagen/panel-stimme3.py \
+    --model ⟨anbieter/modell⟩ --max-tokens 32768 --stdin-anhang \
+    "⟨Prüfauftrag⟩" < stimme3.diff > review-stimme3.md
+```
+
+**Fallstricke:** Den Diff **nicht per Pipe** übergeben — in
+`git diff … | python …` geht der Exit von `git diff` verloren (dieselbe Klasse
+wie die Kopf-Zählung in `ci.yml`); erst in eine Datei, Exit prüfen, dann per
+Umleitung. Ausgabe in eine Datei, nie in eine Pipe. Bei großen Diffs
+`--max-tokens` großzügig — reicht das Budget nicht, verbraucht das Modell alles
+im Nachdenk-Anteil und die Antwort kommt leer oder abgeschnitten zurück.
+
+**Exit-Code lesen, nicht die Datei:** 0 = Antwort vollständig geschrieben
+(`finish_reason` „stop"); 1 = Ausfall (HTTP-Fehler, HTTP-Umleitung, Netz, Antwort
+kein JSON-Objekt, Antwort in unerwarteter Form (Objekt an der Wurzel, andere
+Form in der Tiefe), keine Wahl in der Antwort, Fehlerobjekt in einer
+200-Antwort, **leere Antwort**,
+**abgeschnittene Antwort** — `finish_reason` nicht „stop", etwa „length"); 2 =
+Aufruf- oder Konfigurationsfehler (Variablen fehlen, **`--stdin-anhang` mit
+leerem Anhang** — dann wird nichts gesendet). Bei 1 und 2 gilt „Wenn eine
+Stimme ausfällt" unten — eine leere oder halbe Datei ist nie ein dünnes
+Ergebnis.
+
+### Eingetragen: unsere Aufrufe
+
+Die diff-only-Stimme und `ast-gleich.py` liegen **im Repo** unter
+`docs/vorlagen/` — byte-identisch mit der Vorlage (`panel-stimme3.py`
+74be4dd, `ast-gleich.py` 0e9b6dc, geprüft beim Abgleich auf v1.16.0). Dieselben
+Dateien liegen portfolioweit unter
+`C:\Users\manue\.claude\Immich\model-panel\` und tragen dort **denselben
+Blob**; welche der beiden aufgerufen wird, ist heute dasselbe Werkzeug. Der
+Wrapper der Fremdstimme (`codex.sh`) liegt nur portfolioweit, weil er eine
+Container-Anbindung dieses Rechners ist und nichts ist, was ein Klon dieses
+Repos gebrauchen könnte.
+
+Die `.env` mit `PANEL_API_BASE` und `PANEL_API_KEY` liegt **außerhalb** des
+Repos — Pfad hier, Inhalt nirgends.
+
+**Fremdprüfer (GPT über die Codex-CLI):**
 
 ```bash
 sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check -c 'model_reasoning_effort="high"' '<Prüfauftrag>'
 ```
 
-**`--sandbox read-only` steht hier seit 06.09.2026 nicht mehr, und der Grund
-ist kein Stilfrage.** Die Stimme lief eineinhalb Wochen als AUSFALL, weil
-Codex innerhalb unseres Containers noch eine eigene Bubblewrap-Sandbox
-aufbauen wollte und daran scheiterte (`bwrap: No permissions to create a new
+`--sandbox read-only` steht hier seit 06.09.2026 **nicht** mehr, und das ist
+keine Stilfrage: Die Stimme lief eineinhalb Wochen als AUSFALL, weil Codex
+innerhalb unseres Containers noch eine eigene Bubblewrap-Sandbox aufbauen
+wollte und daran scheiterte (`bwrap: No permissions to create a new
 namespace`). Der Wrapper setzt jetzt
 `--dangerously-bypass-approvals-and-sandbox` — Codex nennt das Flag selbst
 „intended solely for running in environments that are externally sandboxed",
 und der Container **ist** diese Umgebung.
 
 **Der Schutz liegt seitdem im Mount, nicht in der inneren Sandbox:** Der
-Wrapper hängt das Arbeitsverzeichnis **schreibgeschützt** ein. Das ist
-strenger als vorher — mit `--sandbox workspace-write` hätte eine Stimme in den
-echten Arbeitsbaum schreiben können. Gemessen, beide Richtungen: Die
-Vorabprüfung liefert den erwarteten `HEAD` zurück; ein Schreibversuch endet mit
-`Failed to write file /work/…`, und im Arbeitsbaum entsteht nichts.
-(Wer wirklich schreiben muss — Bau statt Review — setzt `CODEX_RW=1`. Für eine
+Wrapper hängt das Arbeitsverzeichnis **schreibgeschützt** ein — strenger als
+vorher, denn mit `--sandbox workspace-write` hätte eine Stimme in den echten
+Arbeitsbaum schreiben können. Gemessen in beide Richtungen: Die Vorabprüfung
+liefert den erwarteten `HEAD` zurück; ein Schreibversuch endet mit
+`Failed to write file /work/…`, und im Arbeitsbaum entsteht nichts. (Wer
+wirklich schreiben muss — Bau statt Review — setzt `CODEX_RW=1`. Für eine
 Panel-Stimme ist das falsch.)
 
 **Was der Mount NICHT ersetzt: die Quellen-Regel.** Der Wrapper hängt das
-_aktuelle Verzeichnis_ ein, nicht den geprüften Commit. Für ein Panel gehört
-die Stimme deshalb weiterhin auf einen Wegwerf-Klon oder Worktree auf dem
-gemessenen Stand:
+_aktuelle_ Verzeichnis ein, nicht den geprüften Commit. Fürs Panel gehört die
+Stimme deshalb auf einen Wegwerf-Klon auf dem gemessenen Stand:
 
 ```bash
 git clone -q --no-hardlinks . ../codex-klon && git -C ../codex-klon checkout -q <commit>
 cd ../codex-klon && sh …/codex.sh exec --skip-git-repo-check -c 'model_reasoning_effort="high"' '<Prüfauftrag>'
 ```
 
-Kennt den lokalen Arbeitsbaum nicht — sie braucht den gepushten Review-Zweig.
-**Ihr Prüfauftrag schließt den Abgleich Commit gegen Bau-Brief ein:** Sie
-erreicht den Brief (Issue-Kommentar) unabhängig vom Arbeitsbaum des
-Hauptagenten — anders als die blinde Erststimme, die den Brief nie bekommt
-(siehe `bau-brief.md`, Abschnitt „Ablage").
+Zwei Fallstricke, die real zwei Anläufe gekostet haben: Sie **muss aus dem zu
+prüfenden Verzeichnis heraus** laufen (der Wrapper mountet das aktuelle), und
+**ohne `--skip-git-repo-check` bricht sie ab**, wenn das Verzeichnis kein
+Git-Repo ist.
 
-Zwei Fallstricke, die real zwei Anläufe gekostet haben:
-
-- **Muss aus dem zu prüfenden Arbeitsverzeichnis heraus laufen** — der Wrapper
-  mountet das aktuelle Verzeichnis.
-- **Ohne `--skip-git-repo-check` bricht sie ab**, wenn das Verzeichnis kein
-  Git-Repo ist.
-
-### Stimme 3 (DeepSeek über API, R2-Besetzung) — günstige diff-only-Stimme
+**Diff-only-Stimme (R2-Besetzung):**
 
 ```bash
-python /c/Users/manue/.claude/Immich/model-panel/ask-api.py --model deepseek/deepseek-v4-pro --max-tokens 32768 --stdin-anhang '<Prüfauftrag>' < diff.patch
+git diff <basis>..<kopf> > stimme3.diff || exit 1
+python docs/vorlagen/panel-stimme3.py     --model deepseek/deepseek-v4-pro --max-tokens 32768 --stdin-anhang     '<Prüfauftrag>' < stimme3.diff > review-stimme3.md
 ```
 
-Bei R3 ersetzt durch eine zweite blinde Claude-Repo-Stimme mit adversarialer
-Rahmung, keine diff-only-Fremdstimme — siehe „Verfahren je Risikoklasse".
+**Dieser Aufruf hat sich mit dem Abgleich auf v1.16.0 geändert.** Bis dahin
+stand hier `ask-api.py`. Das Werkzeug meldet **Ausfälle als Exit 0** — eine
+leere oder abgeschnittene Antwort sah damit aus wie ein dünnes Ergebnis, nicht
+wie ein Ausfall. Genau diese Klasse beschreibt die Vorlage oben unter
+„Exit-Code lesen, nicht die Datei". Wer den alten Aufruf noch irgendwo stehen
+hat, tauscht ihn.
+
+Bekannte Eigenheit beider Fremdstimmen: Sie irren Richtung **zu streng** und
+lesen gelegentlich die Vorher-Seite eines Diffs als den geltenden Stand.
 
 ### PII-Grenze
 
-Stimme 2 (GPT über Codex) und Stimme 3 (DeepSeek über API) sind **fremde
-Dienste**. Gesichts- und Personendaten aus den Immich-Fotobeständen — Namen,
-die aus einem Gesichtserkennungs-Match stammen, e-Mail-Adressen echter Nutzer,
-alles, was eine reale Person identifiziert — sind PII und gehen **nie** in
-einem Diff an eine dieser beiden Stimmen. Erlaubt sind nur Code und **erfundene**
-Fixtures (siehe `bau-brief.md`, Abschnitt „Fixtures werden erfunden"). Das ist
-hier keine Theorie: Ein Personenname aus der Gesichtserkennung könnte über
-Testdaten oder ein Log-Beispiel unbemerkt in einen Diff geraten, der dann an
-Stimme 2 oder 3 geht.
+Fremdmodelle sind fremde Dienste. Personenbezogene oder geschäftliche Daten
+gehen nicht ohne ausdrückliche Freigabe dorthin. Bei Repos mit solchen Daten:
+den **Diff inline** übergeben, statt einer Stimme Repo-Zugriff zu geben — und
+Seed-/Testdaten grundsätzlich erfinden, nie aus dem Kontext übernehmen.
 
-Praktisch heißt das: Vor dem Push des Review-Zweigs (Stimme 2) und vor dem
-Zusammenstellen des Diffs für Stimme 3 **den Diff selbst gegen diese Klasse
-lesen** — nicht nur den Code, der ihn erzeugt hat. Im Zweifelsfall (ein
-Fixture-Wert könnte ein echter Treffer sein): nicht schicken, sondern die
-Stimme mit einem anonymisierten Ersatzwert im Diff weglassen oder auf die
-zweite blinde Claude-Repo-Stimme (siehe „Verfahren je Risikoklasse", R3)
-ausweichen — die bleibt lokal und verlässt den eigenen Agenten-Kontext nie.
+**Bei uns konkret:** Gesichts- und Personendaten aus den Immich-Fotobeständen
+— Namen, die aus einem Gesichtserkennungs-Match stammen, e-Mail-Adressen
+echter Nutzer, alles, was eine reale Person identifiziert — sind PII und gehen
+**nie** in einem Diff an den Fremdprüfer oder eine diff-only-Stimme. Erlaubt
+sind nur Code und **erfundene** Fixtures (`bau-brief.md`, „Fixtures werden
+erfunden"). Das ist keine Theorie: Ein Personenname aus der Gesichtserkennung
+kann über Prüfdaten oder ein Log-Beispiel unbemerkt in einen Diff geraten.
+Praktisch: Vor dem Push des Review-Zweigs und vor dem Zusammenstellen des
+Diffs **den Diff selbst gegen diese Klasse lesen** — nicht nur den Code, der
+ihn erzeugt hat. Im Zweifel nicht schicken, sondern auf den Gegenprüfer
+ausweichen; der bleibt lokal.
 
 ## Ablauf
 
@@ -175,71 +338,117 @@ ausweichen — die bleibt lokal und verlässt den eigenen Agenten-Kontext nie.
 git push -f origin <commit>:refs/heads/review/<issue>-<kurzname>
 ```
 
-**Schritt 0 — Erreichbarkeit der externen Stimmen vor dem Start prüfen**, nicht
-mittendrin — Kommandos und Fallstricke siehe „Die Stimmen einrichten" oben,
-Hintergrund (Sitzungslimits, Puffer vor dem Release) siehe „Verfügbarkeit ist
-Teil der Planung" unten. Beide Ausfälle melden sich sonst erst, wenn der Slice
-schon als „gleich fertig" gilt.
+**Panel VOR dem Landen heißt: Review-Zweig pushen, Hauptzweig nicht.** Der Diff
+geht so zu den Stimmen: Stimme 1 bekommt den Vergleichsbereich lokal, Stimme 2
+den gepushten Zweig. Stimme 3 hängt an der Besetzung: bei R2 (wenn besetzt)
+entweder die diff-only-Stimme — sie bekommt den Diff über die
+Standardeingabe — oder der Gegenprüfer; bei R3 der Gegenprüfer, der im
+`git archive`-Baum mit dem Vergleichsbereich als Datei misst (unten, „Stimmen
+mit Repo-Zugriff arbeiten in eigenen Worktrees"). Eine Stimme,
+die den Zweig nicht sieht, prüft einen alten Stand — das hat einen kompletten
+Lauf gekostet.
 
-**2. Alle drei parallel starten**, nicht nacheinander — sie brauchen zusammen
-20–40 Minuten, sequenziell wäre das ein Vielfaches.
+**Modell und Stand gehören ins Ergebnis.** Je Stimme in der Überschrift
+(`### Stimme 2 — Fremdprüfer (⟨Modell⟩, 2026-08-19)`, Form wie in
+`panel-kommentar.md`). Das Commit-Format
+besitzt `../../CLAUDE.md` — dort steht, welche Rollen aufgeführt werden und wie;
+hier steht nur, dass es gemacht wird. _(Nachtrag 2026-08-20: An dieser Stelle
+stand bis v1.9.1 eine eigene, einteilige Fassung des Formats — eine Drift nach
+§14, gemeldet von einem Projekt, drei Stunden nachdem die Regel dagegen
+geschrieben wurde.)_ Zwei Gründe: Die Herkunfts-Regel
+ist sonst nach vier Wochen nicht mehr durchsetzbar — „wer hat das gebaut" steht
+nirgends. Und jede Aussage über Modellverhalten bleibt Anekdote, solange das
+einzelne Ergebnis den Modellstand nicht trägt. Anbieter ziehen still nach,
+deshalb das Datum.
+
+**1b. Erreichbarkeit der externen Stimmen prüfen — VOR dem Start, nicht
+mittendrin.** Stimme 2 braucht den gepushten Zweig und ein lauffähiges Werkzeug
+(zweimal gescheitert: kein Git-Repo im Arbeitsverzeichnis, dann fehlende
+Sandbox-Rechte). Ist Stimme 3 die diff-only-Stimme (nur bei R2), braucht sie
+Guthaben; ist sie der Gegenprüfer, braucht sie Sitzungskontingent der eigenen
+CLI (siehe „Verfügbarkeit"). Diese Ausfälle melden sich sonst erst, wenn der
+Slice schon als „gleich fertig" gilt.
+
+**2. Alle Stimmen der Klasse parallel starten**, nicht nacheinander — sie
+brauchen zusammen 20–40 Minuten, sequenziell wäre das ein Vielfaches.
 
 **3. Arbitrieren.** Jeden Blocker **am Code reproduzieren**. Prüfer-Konvergenz
 ersetzt keine Reproduktion: Zwei Stimmen können denselben Fehler machen, und die
 diff-only-Stimme liest gelegentlich die Vorher-Seite eines Diffs und meldet
-einen längst gefixten Zustand.
+einen längst gefixten Zustand. **Konvergenz ist ein Grund zu messen, kein
+Grund aufzuhören** — gemessen in drei Benchmark-Läufen: 3 von 3 Stimmen
+erklärten einen roten Test unabhängig mit derselben falschen Ursache (ein
+Overlay), gemessen war es ein Substring-Locator; in jedem Lauf mit
+Testausführung fanden 2–3 Blocker ausschließlich die Gates und der Rauchtest,
+nicht das Panel. Für Verhaltensfragen an einer echten Tür gilt deshalb **Sonde
+vor Hypothese**: Die Stimme formuliert den Verdacht, eine reproduzierbare Sonde
+(echte Werkzeugfunktion, gefälschter Kontext, Wegwerf-Datenbank — Sekunden,
+kein Token) entscheidet. Zwei plausible Hypothesen zu einem Türverhalten waren
+beide falsch; die Sonde brauchte 0,1 s.
 
-**Konvergenz ist ein Grund zu messen, kein Grund aufzuhören** — und das steht
-inzwischen mit Zahlen da, nicht als Vorsicht. In einem Benchmark über drei
-Läufe desselben eingefrorenen Slices fanden **zwei bis drei Blocker je Lauf
-ausschließlich die Gates und der Rauchtest**, keine Stimme. Und in einem Lauf
-erklärten **3 von 3** Stimmen denselben roten Test mit derselben **falschen**
-Ursache. Einstimmigkeit ist damit kein Verstärker: Drei Modelle, die dieselbe
-Trainingsverteilung teilen, greifen zur selben plausiblen Erklärung.
+**Unsere konkrete Form:** die Funktion aus `backend/` direkt importieren, ein
+erfundenes `accounts.json` in ein Wegwerf-Verzeichnis legen, aufrufen — kein
+Modell, kein Token.
 
-**Sonde vor Hypothese.** Die billigste Widerlegung ist meist kein Modell,
-sondern ein Aufruf: die echte Funktion, ein gefälschter Kontext, eine
-Wegwerf-Ablage — 0,1 Sekunden, kein Token. In einem gemessenen Fall waren
-**beide** plausiblen Hypothesen falsch, und die Sonde zeigte es sofort. Für
-uns die konkrete Form: die Funktion aus `backend/` direkt importieren, ein
-erfundenes `accounts.json` in ein Wegwerf-Verzeichnis legen, aufrufen.
+**Vor jeder Stimme: der Prüfgegenstand ist artefaktfrei.** Messläufe des
+Orchestrators (Rauchtest, Playwright) schreiben Fehlerkontexte und Berichte in
+den Baum — gitignored, in `git status --short` unsichtbar, für eine Stimme mit
+Repo-Zugriff lesbar. Gemessen: Eine Stimme zitierte die Fehlerkontexte des
+Orchestrator-Laufs als eigenen „Beleg"; drei Runden lang waren die Stimmen nicht
+von der Messung isoliert. Die Probe ist `git status --short --ignored` auf den
+Prüfpfaden, nicht `git status --short` und nicht `--porcelain` allein; Artefakte
+wandern vor dem Review in den Run-Ordner. **Verbindlich (Owner-Entscheid
+v1.15.0)** — Projekte, die lokal `--short` oder `--porcelain` ohne `--ignored`
+eingeführt haben, gleichen an: Genau die gitignorierten Artefakte waren es, die
+eine Stimme als eigenen Beleg zitierte.
 
-**Messartefakte gehören nicht in den Baum, den die Stimmen lesen.** Beide
-Claude-Stimmen haben vollen Repo-Zugriff — eine Stimme zitierte einmal die
-Fehlerkontexte des Orchestrators als eigenen Beleg. Sonden-Ausgaben,
-Mutations-Protokolle und Bauer-Berichte kommen in den Scratchpad, nicht in den
-Baum. Der Haken: Eine ignorierte Datei ist in `git status --short`
-**unsichtbar** und für eine Repo-Stimme trotzdem lesbar. Die Probe lautet
-deshalb:
+**Das gilt in beide Richtungen und in der Laufzeit der Stimme.** Sonden,
+Hilfsskripte und Mitschnitte der Stimmen gehören in ein Scratch-Verzeichnis
+AUSSERHALB des Baums — gemessen: untracked Sonden einer Stimme lagen im Baum,
+die nächste Stimme maß neun fremde Fehlschläge als eigene. Und die Probe läuft
+dort, wo die Stimme liest: Ein Baum, der auf dem Host sauber ist, war im
+Container „verändert" (Zeilenenden, Dateimodus) — das wird getrennt
+reproduziert, nicht als Fund der Stimme gezählt.
 
-```bash
-git status --short --ignored
-```
-
-**4. Nacharbeit** nach `bau-brief.md` — mit dem, was **bestätigt** wurde, und mit
-ausdrücklich **abgeräumten** Fehlbefunden. Wer sie baut (derselbe Bauer oder ein
-frischer), entscheidet die **Art der Auflage**, nicht eine Vorliebe — siehe
-`bau-brief.md`, Abschnitt „Der Nacharbeits-Brief ist ein Bau-Brief".
-
-**Beginnt die Nacharbeit, bevor die letzte Stimme fertig ist, führt der
-Panel-Kommentar eine Tabelle:**
-
-| Befund | Stimme | Stand bei Beginn der Nacharbeit | Ergebnis |
-| ------ | ------ | ------------------------------- | -------- |
-
-Das ist erlaubt und sogar erwünscht — die Stimmen prüfen den Commit, nicht den
-Baum (siehe „Stimmen mit Repo-Zugriff"). Aber der Nebeneffekt ist gemessen:
-In einem Fall begann die Nacharbeit **in derselben Minute** wie der erste
-Befund, und danach war nicht mehr rekonstruierbar, welche Stimme welchen Stand
-gesehen hatte. Die Tabelle hält genau das fest.
+**4. Nacharbeit** nach `bau-brief.md` — sie ist **neuer Code**, kein Nachtrag.
 
 **Die Regel hängt am GELANDETEN ZUSTAND, nicht am Slice.** Was am Ende auf dem
 Hauptzweig liegt, ist geprüft — egal in wie vielen Anläufen es dorthin kam.
 Damit ist Nacharbeit automatisch erfasst, ohne eine zweite Regel. Zwei Projekte
 haben das Panel bei der Nacharbeit weggelassen mit der Begründung „setzt nur
-bestätigte Befunde um"; beide Male entstand der neue Defekt genau dort. Eine
-verkürzte zweite Runde (nur die blinde Stimme, zugeschnittener Auftrag) reicht —
-in einem Fall fand sie sechs weitere Punkte, alle exklusiv.
+bestätigte Befunde um"; beide Male entstand der neue Defekt genau dort.
+
+**Rundengrenze und Besetzung der Nacharbeit: Die Schwelle steht in
+`../../CLAUDE.md` (Risiko-Tabelle, Zeile „Nacharbeit"), hier Verfahren und
+Beleg.** Bis v1.14 war die verkürzte Nacharbeitsrunde eine erlaubte Option —
+und wurde unter Druck kaum genommen. Gemessen in einem Projekt über zwei Tage:
+9 und 13 Nacharbeitsrunden an zwei Slices, beim ersten mindestens sechs der
+neun Runden mit vollem Panel inklusive Gegenprüfer, drei Slices parallel am selben Kontingent, Stimmen
+mehrfach am Sitzungslimit gestorben — und am Ende war nichts gelandet. Deshalb
+ist die Verkürzung jetzt der Standard. Das Verfahren:
+
+- **Wie gezählt wird und ab wann angehalten wird**, steht in der Zeile
+  „Nacharbeit" in `CLAUDE.md` — hier nicht wiederholt.
+- **Die Nacharbeitsrunde prüft der Blindprüfer** auf dem Nacharbeits-Diff, mit
+  zugeschnittenem Auftrag. Beleg, dass das trägt: In einem Fall fand diese
+  verkürzte Runde sechs weitere Punkte, alle exklusiv.
+- **Der Gegenprüfer läuft in der Nacharbeit nur bei einer NEUEN Tür** (ein
+  Schreibweg, eine Schnittstelle, eine Berechtigung, die in der Erstrunde nicht
+  Gegenstand war). Unter seiner Überschrift steht, warum er lief oder nicht.
+- **Bei R3 und R4 wiederholt der Arbiter zusätzlich die risikospezifische Probe**
+  (Datenerhalt, Berechtigungs-Sonde, Rundungsfall) auf dem Nacharbeits-Stand —
+  sie kostet Sekunden, keine Stimme, und hält die R3-Zusage am gelandeten
+  Zustand.
+- **Beim Anhalten:** Stand melden, Zerlegung prüfen, Owner fragen — keine
+  weitere Runde aus eigenem Entschluss. Beleg für die Grenze: In den
+  gemessenen Serien schloss jede weitere Runde die alten Punkte und riss neue
+  Löcher an genau den Stellen, die die Runde davor angebunden hatte — ab der
+  dritten Runde mit Randfällen war die Zerlegung das Problem, nicht der
+  Randfall.
+- **Nacharbeit des Arbiters ist Bau-Code.** Setzt der Hauptagent Auflagen
+  selbst um, bekommt dieser Diff denselben Blindprüfer — gemessen hatten drei
+  von vier Arbiter-Fixes eines Slices ein neues Loch.
+- **Kosten stehen fest, bevor die Serie beginnt** (siehe „Verfügbarkeit").
 
 ## Arbitrieren: die Sonde, die verwirft, braucht den stärkeren Nachweis
 
@@ -258,18 +467,13 @@ grep arbeitet zeilenweise, eine Wortgruppe über einem Prosa-Umbruch liefert
 null Treffer, obwohl der Satz dasteht; und ohne `-i` verfehlt „Synthese" das
 „SYNTHESE" im Text. Beides hätte beinahe einen KORREKTEN Bauer-Bericht als
 Fehlbefund abgeräumt. Bevor eine Null-Treffer-Suche etwas verwirft:
-**`LC_ALL=C.UTF-8` voranstellen**, `-i` setzen und das **seltenste Einzelwort**
-suchen — ein Einzelwort kann nicht umbrochen werden. Ohne die Locale faltet
-`-i` keine Umlaute, und die Sonde verwirft dann einen korrekten Befund mit
-einer Zahl, die nach Beweis aussieht.
-
-**Beleg (Vorlagen-CHANGELOG v1.12.3, nicht dieses Projekt — Korrektur der
-Brief-Prämisse):** Der Vorfall stammt aus der Vorlage selbst, gemeldet von P4:
-Zweimal wollte dort ein Arbiter eine Bauer-Aussage nachprüfen, bekam null
-Treffer und hätte beinahe einen KORREKTEN Bericht als Fehlbefund verworfen —
-einmal wegen fehlender Groß-/Kleinschreibung, einmal wegen eines
-Zeilenumbruchs mitten in der gesuchten Wortgruppe. Für uns ist die Regel
-präventiv übernommen, ohne eigenen Vorfall dieser Art.
+**`LC_ALL=C` voranstellen, jeden Umlaut im Muster als `..?` schreiben**, `-i`
+und `-E` setzen und das **seltenste Einzelwort** suchen — ein Einzelwort kann nicht
+umbrochen werden. Mit dem Umlaut im Muster faltet `-i` unter `C` keine
+Umlaute (gemessen: 1 von 2 Zeilen), und unter einer UTF-8-Locale trifft er eine
+CP1252-Datei gar nicht (0 von 2; Messung und Kommando in `abgleich.md`,
+Schritt 2b) — die Sonde verwirft dann einen korrekten Befund mit einer Zahl,
+die nach Beweis aussieht.
 
 **Vor dem Verwerfen die Gegenfrage stellen: „Welche Eingabe würde der Stimme
 recht geben?"** Wer sie nicht beantworten kann, hat nicht widerlegt, sondern
@@ -286,31 +490,61 @@ häufigste Fall:
   Fehlbefunde abgeräumt.
 - **widerlegt** — mit Nachweis, und mit beantworteter Gegenfrage oben.
 
+Dazu ein Status, der **kein** Urteil ist: **umgangen, nicht entschieden.** Hat
+die Nacharbeit einen Fund umschifft (anderer Weg, anderer Test), ohne ihn je zu
+reproduzieren, zählt er weder als bestätigt noch als widerlegt. Gemessen: Drei
+Stimmen behaupteten dieselbe Ursache für einen roten Test, die Nacharbeit
+wählte einen anderen Weg, die Ursache wurde nie geprüft — und in einem späteren
+Lauf war die tatsächliche Ursache eine andere. Ein umgangener Fund bleibt als
+Hypothese stehen und geht in keine Fundstatistik.
+
 **Schwere-Umstufung ist erlaubt und wird gekennzeichnet.** Der Arbiter darf hoch-
 und herunterstufen (die Konsumenten-Frage macht aus einem Anzeigefehler regelmäßig
 einen Schreibpfad-Fehler). Die Umstufung wird im Panel-Kommentar als solche
 markiert, z. B. `P2 → P1 (arb.)`, sonst ist sie stille Meinung.
 
 **Fund und Schwere werden getrennt arbitriert.** Ein Fund kann bestehen
-bleiben, während seine Begründung zusammenbricht — das mittlere Urteil oben
-gilt in **beide** Richtungen: Auch eine Stimme, die zu hoch stuft, kann auf
-etwas Echtes zeigen. Drei Regeln daraus:
-
-- **Wer strukturell hochstuft, benennt die Mengenannahme.** Gemessen: „~34 000
-  Bilder laufen durch diesen Pfad" — die Zahl war um Größenordnungen zu hoch,
-  der Fund blieb trotzdem gültig. Ohne die genannte Annahme lässt sich das
-  nicht auseinanderhalten, und der Fund fällt mit seiner Zahl.
-- **Der Arbiter stuft nach EINER Regel über alle Runden.** Gemessen: derselbe
-  Fund in zwei Runden einmal als KLEIN und einmal als BLOCKER. Eine Schwere,
-  die von der Tagesform abhängt, ist keine Schwere.
-- **Eine widerlegte Behauptung des Prüfauftrags ist ein Fund.** Der Auftrag
-  kommt vom Orchestrator und ist ungeprüft (siehe `bau-brief.md`, „Den
-  Orchestrator prüft niemand"). Wenn eine Stimme zeigt, dass die Behauptung,
-  die sie widerlegen sollte, gar nicht zutrifft, hat sie geliefert — und der
-  Fund wird protokolliert, nicht als „nichts gefunden" abgelegt.
+bleiben, während seine Begründung zusammenbricht — das dritte Urteil („richtiger
+Instinkt, falsche Begründung") gilt in **beide** Richtungen, nicht nur beim
+Verwerfen. Gemessen: Ein BLOCKER hing an der Mengenannahme „~34 000 Bilder
+laufen durch diesen Pfad"; die messende Stimme wies nach, dass sie einen anderen
+Pfad nehmen — die Rechnung war um Größenordnungen zu hoch, der Rest-Grund (ein
+geteilter Server, eine volle Platte trifft fremde Dienste) stand unabhängig
+davon, und der Fund wurde gebaut. Eine Regel, die aus „Prämisse widerlegt" ein
+„Fund erledigt" macht, wäre schädlich. Daraus die Gegenrichtung zur
+v1.13.0-Begründungspflicht: **Wer strukturell HOCHstuft, benennt die
+Mengenannahme, auf der die Schwere ruht** — zweimal in Folge hat die messende
+Stimme die strukturelle korrigiert. Und der Arbiter stuft nach EINER Regel über
+alle Runden: Derselbe Fund (ein Generator vernichtet die handgeschriebene
+Übersetzung bei jedem Lauf) kam in zwei Läufen als KLEIN und als BLOCKER; die
+Schwere folgt der Klasse, nicht der Stimme, die ihn zuerst nannte.
 
 **Widersprechen sich zwei Stimmen, entscheidet die Reproduktion**, nicht die
 Mehrheit und nicht die Plausibilität der Begründung.
+
+**Die Reproduktion kommt aus einer anderen Quelle als das Geprüfte.** Ein
+grüner Test des Bauers widerlegt keine Behauptung über genau diese
+Testabdeckung, eine Messung des bewerteten Stands keinen Einwand gegen diesen
+Stand. Gemessen: Zwei als „nicht gestützt" eingestufte Einwände wurden erst
+durch eine eigene Sonde entschieden — die Tests des Geprüften waren grün und
+bewiesen nichts über die Frage.
+
+**Ein Bestand mit derselben Schwäche ist kein Freispruch für den Diff.** Findet
+eine Stimme einen Fehler im neuen Code und der Arbiter dieselbe Schwäche schon
+im Bestand, gilt: fail-closed landen (der neue Code bekommt die Korrektur), der
+Bestand wird ein eigenes Issue. Gemessen: Personenbezogene Daten in fünf
+Notizfeldern — „das macht der Rest auch so" hätte den sechsten Fall eingebaut.
+
+**Vor-Reproduktion ist ein fester Schritt, kein Ersatz.** Der Arbiter
+reproduziert die schwersten erwartbaren Fälle einmal selbst, BEVOR das Panel
+startet (gemessen: 2 von 6 späteren Blockern eines Slices waren so vorab
+sichtbar und kosteten keine Stimmenrunde). Das Panel läuft trotzdem.
+
+**Unmittelbar vor dem Landen misst der Arbiter die Gates erneut.** Eine Messung
+ist ein Zeitpunkt, kein Zustand: Die Aussage „Baum rot" war beim Lesen schon
+falsch, weil zwischen Messung und Entscheidung Nacharbeit einfloss. Die volle
+Suite läuft dafür einmal **allein** in einem eigenen Worktree — parallel zu
+Stimmen mit Mutationen ist sie nicht isoliert.
 
 ## Prüfaufträge, die sich bewährt haben
 
@@ -324,24 +558,68 @@ Dazu:
 - **Nennen, was schon geprüft und ohne Befund ist** — sonst laufen alle drei
   dieselben Wege ab.
 - **Ausdrücklich erlauben, nichts zu finden.** Sonst wird etwas erfunden.
-- **Je Fund: Schwere, Datei:Zeile, Nachweis.** Kein Nachweis, kein Fund.
+- **Ausdrücklich erlauben, NICHT ZU ENTSCHEIDEN.** Kann eine Stimme eine Frage
+  mit ihren Mitteln nicht beweisen (sie braucht eine Ausführung, einen Zustand,
+  eine Persona, einen anderen Rechner), lautet die richtige Antwort **„nicht
+  entschieden — entscheidende Probe: ⟨X⟩"**, nicht eine Ursachenbehauptung.
+  Gemessen in 15 verblindeten Bewertungsläufen: 0 solcher Antworten bei den
+  ausführungs- oder zustandsabhängigen Defekten, dafür einmal eine falsche
+  Gewissheit („die Ablaufverfolgung widerlegt dies") — und in einem anderen
+  Lauf erklärten 3 von 3 Stimmen einen roten Test mit derselben falschen
+  Ursache. Die Einteilung dahinter steht in `lehren.md` §33 (S1/S2/S3).
+- **Den Widerlegungsauftrag an der REICHWEITE der Behauptung ansetzen**, nicht
+  an ihrem Wortlaut. „Vollständigkeit ist typerzwungen" war belegt — für das
+  Vorhandensein eines Schlüssels, nicht für seinen Wert. Der Gegenprüfer fand
+  als einziger den Wert, der da war und nichts bedeutete (`lehren.md` §16,
+  „vorhanden, aber falsch").
+- **Auch eine Prüfstimme sondet gern in die bestätigende Richtung** — dieselbe
+  Falle wie beim Arbiter (oben). Der Auftrag nennt deshalb die widerlegende
+  Richtung ausdrücklich: „Welche Eingabe macht die Zusage falsch?"
+- **Wird ein großer Diff für eine Stimme geschnitten, sind „fehlt im
+  Ausschnitt"-Funde Schnitt-Artefakte**, keine Funde — gemessen bei einer
+  Fremdstimme auf einem geteilten Diff. Der Auftrag nennt die Schnittgrenze.
+- **Je Fund: Schwere, Datei:Zeile, Nachweis.** Kein Nachweis, kein Fund. Die
+  Regel schützt nicht nur vor erfundenen Funden — sie macht einen **stillen
+  Werkzeugausfall sichtbar**: Ein Review ohne Datei:Zeile-Nachweise liest sich
+  flüssig, und genau so sieht eine Stimme aus, deren Sandbox nichts ausführen
+  konnte.
+- **„Zählt der Slice seine eigene Zusage ab?"** — Prüffrage 8 des Bau-Briefs
+  als Auftrag an die Stimmen, nicht nur an den Bauer. Ein Bauer, der seine
+  Zusage nicht abzählt, beantwortet auch die Frage danach mit „ja"; im
+  Prüfauftrag gestellt, erzeugte sie den schwersten Befund eines Panels: Der
+  Slice hatte zwei Zusagen, der Bauer meldete beide als erfüllt und die Suite
+  als grün — beide Stimmen fanden unabhängig, dass die Suite vor und nach dem
+  Fix identisch grün war.
+- **Behauptungslisten im Prüfauftrag aus den Köpfen der Dateien zitieren,
+  nicht aus dem Gedächtnis.** Der Orchestrator schrieb in einen Prüfbrief eine
+  Mutation unter „wird rot", die die Datei selbst als äquivalent (nicht
+  prüfbar) führte; der Blindprüfer korrigierte den Brief, nicht die Datei
+  (v1.15.4). Was der Brief behauptet, muss im Baum stehen — sonst prüft die
+  Stimme den Orchestrator statt des Stands.
+- **„Ist jede Behauptung im Brief belegt oder als Annahme markiert?"** —
+  Prüffrage 6, im Prüfauftrag an die Stimme, die den Brief kennen darf
+  (Fremdprüfer): „Prüfe jede Behauptung des Briefs gegen den Stand —
+  Tabelle _Behauptung → stimmt / stimmt nicht / überschärft → Beleg_." Als
+  Selbstprüfung antwortet der Schreiber „ja" (`bau-brief.md`, „Elf
+  Prüffragen").
+- **„Prüft dieser Test, was wahr bleiben MUSS — oder nur, was sich nicht
+  ändern DARF?"** — Prüffrage 2, im Prüfauftrag an jede Stimme mit
+  Repo-Zugriff: „Welcher neue Test bestünde auch, wenn der Zweck verfehlt
+  wäre?" Ein Test „200 oder 307" misst nur die Absicht seines Autors.
+- **Jede Verhaltensvorgabe des Bau-Briefs steht im Auftrag mindestens einer
+  Stimme als „diese Vorgabe ist zu widerlegen"** — nicht als Kontext. Wer den
+  Brief kennt, erbt seine blinden Flecken; die einzige Stimme, die den
+  schwersten Fund eines Slices finden konnte, war die, die den Brief NICHT
+  kannte (Fall in `bau-brief.md`, „Die Wahrheit des Briefs").
+- **Eine widerlegte Behauptung des Prüfauftrags ist ein Fund** und wird wie
+  einer arbitriert. Der Prüfauftrag ist ein Auftragstext mit Behauptungen, und
+  er ist inzwischen die schwächste Stelle vieler Slices — in einem Projekt
+  machen solche Funde die Mehrheit aus („der Produktions-Build lintet nicht",
+  „Sicherheits-Updates bleiben unberührt": beide falsch, beide vom Orchestrator).
+- **Der Panel-Diff enthält auch, was der Orchestrator geschrieben hat**
+  (Release-Notizen, Meldungen, Kommentare). Eine Stimme, die nur die Änderungen
+  des Bauers liest, prüft die Hälfte.
 - Abschluss: **ein Satz Gesamturteil** (landen ja/nein).
-
-**Der Prüfgegenstand schließt die Orchestrator-Texte ein.** Der Diff, den die
-Stimmen bekommen, enthält CHANGELOG-Eintrag, Doku-Änderung und alles andere,
-was der Hauptagent für diesen Slice geschrieben hat — nicht nur den
-Produktcode. Das ist die Gegenseite zu `bau-brief.md`, „Den Orchestrator prüft
-niemand": Dort wird die Prüfung bestellt, hier wird sie geliefert.
-
-**Zwei Aufträge gehen fest an mindestens eine Stimme:**
-
-- **„Zählt der Slice seine eigene Zusage ab?"** — die Frage aus Block 9 des
-  Briefs, hier als Prüferfrage. Sie wirkt so gemessen stärker: Wer die Zusage
-  geschrieben hat, zählt sie anders nach als wer sie zum ersten Mal liest.
-- **„Welche Vorgabe macht dir dieser Auftrag, und was spricht dagegen?"** —
-  die Verhaltensvorgaben des Briefs sind Widerlegungs-Auftrag, nicht
-  Randbedingung. Gemessen: Der schwerste Fund eines Slices war die Folge
-  einer Brief-Vorgabe, und die Stimme, die den Brief kannte, hakte sie ab.
 
 ## Fragen, die überdurchschnittlich oft etwas finden
 
@@ -361,15 +639,18 @@ hat:
 ```markdown
 ## Panel ⟨Slice⟩
 
-### Stimme 1 — blinde Erststimme
+### Stimme 1 — Blindprüfer
 
-### Stimme 2 — unabhängiges Modell
+### Stimme 2 — Fremdprüfer
 
-### Stimme 3 — ⟨R2: Drittstimme (diff-only) / R3: zweite blinde Repo-Stimme (adversarial)⟩
+### Stimme 3 — ⟨R2: diff-only-Fremdstimme oder Gegenprüfer / R3: Gegenprüfer⟩
+
+### Zusätzlich, nicht gezählt — ⟨diff-only-Stimme; nur, wenn sie gelaufen ist⟩
 
 ### Arbitrierung
 
-⟨je Fund: reproduziert / verworfen, und von welcher Stimme er kam⟩
+⟨je Fund: reproduziert / verworfen / umgangen, und von welcher Stimme er kam⟩
+⟨Orchestrator-Quote: wie viele Funde trafen einen Text des Orchestrators⟩
 ```
 
 **Warum so streng:** Ein Panel-Ergebnis in Fließtext zeigt nicht, **wer**
@@ -381,13 +662,19 @@ Panel-Ergebnis. Drei Überschriften drehen das um — eine leere Überschrift
 springt ins Auge, ein fehlender Absatz nicht.
 
 Deshalb: **Fällt eine Stimme aus, steht unter ihrer Überschrift der Grund** —
-„kein Guthaben, Owner informiert am ⟨Datum⟩" — und nie einfach nichts. Ein Slice
-ohne vollständiges oder ausdrücklich vermerkt-verkürztes Panel gilt als **nicht
-geprüft** und wird nicht ausgeliefert.
+„Werkzeug nicht verfügbar seit ⟨Datum⟩, Owner informiert am ⟨Datum⟩" oder
+„Guthabenende (⟨402 | gleichgestellt⟩) auf der Ersatzleitung des Fremdprüfers,
+Owner gefragt am ⟨Datum⟩" — und
+nie einfach nichts. Ein Slice ohne vollständiges oder ausdrücklich
+vermerkt-verkürztes Panel gilt als **nicht geprüft** und wird nicht
+ausgeliefert.
 
 ## Eine Stimme bewusst weglassen — erlaubt, wenn begründet
 
-„Nie stillschweigend reduzieren" heißt nicht „nie reduzieren". Ein Projekt hat
+„Nie stillschweigend reduzieren" heißt nicht „nie reduzieren". Wie weit
+reduziert werden darf, sagt die **Untergrenze** in `../../CLAUDE.md`
+(Review-Panel); dieser Abschnitt nennt keine eigene Schwelle, sondern die
+Form. Ein Projekt hat
 in zwei Nacharbeits-Runden die Stimmen 2 und 3 **nicht** eingesetzt und das im
 Panel-Kommentar begründet: Der Gegenstand war Sitzungs- und
 Transaktionsverhalten über vier Aufrufe — also die Beziehung zwischen Diff und
@@ -406,129 +693,308 @@ Prüfung.** Gemessen: Zwei Subagenten starben an Sitzungslimits — einer mitten
 Rot-Beweis (die Sabotage stand danach zwei Tage im Code), einer mitten im Panel
 (eine komplette Runde musste wiederholt werden).
 
-**Verfügbarkeit wird vor jeder Serie GEMESSEN, nicht angenommen** — beides:
-Sitzungskontingent und Guthaben. Der Grund ist unangenehm konkret: **Der
-Anbieter lehnt ab, bevor das Guthaben leer ist.** Wer bis zum letzten Cent
-plant, verliert die Stimme mitten im Lauf und hat dann einen halben Befund,
-der aussieht wie ein ganzer. Das gehört zu Schritt 0 des Ablaufs oben, nicht
-in die Rückschau.
-
 Verkraftbar war das nur, weil nichts ausgeliefert war. **Wer zwischen Panel und
 Release wenig Puffer hat, plant das Panel nicht auf den letzten Moment** — und
 behandelt einen abgebrochenen Prüflauf wie einen abgebrochenen Bau: erst
-Zustand feststellen, dann fortsetzen.
+Zustand feststellen, dann nach „Wenn eine Stimme ausfällt" weiter.
+
+**Verfügbarkeit wird vor jeder Serie GEMESSEN, nicht angenommen** — das
+Sitzungskontingent der eigenen CLI ebenso wie das Guthaben eines
+API-Anbieters. Beide töten eine Rolle mitten in der Arbeit und hinterlassen
+halbe Arbeit im Baum: Ein Bauer starb am Sitzungslimit, weil die Sitzung nicht
+mit vollem Kontingent gestartet war; ein anderer am Guthaben mit 0,61 $ Rest,
+nach acht Minuten Arbeit, mit einer halbfertigen Datei. Der zweite Fall hat
+eine Tücke: **Der Anbieter lehnt ab, sobald das Restguthaben `max_tokens ×
+Preis` nicht mehr deckt** — der Ausfall kommt deutlich vor der echten
+Erschöpfung. Seitdem misst der Runner das Guthaben vor jeder Rolle und startet
+unter einer Schwelle gar nicht erst (Rot-Beweis gefahren: Exit 3, null Bytes).
+
+**Ein Kostenstopp steht fest, BEVOR die Serie beginnt** — sonst entscheidet
+die Erschöpfung, wann aufgehört wird, und sie entscheidet mitten in einer
+Runde. Festgelegt werden: die Rundengrenze (`../../CLAUDE.md`), wie viele
+Slices gleichzeitig am selben Kontingent prüfen dürfen, und was beim Erreichen
+passiert. **Der geordnete Abbruch** sieht so aus: alle Stimmen stoppen, jeder
+Baum wird committet und der Branch gepusht, nichts landet, kein CI-Lauf — und
+es entsteht ein Wiederaufnahme-Vermerk (SHA je Branch, Worktree-Tabelle mit
+Rollen, offene Runde je Slice, Sonden außerhalb des Repos, nummerierte
+nächste Schritte). Gemessen: Ein Projekt hat diesen Vermerk zweimal von Hand
+gebaut und ist beide Male verlustfrei wieder eingestiegen.
+
+**Kosten je Rolle sind unzuverlässig; belastbar ist die Summe je Phase.** Die
+Guthaben-Abfrage hinkt nach, parallele Rollen überlappen — gemessen standen
+Einzelzeilen auf 0,0000 bei laufender Arbeit.
+
+**Eine stumme Rolle braucht ein Lebenszeichen und ein Zeitlimit.** Gepufferte
+Ausgabe ist von einem Hänger nicht zu unterscheiden: gemessen 25 Minuten ohne
+eine Zeile, und auf einem anderen Rechner vier Läufe ohne ein einziges Token —
+beides sah von außen gleich aus.
 
 ## Wenn eine Stimme ausfällt
 
-**Klumpenrisiko bei R3:** Seit der Zweitblind-Regel hängen zwei von drei
-Stimmen am selben Kontingent. Drei Antworten darauf:
+**Ausfall ist stimmen-neutral definiert — auch die eigene Stimme fällt aus.**
+Gemessen: Eine blinde Claude-Stimme starb mitten im Lauf am Session-Limit —
+kein Teilergebnis, kein Befund. Ein Kontingent-Abbruch ist ein AUSFALL und
+steht als solcher unter der Überschrift der Stimme, nie als dünnes Ergebnis.
+**Was dann geschieht, ist EINE Reihenfolge** (vorher standen hier drei Regeln
+nebeneinander — Neustart, Ersatzregel, „mit zweien weitermachen" —, und keine
+sagte, welche zuerst gilt):
+
+1. **Zustand feststellen** wie nach einem abgebrochenen Bau.
+2. **Gibt es eine Ersatzregel für diese Stimme, gilt sie** — für den
+   Gegenprüfer bei R3 (unten, Klumpenrisiko Punkt 2) und für den
+   **Fremdprüfer** (Klumpenrisiko Punkt 4: Kontingent des Werkzeugs gesperrt →
+   sofort dieselbe Rolle über die API-Leitung eines anderen Anbieters, kein
+   Warten auf das Fenster), gleich ob Kontingent oder Werkzeug ausfiel. Ist
+   auch die Ersatzstimme ausgefallen — Werkzeug oder Leitung nicht
+   erreichbar, Fehlerantwort: alles außer Guthabenende und außer dem
+   Token-Budget —, weiter mit Schritt 3. Eine leere oder abgeschnittene
+   Antwort ist kein Kontingentfall, aber **der Grund entscheidet das Mittel**:
+   bei `finish_reason` „length" ist das Token-Budget aufgebraucht — **einmal**
+   mit größerem `--max-tokens` auf demselben Commit wiederholen; bei jedem
+   anderen Grund (etwa „error") liegt es am Anbieter — **einmal unverändert**
+   wiederholen. Ein größeres Budget hilft dort nicht und kostet einen zweiten
+   bezahlten Lauf (gemessen an einer echten Leitung). Bleibt es dabei, ist es
+   ein Ausfall wie jeder andere (Schritt 3). Meldet
+   die Ersatzleitung des Fremdprüfers dagegen Guthabenende (HTTP 402, oder
+   eine Antwort unter **irgendeinem** Code, die eine ausdrückliche Phrase
+   trägt — „insufficient_quota", „out of credits" und Verwandte; ein 429, das
+   nur „quota" im Text führt, ohne eine dieser Phrasen, ist Ratenbegrenzung
+   und bleibt Schritt 3), gilt Klumpenrisiko Punkt 4 — Owner fragen, nicht ohne
+   Panel ausliefern — **statt** Schritt 3 (kein Neustart ins
+   nächste Fenster) und statt des „Weitermachens" aus Schritt 4; die
+   Auslieferung richtet sich dann nach dem Schluss von Schritt 4: Nachholen
+   oder ausdrückliche Owner-Freigabe (Anwendung des Owner-Entscheids vom
+   2026-09-19 zur 402-Folge, eingetragen 2026-09-21).
+3. **Sonst Neustart gegen denselben festen Commit, mit dem archivierten
+   Prüfauftrag, im nächsten Kontingentfenster** — nicht sofort. Ein Neustart ins
+   selbe erschöpfte Kontingent stirbt wieder: gemessen zweimal hintereinander
+   dieselbe Stimme in derselben Runde.
+4. **Kann der Slice nicht warten**, geht es mit den übrigen Stimmen weiter,
+   der Owner erfährt es, und die fehlende Stimme wird nachgeholt, solange der
+   Slice nicht ausgeliefert ist (unten) — **ausgeliefert wird erst nach dem
+   Nachholen oder mit ausdrücklicher Owner-Freigabe ohne die Stimme**
+   (`../../CLAUDE.md`, Review-Panel). **Mindestens eine Stimme muss gelaufen
+   sein** — fällt die einzige Stimme einer Runde aus (in der Nacharbeit meist der
+   Blindprüfer), gibt es kein „weiter", sondern nur Schritt 3. Gemessen: Genau
+   so — weiter mit den übrigen — wurde einmal ein Seitenkanal gefunden, den die
+   anderen beiden übersehen hatten; das Weitermachen ist kein Notbehelf, es
+   ersetzt nur die fehlende Stimme nicht.
+
+**Diese vier Schritte stehen NUR hier.** `../../CLAUDE.md`,
+`panel-kommentar.md`, der Abschnitt „Verfahren je Risikoklasse" unten und der
+Kopf von `../vorlagen/panel-stimme3.py` verweisen auf sie und schreiben sie
+nicht aus. Eine Ausnahme ist gewollt und benannt: Die **Ausfallmeldungen** in
+`panel-stimme3.py` fassen die Folge kurz, weil sie im Ausfall gelesen wird,
+wenn niemand nachschlägt — wer diese Schritte ändert, ändert die Meldungen
+mit. Das Suchwort dafür ist **„Stimme ausfaellt"** (`grep -rn "Stimme
+ausfaellt" docs/vorlagen/`): Es findet alle Stellen, auch `GUTHABEN_MELDUNG`,
+die die Folge am vollständigsten kurzfasst. „max-tokens" allein findet sie
+nicht (gemessen). Dreimal hat eine Änderung an dieser Reihenfolge andere Fassungen
+stehen lassen (v1.15.10, v1.15.11 — und v1.16.0 selbst, gefunden vom
+Gegenprüfer: der Schnitt, der die Entdopplung einführt, ließ genau hier die
+alte Fassung des Budgetfalls stehen). Ein Kind-Repo erbt die Verweise; wer
+diese Schritte ändert, ändert sie hier und prüft mit `grep`, dass keine
+andere Stelle sie ausschreibt.
+
+**Panel-Stimme ≠ Messreihe** (Owner-Entscheid v1.15.0). Eine ausgefallene
+Panel-Stimme wird nach der Reihenfolge oben ersetzt oder neu gestartet, weil ein
+Slice ohne sie nicht geprüft ist. Ein
+ausgefallener Lauf einer **Mess- oder Bewertungsserie** (dieselbe Frage n-mal,
+um Streuung zu messen) wird **markiert und nie ersetzt** — wer schlechte
+Serienläufe wiederholt, bis das Ergebnis passt, misst seinen Wunsch
+(`lehren.md` §27).
+
+**Klumpenrisiko (Gegenprüfer bei R3, Fremdprüfer ab R2):** Seit der
+Gegenprüfer-Regel hängen zwei von drei Stimmen am selben Kontingent. Vier
+Antworten darauf — **Pflicht, nicht Option** (die vierte gilt ab R2, weil der
+Fremdprüfer schon dort Pflichtstimme ist):
+Gemessen wurde keine der ersten drei angewandt, als drei Slices parallel am selben
+Kontingent hingen, und die Runden blieben offen:
 
 1. Bei knappem Kontingent laufen die beiden Claude-Stimmen ZUERST, die
    Fremdstimmen danach.
-2. **Ersatzregel:** Fällt die Zweitblind-Stimme am Kontingent, übernimmt die
-   GPT-Stimme die adversariale Rahmung in einem zweiten Lauf **mit vollem
+2. **Ersatzregel Gegenprüfer:** Fällt der Gegenprüfer aus — am Kontingent oder am
+   Werkzeug —, übernimmt der
+   Fremdprüfer die Widerlegungsrahmung in einem zweiten Lauf **mit vollem
    Quelltext-Zugriff**. Die Regel schreibt das ERGEBNIS vor, nicht den
    Transport — Review-Branch, Commit-Snapshot oder Quelltext inline sind
    gleichwertig, solange die Quelle `git show HEAD:`-Stand ist (Quellen-Regel
    gilt unverändert). **Die Ersatzregel ist eine Aussage über den Transport,
    keine Ausnahme von der PII-Grenze:** Was einer Fremdstimme nicht gegeben
    werden darf, darf ihr auch inline nicht gegeben werden — wer nur eine der
-   beiden Regeln liest, darf sie nicht als Aufhebung der anderen lesen können.
-   Real belegt: In einer Sandbox ohne Datei-Zugriff trug die Inline-Variante
-   den einzigen echten Treffer der Runde. Teurer, aber definiert statt
-   improvisiert.
+   beiden Regeln liest, darf sie nicht als Aufhebung der anderen lesen können. Real belegt: In einer Sandbox ohne Datei-Zugriff trug
+   die Inline-Variante den einzigen echten Treffer der Runde. Teurer, aber
+   definiert statt improvisiert.
 3. Die bestehende Regel „Panel nie auf den letzten Moment" wiegt bei R3
    doppelt.
 
-Bei uns ist das Klumpenrisiko nicht theoretisch: Unsere R3-Besetzung ist seit
-v1.11.3 blinde Erststimme + GPT-Stimme + zweite blinde Claude-Repo-Stimme
-(siehe „Verfahren je Risikoklasse" unten) — auch bei uns hängen zwei von drei
-Stimmen am selben Claude-Kontingent.
+**Bei uns ist das Klumpenrisiko nicht theoretisch:** Unsere R3-Besetzung ist
+Blindprüfer + Fremdprüfer + Gegenprüfer — zwei der drei Stimmen hängen am
+selben Claude-Kontingent. 4. **Ersatzregel Fremdprüfer** (Owner-Entscheid 2026-09-19, angewandt in vier
+Schnitten der Vorlage, bis v1.15.7 nur in der Historie): Sperrt das
+Abo-Kontingent den Werkzeug-Weg des Fremdprüfers, wird **nicht gewartet** —
+dieselbe Rolle läuft sofort über die API-Leitung eines anderen Anbieters,
+bevorzugt agentisch mit Nur-Lese-Zugriff auf den Prüfbaum
+(`docs/vorlagen/panel-stimme3.py` ist die diff-only-Form; eine agentische
+Form liest Dateien selbst), Modellwahl: erst das gewohnte Fremdmodell auf
+der anderen Leitung, sonst ein anderes Nicht-Claude-Modell — Pflicht bleibt
+„anderer Anbieter als die Claude-Stimmen". Ein Ausfall ist keine Verkürzung
+des Panels. Antwortet die Leitung mit „Guthaben erschöpft" (HTTP 402 oder
+eine Meldung, die `panel-stimme3.py` ihm gleichstellt), wird der Owner
+gefragt, nicht ohne Panel ausgeliefert. Grenze: Eine
+diff-only-Fremdstimme sieht keinen Dateibaum — für Behauptungen über
+Dateien, die der Diff nicht zeigt, braucht es die agentische Form oder den
+Neustart nach Schritt 3. Gemessen: Die Ersatzstimme fand in v1.15.3 exklusiv
+einen vom Orchestrator verstümmelten Satz und in v1.15.7 dieselbe Lücke wie
+beide Claude-Stimmen; zweimal brach sie am Antwort-Längenlimit ab (Neustart
+mit größerem Budget auf demselben Commit).
 
-Werkzeug nicht verfügbar, kein Guthaben, Dienst down: **mit zweien weitermachen
-und es dem Owner sagen.** Nicht stillschweigend reduzieren — und die fehlende
-Stimme nachholen, solange der Slice noch nicht ausgeliefert ist. Genau so wurde
-einmal ein Seitenkanal gefunden, den die anderen beiden übersehen hatten.
+Fällt eine dieser Stimmen aus, gilt „Wenn eine Stimme ausfällt" oben —
+einschließlich des Sonderfalls Guthabenende (Punkt 4 dort ist die Ersatzregel,
+die Folge steht in Schritt 2 der Reihenfolge).
 
 ## Verfahren je Risikoklasse
 
 **Die Auslöser-Tabelle besitzt `../../CLAUDE.md`** — dort wird entschieden,
-welche Klasse ein Slice hat. Diese Datei wiederholt die Schwelle nicht, um
-Doppelpflege zu vermeiden; eine Schwelle hat genau einen Eigentümer. Hier
-steht nur, was je Klasse zu tun ist:
+welche Klasse ein Slice hat. Hier steht nur, was je Klasse zu tun ist:
 
 - **R0** — lokale Gates genügen. Kein Panel-Kommentar nötig; der Commit nennt
-  den R0-Auslöser. Konfigurations- und Doku-Slices ohne Verhaltensänderung
-  fallen hierunter.
-- **R2** (Normalfall) — blinde Erststimme + unabhängige Zweitstimme (Stimme 2),
-  fester Panel-Kommentar. Die Drittstimme ist bei R2 optional (ihr gemessenes
-  Profil: Konvergenz-Lieferant, kaum exklusive Funde); wird sie weggelassen,
-  steht der Grund unter ihrer Überschrift.
-  _Verkürzung „R1":_ Auslöser und Mindestprüfung stehen in der Tabelle
-  (`../../CLAUDE.md`, Zeile _R1_) — hier nur das Verfahrens-Detail: Die
-  Begründung der Verkürzung steht unter den Überschriften der ausgelassenen
-  Stimmen, nicht als Fließtext.
+  den R0-Auslöser.
+- **R2** (Normalfall) — Blindprüfer + Fremdprüfer, fester Panel-Kommentar.
+  Die dritte Stimme ist bei R2 optional; wird sie weggelassen, steht der Grund
+  unter ihrer Überschrift. **Welche dritte Stimme, macht den Unterschied**
+  (präzisiert v1.15.0 — bis dahin stand hier pauschal „Konvergenz-Lieferant,
+  kaum exklusive Funde", und das stimmt nur für eine der beiden):
+  die **diff-only-Fremdstimme** liefert Konvergenz und kaum Exklusives; der
+  **Gegenprüfer** lieferte in einem R2-Slice die meisten exklusiven Funde des
+  Panels — 13, davon 5 Blocker, darunter als einziger den Erst-Rollout-Fehler
+  für Bestandsnutzer. Er ist bei R2 eine Ermessensentscheidung mit
+  Messzeile, keine Pflicht (Kosten!), und die naheliegende Wahl bei
+  Zustands-, Rollout- und Datenschutzfragen.
 - **R3** — volles Panel **plus eine risikospezifische Probe durch die echte
-  Tür** (Datenerhalt-Probe für die JSON-Migration, Berechtigungs-Sonde,
-  Schnittstellen-Aufruf von außen — je nach Auslöser).
-  **Die Tür-Probe braucht die Tür.** Wo der Zugang ein Geheimnis verlangt,
-  das der Agent nicht eingeben darf und nicht eingeben wird, gibt es keine
-  Probe durch die echte Tür — dann steht unter der Probe **„teilweise
-  ausgefallen"** mit dem Grund, und nicht ein Ergebnis, das aus einem
-  Ersatzpfad stammt. Bei uns ist das der Normalfall, solange #75 offen ist:
-  Ohne geheimnisfreien Auth-Pfad reicht die Probe bis zur Anmeldemaske und
-  nicht weiter. Ein Ersatzpfad ist eine andere Messung, kein schwächeres
-  Ergebnis derselben. **Stimme 3 wird bei R3
-  durch eine zweite blinde Claude-Repo-Stimme ersetzt** — ein zweiter frischer
-  Subagent mit vollem Repo-Zugriff wie Stimme 1, aber **adversarial gerahmt**:
-  Sein Auftrag lautet ausdrücklich, den Befund der ersten blinden Stimme zu
-  **widerlegen**, nicht zu bestätigen. Grund: R3-Auslöser sind die Fälle mit
-  dem größten Schaden bei Fehleinschätzung — dort zählt Repo-Kontext mehr als
-  eine dritte, aber blinde Meinung, und die PII-Grenze oben schließt ohnehin
-  aus, einen R3-Diff (typischerweise die JSON-Migration oder Personendaten-Pfade)
-  an die günstige Fremdstimme zu schicken.
+  Tür** (Migrations-Datenerhalt, Berechtigungs-Sonde, Geld-Rundungsfall,
+  Schnittstellen-Aufruf von außen — je nach Auslöser). **Die dritte Stimme ist
+  bei R3 der Gegenprüfer** — eine zweite blinde Claude-Repo-Stimme mit
+  Widerlegungsauftrag (Aufsichts-/Angreifer-Perspektive), keine
+  diff-only-Fremdstimme. Beleg aus dem Drei-Arm-Pilot (zwei Projekte, vier
+  R3-Runden; dort hieß der Gegenprüfer „Arm C"): Die zweite Repo-Stimme
+  fand in JEDER Runde exklusive Funde der Blocker-Klasse; die diff-only-Stimme
+  konvergierte nur, die agentische Fremdstimme lieferte 0/3 Synthesen. Die
+  befürchteten geteilten blinden Flecken zweier Claude-Stimmen traten nicht
+  auf — die andere Rahmung klopft andere Ebenen ab. Die diff-only-Fremdstimme
+  darf ZUSÄTZLICH laufen (billige Konvergenz-Gegenprobe), zählt aber nicht als
+  dritte Stimme (eigene Überschrift „Zusätzlich, nicht gezählt" in
+  `panel-kommentar.md`). Inzwischen zwölf R3-Runden in Folge mit einer exklusiven
+  Blocker-Klasse aus der zweiten Repo-Stimme; die Rahmung darf dabei auch das
+  reale Schadensszenario sein („ein Inhaber, der Ratenrechnungen schreibt und
+  nachkorrigiert") statt „Angreifer" — daraus fiel ein dritter Weg heraus, den
+  beide anderen Stimmen nicht sahen. Bei Fremdcode ist sie die richtige
+  Besetzung (`bau-brief.md`, Typische Fallen).
+  **Die Tür-Probe braucht die Tür:** Bei Anwendungen mit Anmeldung ist ein
+  geheimnisfreier Auth-Pfad (`betrieb.md`) keine Bequemlichkeit, sondern die
+  Voraussetzung dafür, dass die R3-Regel erfüllbar ist — der Agent tippt kein
+  Geheimnis, auch nicht auf einem Wegwerf-Stand. Fehlt der Pfad, probt man die
+  Tür bis zur Klinke: Anwendung baut, mountet, Anmeldebildschirm rendert — und
+  genau das, was der Slice sichtbar ändert, wurde nie im laufenden Bild
+  gesehen. Dann steht unter der Überschrift **„Tür-Probe (R3/R4)"** in
+  `panel-kommentar.md` **„teilweise ausgefallen"** mit dem Grund, wie bei
+  einem Werkzeugausfall. Die Folge ist eine Schwelle und steht deshalb in
+  `../../CLAUDE.md`, Review-Panel: dieselbe wie bei einer ausgefallenen
+  Pflichtstimme.
+  **Bei uns ist genau das der Normalfall, solange #75 offen ist:** Ohne
+  geheimnisfreien Auth-Pfad reicht die Probe bis zur Anmeldemaske und nicht
+  weiter. Der Owner hat den Pfad am 22.09.2026 beauftragt (#75); bis er steht,
+  trägt jede R3-Probe hier den Vermerk. Ein Ersatzpfad ist eine andere
+  Messung, kein schwächeres Ergebnis derselben.
+- **Nacharbeit, gleich welcher Klasse** (früher die Verkürzung „R1"): Schwelle
+  in der Tabelle (`../../CLAUDE.md`, Zeile _Nacharbeit_), Verfahren oben unter
+  Schritt 4. Die Begründung, warum eine Stimme in der Nacharbeit nicht lief,
+  steht unter ihrer Überschrift, nicht als Fließtext.
 - **R4** — wie R3, und der Slice landet erst nach ausdrücklicher
   Owner-Freigabe. Version/Release bleiben bis dahin unangetastet.
 
-Beispiel für Fremdcode als R3-Auslöser: Ein zugelieferter Zweig war fachlich
-unauffällig, tauschte aber einen dokumentierten Endpunkt gegen einen
-ausdrücklich undokumentierten; alle mitgelieferten Tests waren grün — sie
-stammten vom selben Autor und prüften dessen Annahme. Fremdcode ist ein Risiko
-eigener Art, unabhängig vom Thema — **nicht** der eigene Bau-Subagent, siehe
-Tabelle in `CLAUDE.md`. (Der Fall stammt aus diesem Projekt und wurde als
-Vorlagen-Issue #2 zurückgemeldet.)
+Die frühere abschließende Trivial-Liste ist unverändert in die R0-Auslöser
+übergegangen, die Pflichtfälle in die R3-Auslöser — **die Schwellen selbst
+stehen nur noch in der Tabelle**, nicht mehr hier (Eigentümer-Regel).
+
+## Kritische Dateien: die Klasse folgt der Datei, nicht dem Diff
+
+Die Schwelle setzt die Tabelle in `../../CLAUDE.md` (Auslöser „kritische
+Dateien" → R3, unabhängig von der Diffgröße — auch eine Zeile). Dieser
+Abschnitt führt nur die Liste und den Grund; Besetzung, Untergrenze, Tür-Probe
+(hier: die Echtprobe) und Nacharbeit gelten wie bei jedem R3:
+
+- der Prod-Lesewächter und seine Konfiguration (`docs/vorlagen/prod-readonly-hook.py`,
+  `.json`) und die Einträge in den Agenten-Einstellungen, die ihn rufen;
+- die Gate-Probe und ihre Selbstprobe (`docs/vorlagen/waechter-gate-probe*.py`);
+- alles, was im lokalen Gate, in der CI oder im Panel ein Urteil fällt:
+  `ci.yml`, `security-scan.yml`, `scripts/*`, Gate- und Release-Skripte des
+  Projekts, die Stimme-3-Vorlage (`docs/vorlagen/panel-stimme3.py`) und jede
+  Panel-Stimmen-Anbindung; **`docs/vorlagen/ast-gleich.py`**, weil sein Urteil
+  über die Größe des nächsten Panels entscheidet — sonst dürfte es sich mit
+  dem eigenen Urteil herunterstufen;
+- Prüfskripte, die Panel oder Bau-Brief absichern (`scripts/bau-brief-pruefen*.sh`).
+
+Faustregel für alles, was hier nicht steht: **Was Befehle ausführt oder
+Urteile fällt, ist kritisch** — im Zweifel die höhere Klasse (`CLAUDE.md`).
+
+**Reine Kopftext-Änderung → R2** (Owner-Entscheid 2026-09-21). Den Auslöser
+setzt die Tabelle in `../../CLAUDE.md`; hier stehen Bedingungen, Verfahren und
+Beleg. Ändern sich an einer kritischen Datei nur Kommentare oder Docstrings,
+läuft der Schnitt mit Blindprüfer und Fremdprüfer statt mit dem vollen
+R3-Panel. Bedingungen, alle drei:
+
+1. **Der Syntaxbaum ohne Docstrings ist gleich** — gemessen, nicht behauptet:
+   `python docs/vorlagen/ast-gleich.py <alt.py> <neu.py>`; das Ergebnis steht
+   im Panel-Kommentar. Ändert sich der Baum auch nur um eine Konstante, ist es
+   keine Kopftext-Änderung mehr.
+2. **Die Tür-Probe bleibt** — unverändert, wie bei jedem R3. Ein Kopftext, der
+   die Datei nicht anfasst, ändert auch nichts an ihrer Tür; die Probe kostet
+   also wenig und belegt, dass die Kopie läuft.
+3. **Die Nacharbeit folgt weiter ihrer eigenen Zeile** in der Tabelle.
+
+Der Grund ist gemessen, nicht geschätzt: In den beiden reinen Textschnitten
+v1.15.9 und v1.15.10 fand der Gegenprüfer nichts, was der Blindprüfer nicht
+auch fand; im Code-Schnitt v1.15.11 fand er den Blocker allein (eine
+Erkennungsliste aus Einzelwörtern, die gewöhnliche Ratenbegrenzungen als
+Guthabenende gemeldet hätte). Die Widerlegungsrahmung zahlt sich am Verhalten
+aus, nicht am Kommentar.
+
+Gemessen: Die Korrektur eines Ein-Zeilen-Funds am Wächter (v1.15.4) brauchte
+sechs Panel-Runden, weil jede Runde die Gate-Probe erneut schlug — als
+„KORREKTUR" nach Änderungsart wäre sie mit zwei Stimmen gelaufen. Ein
+fremdes Hook-Projekt führt dieselbe Liste als „Tier 1: Shell-Ausführung,
+Hook-Skripte, Rewrite-Registry" mit Pflicht-Zweitreview; die Klasse ist
+dieselbe: Was Befehle ausführt oder Urteile fällt, prüft niemand allein.
 
 ## Stimmen-Besetzung nach Diff-Typ
 
 Der Panel-UMFANG folgt der Risikoklasse; die STIMMEN-BESETZUNG folgt dem
 Diff-Typ. Gemessen über sieben Slices in zwei Projekten:
 
-- **Backend-Logik** — Zweit- und Drittstimme tragen (exklusive Funde,
+- **Backend-Logik** — Fremdprüfer und dritte Stimme tragen (exklusive Funde,
   unabhängige Konvergenz). Volle Besetzung nach Klasse.
-- **Frontend/Anzeige-Text** — die blinde Erststimme ist die einzige tragend
-  gemessene Stimme (drei exklusive Funde bei einem „nur Labels"-Diff) und
-  genügt allein; diff-only-Fremdstimmen sind hier nachweislich stumm.
+- **Frontend/Anzeige-Text** — der Blindprüfer ist die einzige tragend
+  gemessene Stimme (drei exklusive Funde bei einem „nur Labels"-Diff);
+  diff-only-Fremdstimmen sind hier nachweislich stumm.
 
-Wer von der Klassen-Besetzung nach Diff-Typ abweicht, schreibt den Diff-Typ
-und den Grund unter die Überschrift der ausgelassenen Stimme — und nennt
-beides in der Bilanz, damit die Messreihe weiterwächst.
+Ob und wie weit deshalb verkürzt werden darf, sagt die **Untergrenze** in
+`../../CLAUDE.md` (Review-Panel) — dieser Abschnitt setzt keine eigene
+Schwelle. Wer innerhalb dieser Grenze nach Diff-Typ von der Klassen-Besetzung
+abweicht, schreibt den Diff-Typ und den Grund unter die Überschrift der
+ausgelassenen Stimme — und nennt beides in der Bilanz, damit die Messreihe
+weiterwächst.
 
-**Für uns unmittelbar relevant:** Unser Repo ist gemischt (FastAPI-Backend +
-React-Frontend), die Regel entscheidet also bei jedem Produkt-Slice mit, ob
-ein R2-Slice zwei Stimmen bekommt oder eine — ein frontend-lastiger R2-Slice
-bekommt danach eine Stimme statt zwei.
-
-**Das ist eine Besetzungsentscheidung nach gemessenem Diff-Typ, kein
-Freibrief, die Drittstimme generell wegzulassen:** Sie bleibt bei
-Backend-Logik und gemischten Diffs gesetzt, und die Begründungspflicht beim
-Abstufen (oben, „Warum drei") gilt unverändert für das, was eine gesetzte
-Stimme findet — die beiden Regeln beantworten verschiedene Fragen (ob eine
-Stimme sitzt vs. wie ihr Fund gewertet wird).
+**Bei uns unmittelbar relevant:** Unser Repo ist gemischt (FastAPI-Backend +
+React-Frontend), die Regel entscheidet also bei jedem Produkt-Slice mit — ein
+frontend-lastiger R2-Slice bekommt danach eine Stimme statt zwei. Das ist eine
+Besetzungsentscheidung nach gemessenem Diff-Typ, kein Freibrief, die dritte
+Stimme generell wegzulassen.
 
 ## Vorabprüfung: nicht „antwortet sie?", sondern „kann sie etwas ausführen?"
 
 Die übliche Vorabprüfung („sag OK") testet den Modell-Aufruf, nicht die
-Werkzeuge dahinter. Gemessen: Eine containerisierte Zweitstimme konnte
+Werkzeuge dahinter. Gemessen: Ein containerisierter Fremdprüfer konnte
 **keinen einzigen Befehl ausführen** (`bwrap: No permissions to create a new
 namespace`) — das Modell lief normal, die Vorabprüfung war grün.
 
@@ -539,67 +1005,100 @@ Im gemessenen Fall ging es gut, weil das Modell den Ausfall selbst erkannte und
 offenlegte. **Das war Sorgfalt des Modells, nicht Eigenschaft des Verfahrens.**
 
 **Regel:** Die Vorabprüfung setzt einen BEFEHL ab, dessen Ausgabe zurückkommen
-muss — `git rev-parse HEAD` gegen den erwarteten Stand genügt. Kommt sie nicht,
-ist die Stimme ausgefallen und der Ausfall-Vermerk gilt.
+muss — und zwar einen, der in der Umgebung der Stimme sinnvoll ist: im
+Worktree `git rev-parse HEAD` gegen den erwarteten Stand; im `git archive`-Baum
+des Gegenprüfers (kein `.git`, unten) ein Befehl auf die mitgelegte
+Diff-Datei, etwa `wc -l <diff-datei>` gegen die bekannte Zeilenzahl. Kommt die
+Ausgabe nicht, ist die Stimme ausgefallen und der Ausfall-Vermerk gilt.
 
 **Und in der Ergebnisform:** Konnte eine Stimme ihre Werkzeuge nicht nutzen,
 steht das **unter ihrer Überschrift**. Eine Freigabe aus reiner Lektüre ist
 etwas anderes als eine aus Reproduktion, und der Unterschied gehört in den
 Kommentar, nicht nur ins Gedächtnis des Arbiters.
 
-**Für uns bereits scharf geworden:** Genau dieser Fehler ist hier passiert.
-Der Step-0-Trivialruf an Stimme 2 (GPT über Codex-CLI) ging durch, weil er
-keinen Dateizugriff brauchte; der echte Prüfauftrag scheiterte danach an
-`bwrap`-Rechten im Sandbox-Container. Der Vorabprüf-Befehl für Stimme 2 in
-diesem Projekt ist deshalb nicht „sag Hallo", sondern ein Kommando, dessen
-Ausgabe zurückkommen muss:
+**Bei uns bereits scharf geworden:** Genau dieser Fehler ist hier passiert. Der
+Trivialruf an den Fremdprüfer ging durch, weil er keinen Dateizugriff
+brauchte; der echte Prüfauftrag scheiterte danach an `bwrap`-Rechten im
+Sandbox-Container. Unser Vorabprüf-Befehl ist deshalb nicht „sag Hallo",
+sondern einer, dessen Ausgabe zurückkommen muss:
 
 ```bash
 sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check -c 'model_reasoning_effort="high"' 'git rev-parse HEAD'
 ```
 
-Die Ausgabe wird gegen den **erwarteten** Stand verglichen, nicht nur auf
-Anwesenheit geprüft — sonst besteht auch eine Stimme, die im falschen
-Verzeichnis steht.
-
-**Nachtrag 06.09.2026, und er gehört hierher, weil die Lehre die Diagnose
-betrifft:** Der `bwrap`-Ausfall galt eineinhalb Wochen als Eigenschaft der
-Umgebung. Er war keine — er war eine **verschachtelte** Sandbox, und die
-Ursache stand die ganze Zeit in der Fehlermeldung. Behoben (siehe „Stimme 2"
-oben). Wer einen Werkzeugausfall als gegeben notiert, statt seine Ursache zu
-lesen, verliert eine Stimme auf Dauer: Der Ausfall-Vermerk ist ehrlich, aber
-er ist keine Diagnose, und er wird mit jeder Runde selbstverständlicher.
-
 ## Stimmen mit Repo-Zugriff arbeiten in eigenen Worktrees
 
-Jede Claude-Stimme bekommt einen eigenen `git worktree` auf dem gemessenen
-Commit; Mutationen und Container tragen ein stimmen-eigenes Präfix, das
+Der Blindprüfer bekommt einen eigenen `git worktree` auf dem gemessenen
+Commit, der Gegenprüfer einen `git archive`-Baum desselben Commits (Absatz
+„Der Gegenprüfer misst in einem `git archive`-Baum" unten); Mutationen und
+Container tragen ein stimmen-eigenes Präfix, das
 Aufräumen wird nachgewiesen. Der Hauptagent darf den Hauptbaum währenddessen
 weiterbewegen.
 
-Präzisierung, weil die alte Formulierung zwei Fälle zusammenzog: Verboten ist
-der **geteilte Hauptarbeitsbaum** — zwei Akteure, die gleichzeitig im selben
-Verzeichnis schreiben. Ein eigener Worktree je Stimme ist genau die Auflösung
-davon, kein Verstoß gegen die Quellen-Regel: Er zeigt auf denselben Commit,
-nicht auf denselben Baum.
+**Eine Stimme, ein Worktree — je Runde, und der Orchestrator editiert dort
+nie.** Vor dem Start ist der Worktree leer (`git status --short --ignored`)
+**und kein eigener Lauf mehr offen, der in diesen Baum schreibt** (Bauer,
+Probe, Gate — andere Panel-Stimmen zählen nicht, die laufen bewusst parallel;
+`lehren.md` §37). Ein Worktree wird **nie umgehängt**, solange die Stimme
+leben kann: Eine Stimme, die ihren Bericht mit noch offener Hintergrundarbeit
+abgibt, gilt als laufend — der Orchestrator hat einmal danach denselben Baum
+für die nächste Runde umgehängt, und die alte Stimme meldete „der Worktree hat
+sich bewegt" (v1.15.4, Nacharbeit 5; jede Messung auf sauberem Baum, aber am
+alten Stand). Neue Runde, neuer Worktree; eigene Nacharbeit
+committet der Orchestrator in SEINEM Baum und zieht den Branch danach nach, nie
+in den Baum einer laufenden Stimme. Gemessen: Die Rückbau-Mutation einer Stimme
+(`git checkout -- <datei>`) löschte uncommittete Nacharbeit des Orchestrators
+mit, die in denselben Baum geschrieben worden war — und die nächste Stimme
+brach ab.
 
-Gemessen: Eine Erststimme lief im Hauptbaum, während dort Nacharbeit
+**Der Gegenprüfer misst in einem `git archive`-Baum** des gemessenen Commits,
+nicht in einem Worktree: Eine Stimme hatte die Worktree-Anweisung ignoriert und
+im geteilten Baum gearbeitet. Ein Archiv hat kein `.git`, in das man
+zurückschreiben könnte. Weil ein Archiv auch keine Historie hat, bekommt der
+Gegenprüfer den Vergleichsbereich als Datei mit (`git diff <basis>..<commit>`
+neben das Archiv gelegt, im Prüfauftrag benannt).
+
+Gemessen: Ein Blindprüfer lief im Hauptbaum, während dort Nacharbeit
 einfloss — ihr Bericht beginnt mit „Der Prüfgegenstand hat sich während des
 Reviews bewegt", und sie musste zwei Stände auseinanderhalten. Zwei Stimmen mit
 Mutationstests im selben Baum kollidieren zusätzlich.
 
 Der Nebeneffekt ist der eigentliche Gewinn: **Die Nacharbeit kann beginnen,
 bevor die letzte Stimme fertig ist** — die Stimmen prüfen den Commit, nicht den
-Baum. Das ist die Quellen-Regel unten zu Ende gedacht.
+Baum. Das ist die Quellen-Regel unten zu Ende gedacht. Gemessen in zwei
+Projekten: Der Gegenprüfer meldete um 21:12, die Nacharbeit begann in
+derselben Minute, die übrigen Stimmen fanden trotzdem sauber, weil sie einen
+Commit prüften. Kosten: `git worktree add --detach <pfad> <commit>` und ein
+`remove` am Ende.
 
-**Für uns belegt:** Im 01.09.-Slice hat der Arbiter während laufender Stimmen
-im selben Arbeitsbaum gearbeitet. Das konkrete Kommando für uns:
+Unsere Form davon:
 
 ```bash
-git worktree add ../immich-family-tools-panel-<stimme> <commit>
+git worktree add --detach ../immich-family-tools-panel-<stimme> <commit>
 # … Stimme prüft dort …
 git worktree remove ../immich-family-tools-panel-<stimme>
 ```
+
+**Belegt:** Im Slice vom 01.09. hat der Arbiter während laufender Stimmen im
+selben Arbeitsbaum gearbeitet.
+
+_(Für Mess- und Bewertungs-SERIEN gilt das Gegenteil: Dort wird keine Ausgabe
+gelesen, bevor alle Läufe persistiert sind — sonst beeinflusst das erste
+Ergebnis, wie die übrigen gelesen werden. Das Panel ist keine Serie; `lehren.md`
+§27.)_
+
+**Wer vor der letzten Stimme mit der Nacharbeit beginnt, führt eine Tabelle
+_Befund → Stimme → gegen welchen Stand → Ergebnis_ mit.** Die später
+eintreffende Stimme prüft einen Stand, der schon überholt ist; je Befund muss
+die Synthese entscheiden, ob er bereits behoben ist. Bei zwei parallelen
+Nacharbeitsrunden ist die Tabelle Pflicht, nicht Kür — sonst verliert die
+Synthese den Überblick, welcher Befund gegen welchen Stand gemessen wurde.
+
+_(Zur Formulierung der Quellen-Regel unten: Ein Worktree auf dem gemessenen
+Commit ist ein definierter Zustand, kein „Arbeitsbaum" im Sinne der Regel —
+gemeint ist der geteilte HAUPTarbeitsbaum, in dem mutiert wird. Eine Stimme
+hatte den Widerspruch gemeldet, eine andere ihn widerlegt; das begründete
+Urteil gewinnt.)_
 
 ## Quellen-Regel: Keine Stimme sieht den Arbeitsbaum
 
@@ -621,8 +1120,8 @@ sprechenden Namen wäre das ein Abfluss. Und ein Werkzeug-/Sandbox-Ausfall wird
 als AUSFALL gemeldet, nie als Stimme mit dünnem Ergebnis.
 
 **Bei uns scharf:** Unser Repo ist öffentlich (`Trust1509/immich-family-tools`
-auf GitHub). Eine Fremdstimme, die bei einem Werkzeugausfall im Netz
-nachsieht, findet das Repo und den Commit — und liest dann einen anderen
-Stand als den geprüften, ohne dass das im Ergebnis sichtbar wird. Das
-Suchverbot ist deshalb keine allgemeine Vorsicht, sondern verhindert hier
-einen konkreten, erreichbaren Fehlerpfad.
+auf GitHub). Eine Fremdstimme, die bei einem Werkzeugausfall im Netz nachsieht,
+findet das Repo und den Commit — und liest dann einen anderen Stand als den
+geprüften, ohne dass das im Ergebnis sichtbar wird. Das Suchverbot ist hier
+kein allgemeiner Vorsatz, sondern verschließt einen konkreten, erreichbaren
+Fehlerpfad.

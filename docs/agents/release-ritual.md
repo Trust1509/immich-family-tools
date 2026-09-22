@@ -153,7 +153,7 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
 
    **Dieser Schritt läuft dort, wo getaggt wird — nicht auf dem
    Auslieferungs-Host.** Der Unterschied klingt nach Kleinigkeit und ist
-   keiner: Der TrueNAS führt Schritt 8 aus, mehr nicht. Dort fehlt `gh` (die
+   keiner: Der TrueNAS führt Schritt 9 aus, mehr nicht. Dort fehlt `gh` (die
    CI-Prüfung ist damit **rot**, nicht „übersprungen"), und im selben
    Verzeichnis liegen die Laufzeitdaten — `data/`, ZFS-Schnappschüsse unter
    `.zfs/`, gelegentlich eine Sicherung daneben.
@@ -190,8 +190,27 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    Regeltext ist genau die Erinnerung, vor der §9 warnt. Wer sie braucht,
    liest sie aus dem Lauf.
 
-7. **Owner fragen.** Danach taggen, pushen, Release anlegen.
-8. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 7. **Der
+7. **Was ist verschwunden?** Vor dem Tag listet das Gate jede Datei, die seit
+   dem letzten Tag **gelöscht oder verschoben** wurde, und verlangt zweierlei:
+   Der Name steht im Notizen-Eintrag dieser Version, und im Baum zeigt nichts
+   mehr auf ihn. Sonst ROT.
+
+   Der Schritt urteilt **nicht** darüber, ob eine Löschung richtig war — nur
+   darüber, dass sie **gesagt** wurde. Das genügt, weil der Anlassfall keine
+   Absicht war: In der Vorlage haben zwei Release-Commits zusammen zwölf
+   Dateien gelöscht, ohne dass eine Commit-Nachricht oder ein Changelog-Eintrag
+   es erwähnte; die Doku verwies 25 bzw. 13 Tage weiter auf sie, durch mehrere
+   Panels hindurch. Eine gelöschte Datei macht nichts rot: Sie hat keinen
+   Inhalt, den ein Diff-Leser lesen könnte (`lehren.md` §36).
+
+   Als Schritt im Ritual wäre das Disziplin. Rot macht ihn erst
+   `pruefe_geloeschte_dateien` in `scripts/release.sh` — mit zehn Fällen in
+   `scripts/release-selbstprobe.sh`, darunter drei Mutationen, die belegen,
+   dass `--no-renames`, `log` statt `diff` und `core.quotepath=off` die
+   Zusicherung wirklich tragen (`lehren.md` §18).
+
+8. **Owner fragen.** Danach taggen, pushen, Release anlegen.
+9. **Ausliefern** — als eigener Schritt, nicht als Fortsetzung von 8. **Der
    Tag geht der Auslieferung VORAUS.** Für uns auf dem TrueNAS-Host, durch
    den **Owner** — der Agent tut das nicht selbst (Produktivinstanz, siehe
    `CLAUDE.md`):
@@ -201,7 +220,7 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    ```
 
    Der Tag wird ausgecheckt, nicht der Zweigkopf: Mit einem Owner-Gate
-   zwischen 7 und 8 ist „seit dem Tag ist auf dem Zweig etwas dazugekommen"
+   zwischen 8 und 9 ist „seit dem Tag ist auf dem Zweig etwas dazugekommen"
    der Normalfall, und ein `git pull` würde genau das mit ausliefern. Ein
    nachträglich gesetzter Tag ist eine Rekonstruktion, keine Tatsache:
    Wandert der Zweig dazwischen, benennt er einen Stand, der nie draußen

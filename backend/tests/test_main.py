@@ -422,7 +422,7 @@ async def test_vorschau_behauptet_nichts_ohne_treffer(tmp_path):
 async def test_anlegen_folgt_der_ausdruecklichen_wahl(tmp_path, monkeypatch):
     """Die VERDRAHTUNG, nicht die Regel.
 
-    lehren.md §28: Bei #78 ueberlebte genau diese Klasse zweimal — die Regel
+    lehren.md §39: Bei #78 ueberlebte genau diese Klasse zweimal — die Regel
     war geprueft, der Aufrufer nicht. Hier wird deshalb durch den Router
     angelegt, mit einem echten ConfigStore, und nachgesehen, was GESPEICHERT
     wurde.

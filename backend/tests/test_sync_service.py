@@ -480,7 +480,7 @@ def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
       in beide Richtungen gruen.
     * Baut der Test das Muster NACH, statt `refresh_managed_album` zu rufen,
       prueft er die Regel und nicht die Verdrahtung. Die Mutation an der
-      Produktionszeile ueberlebte ihn (lehren.md §28, zum wiederholten Mal).
+      Produktionszeile ueberlebte ihn (lehren.md §39, zum wiederholten Mal).
     """
     import asyncio
 

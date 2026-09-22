@@ -9,7 +9,7 @@ import { useT } from "../i18n";
  *
  * Eine Komponente fuer BEIDE Anlege-Wege (Vorschlagsliste und manueller
  * Abgleich). Zwei Kopien derselben Regel waren bei #78 mit ein Grund, dass
- * der Defekt so lange unentdeckt blieb (`docs/agents/lehren.md` §28).
+ * der Defekt so lange unentdeckt blieb (`docs/agents/lehren.md` §39).
  *
  * Erscheint nur, wenn der Name wirklich eine Gruppe trifft: Bei einem neuen
  * Namen bleibt der Ablauf unveraendert, ohne zusaetzlichen Klick.
@@ -47,7 +47,7 @@ export function GruppenWahl({
   // Nur behaupten, was zur AKTUELLEN Eingabe gehoert. Solange die Abfrage
   // laeuft oder der entprellte Name der Eingabe hinterherhinkt, wird NICHTS
   // gezeigt — ein Hinweis, der sich eine Sekunde spaeter widerruft, ist
-  // schlimmer als keiner (`docs/agents/lehren.md` §29).
+  // schlimmer als keiner (`docs/agents/lehren.md` §40).
   // DREI Zustaende, und sie sind nicht dasselbe:
   //
   //   passt       — die vorliegende Antwort gehoert zur aktuellen Eingabe

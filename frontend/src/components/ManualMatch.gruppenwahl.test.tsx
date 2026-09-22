@@ -2,7 +2,7 @@
 //
 // Warum eigens geprueft, obwohl die Komponente `GruppenWahl` bereits Tests
 // hat: Bei #78 ist genau diese Klasse zweimal durchgerutscht — die Regel war
-// geprueft, die VERDRAHTUNG nicht (`docs/agents/lehren.md` §28). Und der
+// geprueft, die VERDRAHTUNG nicht (`docs/agents/lehren.md` §39). Und der
 // Mutationslauf zu diesem Slice hat gezeigt, dass es hier wieder so war: Die
 // Zeile, die `force_new_group` mitschickt, liess sich entfernen, ohne dass
 // ein Test rot wurde.

@@ -879,6 +879,140 @@ if gate_hat_abgelehnt "$ST" && [ -z "$TAGS" ]; then
 else
   printf '  FEHLGESCHLAGEN  tag mit unlesbarer Version: %s | Tags: %s\n' "$ST" "$TAGS"; ROT=$((ROT + 1))
 fi
+echo "14 Geloeschte und verschobene Dateien"
+
+# WARUM DIESER ABSCHNITT: Eine geloeschte Datei macht nichts rot. Sie hat
+# keinen Inhalt, den ein Diff-Leser lesen koennte, und faellt in einer langen
+# Statistik als eine Zeile unter vielen nicht auf. In der Vorlage sind so
+# zwoelf Dateien verschwunden, und die Doku verwies 25 Tage weiter auf sie.
+#
+# Jeder Fall legt die Datei VOR dem Tag an, damit es einen Bezugspunkt gibt.
+# loesch_fixture <verzeichnis> <dateiname>
+loesch_fixture() {
+  ZL=$(baue "$1" 1.5.0 "$KOPF_GUT" "$RISIKO_GUT")
+  printf 'Erfundener Inhalt, nur fuer die Probe.\n' > "$ZL/$2"
+  git -C "$ZL" add -A
+  git -C "$ZL" commit -qm "legt $2 an"
+  git -C "$ZL" tag v0.9.0
+  echo "$ZL"
+}
+
+# nennt_in_notizen <repo> <text> — schreibt den Namen in den Eintrag DIESER
+# Version, nicht ans Dateiende: Ein Name im Eintrag der Vorversion waere fuer
+# diese Loeschung kein Beleg.
+nennt_in_notizen() {
+  awk -v txt="$2" '
+    { print }
+    /^### Etwas$/ && !fertig { print ""; print "- Entfernt: " txt; fertig = 1 }
+  ' "$1/CHANGELOG.md" > "$1/CHANGELOG.neu"
+  mv "$1/CHANGELOG.neu" "$1/CHANGELOG.md"
+}
+
+# A — geloescht, nirgends gesagt.
+ZL_A=$(loesch_fixture f14a altes-ding.md)
+git -C "$ZL_A" rm -q altes-ding.md
+git -C "$ZL_A" commit -qm "loescht still"
+erwarte "Loeschung ohne Notizen-Eintrag wird gemeldet" \
+  FEHLER "Geloescht ohne Eintrag in den Notizen: altes-ding.md" \
+  "$(lauf "$ZL_A" pruefen 1.5.0)"
+
+# B — geloescht, im Eintrag genannt, niemand verweist mehr darauf.
+ZL_B=$(loesch_fixture f14b altes-ding.md)
+git -C "$ZL_B" rm -q altes-ding.md
+nennt_in_notizen "$ZL_B" altes-ding.md
+git -C "$ZL_B" add -A
+git -C "$ZL_B" commit -qm "loescht und sagt es"
+erwarte "sauber abgemeldete Loeschung ist gruen" \
+  OK "Geloescht und sauber abgemeldet: altes-ding.md" \
+  "$(lauf "$ZL_B" pruefen 1.5.0)"
+
+# C — gesagt, aber die Doku zeigt weiter hin. Das ist der Fall, der in der
+# Vorlage 25 Tage lang niemandem auffiel.
+ZL_C=$(loesch_fixture f14c altes-ding.md)
+printf 'Naeheres steht in altes-ding.md.\n' > "$ZL_C/handbuch.md"
+git -C "$ZL_C" add -A
+git -C "$ZL_C" commit -qm "verlinkt es"
+git -C "$ZL_C" rm -q altes-ding.md
+nennt_in_notizen "$ZL_C" altes-ding.md
+git -C "$ZL_C" add -A
+git -C "$ZL_C" commit -qm "loescht es"
+erwarte "verbliebener Verweis auf eine geloeschte Datei wird gemeldet" \
+  FEHLER "Geloescht, aber noch verlinkt: altes-ding.md" \
+  "$(lauf "$ZL_C" pruefen 1.5.0)"
+
+# D — verschoben statt geloescht. Ohne --no-renames faellt das als
+# Umbenennung durch und niemand erfaehrt, dass der alte Pfad weg ist.
+ZL_D=$(loesch_fixture f14d altes-ding.md)
+printf 'Naeheres steht in altes-ding.md.\n' > "$ZL_D/handbuch.md"
+git -C "$ZL_D" add -A
+git -C "$ZL_D" commit -qm "verlinkt es"
+git -C "$ZL_D" mv altes-ding.md neues-ding.md
+git -C "$ZL_D" commit -qm "zieht um"
+erwarte "Umzug wird wie eine Loeschung des alten Pfades behandelt" \
+  FEHLER "altes-ding.md" \
+  "$(lauf "$ZL_D" pruefen 1.5.0)"
+
+# E — nach dem Tag angelegt, verlinkt und wieder geloescht. Ein `git diff`
+# vergleicht Anfang gegen Ende und sieht diese Datei NIE.
+ZL_E=$(baue f14e 1.5.0 "$KOPF_GUT" "$RISIKO_GUT")
+git -C "$ZL_E" tag v0.9.0
+printf 'Kurzlebig.\n' > "$ZL_E/zwischendurch.md"
+printf 'Siehe zwischendurch.md.\n' > "$ZL_E/handbuch.md"
+git -C "$ZL_E" add -A
+git -C "$ZL_E" commit -qm "legt an und verlinkt"
+git -C "$ZL_E" rm -q zwischendurch.md
+git -C "$ZL_E" commit -qm "loescht wieder"
+erwarte "nach dem Tag angelegte und wieder geloeschte Datei faellt auf" \
+  FEHLER "zwischendurch.md" \
+  "$(lauf "$ZL_E" pruefen 1.5.0)"
+
+# F — geloescht und wieder angelegt. Nichts ist verloren, also kein Befund.
+ZL_F=$(loesch_fixture f14f altes-ding.md)
+git -C "$ZL_F" rm -q altes-ding.md
+git -C "$ZL_F" commit -qm "loescht"
+printf 'Wieder da.\n' > "$ZL_F/altes-ding.md"
+git -C "$ZL_F" add -A
+git -C "$ZL_F" commit -qm "legt neu an"
+AUS_F=$(lauf "$ZL_F" pruefen 1.5.0)
+if echo "$AUS_F" | treffer FEHLER "altes-ding.md"; then
+  printf '  FEHLGESCHLAGEN  wieder angelegte Datei wird faelschlich gemeldet\n'
+  ROT=$((ROT + 1))
+else
+  printf '  bestanden   geloescht und wieder angelegt ist kein Befund\n'
+  GRUEN=$((GRUEN + 1))
+fi
+
+# G — Umlaut im Namen, ordentlich abgemeldet. Ohne core.quotepath=off kommt
+# der Name maskiert zurueck ("l\303\266schen.md"), und dann findet ihn weder
+# der Abgleich mit den Notizen noch eine Suche.
+ZL_G=$(loesch_fixture f14g "löschen.md")
+git -C "$ZL_G" rm -q "löschen.md"
+nennt_in_notizen "$ZL_G" "löschen.md"
+git -C "$ZL_G" add -A
+git -C "$ZL_G" commit -qm "loescht mit Umlaut"
+erwarte "abgemeldete Datei mit Umlaut wird als abgemeldet erkannt" \
+  OK "Geloescht und sauber abgemeldet: löschen.md" \
+  "$(lauf "$ZL_G" pruefen 1.5.0)"
+
+# --- Mutationen: traegt die Zeile die Zusicherung wirklich? ---
+
+ZM_NR=$(mutiere ohne-no-renames "$ZL_D" '--no-renames ' '')
+ueberlebt "ohne --no-renames faellt der Umzug durch" \
+  "$(lauf "$ZM_NR" pruefen 1.5.0)" "altes-ding.md"
+
+ZM_LOG=$(mutiere diff-statt-log "$ZL_E" \
+  'log -m --no-renames --diff-filter=D --name-only --format=' \
+  'diff --no-renames --diff-filter=D --name-only')
+ueberlebt "mit diff statt log verschwindet die kurzlebige Datei" \
+  "$(lauf "$ZM_LOG" pruefen 1.5.0)" "zwischendurch.md"
+
+# Der Umlaut-Fall von der anderen Seite: Nimmt man die Maskierung weg, ist
+# eine ORDENTLICH abgemeldete Datei ploetzlich ein Befund.
+ZM_QP=$(mutiere ohne-quotepath "$ZL_G" '-c core.quotepath=off ' '')
+erwarte "ohne core.quotepath=off wird der Umlaut-Name unlesbar" \
+  FEHLER "Geloescht ohne Eintrag in den Notizen" \
+  "$(lauf "$ZM_QP" pruefen 1.5.0)"
+
 echo
 echo "$GRUEN bestanden, $ROT fehlgeschlagen"
 
@@ -890,14 +1024,15 @@ echo "$GRUEN bestanden, $ROT fehlgeschlagen"
 # Die Zahl gehoert hierher und NICHT in einen Regeltext — hier ist sie ein
 # Waechter, dort waere sie eine Erinnerung, die mit jedem Fund veraltet
 # (lehren.md Paragraph 9). Wer Faelle ergaenzt, zieht sie mit.
-# Der Wert ist GEMESSEN, nicht geschaetzt: ein voller Lauf meldet 67. Die
+# Der Wert ist GEMESSEN, nicht geschaetzt: ein voller Lauf meldet 86 (67 vor
+# dem Abgleich auf v1.16.0, zehn Faelle fuer den Loeschwaechter dazu). Die
 # erste Fassung dieser Zeile stand auf 70, weil ich sie geschrieben habe,
 # bevor ich gezaehlt hatte — dieselbe Reflexbewegung, die in diesem Repo schon
 # dreimal eine Zusage vor ihrer Messung erzeugt hat.
 #
 # "Mindestens", nicht "genau": Ein verlorener Fall faellt auf, ein
 # hinzugefuegter blockiert nicht.
-MINDESTENS=76
+MINDESTENS=86
 if [ "$((GRUEN + ROT))" -lt "$MINDESTENS" ]; then
   echo "FEHLER: nur $((GRUEN + ROT)) Faelle gelaufen, erwartet mindestens $MINDESTENS."
   echo "        Ein Fall fehlt."

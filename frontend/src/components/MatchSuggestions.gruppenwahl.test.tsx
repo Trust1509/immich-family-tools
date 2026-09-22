@@ -2,12 +2,12 @@
 //
 // Warum am Bildschirm und nicht an der Funktion: Bei #78 hat genau diese
 // Klasse zweimal ueberlebt — die Regel war geprueft, die VERDRAHTUNG nicht
-// (`docs/agents/lehren.md` §28). Hier ist sie bereits beim Bauen aufgetreten:
+// (`docs/agents/lehren.md` §39). Hier ist sie bereits beim Bauen aufgetreten:
 // Der Mutations-Rueckruf nahm `force_new_group` nicht an, TypeScript erlaubte
 // das trotzdem (ein Rueckruf darf weniger Felder annehmen als der Aufrufer
 // schickt), und das Feld waere still verschwunden.
 //
-// Und der Zwischenzustand ist ein eigenes Verhalten (§29): Solange die
+// Und der Zwischenzustand ist ein eigenes Verhalten (§40): Solange die
 // Abfrage laeuft, darf nichts behauptet werden.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -134,7 +134,7 @@ describe("Gruppenwahl beim Anlegen", () => {
   });
 
   it("behauptet nichts, solange die Abfrage laeuft", async () => {
-    // §29: Der Zwischenzustand ist ein eigenes Verhalten und braucht eine
+    // §40: Der Zwischenzustand ist ein eigenes Verhalten und braucht eine
     // eigene Zusicherung. Die Abfrage wird hier ANGEHALTEN — sonst prueft der
     // Test nur die Entprellung und waere gruen, ohne je einen laufenden
     // Aufruf gesehen zu haben.

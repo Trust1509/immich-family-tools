@@ -736,7 +736,7 @@ async def test_zwei_gleichzeitige_verknuepfungen_ueber_die_vorschlagsliste(tmp_p
     Gemessen: Die Mutation "Verknuepfen ohne Schloss" ueberlebte, weil die
     beiden Nebenlaeufigkeits-Proben nur ANLEGEN pruefen. Dieselbe Gefahr,
     anderer Zweig — das Muster, das dieses Projekt schon mehrfach getroffen
-    hat (lehren.md §28).
+    hat (lehren.md §39).
     """
     import asyncio
     import json as _json
