@@ -26,3 +26,22 @@ frontend/package-lock.json
 # eigenen YAML-Parser mit, und den haben wir hier nicht befragt.
 # Kein Nutzen, ein Restrisiko: also nicht anfassen.
 docker-compose.yml
+
+# Byte-identisch aus der Prozess-Vorlage uebernommene Dateien.
+#
+# Diese Dateien sind KOPIEN, kein eigener Inhalt. Ihr Wert haengt daran, dass
+# sie Zeichen fuer Zeichen der Vorlage entsprechen: Der Abgleich weist das mit
+# dem Blob-Hash nach (`git hash-object` gegen `git rev-parse origin/main:<pfad>`),
+# und genau dieser Nachweis ersetzt das Panel fuer sie.
+#
+# Prettier darueber laufen zu lassen hiesse, die Identitaet zu zerstoeren, um
+# eine Hausformatierung durchzusetzen, die fuer fremden Inhalt gar nicht gilt.
+# Der naechste Abgleich saehe eine Abweichung, uebernaehme die Vorlagenfassung
+# erneut, und der naechste Commit formatierte sie wieder um — eine Schleife
+# ohne Gewinn.
+#
+# Gemessen am 22.09.2026: Das CI-Gate `prettier --check .` lief zum ersten Mal
+# ueber diese Dateien und meldete drei davon (Lauf 35727747234).
+docs/vorlagen/
+docs/SECRETS.md
+
