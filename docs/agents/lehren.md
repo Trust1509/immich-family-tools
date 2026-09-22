@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Einundvierzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Zweiundvierzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -1595,3 +1595,49 @@ fängt; die sind abgedeckt. Er rechtfertigt sich damit, dass er die Klasse dort
 abdeckt, **wo noch niemand hingesehen hat**. Belegt hat sich das sofort: Der
 statische Teil meldete am sauberen Baum einen Fund, den kein bestehender Test
 sieht (#87).
+
+---
+
+## 42. Der Exit-Code eines Beobachters beantwortet eine andere Frage als die, die man stellt
+
+**Was passierte (22.09.2026, beim Landen von #86).** Nach dem Push lief
+`gh run watch <id> --exit-status`, um auf die CI zu warten. Das Kommando kam
+mit **Exit 0** zurück. Der Lauf war **abgebrochen**:
+
+```
+$ gh run watch 35733115930 --exit-status ; echo $?
+0
+$ gh run view 35733115930 --json conclusion
+cancelled
+```
+
+Um ein Haar wäre „CI grün" gemeldet worden, während nichts gelaufen war.
+
+**Die Klasse.** Ein Werkzeug, das auf etwas wartet, hat **zwei** Ergebnisse, und
+sie werden leicht verwechselt:
+
+1. **Ist das Warten sauber zu Ende gegangen?** Das beantwortet der Exit-Code.
+2. **Ist die Sache gut ausgegangen?** Das steht im Ergebnis, das man danach
+   abholen muss.
+
+Ein Abbruch ist für den Beobachter ein **erfolgreiches Warten** — er hat ja
+erfahren, dass es vorbei ist. `--exit-status` klingt, als deckte es beides ab;
+es deckt nur den Ausgang ab, den das Werkzeug als solchen anerkennt, und ein
+`cancelled` gehört bei `gh` nicht dazu.
+
+Verwandt mit §6 (der Exit-Code stirbt in der Pipe) und §22 (ein Werkzeug, das
+Ausfälle als Exit 0 meldet — dort `ask-api.py`, hier `gh run watch`). Immer
+dieselbe Wurzel: **Der Statuskanal trägt weniger, als der Leser ihm zutraut.**
+
+**Regel:** Nach jedem Warten auf einen fremden Vorgang wird das **Ergebnis
+abgefragt**, nicht der Exit des Wartens gelesen — bei der CI
+`gh run view <id> --json status,conclusion`. Und der abgefragte Wert gehört in
+den Bericht, nicht das Wort „grün".
+
+**Zweiter Fund desselben Vorgangs, andere Klasse:** Beim Zusammenfassen der
+Zwischenstände fiel die Überspring-Kennung aus der Commit-Nachricht — der Push
+löste einen zweiten CI-Lauf aus. Dass am Ende doch nur einer lief, verdankte
+sich der `concurrency`-Einstellung, die ihn abbrach, nicht der Sorgfalt.
+**Eine Regel, die nur durch eine Einstellung eingehalten wird, die man nicht
+im Blick hatte, ist nicht eingehalten — sie ist noch nicht zugeschlagen.**
+Beim Zusammenfassen gehört die Kennung ausdrücklich in die neue Nachricht.
