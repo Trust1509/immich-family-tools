@@ -47,6 +47,7 @@ _spec.loader.exec_module(sonde)
 
 GRUEN = 0
 ROT = 0
+UEBERSPRUNGEN = 0
 MUELL = []
 
 
@@ -62,26 +63,52 @@ def pruefe(text, bedingung, einzelheit=""):
         ROT += 1
 
 
+_LFD = [0]
+
+
 def album(name, gid="g1", treffer=0):
-    return {"id": "a%d" % len(MUELL), "album_name": name, "group_id": gid,
+    # Eindeutig, wie im echten Satz: `ManagedAlbum.id` ist eine UUID. Die
+    # erste Fassung vergab ueber `len(MUELL)` innerhalb eines Bestands
+    # DIESELBE Kennung mehrfach (Blindpruefer, Nacharbeit 1).
+    _LFD[0] += 1
+    return {"id": "a%d" % _LFD[0], "album_name": name, "group_id": gid,
             "album_id": "immich-x", "match_id": "m", "owner_account_id": "k1",
             "linked_match_ids": ["t%d" % i for i in range(treffer)],
             "person_refs": [], "created_at": "2026-01-01T00:00:00"}
 
 
-def schreibe(alben) -> str:
-    d = tempfile.mkdtemp()
+def wegwerf(unterpfad=None) -> str:
+    """Ein Wegwerf-Verzeichnis — und NUR das landet auf der Muellhalde.
+
+    Die erste Fassung legte statt des Verzeichnisses `os.path.dirname(pfad)`
+    ab. Fuer den Fall "ein Verzeichnis" IST der Pfad aber das Wegwerf-
+    Verzeichnis selbst, sein `dirname` also die TEMP-WURZEL — und die ging
+    am Ende durch `shutil.rmtree`. In dieser Sitzung hat das die gesamte
+    TEMP-Wurzel des Rechners ausgeraeumt, samt dem Auszug, den eine
+    Pruefstimme gerade las, und samt Ablagen fremder Prozesse.
+
+    Auf einem Laeufer der CI traefe es dessen TEMP-Wurzel, und zwar als
+    LETZTER Schritt des Jobs: Der Lauf bliebe gruen. Ein Waechter kann
+    diesen Defekt also strukturell nie sehen — gefunden hat ihn eine
+    Pruefstimme, der er die Arbeitsgrundlage weggeloescht hat.
+
+    Deshalb: EIN Ort, an dem Wegwerf-Verzeichnisse entstehen, und er legt
+    immer genau das an, was er zurueckgibt. Kein `dirname` mehr, nirgends.
+    """
+    d = tempfile.mkdtemp(prefix="faltung-selbsttest-")
     MUELL.append(d)
-    p = os.path.join(d, "accounts.json")
+    return d if unterpfad is None else os.path.join(d, unterpfad)
+
+
+def schreibe(alben) -> str:
+    p = wegwerf("accounts.json")
     io.open(p, "w", encoding="utf-8").write(
         json.dumps({"accounts": {}, "managed_albums": alben}))
     return p
 
 
 def roh(inhalt: str) -> str:
-    d = tempfile.mkdtemp()
-    MUELL.append(d)
-    p = os.path.join(d, "accounts.json")
+    p = wegwerf("accounts.json")
     io.open(p, "w", encoding="utf-8").write(inhalt)
     return p
 
@@ -116,6 +143,9 @@ except ImportError as exc:
     # Kein Fehlschlag: Die Sonde ist ausdruecklich dafuer gebaut, OHNE den
     # installierten Code zu laufen. Dass der Vergleich dann entfaellt, muss
     # aber dastehen statt still zu verschwinden.
+    # Die Mindestzahl darf daraus kein Rot machen: Die CI-Zusage lautet
+    # "braucht keine Installation" (Blindpruefer, Nacharbeit 1).
+    UEBERSPRUNGEN += 1
     print("  uebersprungen   alte_faltung gegen _name_key (%s)" % exc)
 
 pruefe("NFD und NFC sind heute VERSCHIEDEN (der Anlass)",
@@ -162,8 +192,17 @@ print("\n2  Der Fall, an dem die erste Fassung gescheitert ist")
 rc, aus = lauf(schreibe([album("Straße", "g1")]))
 pruefe("ein einzelnes Album mit verschobener Faltung ist NICHT folgenlos",
        rc == 1 and "NICHTS AENDERT SICH" not in aus, (rc, aus[:300]))
-pruefe("und es wird als Erreichbarkeit gemeldet",
-       "Erreichbarkeit aendert sich      1" in aus, aus[:400])
+pruefe("und es wird als geaenderte Antwort gemeldet",
+       "ANTWORT AENDERT SICH" in aus and "scharfes S" in aus, aus[:600])
+
+# DER SPIEGELFALL, an dem die ZWEITE Fassung gescheitert ist: Der
+# gespeicherte Name ist selbst Fixpunkt der neuen Faltung, die Verschiebung
+# steckt in der ANFRAGE. Gemessen vom Blindpruefer in Nacharbeit 1.
+rc, aus = lauf(schreibe([album("Strasse", "g1")]))
+pruefe("gespeichert 'Strasse', gefragt mit scharfem S — nicht folgenlos",
+       rc == 1 and "NICHTS AENDERT SICH" not in aus, (rc, aus[:300]))
+pruefe("und die Schreibweise wird benannt",
+       "scharfes S" in aus, aus[:600])
 
 rc, aus = lauf(schreibe([album("Oma", "g1"), album("Opa", "g2")]))
 pruefe("ein Bestand ohne jede Verschiebung ist folgenlos",
@@ -179,8 +218,8 @@ pruefe("zwei Schreibweisen DERSELBEN Gruppe erzeugen keine Mehrdeutigkeit",
 e = sonde.messen([album(NFC, "g1"), album(NFD, "g2")])
 pruefe("zwei Schreibweisen VERSCHIEDENER Gruppen erzeugen Mehrdeutigkeit",
        len(e["mehrdeutigkeit"]) == 1, e["mehrdeutigkeit"])
-pruefe("und die Antwort aendert sich fuer beide",
-       len(e["antwort_anders"]) == 2, e["antwort_anders"])
+pruefe("und die Antwort aendert sich",
+       len(e["antwort_anders"]) >= 2, e["antwort_anders"])
 
 # Was heute schon mehrdeutig ist, wird nicht als NEUE Mehrdeutigkeit gemeldet:
 # Die Abfrage antwortet vorher wie nachher mit "keine Gruppe". Der Owner soll
@@ -198,6 +237,18 @@ pruefe("eine leere group_id zaehlt nicht als Gruppe",
 e = sonde.messen([album(NFC, ""), album(NFD, "")])
 pruefe("zwei Alben ganz ohne Gruppe erzeugen keine Mehrdeutigkeit",
        not e["mehrdeutigkeit"], e)
+# FEHLALARM, vom Blindpruefer gemessen: Ein Album ohne Gruppe kann von
+# keiner Abfrage gefunden werden — vorher wie nachher. Die zweite Fassung
+# meldete es trotzdem und draengte damit zu einem --namen-Lauf, bei dem es
+# nichts zu sehen gibt.
+pruefe("ein Album ohne Gruppe ist kein Entscheidungsfall",
+       not e["antwort_anders"], e["antwort_anders"])
+
+# Zweiter Fehlalarm derselben Runde: heute schon mehrdeutig, Antwort
+# vorher wie nachher "keine Gruppe".
+e = sonde.messen([album(NFD, "g1"), album(NFD, "g2")])
+pruefe("schon heute mehrdeutig -> keine geaenderte Antwort",
+       not e["antwort_anders"], e["antwort_anders"])
 
 # ---------------------------------------------------------- 4 Die PII-Schranke
 print("\n4  Die PII-Schranke — jede Zeile, nicht nur die naheliegende")
@@ -249,8 +300,8 @@ finally:
 print("\n5  Exit 2 — fuer jeden Weg, der kein Bestand ist")
 
 for titel, pfad in [
-    ("fehlende Datei", os.path.join(tempfile.mkdtemp(), "weg.json")),
-    ("ein Verzeichnis", tempfile.mkdtemp()),
+    ("fehlende Datei", wegwerf("weg.json")),
+    ("ein Verzeichnis", wegwerf()),
     ("kaputtes JSON", roh("{kein json")),
     ("JSON ohne Objekt an der Wurzel", roh("[1,2,3]")),
     ("Objekt ohne 'accounts'", roh('{"managed_albums": []}')),
@@ -259,7 +310,6 @@ for titel, pfad in [
     ("ein Eintrag ist kein Objekt",
      roh('{"accounts": {}, "managed_albums": ["x"]}')),
 ]:
-    MUELL.append(os.path.dirname(pfad))
     rc, aus = lauf(pfad)
     pruefe("%s -> Exit 2" % titel, rc == 2, (rc, aus[:200]))
     pruefe("%s -> und sagt, dass es kein Nein ist" % titel,
@@ -293,8 +343,79 @@ pruefe("accounts.json ist Zeichen fuer Zeichen unveraendert",
 pruefe("und daneben ist nichts entstanden",
        sorted(os.listdir(ordner)) == vorher_liste, sorted(os.listdir(ordner)))
 
-for _d in MUELL:
-    shutil.rmtree(_d, ignore_errors=True)
+def raeumen():
+    """Nur, was diese Datei selbst angelegt hat — und das wird geprueft.
+
+    Die Schranke ist nicht Vorsicht, sondern die Lehre aus dem Fall oben:
+    Ein Loeschlauf, der eine Liste abarbeitet, ist nur so gut wie die
+    schlechteste Zeile, die je in diese Liste geriet.
+    """
+    wurzel = os.path.realpath(tempfile.gettempdir())
+    for d in MUELL:
+        echt = os.path.realpath(d)
+        if (os.path.dirname(echt) == wurzel
+                and os.path.basename(echt).startswith("faltung-selbsttest-")):
+            shutil.rmtree(echt, ignore_errors=True)
+        else:
+            print("  NICHT GERAEUMT (ausserhalb der eigenen Ablage): %s" % d)
+
+
+# ------------------------------------------- 6b Die uebrig gebliebenen Zeilen
+print("\n6b Was der Mutationslauf noch offen liess")
+
+# Alle drei aus dem Mutationslauf des Blindpruefers (Nacharbeit 1): Zeilen,
+# die sich kaputt machen liessen, ohne dass eine Probe rot wurde.
+
+# `strip()` in der neuen Faltung.
+pruefe("die neue Faltung schneidet Leerraum ab",
+       sonde.neue_faltung("  Oma  ") == sonde.neue_faltung("Oma"))
+
+# Der generische Ausnahmezweig — erreichbar ueber einen Pfad, den das
+# Dateisystem ablehnt.
+rc, aus = lauf("C:/nicht*erlaubt/accounts.json" if os.name == "nt"
+               else "/dev/null/accounts.json")
+pruefe("ein unmoeglicher Pfad -> Exit 2", rc == 2, (rc, aus[:200]))
+pruefe("und auch dort steht, dass es kein Nein ist",
+       "KEIN" in aus, aus[:300])
+
+# Die Entdoppelung: Derselbe Fall darf nicht mehrfach gezaehlt werden, sonst
+# liest der Owner eine aufgeblaehte Zahl.
+e = sonde.messen([album("Straße", "g1"), album("Straße", "g1"),
+                  album("Straße", "g1")])
+fragen = [(x["klasse"], x["frage"]) for x in e["antwort_anders"]]
+pruefe("derselbe Fall wird nur einmal gezaehlt",
+       len(fragen) == len(set(fragen)), fragen)
+
+# ------------------------------------------------- 7 Der Aufraeumlauf selbst
+print("\n7  Was der Aufraeumlauf anfassen darf")
+
+# DER TEUERSTE FUND DIESER SITZUNG, und er kam aus dieser Datei: Die erste
+# Fassung legte die TEMP-WURZEL auf die Muellhalde und loeschte sie rekursiv.
+# Sie hat damit den Auszug geloescht, den eine Pruefstimme gerade las.
+#
+# Ein Kanarienvogel in der Wurzel ist die direkte Messung: Ueberlebt er den
+# Aufraeumlauf nicht, ist der Defekt zurueck. Ohne ihn waere die Behebung
+# Disziplin — und in der CI liefe der Schritt als LETZTER, der Lauf bliebe
+# also gruen, egal was er anrichtet.
+_wurzel = tempfile.gettempdir()
+_kanari = os.path.join(_wurzel, "faltung-kanari-%d.txt" % os.getpid())
+io.open(_kanari, "w", encoding="utf-8").write("nicht anfassen")
+
+_fremd = tempfile.mkdtemp(prefix="nicht-meins-")
+MUELL.append(_fremd)          # genau der Fehler von damals, absichtlich
+
+raeumen()
+
+pruefe("der Kanarienvogel in der TEMP-Wurzel lebt", os.path.exists(_kanari))
+pruefe("die TEMP-Wurzel selbst steht noch", os.path.isdir(_wurzel))
+pruefe("ein fremdes Verzeichnis auf der Muellhalde wird NICHT geraeumt",
+       os.path.isdir(_fremd), _fremd)
+pruefe("die eigenen Wegwerf-Verzeichnisse sind weg",
+       not any(os.path.isdir(d) for d in MUELL
+               if os.path.basename(d).startswith("faltung-selbsttest-")))
+
+os.unlink(_kanari)
+shutil.rmtree(_fremd, ignore_errors=True)
 
 print()
 print("%d bestanden, %d fehlgeschlagen" % (GRUEN, ROT))
@@ -303,10 +424,11 @@ print("%d bestanden, %d fehlgeschlagen" % (GRUEN, ROT))
 # geschaetzt; wer Faelle ergaenzt, zieht sie mit. Sie greift nur gegen
 # geloeschte Faelle, nicht gegen entkernte — dagegen hilft, dass jeder Fall
 # die AUSGABE prueft und nicht nur den Rueckgabewert.
-MINDESTENS = 45
-if GRUEN + ROT < MINDESTENS:
-    print("FEHLER: nur %d Faelle gelaufen, erwartet mindestens %d."
-          % (GRUEN + ROT, MINDESTENS))
+MINDESTENS = 57
+if GRUEN + ROT < MINDESTENS - UEBERSPRUNGEN:
+    print("FEHLER: nur %d Faelle gelaufen, erwartet mindestens %d"
+          " (%d uebersprungen)." % (GRUEN + ROT, MINDESTENS, UEBERSPRUNGEN))
+    print("        Ein Fall fehlt.")
     sys.exit(1)
 
 sys.exit(1 if ROT else 0)

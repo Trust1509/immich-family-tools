@@ -96,7 +96,11 @@ jobs:
       # eine UNUMKEHRBARE Datenwanderung. Ihre erste Fassung meldete
       # "folgenlos" fuer einen Bestand, in dem sich sehr wohl etwas aendert —
       # gefunden von zwei Pruefstimmen, nicht von ihren eigenen gruenen
-      # Proben. Braucht kein Netz, kein gh, keine Installation.
+      # Proben. Braucht kein Netz und kein gh. EIN Fall vergleicht die
+      # nachgebaute Faltung mit der echten aus `config_store` und faellt
+      # ohne installiertes Backend weg — die Probe bleibt dann gruen und
+      # sagt es ("uebersprungen"). Die erste Fassung machte daraus Rot,
+      # weil die Mindestzahl den ausgelassenen Fall mitzaehlte.
       - run: python scripts/faltung-sonde-selbsttest.py
 
   frontend:
