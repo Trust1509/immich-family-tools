@@ -1,5 +1,11 @@
 # CLAUDE.md — Projektanweisungen
 
+**Projektkennung: P4 · Anwendung ohne Datenbank.** Jede Meldung an das
+Vorlagen-Repo trägt sie als `[P4 · Anwendung ohne Datenbank]`. Sie stand hier
+bis zum Abgleich auf v1.16.0 **nicht** — mit der Folge, dass Meldungen von hier
+zeitweise unter P5 liefen und das Register eine eigene Nummer (P7) für sie
+reservierte. Nachweis und Auflösung: Issue #93.
+
 **Prozess-Stand: v1.14.1** — Stand der Vorlage, aus der dieses Projekt stammt.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`

@@ -1,0 +1,52 @@
+# ── VORLAGE ─────────────────────────────────────────────────────────────────
+# Aktivieren: cp docs/vorlagen/dependabot.yml .github/dependabot.yml
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Abhaengigkeits-Aktualisierungen als PRs. In einem Trunk-Ablauf ohne PRs sind
+# das die EINZIGEN geduldeten Bot-PRs — und sie werden wie jede Aenderung
+# behandelt: Pruefungen gruen, dann mergen.
+#
+# ACHTUNG Frontend: Das Node-Oekosystem ist hier bewusst NICHT eingetragen.
+#
+#   Grund (real getroffen): Der Bot regeneriert die Sperrdatei mit SEINER
+#   Paketmanager-Hauptversion. Weicht die vom Abbild ab, das die Anwendung
+#   baut, entsteht eine Sperrdatei, die lokal und in der CI gruen ist und im
+#   Abbild bricht. Node-Aktualisierungen deshalb gebuendelt und von Hand mit
+#   dem projekteigenen Ritual erzeugen (dieselbe Hauptversion wie im Abbild).
+#
+#   Wer das Oekosystem doch eintraegt: Sperrdatei nach JEDEM Merge mit dem
+#   Projekt-Ritual neu erzeugen und die installierte Menge gegen die Sperrdatei
+#   pruefen — ein Waechter, der nur die Anforderung prueft, ist gruen und
+#   beweist nichts.
+
+#
+# LAUFZEIT: Jede Bot-PR loest einen CI-Lauf aus (ci.yml, pull_request). Intervall,
+# Gruppierung und Anzahl offener PRs deshalb am Laufzeit-Budget des Projekts
+# messen, nicht am Standard — ein erschoepftes Budget macht JEDEN folgenden Lauf
+# rot, ohne dass sich Code geaendert hat.
+
+version: 2
+updates:
+  # Die eigenen Workflow-Bausteine. Wichtig, weil wir auf Commit-SHA pinnen:
+  # gepinnte Bausteine altern still, der Bot hebt sie kontrolliert an.
+  # Das klappt nur, wenn hinter dem Pin NUR die Version steht (`# v7.0.1`).
+  # Ausnahme, die der Bot nicht sieht: Der Geheimnis-Scan in security-scan.yml
+  # nennt die Abbild-Version zusaetzlich unter `with: version:` — beim Bump
+  # von Hand mitziehen.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-minor:
+        update-types: ["minor", "patch"]
+    # Sicherheits-Aktualisierungen laufen unabhaengig davon und sind
+    # in den Repo-Einstellungen zu aktivieren (kostenlos, auch privat).

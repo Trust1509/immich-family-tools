@@ -1,0 +1,7 @@
+{
+  "prefix": "⟨mcp__projekt__⟩",
+  "allowlist": [
+    "⟨mcp__projekt__kunden_auflisten⟩",
+    "⟨mcp__projekt__rechnung_lesen⟩"
+  ]
+}

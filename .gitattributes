@@ -1,0 +1,3 @@
+# Shell-Skripte laufen unter sh/dash; CRLF bricht dort mit "set: Illegal option -"
+# (gemessen an einem Klon mit core.autocrlf=true, v1.15.0).
+*.sh text eol=lf

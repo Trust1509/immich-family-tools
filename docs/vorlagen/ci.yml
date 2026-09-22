@@ -1,0 +1,204 @@
+# ── VORLAGE, noch nicht scharf ──────────────────────────────────────────────
+# Bewusst NICHT unter .github/workflows/: Eine Vorlage soll ihre CI nicht
+# sofort loslaufen lassen — sie ist auf einen Stack zugeschnitten, der zum
+# neuen Projekt vielleicht gar nicht passt, und ein rot startendes Repo
+# erzieht dazu, rote Laeufe wegzuklicken.
+#
+# Aktivieren:  mkdir -p .github/workflows && cp docs/vorlagen/ci.yml .github/workflows/
+# Danach an den Stack anpassen und JEDEN Schritt in CLAUDE.md eintragen.
+#
+# Eingerichtet ist die CI erst, wenn EIN Lauf bis `conclusion=success`
+# beobachtet wurde — run-id-gepinnt, das `conclusion`-Feld gelesen, nie der
+# Exit-Code einer Pipe (`gh run watch <id> --exit-status | tail -3` liefert den
+# von `tail`). Bei `failure` zuerst pruefen, ob ueberhaupt Schritte liefen:
+# "nicht gestartet" (Laufzeit-Budget erschoepft) ist auch rot, aber kein
+# Code-Befund. Und findet die Suche zum eigenen headSha KEINEN Lauf, ist das
+# ebenfalls rot (docs/agents/release-ritual.md, Schritt 8).
+# ────────────────────────────────────────────────────────────────────────────
+
+# CI-Gerüst mit eingebauten Lehren.
+#
+# Zugeschnitten auf Python-Backend + Node-Frontend — anpassen oder ersetzen.
+# Die Kommentare erklären, warum etwas so steht; das ist der eigentliche Wert
+# dieser Datei.
+#
+# WICHTIG: Jeder Schritt hier muss auch in CLAUDE.md stehen, damit Bau-Briefe
+# ihn vollständig nennen. Ein Prüfschritt, den nur die CI kennt, wird lokal nie
+# gefahren und meldet sich zum ungünstigsten Zeitpunkt.
+#
+# Eine Quelle fuer Pruef-Abhaengigkeiten: CI und lokales Gate installieren aus
+# derselben Datei (hier die dev-Extras bzw. die Sperrdatei), nie aus einem
+# hartkodierten Aufruf, den nur eine Seite kennt. Die Laufzeit-Hauptversionen
+# unten (Python, Node — und damit npm) sind dieselben wie im lokalen Gate;
+# eine Sperrdatei, die ein npm anderer Hauptversion geschrieben hat, kann lokal
+# gruen und hier rot sein (docs/agents/setup-checkliste.md §4).
+
+name: CI
+
+# Fremde Bausteine auf den COMMIT-SHA gepinnt, nicht auf @v4.
+#
+# Ein Tag ist beweglich: Wer ihn umhaengt, laeuft ab dem naechsten Push in
+# jedem Repo mit, das ihn benutzt. Der SHA ist unveraenderlich.
+#
+# FORMAT: Hinter dem Pin steht NUR die Version (`# v7`), nichts dahinter.
+# Ein Zusatz wie `# v7 (SHA-gepinnt)` verhindert, dass der Abhaengigkeits-Bot
+# die Versionsangabe nachfuehrt — der Pin wandert dann weiter, waehrend der
+# Kommentar eine Version behauptet, die nicht mehr stimmt. Der Kommentar ist
+# das EINZIGE menschenlesbare Signal an einem 40-Zeichen-Hash; luegt er,
+# urteilt der naechste Leser falsch. Erlaeuterungen in die Zeile darueber.
+#
+# Beim UEBERNEHMEN der Vorlage pruefen, ob die hier gepinnten Hauptversionen
+# noch aktuell sind (`gh api repos/<owner>/<action>/releases/latest`). Ein Pin
+# altert still: Er bleibt sicher, aber veraltet — und der Abhaengigkeits-Bot
+# oeffnet dann sofort Bump-PRs, die Laufzeit kosten.
+#
+# Zwei Dinge dazu: Der SHA garantiert nur Unveraenderlichkeit, NICHT Herkunft —
+# beim Setzen pruefen, dass er wirklich aus dem erwarteten Repo stammt. Und
+# gepinnte Bausteine altern still; der Abhaengigkeits-Bot
+# (docs/vorlagen/dependabot.yml) hebt sie kontrolliert an.
+
+# Least Privilege je Lauf. Explizit setzen, auch wenn der Standard schon
+# lesend ist — Standards unterscheiden sich je nach Alter des Repos.
+permissions:
+  contents: read
+
+# Zweige: ein neuer Push bricht den laufenden Lauf ab (spart Minuten).
+# Tags: NICHT abbrechen — ein Release-Lauf darf nicht von einem Folge-Push
+# gekillt werden.
+concurrency:
+  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.run_id || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # Pfad-Filter sparen Minuten — und sind die gefaehrlichste Sparmassnahme
+    # hier. Die Frage vor JEDEM Eintrag: "Wer konsumiert diesen Pfad?"
+    #
+    # Doku, die die Anwendung ausliefert (Handbuch im Produkt, Inhalte einer
+    # Website), ist PRODUKT und wird nicht ausgenommen — sonst rutscht eine
+    # Aenderung an ausgeliefertem Inhalt ungeprueft durch.
+    #
+    # Sicher sind nur Pfade, die nachweislich nirgends einfliessen:
+    # paths-ignore: ["README.md", ".github/**.md"]
+    #
+    # Tag-Laeufe NIE filtern (deshalb steht hier nichts, was fuer Tags gilt).
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend (Tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  # Eigener Lauf gegen die ECHTE Zieldatenbank.
+  #
+  # Lehre: Ein Test, der die Datenbank durch eine andere ersetzt (z.B. auf
+  # SQLite ausweicht), prüft hier NICHT das Ziel — er läuft grün und beweist
+  # nichts. Verhaltensunterschiede, die schon aufgefallen sind: negative
+  # LIMIT/OFFSET sind auf SQLite folgenlos und auf PostgreSQL ein Fehler;
+  # ILIKE ist auf SQLite ASCII-only. Deshalb beim Einrichten belegen, dass die
+  # Tests hier WIRKLICH gegen TEST_DATABASE_URL laufen (z.B. ein Test, der rot
+  # wird, wenn die Variable fehlt oder die Verbindung nicht PostgreSQL ist).
+  backend-datenbank:
+    name: Backend (gegen echte Datenbank)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  # Genau EIN Migrations-Kopf.
+  #
+  # Zwei Bauläufe koennen je eine Migration anlegen, die konfliktfrei mergt —
+  # danach hat der Verlauf zwei Koepfe und laeuft auseinander. Das faellt sonst
+  # erst beim Update der Zielinstanz auf, also beim Kunden.
+  #
+  # Billig, schnell, gehoert auf den Push-Pfad. (Der Rueckwaerts-Roundtrip
+  # dagegen gehoert in die Wochen-Pruefung — siehe security-scan.yml.)
+  migrations-kopf:
+    name: Migrationen (genau ein Kopf)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # Der Exit-Code stirbt in der Pipe: In `alembic heads | grep -c .` zaehlt
+      # grep die Zeilen, egal ob alembic scheiterte. Gemessen mit einer
+      # Attrappe (bash -e und bash -eo pipefail gleich, weil "|| true" den
+      # Pipe-Fehler schluckt): Schreibt alembic beim Scheitern GENAU EINE Zeile
+      # auf stdout, zaehlt sie als ein Kopf und der Schritt ist GRUEN; landet
+      # die Meldung auf stderr, ist er zufaellig rot (0 Koepfe). Deshalb erst
+      # alembic allein — die Zuweisung traegt dessen Exit, und die Schritt-Shell
+      # (bash -e) bricht ab —, dann zaehlen. Neu: rot in beiden Faellen.
+      - name: Kopf-Anzahl prüfen
+        shell: bash
+        run: |
+          koepfe=$(alembic heads)
+          anzahl=$(printf '%s\n' "$koepfe" | grep -c . || true)
+          echo "Koepfe: $anzahl"
+          printf '%s\n' "$koepfe"
+          # String-Vergleich, kein -eq: Ist $anzahl leer (grep fehlt, "|| true"
+          # greift), gibt "test -eq" Status 2 — als eigener Schritt rot, in
+          # einer if-Bedingung aber "falsch" und damit GRUEN (gemessen von
+          # einem Projekt mit dem if-Muster aus v1.15.0). Die Polaritaet
+          # gehoert zur Form: als eigener Schritt [ "$anzahl" = "1" ] (leer ->
+          # rot); in einer if-Bedingung if [ "$anzahl" != "1" ]; then exit 1
+          # (leer -> ungleich -> rot). Beides gemessen.
+          [ "$anzahl" = "1" ]
+
+  frontend:
+    name: Frontend (Lint + Typen + Tests + Build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+
+      # ZWEI Typprüfungen, falls das Projekt einen strengeren Perimeter fährt.
+      # Lehre: Wer nur die strenge Variante lokal laufen lässt, sieht Fehler in
+      # Dateien nicht, die dort nicht gelistet sind — und findet sie erst hier.
+      - name: Typprüfung (ganzes Projekt)
+        run: npx tsc --noEmit
+      # - name: Typprüfung (strenger Perimeter)
+      #   run: npx tsc -p tsconfig.strict.json
+
+      - run: npm test -- --run
+      - run: npm run build

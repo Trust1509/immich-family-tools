@@ -226,36 +226,67 @@ stehen in `lehren.md`.
 
 ---
 
-## Randbedingungen (Block 8), die immer mitmüssen
+## Randbedingungen, die immer mitmüssen
 
-- **Alle** Prüf-Kommandos (Block 6) nennen, die die CI fährt. In diesem
-  Projekt sind das:
-  - `pytest -q backend/tests`
-  - `python -m compileall -q backend`
-  - im `frontend/`: `npm test`
-  - im `frontend/`: `npm run build`
-  - im `frontend/`: `npx tsc --noEmit`
+*Diese Punkte stehen wörtlich in Block 8 jedes Briefs. Deshalb enthalten sie
+kein Suchwort eines anderen Themas des Prüfskripts — sonst erfüllten sie jenes
+Thema in jedem Brief (gemessen: zwei Suchwörter anderer Themen standen hier
+bis v1.15.2, siehe Grenze „Wörtliche Pflichttexte"). Wer hier ändert, lässt
+die Selbstprobe laufen; sie liest diesen Abschnitt.*
 
-  `pip-audit` und `npm audit` liegen seit Scheibe 1 **nicht** mehr auf dem
-  Push-Pfad, sondern laufen wöchentlich in `.github/workflows/wochen-pruefung.yml`
-  — sie gehören trotzdem in den Bau-Brief, wenn ein Slice Abhängigkeiten ändert,
-  weil sie sonst niemand vor dem nächsten Montag sieht.
-
+- **Der Bericht endet mit der Zeile „Eigene Läufe am Ende: …"** — keiner, oder
+  welcher Lauf noch offen ist, was er hält und ob er gestoppt wurde. Ein Lauf,
+  den ein Zeitlimit ins Hintergrundfach verschoben hat, wird gestoppt, bevor es
+  weitergeht (`lehren.md` §35).
+- **Alle** Prüfläufe nennen, die die CI fährt — vollständig in Block 6.
+  (Reales Beispiel: Die CI fuhr
+  *zwei* Typprüfungen, im Brief stand nur eine — der neue Test war lokal grün
+  und im CI rot.)
+- **Jede Option, die der Brief anbietet, nennt die Umgebung, in der sie läuft.**
+  Gemessen: Ein Nacharbeits-Brief bot „die Version per Dateizugriff lesen" an —
+  im Test-Abbild existierte die Datei nicht (das Abbild kopiert nur den
+  Test-Ordner). Alle 27 Tests fielen aus, keine von drei Stimmen sah es, der
+  Brief hatte den Ausfall bestellt. Wer eine Option vorschlägt, hat sie gegen
+  das Abbild geprüft, in dem sie laufen soll — nicht gegen den Arbeitsbaum.
+- **Was der Orchestrator selbst schreibt und ausliefert** (Release-Notiz,
+  Meldung, Beschriftung, Kommentar im Code), unterliegt denselben Stilregeln
+  wie Code aus dem Bau und geht durch dieselbe Prüfung. Gemessen: Acht von zehn
+  Release-Notizen eines Releases trugen ASCII-Umschreibungen statt Umlauten —
+  vom Orchestrator geschrieben, fünf Slices lang von niemandem geprüft, weil
+  Panel und Gates nur den Bauer sehen.
+- **Lange Befehlszeilen und Pfade in Listenpunkten gehören in einen Zaun-Block**,
+  nie in einen Inline-Code-Span: Ein Formatierer wirft die Fortsetzungszeile
+  auf Spalte 0 und zerreißt den Span — und `--check` ist danach grün, weil der
+  Formatierer den Zustand selbst hergestellt hat (dreimal in einem Slice).
 - Läufe im **Vordergrund**, Zeitlimits explizit. Keine Hintergrundprozesse, keine
   eigenen Subagenten.
 - **Lokal committen, nicht pushen.** Landen entscheidet der Hauptagent nach dem Panel.
 - Bei neuen Datenbank-Tests: Engine im `tearDown` entsorgen, gegen eine echt
   migrierte DB testen statt gegen ein frisch erzeugtes Schema.
-- Wenn parallel ein anderer Slice läuft: **welche Dateien tabu sind**.
+- Wenn parallel ein anderer Slice läuft: **welche Dateien tabu sind** — und
+  **welche knappe Größe** er belegt. Zwei Pakete können streiten, ohne eine
+  gemeinsame Zeile anzufassen: beide wollen dieselben CI-Minuten, dasselbe
+  Guthaben, dieselben Ports, dieselbe Owner-Zeit. Gemessen in einem fremden
+  Projekt (zwei Pakete, jedes für sich maßvoll, zusammen über der Grenze) und
+  bei uns (drei Slices parallel am selben Prüf-Kontingent, keiner landete).
+  Zwei Pakete an derselben knappen Größe laufen nicht parallel.
+- **Der Einrichtungsblock ist in einer leeren Umgebung ausprobiert**, nicht
+  aus dem Gedächtnis geschrieben — und endet mit einer Probe, WAS entstanden
+  ist (`ls -laL` auf die angelegten Pfade; `-L`, sonst sieht ein toter Link wie
+  ein guter aus). Gemessen: Ein Bau-Container ohne Migrationsschritt und ohne
+  zwei Pflicht-Umgebungswerte lieferte 239 rote Tests, die niemand verursacht
+  hatte. Eine Einrichtungsanweisung, die nie jemand leer ausgeführt hat, ist
+  eine Vermutung.
+- **Kann der Bauer die Tests nicht selbst ausführen, steigt die
+  Defektdichte** — gemessen lagen 6 von 7 Blockern eines Laufs in Tests, die
+  nie gelaufen waren. Die Umgebung des Bauers wird deshalb vor dem Start
+  geprüft (Abbild vorhanden, Dienste erreichbar), nicht erst nach verbrauchten
+  Tokens.
 - Sprache/Zeichensatz-Regeln des Projekts.
-- **Lange Kommandos und Pfade in Listenpunkten gehören in einen
-  eingerückten Zaun-Block, nie in einen Inline-Code-Span.** Prettier bricht
-  einen zu langen Inline-Code-Span sonst um und lässt die Fortsetzungszeile
-  auf Spalte 0 fallen — und `prettier --check` läuft danach grün, weil
-  Prettier den Zustand selbst hergestellt hat. Kein Gate fängt das; dritter
-  Fall in einem Slice (siehe `lehren.md`).
 
 ---
+
+- Sprache/Zeichensatz-Regeln des Projekts: echte Umlaute überall, interne ASCII-Status nie roh in der Oberfläche.
 
 ## Typische Fallen (in den Brief kopieren, wenn einschlägig)
 
@@ -272,15 +303,15 @@ Trefferzahl und Kappungsposition** dürfen nicht vom Geheimnis abhängen. Ein
 Freitext-Label wird von feldbasierten Filtern nicht gefangen.
 
 **Listen und Auswahlfelder.** Kappt die Tür? Sagt sie es? Wird aus der Liste
-etwas _abgeleitet_, das still ausfällt, statt sichtbar zu degradieren?
+etwas _abgeleitet_, das still ausfällt, statt erkennbar zu degradieren?
 
-**Wächter/Prüftests.** Enthalten die Testdaten den Fall überhaupt, um den es
+**Wächter/Prüftests.** Enthalten die Prüfdaten den Fall überhaupt, um den es
 geht? Fallen zwei Ordnungen zufällig zusammen? Kennt ein AST-Wächter das
 _hausübliche_ Änderungsmuster oder nur die naive Form?
 
 **Fremdcode.** Wir haben zwei zugelieferte Übersetzungs-PRs verarbeitet, und
 die Linie war dabei nur implizit: **An fremdem Code wird nur korrigiert, wo
-der Widerspruch im Artefakt selbst nachweisbar ist** — ein Wert, der der
+der Widerspruch im Artefakt selbst belegbar ist** — ein Wert, der der
 eigenen Datei widerspricht; ein Schlüssel, den es nicht gibt. Nicht: was uns
 besser gefiele. Jede solche Korrektur wird offengelegt als **war → ist →
 warum**, damit der Zulieferer sie prüfen kann statt sie zu entdecken. Alles
@@ -647,7 +678,7 @@ Vorlage:** So bleibt der Brief außerhalb des versionierten Prozess-Stands,
 statt als Datei im Repo mitzulaufen — und der Owner sieht die Annahmen im
 Issue, nicht erst im commiteten Repo-Stand.
 
-## Zehn Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
+## Elf Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
 
 1. **Schreibt dieser Fix an einer Stelle, die vorher nur las — und wer teilt
    sich die Zielzeilen?** (Ein Fix machte einen inerten Pfad aktiv und schuf
@@ -693,10 +724,35 @@ Issue, nicht erst im commiteten Repo-Stand.
    Test etwas prüfte, das ihre Ausführung voraussetzt. Zwei Kopfzeilen der
    Antwort haben es dann entschieden. Die Frage sucht das Merkmal, das eine
    nicht ausgeführte Funktion nicht fälschen kann.
-10. **Wer hat den Schlüssel heute NICHT — und ist das dieselbe Person wie
-    „frische Installation"?** Ein Owner-Entscheid ist eine **Anforderung, kein
-    Abnahmekriterium**: Er sagt, was gelten soll, nicht dass es gilt. Gemessen
-    als Erst-Rollout-Fehler — ein richtiger Entscheid, dessen Folge niemand
-    abnahm, in 27 Review-Läufen genau **einmal** gefunden. Für uns die
-    konkrete Form: Ein Konto ohne hinterlegten Immich-Schlüssel und eine
-    frische `accounts.json` sind **zwei** Zustände, nicht einer.
+10. **Welche real verschiedenen Ausgangszustände stecken hinter demselben
+    technischen Zustand — und ist jeder davon am laufenden Stand gemessen?**
+    Die Frage hängt an der FORM, nicht am Speicher-Schlüssel (bis v1.14:
+    „Wer hat den Schlüssel heute NICHT?"). Bei allem, was ausgerollt wird, sind
+    es mindestens vier Zustände: **frische Installation, Bestand vor dem Update,
+    Bestand nach dem Update ohne den neuen Zustand, bereits gesehen/erledigt**.
+    Der Fall dahinter: Ein Slice führte einen Schlüssel ein, an dem er
+    „gesehen" festmacht, und behandelte „Schlüssel fehlt" als Erstinstallation
+    (still vermerken, nichts zeigen). Jeder Bestandsnutzer hatte den Schlüssel
+    nicht — der Erst-Rollout zeigte also niemandem etwas, das Feature wirkte
+    erst ab dem übernächsten Release. Der Owner-Entscheid „frische Installation
+    zeigt nichts" war richtig und wurde trotzdem zum Fehler: **Ein
+    Owner-Entscheid ist eine Anforderung, kein Abnahmekriterium** — die Abnahme
+    denkt den Rollout auf den Bestand. In 27 Review-Läufen dreier
+    Benchmark-Runs wurde der Fall einmal gefunden; in einem späteren Vergleich
+    stand er in **vier von fünf** unabhängigen Endständen, gemessen als
+    Zustandsmatrix am laufenden Stapel (Bestandsnutzer: 0 Dialoge,
+    ununterscheidbar von der frischen Installation). Keine von 15 Bewertungen
+    fand ihn — die Bewertungsrubrik trug selbst die Owner-Rahmung. Bei R3 ist
+    die Matrix die risikospezifische Probe, nicht die Frage allein.
+    **Für uns die konkrete Form** (aus der abgelösten Fassung dieser Frage
+    übernommen): Ein Konto ohne hinterlegten Immich-Schlüssel und eine frische
+    `accounts.json` sind **zwei** Zustände, nicht einer — dazu der Bestand vor
+    und nach der Schema-Wanderung.
+11. **Welche Projekt-Prämisse berührt der Slice — und welcher Wächter oder
+    welche Prüffrage hält sie?** Eine Prämisse, die nur in `CLAUDE.md` steht
+    („jede neue Funktion ist auch über die Schnittstelle erreichbar"), ist ein
+    Satz. Gemessen: Vier Slices mit Bau-Brief lieferten eine von drei
+    vorgesehenen Türen, elf Wochen lang, über vier Abgleiche — kein Brief
+    fragte danach, kein Wächter zählte. Die Antwort nennt je Prämisse den Beleg
+    (Wächter, Zähler, Test) oder schreibt „nicht gehalten" und macht daraus ein
+    Issue.

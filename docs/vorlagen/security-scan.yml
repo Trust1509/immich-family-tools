@@ -1,0 +1,243 @@
+# ── VORLAGE, noch nicht scharf ──────────────────────────────────────────────
+# Aktivieren: cp docs/vorlagen/security-scan.yml .github/workflows/
+# Danach an den Stack anpassen und in CLAUDE.md eintragen.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Die langsamen, laermenden Pruefungen — bewusst NICHT auf dem Push-Pfad.
+#
+# Warum getrennt: Ein neu veroeffentlichtes CVE in einer fremden Bibliothek
+# macht diesen Lauf rot, ohne dass sich im Repo eine Zeile geaendert hat. Auf
+# dem Push-Pfad wuerde das eine Auslieferung blockieren, die damit nichts zu
+# tun hat — und erzieht dazu, rote Laeufe wegzuklicken. Hier ist Rot ein
+# Arbeitsauftrag, kein Tuersteher.
+#
+# Der ERSTE Lauf produziert planmaessig eine Befund-Welle. Das ist der Zweck,
+# nicht der Alarm: einmal durchtriagieren, echte Funde als Issues, den Rest
+# begruenden.
+#
+# Ein Zeitplan-Job ist zwischen Bau und erstem planmaessigen Lauf UNBEWIESEN.
+# Nach dem Scharfschalten und nach jedem Umbau einmal von Hand ausloesen
+# (workflow_dispatch) und beobachten, bis `conclusion` feststeht — das Feld
+# lesen, nie den Exit-Code einer Pipe.
+#
+# Wer liest das Rot? Vorher festlegen und in CLAUDE.md eintragen. Eine
+# Wochenpruefung ohne Leser war real fuenf Wochen rot, ohne dass es jemand
+# merkte. Mindestens: vor jeder Release-Serie den letzten Lauf lesen, ein
+# roter Lauf wird ein Issue (docs/agents/release-ritual.md).
+#
+# Pruef-Abhaengigkeiten (pip-audit, schemathesis) gehoeren in dieselbe Datei
+# wie die uebrigen (hier die dev-Extras) — nicht als hartkodierter Aufruf, den
+# das lokale Gate nicht kennt.
+
+name: Wochen-Pruefung
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"      # Montag früh, vor dem Arbeitsbeginn
+  workflow_dispatch:          # zum Erstlauf und zum Nachschauen
+
+jobs:
+  # Eigener Geheimnis-Scan — auch bei privaten Repos, bei oeffentlichen
+  # ZUSAETZLICH zum Plattform-Scan (docs/agents/betrieb.md, "Oeffentliche
+  # Kind-Repos"). Der Plattform-Scan kennt nur Partner-Muster; selbst vergebene
+  # Schluessel findet nur ein eigener Scanner.
+  #
+  # VOLLSCAN DER HISTORIE: Ein Geheimnis in einem alten Commit ist genauso
+  # veroeffentlicht wie eines im neuesten; ein push-getriggerter Scan saehe
+  # Commits nicht, die ohne Lauf gelandet sind. Belegt aus den Quellen an den
+  # gepinnten SHAs (v1.15.2 gelesen):
+  #   * checkout mit `fetch-depth: 0` holt nur +refs/heads/* (nach
+  #     refs/remotes/origin/*) und +refs/tags/* — NICHT refs/pull/*.
+  #   * Der Baustein ruft bei schedule/workflow_dispatch den Scanner ohne
+  #     base/head auf; der Scanner klont das Arbeitsverzeichnis mit
+  #     remote.origin.fetch=+refs/*:refs/remotes/origin/* und liest
+  #     `git log --all` des Klons — also jede Ref, die im Checkout liegt.
+  # LUECKE OHNE DEN FETCH-SCHRITT UNTEN: Ein Geheimnis auf einem Zweig, der per
+  # Squash gemergt und geloescht wurde, bleibt auf der Plattform ueber
+  # refs/pull/<n>/head abrufbar, liegt aber in keinem Zweig — der Scan meldete
+  # es nie (nachgestellt mit einem Wegwerf-Repo: ohne Fetch 0 Treffer, mit 1).
+  # Deshalb holt ein eigener Schritt refs/pull/* vor dem Scan; scheitert er,
+  # ist der Lauf rot. Kosten: einmal je Woche die Pull-Refs, nicht im Push-Pfad.
+  #
+  # Werkzeug: quelloffen, ohne Lizenzschluessel, ohne Repo-Secret. Der Baustein
+  # ist auf Commit-SHA gepinnt (beim Setzen geprueft: der Release-Tag im
+  # erwarteten Repo zeigt auf genau diesen SHA). Er startet ein Container-Abbild
+  # — dessen Version steht unten ausdruecklich, sonst zieht er `latest`, und
+  # der SHA-Pin des Bausteins pinnt das Abbild NICHT. Beim Pin-Bump beides
+  # zusammen anheben.
+  #
+  # NICHT auf `--results=verified` einschraenken: Verifizieren kann der Scanner
+  # nur Schluessel bekannter Anbieter. Selbst vergebene Formate kommen hoechstens
+  # als "unverified" — oder gar nicht, solange keine eigene Regel sie beschreibt
+  # (eigener Detektor per `--config`, Datei im Repo). Ohne `--results` meldet
+  # der Scanner verified, unverified und unknown (Quelle am gepinnten SHA; der
+  # Baustein setzt `--results` nicht). Geprobt wird mit einem ERFUNDENEN Wert,
+  # und zwar in der Form, die zum eingebundenen Stand passt — ohne eigenen
+  # Detektor in der belegten GitHub-Token-Form, mit eigenem Detektor
+  # zusaetzlich in der Form, die dieser Detektor beschreibt (Einzelheiten
+  # unten bei der Erstlauf-Probe). Ein Anbieter-BEISPIELWERT aus einer Doku
+  # taugt in keinem der beiden Faelle, Scanner lassen ihn absichtlich durch.
+  #
+  # Rot ist hier Exit 183 ("Funde"): Der Baustein uebergibt `--fail`, und der
+  # Scanner endet damit bei mindestens einem gemeldeten Fund mit 183 (Quelle am
+  # gepinnten SHA). ANNAHME, nicht aus der Quelle belegbar: dass das
+  # Container-Abbild der Version unten aus genau diesem SHA gebaut ist — der
+  # Release-Tag zeigt auf ihn, das Abbild ist aber nicht per Digest gepinnt.
+  # Probe beim Erstlauf (sie prueft zugleich diese Annahme): einen erfundenen
+  # Wert in einem alten Commit eines Wegwerf-Zweigs (oder eines geschlossenen
+  # Pull-Requests) — der Lauf muss rot werden. Welche Form:
+  #   * OHNE eigenen Detektor (Vorlage, wie unten): ein Wert in der Form eines
+  #     GitHub-Tokens, "ghp_" plus 36 zufaellige Buchstaben/Ziffern. Aus der
+  #     Quelle am gepinnten SHA (pkg/detectors/github/v2/github.go): Muster
+  #     (?:ghp|...)_[a-zA-Z0-9_]{36,255}, jeder Treffer wird als Ergebnis
+  #     gemeldet, unverifiziert auch ohne gueltigen Schluessel. ANNAHME: dass
+  #     der Falsch-Positiv-Filter der Engine einen zufaelligen Wert nicht
+  #     aussortiert — die Probe zeigt es. Kein Beispielwert aus einer Doku.
+  #   * MIT eigenem Detektor (Zeile "extra_args" unten eingeschaltet): ein Wert
+  #     in der Form, die dieser Detektor beschreibt — sonst beweist der rote
+  #     Lauf nichts ueber den eigenen Detektor.
+  # Ein Fund wird zuerst beim Aussteller widerrufen, dann erst die Historie
+  # bereinigt (docs/SECRETS.md).
+  geheimnis-scan:
+    name: Geheimnis-Scan (ganze Historie)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Pull-Refs dazuholen (siehe oben). Ohne Pull-Requests trifft das Muster
+      # nichts und endet trotzdem mit Exit 0; jeder andere Fehler macht den
+      # Lauf rot (die Schritt-Shell bricht ab).
+      - name: Pull-Request-Refs holen
+        run: git fetch --no-tags origin '+refs/pull/*/head:refs/remotes/origin/pull/*'
+      - uses: trufflesecurity/trufflehog@f714bf454f350590f4a24c3ddb1aef02c35bf5b6 # v3.97.5
+        with:
+          version: "3.97.5"
+          # EIGENER DETEKTOR fuer selbst vergebene Schluesselformate — nur
+          # einschalten, wenn es solche gibt. Syntax: examples/generic.yml im
+          # Scanner-Repo am gepinnten SHA (detectors: name, keywords, regex).
+          # Der Baustein bindet das Arbeitsverzeichnis als /tmp in den
+          # Container (action.yml am gepinnten SHA: docker run -v .:/tmp), der
+          # Pfad beginnt deshalb mit /tmp/. Eingeschaltet: Erstlauf-Probe mit
+          # einem Wert in der Form dieses Detektors (siehe oben).
+          # extra_args: --config /tmp/⟨pfad/im/repo/trufflehog-detektoren.yml⟩
+
+  abhaengigkeiten:
+    name: Abhängigkeits-Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # Erst die Projekt-Abhaengigkeiten installieren, DANN pruefen: pip-audit
+      # ohne Argumente prueft die aktuelle Umgebung. Wer nur pip-audit selbst
+      # installiert, prueft pip-audits eigene Abhaengigkeiten — gruen, und
+      # ueber das Projekt beweist es nichts.
+      # --skip-editable: das Projekt selbst liegt nicht im Paketindex; mit
+      # --strict wuerde es sonst als "nicht pruefbar" den Lauf rot machen.
+      - run: pip install -e ".[dev]"
+      - run: pip-audit --strict --skip-editable
+      # Frontend analog: npm ci, dann npm audit --audit-level=high
+      # (npm in derselben Hauptversion wie in ci.yml und im lokalen Gate)
+
+  # Fuzzing gegen das eigene Schnittstellen-Schema.
+  #
+  # Der Generator liest die Schema-Beschreibung und probiert Randfaelle durch,
+  # die von Hand niemand schreibt: leere Zeichenketten, negative Betraege,
+  # fehlende optionale Felder, Grenzwerte. Genau die Klasse, die Bau-Agenten
+  # uebersieht — sie bauen den Pfad, den das Issue beschreibt.
+  #
+  # NUR Server-Fehler zaehlen als Fehlschlag. Ein 4xx ist meist die korrekte
+  # Antwort auf Unsinn; ein 5xx ist immer ein Fund.
+  schnittstelle:
+    name: Schnittstellen-Fuzzing
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"   # schemathesis steht in den dev-Extras
+      - name: Anwendung starten
+        run: ⟨Startbefehl⟩ &
+      - name: Auf Bereitschaft warten
+        run: ⟨Health-Endpunkt pollen, mit Zeitlimit⟩
+      - name: Fuzzing
+        run: schemathesis run http://localhost:⟨port⟩/openapi.json --checks not_a_server_error
+
+  # Migrations-KURZroundtrip: vorwaerts -> einen Schritt zurueck -> vorwaerts.
+  #
+  # Geprueft wird das JUENGSTE Rueckwaerts-Skript — das unter Zeitdruck
+  # geschriebene. Bei mehreren Migrationen in einem Slice bis zur letzten
+  # ausgelieferten Revision zuruecksteppen, nicht nur einen Schritt.
+  #
+  # Bewusst KEIN Voll-Roundtrip bis zum Anfang: Wenn der Rueckweg im Ernstfall
+  # "Sicherung einspielen + altes Abbild" ist, sind alte Rueckwaerts-Schritte
+  # ein Pfad, den nie jemand geht — ihn pflichtig zu machen kauft Wartung ohne
+  # Absicherung.
+  #
+  # Die Stichprobe ist der eigentliche Wert: Ein Rueckwaerts-Schritt kann sauber
+  # durchlaufen und trotzdem still Zeilen verlieren. Sie deckt die Tabellen,
+  # die die juengste Migration ANFASST — eine Stichprobe in einer unbeteiligten
+  # Tabelle ist schlechter als keine (real: der Roundtrip loggte den eigenen
+  # Datenverlust und blieb gruen).
+  #
+  # WICHTIG — die REGEL ist framework-frei, nur dieser Job ist es nicht:
+  # Projekte ohne Migrations-Framework (idempotente ALTER-Anweisungen beim Start,
+  # selbstheilende Datei-Migrationen) stempeln diesen Job schnell als
+  # "gegenstandslos" — und werfen dabei die Regel mit weg, obwohl sie sie am
+  # noetigsten brauchen: Dort laeuft die Migration bei JEDEM Start, ungeprueft,
+  # gegen den einzigen echten Bestand.
+  #
+  # Framework-freie Fassung, die IMMER gilt:
+  #   1. bekannte ALTdaten im alten Format schreiben,
+  #   2. Migration fahren,
+  #   3. belegen, dass die neuen Felder gefuellt sind UND die alten Werte
+  #      erhalten blieben,
+  #   4. Migration ein zweites Mal fahren und belegen, dass sich nichts aendert
+  #      (Idempotenz).
+  # Ohne Rueckwaerts-Schritt entfaellt nur Schritt "downgrade", nicht die Probe.
+  migrationen:
+    name: Migrations-Kurzroundtrip
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: alembic upgrade head
+      - name: Bekannte Daten schreiben
+        run: ⟨Datensatz anlegen, dessen Verschwinden auffallen würde⟩
+      - run: alembic downgrade -1
+      - run: alembic upgrade head
+      - name: Datenerhalt prüfen
+        run: ⟨Datensatz wieder auslesen und vergleichen — MUSS fehlschlagen, wenn er weg ist⟩
