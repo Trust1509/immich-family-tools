@@ -89,6 +89,67 @@ async def sync_names(body: SyncNamesRequest, request: Request):
     return entries
 
 
+def _personenmenge(refs) -> set:
+    """Wer in diesem Album steckt — als Menge, unabhaengig von der Reihenfolge.
+
+    Zwei Aufrufe mit derselben manuellen Kennung sind nur dann DERSELBE
+    Vorgang, wenn sie dieselben Personen meinen. Die Kennung allein sagt das
+    nicht: Sie traegt nur Name und Eigentuemer.
+    """
+    aus = set()
+    for r in refs or []:
+        if isinstance(r, dict):
+            aus.add((r.get("account_id"), r.get("person_id")))
+        else:
+            aus.add((getattr(r, "account_id", None), getattr(r, "person_id", None)))
+    return aus
+
+
+async def _manuelles_album_unter_dem_schloss(
+    *, body, store, match_id, owner, all_accounts, person_refs,
+    name_fuer_gruppe, gruppe_vorab, festgelegt, album_name_vorab,
+) -> list[SyncLogEntry]:
+    """Der Album-Teil des manuellen Wegs, mit gehaltenem Trefferschloss.
+
+    Eigene Funktion der Lesbarkeit wegen; die Begruendung steht bei
+    `_album_anlegen_unter_dem_schloss`, samt der beiden falschen Saetze, die
+    dort eine Fassung lang standen.
+    """
+    bestehend = [a for a in store.get_managed_albums() if a.match_id == match_id]
+    if bestehend:
+        # Im Rennen sieht die Vorabpruefung oben noch nichts — das Album
+        # entsteht erst danach. Ablehnen ginge hier nicht mehr, ohne hinter
+        # einen Schreibvorgang zu geraten; also ein Fehlereintrag.
+        if not _personenmenge(body.persons) <= _personenmenge(bestehend[0].person_refs):
+            return [sync_service.manuelle_kennung_kollidiert(bestehend[0].album_name)]
+        return [sync_service.album_gab_es_schon(bestehend[0].album_name)]
+
+    async with store.gruppen_schloss(name_fuer_gruppe):
+        gruppe = gruppe_vorab if festgelegt else store.group_id_for_name(name_fuer_gruppe)
+        if body.existing_album_id:
+            _, album_logs = await sync_service.link_existing_album(
+                match_id=match_id,
+                owner_account=owner,
+                album_id=body.existing_album_id,
+                album_name=album_name_vorab,
+                all_accounts=all_accounts,
+                person_refs=person_refs,
+                store=store,
+                group_id=gruppe,
+            )
+        else:
+            _, album_logs = await sync_service.create_shared_album(
+                match_id=match_id,
+                owner_account=owner,
+                all_accounts=all_accounts,
+                person_refs=person_refs,
+                album_name=body.album_name,
+                store=store,
+                group_id=gruppe,
+            )
+    return album_logs
+
+
 @router.post("/names-multi", response_model=list[SyncLogEntry])
 async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     """Sync a canonical name + optionally create an album for N persons at once."""
@@ -122,8 +183,39 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     requested_album = bool(body.album_name or body.existing_album_id)
     owner_id = body.owner_account_id or body.persons[0].account_id
     manual_match_id = f"manual_{body.canonical_name.lower().replace(' ', '_')}_{owner_id[:8]}"
-    if requested_album and any(a.match_id == manual_match_id for a in store.get_managed_albums()):
-        raise errors.album_already_managed()
+    # Die Dublettensperre lehnt hier nicht mehr pauschal ab (#86) — sie
+    # unterscheidet jetzt zwei Faelle, und der Unterschied ist der ganze
+    # Punkt:
+    #
+    #   Auswahl STECKT im Album  -> Doppelklick (oder eine Teilauswahl
+    #                               derselben Gruppe). Idempotent, unten
+    #                               unter dem Trefferschloss.
+    #   Auswahl enthaelt FREMDE   -> KEIN Doppelklick. Die manuelle Kennung
+    #                               traegt nur Name und Eigentuemer, nicht
+    #                               die Auswahl; zwei verschiedene Gruppen
+    #                               teilen sie sich also. Hier wird
+    #                               abgelehnt, VOR dem ersten Schreibvorgang.
+    #
+    # TEILMENGE, nicht Gleichheit — und das ist gemessen, nicht gewaehlt:
+    # `extend_match` haengt eine Person an `person_refs` des BESTEHENDEN
+    # Albums und laesst die Kennung unberuehrt. Nach jeder Erweiterung ist
+    # die gespeicherte Menge eine echte Obermenge, und ein Gleichheitsvergleich
+    # haette den unveraenderten Wiederholungsaufruf abgelehnt — mit der
+    # falschen Auskunft „andere Personen" und dem schaedlichen Rat, einen
+    # anderen Namen zu waehlen. Der Blindpruefer hat das an den echten
+    # Endpunkten gemessen (Nacharbeit 1, 22.09.2026).
+    #
+    # Gefunden haben das Fremd- und Blindpruefer unabhaengig voneinander:
+    # Ohne diese Unterscheidung wurden die neuen Personen umbenannt und als
+    # abgeglichen markiert, das Album des FREMDEN Paares gefunden und dem
+    # Aufrufer „Erfolg, gab es schon" gemeldet. Ein Teilvollzug, als Erfolg
+    # ausgegeben — schlimmer als die pauschale Ablehnung davor.
+    if requested_album:
+        fremd = [a for a in store.get_managed_albums()
+                 if a.match_id == manual_match_id
+                 and not _personenmenge(body.persons) <= _personenmenge(a.person_refs)]
+        if fremd:
+            raise errors.manual_match_id_collision(fremd[0].album_name)
 
     # ALLES, WAS ABLEHNEN KANN, GEHOERT VOR DEN ERSTEN SCHREIBVORGANG.
     #
@@ -199,30 +291,17 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         # Die ausdrueckliche Wahl steht schon fest und ist vor dem ersten
         # Schreibvorgang geprueft. Frischen Blick braucht allein die
         # Namensregel — und die kann nicht ablehnen.
-        async with store.gruppen_schloss(name_fuer_gruppe):
-            gruppe = gruppe_vorab if festgelegt else store.group_id_for_name(name_fuer_gruppe)
-            if body.existing_album_id:
-                album_name = album_name_vorab
-                _, album_logs = await sync_service.link_existing_album(
-                    match_id=match_id,
-                    owner_account=owner,
-                    album_id=body.existing_album_id,
-                    album_name=album_name,
-                    all_accounts=all_accounts,
-                    person_refs=person_refs,
-                    store=store,
-                    group_id=gruppe,
-                )
-            else:
-                _, album_logs = await sync_service.create_shared_album(
-                    match_id=match_id,
-                    owner_account=owner,
-                    all_accounts=all_accounts,
-                    person_refs=person_refs,
-                    album_name=body.album_name,
-                    store=store,
-                    group_id=gruppe,
-                )
+        # Trefferschloss ZUERST, dann Gruppenschloss — die Reihenfolge ist
+        # in `config_store._treffer_schloesser` festgelegt und der Grund,
+        # warum die zwei Schloesser sich nicht verklemmen koennen.
+        async with store.treffer_schloss(match_id):
+            album_logs = await _manuelles_album_unter_dem_schloss(
+                body=body, store=store, match_id=match_id, owner=owner,
+                all_accounts=all_accounts, person_refs=person_refs,
+                name_fuer_gruppe=name_fuer_gruppe,
+                gruppe_vorab=gruppe_vorab, festgelegt=festgelegt,
+                album_name_vorab=album_name_vorab,
+            )
         store.append_log(album_logs)
         logs.extend(album_logs)
 
@@ -291,9 +370,48 @@ async def create_album(body: SyncAlbumRequest, request: Request):
         },
     ]
 
-    existing = [a for a in store.get_managed_albums() if a.match_id == body.match_id]
-    if existing:
-        raise errors.match_album_exists(existing[0].album_name)
+    # IDEMPOTENT statt ablehnend (#86, Owner-Entscheid).
+    #
+    # Die Pruefung stand frueher HIER, ausserhalb jedes Schlosses — zwei
+    # gleichzeitige Anfragen mit derselben `match_id` (ein Doppelklick ist
+    # genau das) liefen beide durch, bevor eine von ihnen gespeichert hatte.
+    # Ergebnis: zwei verwaltete Eintraege und zwei Alben in Immich fuer EINEN
+    # Treffer.
+    #
+    # Sie unter das Gruppenschloss zu ziehen waere falsch gewesen: Das
+    # schluesselt auf den NAMEN, und zwei Anfragen mit derselben Kennung und
+    # verschiedenen Namen naehmen verschiedene Schloesser.
+    #
+    # Und sie als Ablehnung stehen zu lassen waere im manuellen Weg (unten)
+    # eine Ablehnung HINTER dem Umbenennen geworden — die Defektklasse, die
+    # diese Datei dreimal getroffen hat. Wer nicht ablehnt, kann das nicht.
+    async with store.treffer_schloss(body.match_id):
+        return await _album_anlegen_unter_dem_schloss(body, request, owner,
+                                                      all_accounts, person_refs)
+
+
+async def _album_anlegen_unter_dem_schloss(body, request, owner, all_accounts,
+                                           person_refs) -> list[SyncLogEntry]:
+    """Der Rumpf von `create_album`, mit gehaltenem Trefferschloss.
+
+    Eigene Funktion allein der Lesbarkeit wegen — der Rumpf haette sonst vier
+    Einrueckungsstufen.
+
+    Zwei Begruendungen, die hier eine Fassung lang standen, waren FALSCH und
+    sind vom Blindpruefer gemessen worden: Die Auslagerung macht die beiden
+    Schloesser im Aufrufer nicht sichtbarer, sondern trennt sie (das
+    Gruppenschloss liegt jetzt hier drin). Und der Reihenfolge-Waechter
+    braucht die Trennung nicht — er folgt dem Aufrufgraphen ueber Funktions-
+    und Modulgrenzen; eine Ablehnung hinter dem Schreibvorgang hier drin
+    faengt er genauso (nachgemessen mit einer Mutation).
+    """
+    store = request.app.state.store
+
+    bestehend = [a for a in store.get_managed_albums() if a.match_id == body.match_id]
+    if bestehend:
+        logs = [sync_service.album_gab_es_schon(bestehend[0].album_name)]
+        store.append_log(logs)
+        return logs
 
     if body.existing_album_id:
         # Link existing album

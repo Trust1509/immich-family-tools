@@ -797,7 +797,7 @@ describe("ERROR_PARAM_ORDER", () => {
       err_account_id_not_found: { id: "WERT-A" },
       err_owner_account_id_not_found: { id: "WERT-B" },
       err_person_validation_failed: { account: "WERT-C" },
-      err_match_album_exists: { album: "WERT-D" },
+      err_manual_match_id_collision: { album: "WERT-D" },
       err_unsupported_immich_version: { major: "WERT-E", minor: "WERT-F" },
     };
     expect(Object.keys(werte).sort()).toEqual(Object.keys(ERROR_PARAM_ORDER).sort());

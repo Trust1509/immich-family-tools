@@ -35,6 +35,52 @@ def _split_add_results(result: list[dict]) -> tuple[list[dict], list[dict]]:
     return added, failed
 
 
+def album_gab_es_schon(album_name: str) -> SyncLogEntry:
+    """Der Eintrag fuer den zweiten Klick (#86).
+
+    Er ist **Erfolg**, nicht Fehler: Ein hektischer zweiter Klick auf
+    „Album erstellen" hat nichts falsch gemacht, und der gewuenschte Zustand
+    ist erreicht. Sichtbar ist er trotzdem, weil der zweite Klick etwas
+    anderes getan hat als der erste — das war die Owner-Entscheidung zu #86,
+    ausdruecklich gegen den stillen Erfolg.
+
+    `album_name` ist der Name des BESTEHENDEN Albums, nicht der angefragte.
+    Beim Doppelklick sind beide gleich; kommt die zweite Anfrage mit einem
+    anderen Namen, ist der bestehende die Auskunft, die dem Nutzer hilft.
+    """
+    return SyncLogEntry(
+        id=str(uuid.uuid4()), timestamp=_now(), action="create_album",
+        details=f"Album '{album_name}' bestand für diesen Treffer bereits — nichts angelegt",
+        status="success",
+        message_key="log_album_already_exists",
+        message_params={"album": album_name},
+    )
+
+
+def manuelle_kennung_kollidiert(album_name: str) -> SyncLogEntry:
+    """Dieselbe Kollision, aber im RENNEN — da ist Ablehnen zu spaet.
+
+    Die Vorabpruefung im Router faengt den Normalfall: Sie sieht das fremde
+    Album und lehnt ab, bevor irgendetwas geschrieben ist. Kommen beide
+    Aufrufe gleichzeitig, sieht sie noch nichts — das Album entsteht erst
+    danach. Unter dem Schloss ist dann bereits umbenannt, und eine Ablehnung
+    waere genau die Klasse, die dieses Projekt dreimal getroffen hat: ein
+    Fehler, der sich als Eingabefehler ausgibt, nachdem geschrieben wurde.
+
+    Also ein FEHLEREINTRAG statt einer Ablehnung. Er ist nicht „gab es schon"
+    — das waere die Luege, die der Fremdpruefer und der Blindpruefer
+    unabhaengig voneinander gefunden haben.
+    """
+    return SyncLogEntry(
+        id=str(uuid.uuid4()), timestamp=_now(), action="create_album",
+        details=(f"Album '{album_name}' gehört unter diesem Namen zu ANDEREN "
+                 f"Personen — es wurde keines angelegt"),
+        status="error", error_message="MANUAL_MATCH_ID_COLLISION",
+        message_key="log_manual_match_collision",
+        message_params={"album": album_name},
+    )
+
+
 def _partial_failure_log(action: str, account_name: str, failed: list[dict]) -> SyncLogEntry:
     return SyncLogEntry(
         id=str(uuid.uuid4()), timestamp=_now(), action=action,

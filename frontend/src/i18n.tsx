@@ -1072,17 +1072,15 @@ export const translations = {
     "es-ES": "Se necesita un nombre para el álbum nuevo",
     "pt-BR": "É necessário um nome para o novo álbum",
   },
-  err_album_already_managed: {
-    de: "Für diese manuelle Zuordnung existiert bereits ein verwaltetes Album",
-    en: "A managed album already exists for this manual match",
-    "es-ES": "Ya existe un álbum gestionado para esta asignación manual",
-    "pt-BR": "Já existe um álbum gerenciado para esta associação manual",
-  },
-  err_match_album_exists: {
-    de: (album: string) => `Für diesen Match existiert bereits das Album „${album}“`,
-    en: (album: string) => `This match already has the album “${album}”`,
-    "es-ES": (album: string) => `Esta coincidencia ya tiene el álbum «${album}»`,
-    "pt-BR": (album: string) => `Esta correspondência já tem o álbum “${album}”`,
+  err_manual_match_id_collision: {
+    de: (album: string) =>
+      `Unter diesem Namen gibt es bereits das Album „${album}“, und es gehört zu einer anderen Personenauswahl. Erweitere dieses Album, oder wähle einen anderen Namen.`,
+    en: (album: string) =>
+      `This name already has the album “${album}”, and it belongs to a different set of people. Extend that album, or pick another name.`,
+    "es-ES": (album: string) =>
+      `Con este nombre ya existe el álbum «${album}» y pertenece a otro conjunto de personas. Amplía ese álbum o elige otro nombre.`,
+    "pt-BR": (album: string) =>
+      `Com este nome já existe o álbum “${album}” e ele pertence a outro conjunto de pessoas. Amplie esse álbum ou escolha outro nome.`,
   },
   err_person_validation_failed: {
     de: (account: string) => `Person im Account „${account}“ konnte nicht geprüft werden`,
@@ -1291,6 +1289,23 @@ const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
     "pt-BR": (p) => `Álbum '${p.album}' criado na conta de '${p.account}' com ${p.count} itens`,
     "es-ES": (p) => `Álbum '${p.album}' creado en '${p.account}' con ${p.count} elementos`,
   },
+  log_album_already_exists: {
+    de: (p) => `Album '${p.album}' bestand für diesen Treffer bereits — nichts angelegt`,
+    en: (p) => `Album '${p.album}' already existed for this match — nothing created`,
+    "pt-BR": (p) => `O álbum '${p.album}' já existia para esta correspondência — nada foi criado`,
+    "es-ES": (p) =>
+      `El álbum '${p.album}' ya existía para esta coincidencia — no se ha creado nada`,
+  },
+  log_manual_match_collision: {
+    de: (p) =>
+      `Album '${p.album}' gehört unter diesem Namen zu ANDEREN Personen — es wurde keines angelegt`,
+    en: (p) =>
+      `Album '${p.album}' belongs to DIFFERENT people under this name — nothing was created`,
+    "pt-BR": (p) =>
+      `O álbum '${p.album}' pertence a OUTRAS pessoas com este nome — nada foi criado`,
+    "es-ES": (p) =>
+      `El álbum '${p.album}' pertenece a OTRAS personas con este nombre — no se ha creado nada`,
+  },
   log_album_create_failed: {
     de: (p) => `Album '${p.album}' konnte nicht erstellt werden`,
     en: (p) => `Album '${p.album}' could not be created`,
@@ -1363,13 +1378,13 @@ function renderLogMessage(lang: Lang, entry: LogLikeEntry): string {
  *  anderen brauchen sie nicht.
  *
  *  Warum nicht die Uebersetzungen auf ein Woerterbuch umstellen? Weil dann
- *  jede der 157 uebrigen Zeilen mitgeaendert werden muesste, um fuenf
+ *  jede der 189 uebrigen Zeilen mitgeaendert werden muesste, um fuenf
  *  Faelle zu bedienen. */
 export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_account_id_not_found: ["id"],
   err_owner_account_id_not_found: ["id"],
   err_person_validation_failed: ["account"],
-  err_match_album_exists: ["album"],
+  err_manual_match_id_collision: ["album"],
   err_unsupported_immich_version: ["major", "minor"],
 };
 
@@ -1390,7 +1405,7 @@ function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
   // Validierungsfehlern —, dann zeigt es den deutschen Klartext des Servers.
   // Der teuerste Fehler dieses Pfades waere "Error:" gefolgt von Leere.
   // NUR err_*-Schluessel. Ohne die Schranke schlaegt ein Schluessel im
-  // GESAMTEN Woerterbuch nach — auch in den 157 Oberflaechen-Texten. Ein
+  // GESAMTEN Woerterbuch nach — auch in den 189 Oberflaechen-Texten. Ein
   // Tippfehler serverseitig lieferte dann einen fremden Satz oder einen mit
   // "undefined" gefuellten Log-Text, statt sauber auf den Klartext
   // zurueckzufallen. Von der blinden Panel-Stimme gefunden.

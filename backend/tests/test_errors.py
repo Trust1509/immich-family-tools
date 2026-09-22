@@ -72,7 +72,7 @@ def test_detail_bleibt_eine_zeichenkette():
     Wer `detail` zu einem Objekt macht, bricht jeden Fremdkonsumenten UND
     nimmt dem Frontend den Rueckfall. Beides auf einmal, still.
     """
-    for name in ("account_not_found", "immich_unreachable", "match_album_exists"):
+    for name in ("account_not_found", "immich_unreachable", "person_validation_failed"):
         f = getattr(errors, name)
         fehler = f(*["x"] * f.__code__.co_argcount)
         assert isinstance(errors.antwort(fehler)["detail"], str)
@@ -179,7 +179,6 @@ STATUSCODES = {
     "err_account_gone": 404,
     "err_account_id_not_found": 404,
     "err_account_not_found": 404,
-    "err_album_already_managed": 409,
     "err_album_name_required": 422,
     "err_group_choice_conflict": 422,
     "err_group_not_found": 404,
@@ -190,7 +189,7 @@ STATUSCODES = {
     "err_invalid_token": 401,
     "err_log_entry_not_found": 404,
     "err_managed_album_not_found": 404,
-    "err_match_album_exists": 409,
+    "err_manual_match_id_collision": 409,
     "err_match_not_found": 404,
     "err_min_two_people": 422,
     "err_no_thumbnail": 404,

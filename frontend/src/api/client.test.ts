@@ -204,7 +204,7 @@ describe("Fehler-Schluessel aus der Antwort", () => {
   it("nimmt nur Werte mit, die sich anzeigen lassen", async () => {
     const err = await antwort(409, {
       detail: "x",
-      error_key: "err_match_album_exists",
+      error_key: "err_person_validation_failed",
       error_params: { album: "Urlaub", anzahl: 3, unsinn: { tief: true }, leer: null },
     });
     expect(err.params).toEqual({ album: "Urlaub", anzahl: "3" });

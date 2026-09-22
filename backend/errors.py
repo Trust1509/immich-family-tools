@@ -119,11 +119,24 @@ def album_name_required() -> AppError:
     )
 
 
-def album_already_managed() -> AppError:
+def manual_match_id_collision(album_name: str) -> AppError:
+    """Gleiche manuelle Kennung, ANDERE Personen.
+
+    Die manuelle Kennung ist `manual_<name>_<owner[:8]>` — die ausgewaehlten
+    Personen stehen NICHT darin. Zwei verschiedene Gruppen mit demselben
+    kanonischen Namen und demselben Eigentuemer teilen sie sich also.
+
+    Das ist KEIN Doppelklick und darf nicht als einer behandelt werden: Der
+    Aufrufer will ein Album fuer ANDERE Personen. Hier wird abgelehnt, und
+    zwar VOR jedem Schreibvorgang — der Aufrufer soll den Namen aendern.
+    """
     return AppError(
         409,
-        "err_album_already_managed",
-        "Für diese manuelle Zuordnung existiert bereits ein verwaltetes Album",
+        "err_manual_match_id_collision",
+        f"Unter diesem Namen gibt es bereits das Album '{album_name}', und es "
+        f"gehört zu einer anderen Personenauswahl. Erweitere dieses Album, "
+        f"oder wähle einen anderen Namen.",
+        {"album": str(album_name)},
     )
 
 
@@ -201,15 +214,6 @@ def person_validation_failed(account_name: str) -> AppError:
         "err_person_validation_failed",
         f"Person in Account '{account_name}' konnte nicht validiert werden",
         {"account": str(account_name)},
-    )
-
-
-def match_album_exists(album_name: str) -> AppError:
-    return AppError(
-        409,
-        "err_match_album_exists",
-        f"Für diesen Match existiert bereits ein verwaltetes Album: '{album_name}'.",
-        {"album": str(album_name)},
     )
 
 

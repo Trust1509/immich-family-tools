@@ -45,6 +45,52 @@ logger = logging.getLogger(__name__)
 # allein gruen und in der vollen Suite rot (gemessen 21.09.2026).
 _gruppen_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 
+# Dasselbe Muster fuer den TREFFER. Es schuetzt eine andere Luecke als das
+# Gruppenschloss, und beide werden gebraucht:
+#
+#   Gruppenschloss  — zwei Anlagen mit demselben NAMEN bekommen eine Gruppe.
+#   Trefferschloss  — zwei Anlagen fuer dieselbe KENNUNG bekommen ein Album.
+#
+# Ein Namensschloss allein reicht hier nicht. Zwei Anfragen mit derselben
+# `match_id`, aber verschiedenen Albumnamen naehmen verschiedene Schloesser
+# und kaemen beide durch — die Oberflaeche schlaegt den Personennamen nur vor,
+# aendern laesst er sich (#86).
+#
+# REIHENFOLGE, und sie ist die ganze Verklemmungsfrage: Wer beide haelt,
+# nimmt IMMER zuerst das Trefferschloss, dann das Gruppenschloss. Der
+# umgekehrte Weg existiert heute nirgends — gemessen ueber alle `async with`
+# auf ein Schloss im Backend, von zwei Pruefstimmen unabhaengig.
+#
+# Es gibt zwei WEITERE Schloesser im Backend, und sie gehoeren hierher, auch
+# wenn sie sich mit diesen beiden nicht kreuzen (nachgemessen):
+#   `sync_service._album_locks`  je verwaltetem Album, im Abgleich. Wird
+#                                nirgends unter einem der beiden genommen.
+#   `MatchCache.lock`            im Treffer-Zwischenspeicher. `get_matches`
+#                                laeuft in `create_album` VOR dem
+#                                Trefferschloss und gibt es vorher frei.
+# Die erste Fassung dieses Absatzes nannte sich vollstaendig und war es am
+# Tag ihrer Einfuehrung nicht (Blindpruefer, Nacharbeit 1).
+#
+# ABER: Was diese Regel traegt, ist DIESER ABSATZ und sonst nichts.
+#
+# Die Verschachtelung laeuft ueber eine Funktionsgrenze (`create_album` nimmt
+# das Trefferschloss, das Gruppenschloss liegt in der aufgerufenen Funktion) —
+# wer nur den Text einer Funktion liest, sieht sie gar nicht. Ein kuenftiger
+# umgekehrter Weg wuerde also von keiner Probe rot gemacht, und eine
+# Verklemmung zeigt sich als haengende Anfrage, nicht als Fehler.
+#
+# Das ist eine benannte Luecke, kein Versehen: Der Blindpruefer hat sie am
+# 22.09.2026 gemessen, ein Waechter dafuer ist ein eigener Slice (Issue in
+# diesem Repo). Bis dahin gilt: Wer ein drittes Schloss einfuehrt oder die
+# Reihenfolge anfasst, liest diesen Absatz — und traegt seine Stelle hier ein.
+#
+# Und eine zweite benannte Grenze: Dieses Verzeichnis waechst und wird nie
+# geleert, ein `asyncio.Lock` je `match_id`. Dasselbe gilt seit jeher fuer
+# `_gruppen_schloesser` oben. Bei der Groessenordnung dieser Anwendung
+# (Treffer in Hunderten, ein Prozess, Neustart je Auslieferung) ist das kein
+# Problem — es ist nur keines, das jemand geprueft haette.
+_treffer_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
+
 
 class ConfigStore:
     SCHEMA_VERSION = 3
@@ -465,6 +511,22 @@ class ConfigStore:
         """
         schluessel = (id(asyncio.get_running_loop()), self._name_key(album_name))
         return _gruppen_schloesser.setdefault(schluessel, asyncio.Lock())
+
+    def treffer_schloss(self, match_id: str) -> asyncio.Lock:
+        """Das Schloss fuer diesen Treffer.
+
+        Der Aufrufer haelt es von der Pruefung "gibt es schon eins?" bis zum
+        Speichern — sonst schuetzt es die Luecke nicht, um die es geht. Nur
+        Anlagen fuer DENSELBEN Treffer warten aufeinander.
+
+        Ohne Faltung: `match_id` ist eine Kennung, kein Anzeigetext. Sie
+        kommt aus dem Treffer oder wird aus dem kanonischen Namen gebildet;
+        beide Male ist sie schon normalisiert. Eine zweite Normalisierung
+        hier wuerde zwei Kennungen zusammenziehen, die der Rest des Codes
+        auseinanderhaelt.
+        """
+        schluessel = (id(asyncio.get_running_loop()), match_id)
+        return _treffer_schloesser.setdefault(schluessel, asyncio.Lock())
 
     def group_id_for_name(self, album_name: str) -> str:
         """Kennung der Gruppe mit diesem Namen — sonst eine neue.
