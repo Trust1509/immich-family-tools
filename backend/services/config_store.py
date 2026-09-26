@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import tempfile
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
@@ -335,6 +336,55 @@ class ConfigStore:
         Sie lebt weiter — aber nur noch als Zuordnungshilfe beim Anlegen und
         beim einmaligen Uebernehmen von Altbestaenden, nicht mehr als
         Identitaet einer Gruppe.
+
+        UNICODE-FEST SEIT #83. Vorher stand hier `strip().lower()`, und das
+        war seit #81 eine falsche ZUSAGE an den Nutzer: `existing_group_for_name`
+        antwortete „keine Gruppe" fuer zwei sichtbar gleiche Namen, der Nutzer
+        legte eine zweite Gruppe an und wusste nicht, dass er eine hatte.
+        Gemessen wurde das ueber `GET /api/sync/album-group`: „Café" in NFC
+        fand „Café" in NFD nicht, „Strassenfest" fand „Straßenfest" nicht.
+
+        Die Form ist NFC, dann `casefold`, **dann noch einmal NFC**:
+
+        * `casefold` statt `lower`, weil `lower` sprachabhaengige Faelle nicht
+          aufloest — `ß` gegen `ss`, `ﬁ` gegen `fi`.
+        * NFC, weil dieselben sichtbaren Zeichen in zwei Byte-Folgen vorliegen
+          koennen, je nachdem, welches Geraet sie erzeugt hat.
+        * Das ZWEITE NFC ist keine Vorsicht, sondern eine Korrektur. `casefold`
+          kann aus einem normalisierten Text einen nicht mehr normalisierten
+          machen. Ohne den zweiten Durchgang fielen Namen AUSEINANDER, die
+          vorher zusammenfielen (`Ĥ` mit Kombinierer gegen seinen
+          Kleinbuchstaben) — die Faltung waere stellenweise FEINER geworden
+          statt groeber. Gemessen: zehn solche Zeichenpaare unterhalb U+3000.
+          `test_namensfaltung.py` haelt beide Richtungen fest.
+
+        SIE SCHREIBT KEINEN BESTEHENDEN SCHLUESSEL UM — dieser Schluessel wird
+        nirgends gespeichert, er entsteht bei jedem Zugriff neu. Gespeichert
+        wird `group_id`.
+
+        ABER SIE ENTSCHEIDET JEDEN NEU VERGEBENEN, und der bleibt:
+        `group_id_for_name` beim Anlegen (die Kennung landet im gespeicherten
+        Album) und `_backfill_group_ids` fuer jedes Album OHNE Kennung. Der
+        Backfill haengt allein an der fehlenden Kennung, NICHT an der
+        Schemaversion oder an einem alten Backup — sein eigener Docstring
+        nennt den Fall „ein Album, das zwischen zwei Starts dazukommt".
+        Eine fruehere Fassung dieses Absatzes behauptete „nur beim Rueckspiel
+        einer Sicherung von vor v1.7.0"; Blind- und Fremdpruefer haben das
+        unabhaengig voneinander widerlegt.
+
+        DIE KEHRSEITE DES GROEBER-WERDENS traegt `_gruppe_fuer_namen`: Zwei
+        Schreibweisen in verschiedenen Gruppen wuerden sonst BEIDE
+        unauffindbar. Die Abfrage laeuft deshalb zweistufig.
+
+        Gemessen am echten Bestand vor der Aenderung
+        (`scripts/faltung-sonde.py`, 26.09.2026, 8 Alben): keine geaenderte
+        Antwort, keine neue Mehrdeutigkeit, keine Aufspaltung. Die Sonde
+        bleibt im Repo; nach einem Release ist sie ein Aufruf.
+
+        BENANNTE GRENZE: Nullbreiten-Zeichen werden NICHT entfernt. Ein
+        `U+200B` im Namen bleibt ein Unterschied. Das waere eine zweite,
+        eigenstaendige Entscheidung — sie zieht Namen zusammen, die in Immich
+        verschieden heissen.
         """
         # `str()` statt einer Typzusicherung: Ein handbearbeiteter Nicht-String
         # (album_name: 42) liess die Wanderung bis zur zweiten Nacharbeit mit
@@ -345,7 +395,58 @@ class ConfigStore:
         # Typpruefung gehoert ins Modell, nicht hierher.
         if album_name is None:
             return ""
+        gefaltet = unicodedata.normalize("NFC", str(album_name)).strip().casefold()
+        return unicodedata.normalize("NFC", gefaltet)
+
+    @staticmethod
+    def _name_key_vor_83(album_name) -> str:
+        """Die Faltung, wie sie bis #83 galt — `strip().lower()`.
+
+        Sie ist NICHT tot. `_name_key` ist seit #83 groeber, und Groeber hat
+        eine Kehrseite: Traegt ein Bestand zwei Schreibweisen desselben Namens
+        in VERSCHIEDENEN Gruppen, fallen ihre Schluessel jetzt zusammen, und
+        die Mehrdeutigkeits-Regel aus #78 antwortet fuer BEIDE mit „keine
+        Gruppe" — wo vorher jede ihre eigene fand.
+
+        Und dieser Bestand ist nicht konstruiert: Er ist das ERGEBNIS des
+        Fehlers, den #83 behebt. Der Nutzer fand seine Gruppe nicht und legte
+        eine zweite an. Genau bei ihm haette die Verbesserung die Lage
+        verschlechtert — `group_id_for_name` haette bei jedem Aufruf eine
+        frische, dritte Gruppe gepraegt (gemessen von Blind- und Fremdpruefer,
+        unabhaengig voneinander).
+
+        Deshalb fragt `_gruppe_fuer_namen` zweistufig: erst die neue Faltung,
+        und nur wo sie MEHRDEUTIG wird, diese hier. Damit ist die Antwort
+        nirgends schlechter als vor #83 und dort besser, wo sie eindeutig ist.
+        """
+        if album_name is None:
+            return ""
         return str(album_name).strip().lower()
+
+    def _gruppe_fuer_namen(self, album_name, albums: Optional[list] = None) -> Optional[str]:
+        """Welche Gruppe traegt diesen Namen — in zwei Stufen.
+
+        Stufe 1 ist die heutige Faltung (`_name_key`, unicode-fest). Ist sie
+        eindeutig, gilt sie.
+
+        Stufe 2 ist die Faltung von vor #83. Sie kommt NUR zum Zug, wenn
+        Stufe 1 mehrdeutig ist — also genau dann, wenn die Vergroeberung eine
+        Antwort zerstoert haette, die es vorher gab. Die Begruendung steht bei
+        `_name_key_vor_83`.
+
+        Beide Stufen halten die zwei Ausnahmen aus #78: ein leerer Name sagt
+        nichts, ein mehrdeutiger auch nicht.
+        """
+        if albums is None:
+            albums = self._data.get("managed_albums", [])
+        for faltung in (self._name_key, self._name_key_vor_83):
+            schluessel = faltung(album_name)
+            if not schluessel:
+                return None
+            kandidaten = self._gruppen_je_name(albums, faltung).get(schluessel, set())
+            if len(kandidaten) == 1:
+                return next(iter(kandidaten))
+        return None
 
     def _backfill_group_ids(self, albums: list[dict]) -> bool:
         """Vergibt fehlende Gruppenkennungen aus der bisherigen Namensregel.
@@ -395,25 +496,39 @@ class ConfigStore:
             if album.get("group_id"):
                 continue
             schluessel = self._name_key(album.get("album_name", ""))
-            kandidaten = bekannt.get(schluessel, set())
-            if not schluessel or len(kandidaten) > 1:
+            # ZWEISTUFIG wie die Abfrage, und hier zaehlt es doppelt: Diese
+            # Zeile SCHREIBT eine Kennung, die dauerhaft bleibt. Ohne die
+            # zweite Stufe bekaeme ein kennungsloses Album neben zwei
+            # Schreibweisen in zwei Gruppen eine frische dritte — gemessen
+            # von Blind- und Fremdpruefer.
+            treffer = self._gruppe_fuer_namen(album.get("album_name", ""), albums)
+            if not schluessel:
                 album["group_id"] = str(uuid.uuid4())
-            elif len(kandidaten) == 1:
-                album["group_id"] = next(iter(kandidaten))
+            elif treffer:
+                album["group_id"] = treffer
+            elif bekannt.get(schluessel):
+                # Mehrdeutig auf BEIDEN Stufen: Der Name sagt nichts.
+                album["group_id"] = str(uuid.uuid4())
             else:
                 album["group_id"] = frisch.setdefault(schluessel, str(uuid.uuid4()))
             changed = True
         return changed
 
-    def _gruppen_je_name(self, albums: list[dict]) -> dict[str, set[str]]:
+    def _gruppen_je_name(self, albums: list[dict], faltung=None) -> dict[str, set[str]]:
         """Normalisierter Name -> alle Gruppenkennungen, die ihn tragen.
 
         Mehr als eine bedeutet: Der Name ist mehrdeutig geworden.
+
+        `faltung` ist die Rueckfall-Stufe aus `_gruppe_fuer_namen` — ohne
+        Angabe die heutige. Ein Parameter statt zweier Methoden, damit die
+        Mehrdeutigkeits-Regel genau einmal im Code steht.
         """
+        if faltung is None:
+            faltung = self._name_key
         karte: dict[str, set[str]] = {}
         for album in albums:
             if album.get("group_id"):
-                karte.setdefault(self._name_key(album.get("album_name", "")),
+                karte.setdefault(faltung(album.get("album_name", "")),
                                  set()).add(album["group_id"])
         return karte
 
@@ -428,23 +543,20 @@ class ConfigStore:
         mehrdeutiger Name sagen nichts ueber Zugehoerigkeit, also wird nicht
         geraten.
 
-        BENANNTE DRITTE GRENZE, gemessen statt behauptet: Die Normalisierung
-        ist `strip().lower()` — keine Unicode-Normalform, kein `casefold`.
-        Zwei sichtbar gleiche Namen koennen daher als verschieden gelten
-        (NFC gegen NFD bei "Café", "istanbul" gegen "İstanbul", ein
-        unsichtbares Trennzeichen davor), und dann sagt diese Abfrage "keine
-        Gruppe", obwohl eine da ist. Das ist Erbe aus #78 — neu ist, dass
-        daraus seit #81 eine ZUSAGE AN DEN NUTZER wird. Als Folge-Issue
-        vermerkt, nicht hier behoben: Eine Normalisierung aendert die
-        Schluessel und ist damit selbst eine Datenwanderung.
+        DIE NORMALISIERUNG IST SEIT #83 UNICODE-FEST. Hier stand bis dahin
+        als benannte Grenze, sie sei `strip().lower()` und zwei sichtbar
+        gleiche Namen koennten deshalb als verschieden gelten — „Café" in NFC
+        gegen NFD, „Strassenfest" gegen „Straßenfest". Seit #81 war das eine
+        ZUSAGE AN DEN NUTZER, und sie war falsch. Behoben in `_name_key`;
+        gemessen wurde vorher am echten Bestand, dass die Umstellung dort
+        folgenlos ist (`scripts/faltung-sonde.py`).
+
+        Die Abfrage laeuft seitdem ZWEISTUFIG (`_gruppe_fuer_namen`): neue
+        Faltung, und wo die mehrdeutig wird, die alte. Ohne die zweite Stufe
+        haette die Verbesserung genau denen geschadet, fuer die sie gebaut ist
+        — wer zwei Schreibweisen in zwei Gruppen hat, verlor beide Antworten.
         """
-        schluessel = self._name_key(album_name)
-        if not schluessel:
-            return None
-        kandidaten = self._gruppen_je_name(self._data.get("managed_albums", [])).get(
-            schluessel, set()
-        )
-        return next(iter(kandidaten)) if len(kandidaten) == 1 else None
+        return self._gruppe_fuer_namen(album_name)
 
     def group_details(self, group_id: str) -> dict:
         """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.

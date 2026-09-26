@@ -6,14 +6,30 @@
 DIESE SONDE SCHREIBT NICHTS. Sie liest `accounts.json`, rechnet beide
 Faltungen aus und zählt. Kein Backup nötig, kein Neustart, keine Wanderung.
 
+## Die Messung ist erledigt — wozu die Sonde jetzt noch da ist
+
+**Der Bestand wurde am 26.09.2026 gemessen (8 Alben): folgenlos.** Die
+Umstellung ist daraufhin gebaut; `ConfigStore._name_key` faltet seit #83 so,
+wie `neue_faltung` hier es beschreibt. **Die Verankerung hat sich damit
+gedreht:** „nachher" liegt jetzt im Code, „vorher" nur noch hier.
+
+Die Sonde bleibt aus zwei Gründen:
+
+1. Sie beantwortet dieselbe Frage für die **nächste** Faltungsänderung — die
+   naheliegende steht unten als benannte Grenze (Nullbreiten-Zeichen).
+2. Sie ist der Nachweis, was die Umstellung von #83 an einem Bestand getan
+   hätte. Wer eine Sicherung von vor v1.7.0 zurückspielt, kann sie darauf
+   laufen lassen, bevor er sie startet — dort entscheidet die Faltung beim
+   Backfill über die Gruppenbildung, und nur dort wirkt sie dauerhaft.
+
 ## Warum es sie gibt
 
-`ConfigStore._name_key` faltet heute mit `strip().lower()` — ohne
-Unicode-Normalform und ohne `casefold`. Seit #81 ist das eine **Zusage an den
-Nutzer**: Die App sagt „es gibt keine Gruppe", und für zwei sichtbar gleiche
-Namen ist das schlicht falsch. Die Behebung wäre eine Datenwanderung, und
-verschmelzen lässt sich nicht trennen — deshalb der Owner-Entscheid: **erst
-messen, dann entscheiden**.
+`ConfigStore._name_key` faltete **bis #83** mit `strip().lower()` — ohne
+Unicode-Normalform und ohne `casefold`. Seit #81 war das eine **Zusage an den
+Nutzer**: Die App sagte „es gibt keine Gruppe", und für zwei sichtbar gleiche
+Namen war das schlicht falsch. Der Owner-Entscheid lautete **erst messen, dann
+entscheiden** — diese Sonde war die Messung, und die Umstellung ist daraufhin
+gebaut.
 
 ## Was gemessen wird — und was die erste Fassung falsch gemacht hat
 
@@ -98,10 +114,13 @@ class NichtEntscheidbar(Exception):
 def alte_faltung(name) -> str:
     """Genau das, was `ConfigStore._name_key` heute tut.
 
+    **Historisch, seit #83 nicht mehr der Code.** Sie bleibt hier, weil die
+    Sonde „vorher gegen nachher" rechnet und „vorher" nur noch hier liegt.
+
     Absichtlich nachgebaut statt importiert: Die Sonde soll auch dort laufen,
     wo der Code gar nicht installiert ist — auf dem Auslieferungs-Host zum
-    Beispiel. Der Preis ist Drift; der Selbsttest hält beide gegeneinander
-    (1,1 Mio. Proben, 0 Abweichungen).
+    Beispiel. Der Selbsttest hält deshalb `neue_faltung` gegen das heutige
+    `_name_key` und prüft zusätzlich, dass `alte_faltung` es NICHT mehr ist.
     """
     if name is None:
         return ""
@@ -109,7 +128,8 @@ def alte_faltung(name) -> str:
 
 
 def neue_faltung(name) -> str:
-    """Der Vorschlag: NFC, `casefold`, **und noch einmal NFC**.
+    """Die Faltung, die seit #83 im Code steht: NFC, `casefold`, **und noch
+    einmal NFC**.
 
     Das zweite `NFC` ist keine Vorsicht, sondern eine Korrektur. `casefold`
     kann aus einem normalisierten Text einen nicht mehr normalisierten machen

@@ -135,10 +135,20 @@ try:
 
     proben = ["Oma", "  Oma  ", "OMA", "", None, 42, "Café", "İstanbul",
               "Straße", "​X", "ẞ", "Ĥ̱"]
+    # DIE VERANKERUNG HAT SICH GEDREHT. Bis zum Bau von #83 war
+    # `alte_faltung` das, was die Anwendung tat; seit der Umstellung ist es
+    # `neue_faltung`. Die Sonde misst weiter "vorher gegen nachher" — nur
+    # liegt "nachher" jetzt im Code. Wer diese Zeile wieder auf
+    # `alte_faltung` dreht, misst gegen einen Stand, den es nicht mehr gibt.
     abweichung = [x for x in proben
-                  if sonde.alte_faltung(x) != ConfigStore._name_key(x)]
-    pruefe("alte_faltung ist Zeichen fuer Zeichen _name_key",
+                  if sonde.neue_faltung(x) != ConfigStore._name_key(x)]
+    pruefe("neue_faltung ist Zeichen fuer Zeichen das heutige _name_key",
            not abweichung, abweichung)
+    # Und die Gegenrichtung, damit die Drehung nicht unbemerkt zurueckfaellt:
+    verschoben = [x for x in proben
+                  if sonde.alte_faltung(x) != ConfigStore._name_key(x)]
+    pruefe("alte_faltung ist NICHT mehr das, was die Anwendung tut",
+           verschoben, "keine einzige Probe unterscheidet die beiden Faltungen")
 except ImportError as exc:
     # Kein Fehlschlag: Die Sonde ist ausdruecklich dafuer gebaut, OHNE den
     # installierten Code zu laufen. Dass der Vergleich dann entfaellt, muss
@@ -424,7 +434,7 @@ print("%d bestanden, %d fehlgeschlagen" % (GRUEN, ROT))
 # geschaetzt; wer Faelle ergaenzt, zieht sie mit. Sie greift nur gegen
 # geloeschte Faelle, nicht gegen entkernte — dagegen hilft, dass jeder Fall
 # die AUSGABE prueft und nicht nur den Rueckgabewert.
-MINDESTENS = 57
+MINDESTENS = 58
 if GRUEN + ROT < MINDESTENS - UEBERSPRUNGEN:
     print("FEHLER: nur %d Faelle gelaufen, erwartet mindestens %d"
           " (%d uebersprungen)." % (GRUEN + ROT, MINDESTENS, UEBERSPRUNGEN))
