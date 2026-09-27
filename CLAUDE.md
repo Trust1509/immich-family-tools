@@ -311,6 +311,21 @@ nicht):\*\*
   Bestand, in dem sich sehr wohl etwas ändert. Gefunden haben das zwei
   Prüfstimmen, nicht ihre eigenen grünen Proben.
 - Frontend (in `frontend/`): `npm ci`
+- **Wurzel: `npm ci --ignore-scripts` und `npx --no-install prettier --check .`**
+  — diese Zeile fehlte hier bis zum 27.09.2026, und genau deshalb ist der
+  Release-Lauf von 1.8.0 rot geworden: zwei Dateien mit Formatierungsfehlern,
+  die kein lokales Tor gesehen hat. Der Husky-Hook prüft nur die **gestageten**
+  Dateien; wer mit `--no-verify` committet oder eine Datei nach dem Formatieren
+  noch anfasst, kommt daran vorbei.
+  **Und der lokale Lauf ist auf diesem Rechner NICHT verwertbar:**
+  `git config core.autocrlf` ist `true`, der Arbeitsbaum trägt also CRLF, und
+  Prettier erwartet LF (`endOfLine` steht nicht in `.prettierrc`, der
+  Vorgabewert ist `lf`). `npx prettier --check .` meldet hier deshalb ~22
+  Dateien, die in der CI sauber sind — das echte Signal geht darin unter.
+  Verwertbar ist nur der **gezielte** Aufruf auf die eigenen Dateien:
+  `npx prettier --check <datei> …`. Offen als Issue: entweder
+  `* text=auto eol=lf` in `.gitattributes`, oder ein lokales Tor, das denselben
+  Aufruf wie die CI auf die geänderten Dateien fährt.
 - Frontend (in `frontend/`): `npm test` — seit #72 unter einem **echten DOM**
   (`happy-dom`, gewählt gegen `jsdom`: gemessen +9 statt +37 Pakete im Baum —
   wobei die Paketzahl die Lieferkette misst, nicht die DOM-Treue; die

@@ -109,8 +109,7 @@ function AlbumGroupCard({
   React.useEffect(() => {
     setLokalZuletzt(false);
   }, [externalLogs]);
-  const displayLogs =
-    !lokalZuletzt && externalLogs !== undefined ? externalLogs : localLogs;
+  const displayLogs = !lokalZuletzt && externalLogs !== undefined ? externalLogs : localLogs;
   const syncing = externalSyncing || localSyncing;
 
   const handleRefresh = async () => {

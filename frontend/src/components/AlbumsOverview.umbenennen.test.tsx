@@ -193,10 +193,7 @@ describe("Nach einem Teilausfall", () => {
     // abgeleitet — mit dem alten Vergleich `nextName === group.album_name`
     // war der zweite Versuch deshalb ein Nullvorgang, und das
     // fehlgeschlagene Album liess sich NIE mehr nachziehen.
-    albenMock.mockResolvedValue([
-      { ...GRUPPE[0], album_name: "Neuer Name" },
-      GRUPPE[1],
-    ]);
+    albenMock.mockResolvedValue([{ ...GRUPPE[0], album_name: "Neuer Name" }, GRUPPE[1]]);
     renameMock.mockResolvedValue([]);
 
     render(
@@ -438,9 +435,11 @@ describe("Nach einem Sammellauf", () => {
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        (screen.getByRole("button", {
-          name: /Alle synchronisieren/,
-        }) as HTMLButtonElement).disabled
+        (
+          screen.getByRole("button", {
+            name: /Alle synchronisieren/,
+          }) as HTMLButtonElement
+        ).disabled
       ).toBe(false)
     );
 
