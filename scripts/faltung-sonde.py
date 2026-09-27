@@ -281,6 +281,73 @@ def _exotische_bilder():
 _BILDER = None
 
 
+def _backfill(alben: list, faltung, zweite=None) -> dict:
+    """Nachbau von `_backfill_group_ids`: Album-Kennung -> Gruppe.
+
+    WARUM DAS HIER STEHEN MUSS: Bis zu dieser Fassung hat die Sonde nur den
+    ABFRAGEPFAD gemessen, und der braucht Alben, die schon eine `group_id`
+    tragen. Auf einem Bestand, der noch keine hat — jede Installation vor
+    v1.7.0 —, waren alle ihre Karten leer, und das Urteil „nichts aendert
+    sich" war strukturell wahr und inhaltlich leer.
+
+    Genau dort wirkt die Faltung aber am haertesten: Beim ersten Start der
+    neuen Fassung vergibt `_backfill_group_ids` die Kennungen, und die bleiben.
+    Eine Verschmelzung an dieser Stelle ist nicht rueckholbar.
+
+    `zweite` ist die Rueckfall-Faltung (wie `_gruppe_fuer_namen` im Code):
+    Sie kommt nur zum Zug, wenn die erste mehrdeutig ist.
+    """
+    def karte(f):
+        k = {}
+        for a in alben:
+            gid = _kennung(a)
+            if gid:
+                k.setdefault(f(a.get("album_name", "")), set()).add(gid)
+        return k
+
+    karten = [(faltung, karte(faltung))]
+    if zweite is not None:
+        karten.append((zweite, karte(zweite)))
+
+    frisch: dict = {}
+    aus: dict = {}
+    for nr, a in enumerate(alben):
+        kennung = str(a.get("id") or "#%d" % nr)
+        gid = _kennung(a)
+        if gid:
+            aus[kennung] = gid
+            continue
+        name = a.get("album_name", "")
+        schluessel = faltung(name)
+        treffer = None
+        for f, k in karten:
+            kand = k.get(f(name), set())
+            if len(kand) == 1:
+                treffer = next(iter(kand))
+                break
+        if not schluessel:
+            aus[kennung] = "EIGEN:" + kennung
+        elif treffer:
+            aus[kennung] = treffer
+        elif karten[0][1].get(schluessel):
+            aus[kennung] = "EIGEN:" + kennung          # mehrdeutig
+        else:
+            aus[kennung] = frisch.setdefault(schluessel, "FRISCH:" + schluessel)
+    return aus
+
+
+def _teilung(zuordnung: dict) -> frozenset:
+    """Die Zuordnung als MENGE von Gruppen — unabhaengig von den Namen der Gruppen.
+
+    Zwei Backfills sind gleich, wenn sie dieselben Alben zusammenlegen, auch
+    wenn die Kennungen anders heissen.
+    """
+    nach_gruppe: dict = {}
+    for album, gruppe in zuordnung.items():
+        nach_gruppe.setdefault(gruppe, set()).add(album)
+    return frozenset(frozenset(v) for v in nach_gruppe.values())
+
+
 def messen(alben: list) -> dict:
     """Beide Faltungen gegeneinander, gemessen an der ANTWORT auf eine Anfrage."""
     alt_karte = _karte(alben, alte_faltung)
@@ -341,6 +408,25 @@ def messen(alben: list) -> dict:
     gespalten = [{"alt": a, "neu": sorted(neue)}
                  for a, neue in nach_alt.items() if len(neue) > 1]
 
+    # DER BACKFILL. Fuer Alben ohne Kennung entscheidet die Faltung eine
+    # gespeicherte Gruppe — und nur hier ist sie unumkehrbar.
+    ohne_kennung = [a for a in alben if not _kennung(a)]
+    vorher = _backfill(alben, alte_faltung)
+    nachher = _backfill(alben, neue_faltung, zweite=alte_faltung)
+    teilung_gleich = _teilung(vorher) == _teilung(nachher)
+    verschmelzungen = []
+    if not teilung_gleich:
+        nach_neu: dict = {}
+        for album, gruppe in nachher.items():
+            nach_neu.setdefault(gruppe, set()).add(album)
+        for gruppe, mitglieder in nach_neu.items():
+            alte_gruppen = {vorher[m] for m in mitglieder}
+            if len(alte_gruppen) > 1:
+                verschmelzungen.append({
+                    "alben": sorted(mitglieder),
+                    "vorher_gruppen": len(alte_gruppen),
+                })
+
     return {
         "alben_gesamt": len(alben),
         "schluessel_heute": len(nach_alt),
@@ -348,6 +434,10 @@ def messen(alben: list) -> dict:
         "exotisch": exotisch,
         "mehrdeutigkeit": mehrdeutig,
         "aufspaltung": gespalten,
+        "ohne_kennung": len(ohne_kennung),
+        "backfill_gruppen_vorher": len(_teilung(vorher)),
+        "backfill_gruppen_nachher": len(_teilung(nachher)),
+        "backfill_verschmelzungen": verschmelzungen,
     }
 
 
@@ -356,20 +446,36 @@ def berichten(e: dict, mit_namen: bool) -> int:
         ("Antwort aendert sich            ", e["antwort_anders"]),
         ("Mehrdeutigkeit entsteht (teuer) ", e["mehrdeutigkeit"]),
         ("Aufspaltung (darf nicht sein)   ", e["aufspaltung"]),
+        ("Backfill legt anders zusammen   ", e["backfill_verschmelzungen"]),
     ]
     print("Faltungs-Sonde (#83) — es wurde NICHTS geschrieben.")
     print()
     print("  verwaltete Alben insgesamt      %d" % e["alben_gesamt"])
+    print("  davon OHNE Gruppenkennung       %d" % e["ohne_kennung"])
     print("  Namensschluessel heute          %d" % e["schluessel_heute"])
     for titel, liste in urteil:
         print("  %s%d" % (titel, len(liste)))
     print("  (nachrichtlich) exotische Zeichen %d" % len(e["exotisch"]))
+    print("  Gruppen nach dem ersten Start   %d (alte Faltung: %d)"
+          % (e["backfill_gruppen_nachher"], e["backfill_gruppen_vorher"]))
     print()
+
+    # DIE WARNUNG, die diese Fassung ueberhaupt noetig gemacht hat.
+    if e["ohne_kennung"] == e["alben_gesamt"] and e["alben_gesamt"]:
+        print("ACHTUNG: KEIN Album traegt eine Gruppenkennung. Die drei")
+        print("Abfrage-Zahlen oben sind deshalb strukturell 0 — sie messen den")
+        print("Abfragepfad, und der braucht vergebene Kennungen. Entscheidend")
+        print("ist auf diesem Bestand allein die Zeile zum BACKFILL: Beim")
+        print("ersten Start der neuen Fassung werden die Kennungen vergeben,")
+        print("und sie bleiben.")
+        print()
 
     if not any(liste for _, liste in urteil):
         print("NICHTS AENDERT SICH. Fuer jeden gespeicherten Namen und jede")
         print("Schreibweise, in der ihn ein Mensch tippen wuerde, antwortet die")
-        print("Abfrage nachher wie heute — die Wanderung waere folgenlos.")
+        print("Abfrage nachher wie heute; und der erste Start legt dieselben")
+        print("Alben zusammen wie die alte Faltung — die Umstellung waere")
+        print("folgenlos.")
         if e["exotisch"]:
             print()
             print("AUSSER fuer %d Alben, deren Name ein Zeichen enthaelt, dessen"
@@ -400,6 +506,20 @@ def berichten(e: dict, mit_namen: bool) -> int:
                   % (klasse, len(liste), neu_gefunden, verloren))
             for x in liste:
                 zeile("%r -> gefragt als %r" % (x["name"], x["frage"]))
+        print()
+
+    if e["backfill_verschmelzungen"]:
+        print("BACKFILL LEGT ANDERS ZUSAMMEN — und das ist der unumkehrbare Teil.")
+        print("  Beim ersten Start vergibt die Anwendung Kennungen fuer Alben")
+        print("  ohne Gruppe. Mit der neuen Faltung fallen dabei Alben")
+        print("  zusammen, die die alte getrennt gehalten haette:")
+        for x in e["backfill_verschmelzungen"]:
+            print("  - %d Alben aus %d vorherigen Gruppen werden EINE"
+                  % (len(x["alben"]), x["vorher_gruppen"]))
+            zeile("%r" % (x["alben"],))
+        print("  Das ist nicht falsch — es ist der Zweck der Aenderung. Aber es")
+        print("  ist die Stelle, an der ein Blick mit --namen sich lohnt, BEVOR")
+        print("  der Container neu startet.")
         print()
 
     if e["mehrdeutigkeit"]:

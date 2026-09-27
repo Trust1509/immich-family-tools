@@ -370,6 +370,63 @@ def raeumen():
             print("  NICHT GERAEUMT (ausserhalb der eigenen Ablage): %s" % d)
 
 
+# ------------------------------------------------------ 5b Der Backfill
+print("\n5b Der Backfill — der unumkehrbare Teil")
+
+# WARUM DIESER ABSCHNITT: Bis zu dieser Fassung hat die Sonde nur den
+# ABFRAGEPFAD gemessen, und der braucht Alben MIT Gruppenkennung. Auf dem
+# echten Bestand (Installation vor v1.7.0, noch keine Kennungen) waren alle
+# ihre Karten leer — das Urteil "nichts aendert sich" war strukturell wahr
+# und inhaltlich leer. Dritte Runde derselben Klasse an derselben Datei:
+# eine gruene Messung, die eine andere Frage beantwortet als die gestellte.
+
+
+def _ohne_kennung(name):
+    a = album(name)
+    del a["group_id"]
+    return a
+
+
+# Acht Alben ohne Kennung, zwei davon dieselbe Schreibweise-Klasse.
+rc, aus = lauf(schreibe([_ohne_kennung(n) for n in
+                         ["Straßenfest", "Strassenfest", "Oma", "Opa",
+                          "Sommer", "Winter", "Herbst", "Cafe"]]))
+pruefe("ein Bestand ganz ohne Kennungen ist NICHT folgenlos",
+       rc == 1 and "NICHTS AENDERT SICH" not in aus, (rc, aus[:400]))
+pruefe("die Sonde warnt, dass die Abfragezahlen strukturell 0 sind",
+       "KEIN Album traegt eine Gruppenkennung" in aus, aus[:600])
+pruefe("und nennt die Gruppenzahl vorher und nachher",
+       "Gruppen nach dem ersten Start   7 (alte Faltung: 8)" in aus, aus[:600])
+pruefe("der Backfill-Abschnitt steht im Bericht",
+       "BACKFILL LEGT ANDERS ZUSAMMEN" in aus, aus[:800])
+pruefe("ohne --namen steht auch dort kein Name",
+       "Straßenfest" not in aus and "strassenfest" not in aus.lower(), aus[:800])
+
+# Dieselben acht, aber ohne eine Faltungsklasse: dann ist es folgenlos.
+rc, aus = lauf(schreibe([_ohne_kennung(n) for n in
+                         ["Fest", "Oma", "Opa", "Sommer", "Winter", "Herbst"]]))
+pruefe("ohne Faltungsklasse ist auch ein kennungsloser Bestand folgenlos",
+       rc == 0 and "NICHTS AENDERT SICH" in aus, (rc, aus[:400]))
+# Die Warnung bleibt — sie ist auch hier wahr, die Abfragezahlen SIND
+# strukturell 0. Wichtig ist, dass sie kein Fehlalarm wird: Der Satz steht
+# da UND das Urteil lautet trotzdem "nichts aendert sich".
+pruefe("die Warnung steht da, ohne das Urteil zu kippen",
+       "KEIN Album traegt eine Gruppenkennung" in aus
+       and "NICHTS AENDERT SICH" in aus, aus[:600])
+
+# Die Warnung gilt nur, wenn ALLE Alben kennungslos sind — sonst misst der
+# Abfragepfad ja etwas.
+rc, aus = lauf(schreibe([album("Straße", "g1"), _ohne_kennung("Strasse")]))
+pruefe("bei gemischtem Bestand keine Struktur-Warnung",
+       "KEIN Album traegt" not in aus, aus[:400])
+
+# Und der Rueckfall im Nachbau: Eine vorhandene Gruppe gewinnt, das
+# kennungslose Album tritt ihr bei statt eine neue zu bekommen.
+e = sonde.messen([album("Straße", "g1"), album("Strasse", "g2"),
+                  _ohne_kennung("Strasse")])
+pruefe("der Nachbau folgt der zweistufigen Aufloesung des Codes",
+       not e["backfill_verschmelzungen"], e["backfill_verschmelzungen"])
+
 # ------------------------------------------- 6b Die uebrig gebliebenen Zeilen
 print("\n6b Was der Mutationslauf noch offen liess")
 
@@ -434,7 +491,7 @@ print("%d bestanden, %d fehlgeschlagen" % (GRUEN, ROT))
 # geschaetzt; wer Faelle ergaenzt, zieht sie mit. Sie greift nur gegen
 # geloeschte Faelle, nicht gegen entkernte — dagegen hilft, dass jeder Fall
 # die AUSGABE prueft und nicht nur den Rueckgabewert.
-MINDESTENS = 58
+MINDESTENS = 67
 if GRUEN + ROT < MINDESTENS - UEBERSPRUNGEN:
     print("FEHLER: nur %d Faelle gelaufen, erwartet mindestens %d"
           " (%d uebersprungen)." % (GRUEN + ROT, MINDESTENS, UEBERSPRUNGEN))
