@@ -1784,6 +1784,10 @@ def test_die_immich_schreibsenken_sind_die_erwarteten():
     assert _immich_schreibsenken() == {
         "update_person", "create_album", "add_assets_to_album",
         "share_album_with_users",
+        # Neu mit dem Umbenennen (#79, zugeliefert): `PATCH /api/albums/{id}`.
+        # Der Waechter hat sie gemeldet, bevor irgendein Test ueber sie
+        # gestolpert waere — genau dafuer steht diese Liste hier.
+        "update_album",
     }
     assert IMMICH_LIEST_MIT_POST <= set(
         _funktionen(_baum("services/immich_client.py"))), (
@@ -1922,6 +1926,12 @@ ABLEHNUNGEN = [
     ("POST", "/api/sync/album/gibt-es-nicht/refresh", None,
      "err_managed_album_not_found", "unbekanntes verwaltetes Album"),
     ("DELETE", "/api/sync/albums/gibt-es-nicht", None,
+     "err_managed_album_not_found", "unbekanntes verwaltetes Album"),
+    # Umbenennen (#79, zugeliefert). Der Koerper traegt einen GUELTIGEN Namen:
+    # Mit einem leeren schluege `album_name_required` zuerst zu, und dann
+    # pruefte diese Zeile die Koerperpruefung statt des Ablehnungswegs — genau
+    # der Fehler, der weiter unten beim Anmelde-Endpunkt schon einmal drin war.
+    ("PATCH", "/api/sync/albums/gibt-es-nicht", {"album_name": "Neuer Name"},
      "err_managed_album_not_found", "unbekanntes verwaltetes Album"),
     ("POST", "/api/sync/undo", {"log_entry_id": "gibt-es-nicht"},
      "err_log_entry_not_found", "unbekannter Protokolleintrag"),

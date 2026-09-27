@@ -790,7 +790,7 @@ describe("ERROR_PARAM_ORDER", () => {
   });
 
   it("renders every parameterised error with its values, in every language", () => {
-    // Alle fuenf, nicht zwei. Je Schluessel wird geprueft, dass JEDER Wert
+    // Alle sechs, nicht zwei. Je Schluessel wird geprueft, dass JEDER Wert
     // im Ergebnis auftaucht — ein vertauschtes oder verschlucktes Argument
     // faellt damit auf.
     const werte: Record<string, Record<string, string>> = {
@@ -798,6 +798,7 @@ describe("ERROR_PARAM_ORDER", () => {
       err_owner_account_id_not_found: { id: "WERT-B" },
       err_person_validation_failed: { account: "WERT-C" },
       err_manual_match_id_collision: { album: "WERT-D" },
+      err_album_name_in_use: { album: "WERT-G" },
       err_unsupported_immich_version: { major: "WERT-E", minor: "WERT-F" },
     };
     expect(Object.keys(werte).sort()).toEqual(Object.keys(ERROR_PARAM_ORDER).sort());

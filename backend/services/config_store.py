@@ -558,6 +558,24 @@ class ConfigStore:
         """
         return self._gruppe_fuer_namen(album_name)
 
+    def gruppen_mit_namen(self, album_name: str) -> set:
+        """Alle Gruppen, die diesen Namen tragen — fuer die Kollisionspruefung.
+
+        Getrennt von `existing_group_for_name`, weil die Fragen verschieden
+        sind: Jene beantwortet "welcher Gruppe wuerde ich beitreten" und
+        schweigt bei Mehrdeutigkeit. Diese beantwortet "wem gehoert dieser
+        Name schon" — und da ist Mehrdeutigkeit die ANTWORT, nicht ein Grund
+        zu schweigen.
+
+        Bewusst OHNE die zweite Stufe aus `_gruppe_fuer_namen`: Fuer eine
+        Kollision zaehlt die heutige, groebere Faltung. Wer "Strassenfest"
+        tippt, waehrend eine andere Gruppe "Straßenfest" heisst, erzeugt
+        genau die Mehrdeutigkeit, die verhindert werden soll.
+        """
+        return set(self._gruppen_je_name(
+            self._data.get("managed_albums", [])).get(
+                self._name_key(album_name), set()))
+
     def group_details(self, group_id: str) -> dict:
         """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.
 

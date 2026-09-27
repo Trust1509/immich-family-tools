@@ -140,6 +140,30 @@ def manual_match_id_collision(album_name: str) -> AppError:
     )
 
 
+def album_name_in_use(album_name: str) -> AppError:
+    """Der Zielname gehoert schon einer ANDEREN Gruppe.
+
+    Auflage aus dem Review zu #79: Ohne diese Pruefung verschmilzt ein
+    Umbenennen zwei Gruppen dem Auge nach, ohne sie zu verschmelzen — beide
+    tragen dann denselben Namen, und `existing_group_for_name` antwortet
+    danach fuer BEIDE mit "keine Gruppe" (#78). Der Nutzer sieht zwei Karten
+    mit gleichem Namen und bekommt beim naechsten Anlegen keine
+    Gruppenvorschau mehr.
+
+    Die Pruefung benutzt `ConfigStore.gruppen_mit_namen` und damit dieselbe
+    Faltung wie die Zuordnung selbst. Mit einem eigenen Vergleich hier waere
+    sie seit #83 falsch: "Strassenfest" und "Straßenfest" sind heute derselbe
+    Name, ein `==` haette die Kollision nicht gesehen.
+    """
+    return AppError(
+        409,
+        "err_album_name_in_use",
+        f"Der Name '{album_name}' gehört bereits zu einer anderen Gruppe. "
+        f"Wähle einen anderen Namen.",
+        {"album": str(album_name)},
+    )
+
+
 def min_two_people() -> AppError:
     return AppError(422, "err_min_two_people", "Mindestens 2 Personen erforderlich")
 

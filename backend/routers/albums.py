@@ -514,6 +514,15 @@ async def rename_managed_album(
     owner = store.get_account(managed.owner_account_id)
     if not owner:
         raise errors.owner_account_not_found()
+    # KOLLISION, und zwar VOR dem ersten Schreibvorgang (Auflage aus dem
+    # Review zu #79). Gehoert der Zielname schon einer anderen Gruppe, wuerden
+    # danach zwei Gruppen denselben Namen tragen — und die Gruppenvorschau
+    # schweigt fuer beide (#78). Die eigene Gruppe ist ausgenommen: Die
+    # Oberflaeche benennt alle Alben einer Gruppe einzeln um, das zweite sieht
+    # also den neuen Namen des ersten.
+    fremd = store.gruppen_mit_namen(new_name) - {managed.group_id}
+    if fremd:
+        raise errors.album_name_in_use(new_name)
     logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)
     return logs

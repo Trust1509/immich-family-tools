@@ -554,6 +554,10 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
         match_id="match-1",
         album_id="album-1",
         album_name="Old family name",
+        # `group_id` ist seit #78 Pflicht (min_length=1). Der zugelieferte
+        # Zweig entstand davor; genau das haben wir ihm am 21.09. als den
+        # einen Punkt genannt, der beim Rebase Hand braucht.
+        group_id="gruppe-1",
         owner_account_id=owner.id,
         person_refs=[],
         created_at="2026-09-10T00:00:00+00:00",
