@@ -46,6 +46,49 @@ A rename is refused only when it would make things worse: when a name would lose
 its group, or when it would quietly point at a _different_ group than before. In
 that case you get a message naming the album.
 
+### You choose which group an album joins (#81)
+
+Until now the app worked out the group from the album name and told you
+afterwards. When you create a shared album, it now shows you up front which
+group the album would join — with the accounts and people already in it — and
+lets you put it in a **new** group instead.
+
+That is the reason the next item exists: once the app _promises_ you a group,
+the rule behind the promise has to be one you can predict.
+
+### Names are compared the way a person reads them (#83)
+
+Two albums whose names differ only in capitalisation, in surrounding blank
+space, or in how the same characters are encoded now count as the same name.
+"Straßenfest" and "STRASSENFEST" are one name; so are two spellings of an
+umlaut that look identical on screen but are stored differently.
+
+This changes which albums the app would group **by name** — so before shipping
+it, we measured it against the real data instead of guessing: 8 managed albums,
+6 groups before, 6 groups after, no album moved. Your groups do not depend on
+names any more anyway (since 1.7.0 they carry their own identifier); this only
+affects what the group preview above offers you for a name you type.
+
+### A double click no longer creates a second album (#86)
+
+Clicking "create album" twice used to create two managed entries and two real
+albums in Immich for one face pair. The second click now succeeds and tells you
+the album already existed. Two people creating an album with the same name at
+the same moment end up in **one** group, not two.
+
+### After a data migration, there is a file to go back to
+
+The app now writes a rollback copy **once** before it migrates the stored file,
+and never overwrites it: `accounts.json.vor-schema-<N>.bak`. Before it assigns
+group identifiers without a schema change, it writes
+`accounts.json.vor-kennungsvergabe.bak`, which it renews each time.
+
+This matters because the ordinary `accounts.json.bak` is rewritten on the next
+save — seconds later — so it stops being the pre-migration state almost
+immediately. The upgrade notes for 1.7.0 promised this file for releases after
+1.7.0; this is that release. `docs/BACKUP_RESTORE.md` has the order that
+actually works when rolling back (old image first, then the file).
+
 ### Upgrade notes
 
 - Take a snapshot of the dataset volume before you upgrade. The app writes to
