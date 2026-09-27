@@ -151,26 +151,19 @@ def album_name_in_use(album_name: str) -> AppError:
     mit gleichem Namen und bekommt beim naechsten Anlegen keine
     Gruppenvorschau mehr.
 
-    Die Pruefung benutzt `ConfigStore.gruppen_mit_namen`. Mit einem eigenen
-    Vergleich hier waere sie seit #83 falsch: "Strassenfest" und "Straßenfest"
-    sind heute derselbe Name, ein `==` haette die Kollision nicht gesehen.
+    Entschieden wird das an der WIRKUNG, nicht am Namen:
+    `ConfigStore.namen_mit_anderer_antwort` vergleicht `Name -> Gruppe` vor und
+    nach der Umbenennung. Diese Meldung kommt, wenn dabei ein Name seine Gruppe
+    verliert oder still eine andere bekommt. Gewinnt ein Name eine Antwort,
+    wird die Mehrdeutigkeit kleiner — dann kommt sie nicht.
 
-    NICHT dieselbe Faltung wie die Zuordnung — hier stand bis zur Nacharbeit an
-    #79 das Gegenteil, und der Gegenpruefer hat es widerlegt: Die Zuordnung
-    (`_gruppe_fuer_namen`) ist ZWEISTUFIG, `gruppen_mit_namen` nimmt nur die
-    erste Stufe. Sie ist damit stets strenger als die Zuordnung, nie laxer.
-
-    Diese Richtung steht als PROBE, nicht als Satz:
-    `tests/test_namensfaltung.py::test_keine_kollision_gehoert_allein_der_zweiten_stufe`.
-    Hier stand eine Fassung lang eine Zahl aus einem Pruefbericht („943
-    Paare"), die niemand nachgemessen hatte und die sich in keiner Deutung
-    reproduzieren liess — gemessen sind es 1203 Paare ueber 2023 Zeichen
-    (Unicode 16). Die Zahl wandert mit der Unicode-Fassung, die Richtung nicht;
-    deshalb sichert die Probe die Richtung und nennt die Zahl nur als
-    Groessenordnung.
-
-    Wo diese Strenge zu weit ging, stehen zwei Ausnahmen: der Abzug der eigenen
-    Gruppe und `ConfigStore.gruppe_traegt_namen`.
+    Drei Fassungen dieser Pruefung haben vorher ueber ein ALBUM geurteilt, wo
+    es um einen Zustand geht; jede hat harmlose Vorgaenge abgelehnt, und die
+    dritte hat den Weg aus dem Schaden heraus gesperrt (gemessen: 4084
+    harmlose Ablehnungen bei 0 schaedlichen Durchlaessen ueber 120 750
+    Bestaende). Der Text dieser Meldung ist deshalb genauer zu lesen als
+    frueher: „gehoert bereits zu einer anderen Gruppe" heisst jetzt „dieser
+    Name wuerde danach auf eine andere oder auf keine Gruppe zeigen".
     """
     return AppError(
         409,

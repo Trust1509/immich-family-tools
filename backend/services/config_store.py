@@ -558,66 +558,71 @@ class ConfigStore:
         """
         return self._gruppe_fuer_namen(album_name)
 
-    def gruppen_mit_namen(self, album_name: str) -> set:
-        """Alle Gruppen, die diesen Namen tragen — fuer die Kollisionspruefung.
+    def namen_mit_anderer_antwort(self, album_id, neuer_name) -> dict:
+        """Welche Namen antworten nach dieser Umbenennung ANDERS als vorher?
 
-        Getrennt von `existing_group_for_name`, weil die Fragen verschieden
-        sind: Jene beantwortet "welcher Gruppe wuerde ich beitreten" und
-        schweigt bei Mehrdeutigkeit. Diese beantwortet "wem gehoert dieser
-        Name schon" — und da ist Mehrdeutigkeit die ANTWORT, nicht ein Grund
-        zu schweigen.
+        Das ist die Frage, um die es bei einer Namenskollision wirklich geht —
+        und die drei Vorgaenger dieses Praedikats haben sie nur angenaehert.
+        Sie fragten „gehoert der Zielname schon einer anderen Gruppe?" und
+        fingen damit 0 schaedliche Faelle zu wenig, aber 4084 harmlose zu viel
+        (gemessen ueber 120 750 Bestaende). Darunter war der eine Vorgang, der
+        den Schaden aus #78 BEHEBT: zwei versehentlich gleichnamige Gruppen
+        ueber eine ß/ss-Schreibweise wieder auseinanderhalten.
 
-        Bewusst OHNE die zweite Stufe aus `_gruppe_fuer_namen`: Fuer eine
-        Kollision zaehlt die heutige, groebere Faltung. Wer "Strassenfest"
-        tippt, waehrend eine andere Gruppe "Straßenfest" heisst, erzeugt
-        genau die Mehrdeutigkeit, die verhindert werden soll.
+        Gefragt wird deshalb direkt an der Wirkung. Gemessen wird `Name ->
+        Gruppe` (also `_gruppe_fuer_namen`, beide Stufen) fuer jeden Namen, den
+        es NACH der Umbenennung noch gibt, vorher und nachher. Gemeldet wird
+        jeder Name, der vorher eine Gruppe hatte und danach eine andere oder
+        keine.
+
+        Die drei Faelle, die dadurch auseinandergehalten werden:
+
+        * `g2 -> None` — eine Gruppe verliert ihre Antwort. Genau der Schaden
+          aus #78: Der Nutzer sieht zwei gleichnamige Karten und bekommt beim
+          naechsten Anlegen keine Gruppenvorschau mehr. **Abgelehnt.**
+        * `None -> g2` — ein Name GEWINNT eine Antwort. Die Mehrdeutigkeit war
+          schon da und wird kleiner. **Erlaubt** — das ist der Weg aus dem
+          Schaden heraus, und die alte Pruefung hat ihn gesperrt.
+        * `g1 -> g2` — die Antwort wandert zu einer anderen Gruppe. Ein
+          kuenftiges Album mit diesem Namen traete danach still einer anderen
+          Gruppe bei als bisher. **Abgelehnt**, weil niemand es merkt.
+
+        Der alte Name des Albums steht bewusst NICHT zur Debatte: Dass er nach
+        dem Umbenennen niemandem mehr gehoert, ist der Zweck des Vorgangs,
+        nicht sein Schaden. Deshalb zaehlen nur Namen, die es nachher noch
+        gibt.
+
+        DIE SCHLEIFE UEBER ALLE NAMEN IST NACHWEISLICH REDUNDANT, und das steht
+        hier, weil es gemessen wurde: Eine Mutation, die nur den Zielnamen
+        prueft (`for name in {neuer_name}`), UEBERLEBT alle 247 Proben. Der
+        Grund ist kein Loch in den Proben, sondern ein Beweis:
+
+        Verlieren kann nur ein Name, dessen Stufe-1-Eimer durch diese
+        Umbenennung waechst — alle anderen Eimer wachsen nicht, und der des
+        alten Namens schrumpft. Ein solcher Name M mit `k1(M) == k1(N)` faellt
+        danach auf Stufe 2 zurueck und verliert nur, wenn sein Stufe-2-Eimer
+        mehrdeutig ist. Dann waere aber auch sein Stufe-1-Eimer schon vorher
+        mehrdeutig gewesen (Stufe 1 ist gruober als Stufe 2, gesichert durch
+        `tests/test_namensfaltung.py::test_keine_kollision_gehoert_allein_der_zweiten_stufe`)
+        — und dann hatte M vorher keine Antwort, kann also keine verlieren.
+
+        Die Schleife bleibt trotzdem, weil sie die FRAGE stellt statt ihre
+        Antwort vorwegzunehmen: Sie haengt nicht an der Faltungsrichtung. Fiele
+        jene Zusicherung, waere diese Stelle richtig und die verkuerzte falsch.
+        Der Preis ist die ueberlebende Mutation, und sie ist hier benannt statt
+        als Abdeckung ausgegeben.
         """
-        return set(self._gruppen_je_name(
-            self._data.get("managed_albums", [])).get(
-                self._name_key(album_name), set()))
-
-    def derselbe_name(self, einer, anderer) -> bool:
-        """Wahr, wenn KEINE der beiden Faltungen die Namen unterscheidet.
-
-        Gebraucht fuer eine Ausnahme in der Kollisionspruefung beim
-        Umbenennen, gefunden vom Blindpruefer an #79: In dem Bestand, fuer den
-        die zweite Faltungsstufe aus #83 ueberhaupt existiert — zwei
-        Schreibweisen desselben Namens in ZWEI Gruppen —, konnte eine Gruppe
-        die Grossschreibung ihres EIGENEN Namens nicht mehr aendern. Die
-        Mehrdeutigkeit war vorher und nachher dieselbe, die Ablehnung
-        verhinderte nichts, und ihre Meldung („gehoert bereits zu einer
-        anderen Gruppe“) fuehrte in die Irre.
-
-        BEIDE Faltungen, nicht nur die heutige: Wer „Strassenfest“ in
-        „Straßenfest“ aendert, waehrend eine andere Gruppe genau so heisst,
-        laesst die heutige Faltung unberuehrt (sie zog die beiden schon
-        zusammen) — aber die zweite Stufe, die sie bisher auseinanderhielt,
-        kollidiert danach. Das ist eine NEUE Mehrdeutigkeit und bleibt
-        abgelehnt.
-        """
-        return all(faltung(einer) == faltung(anderer)
-                   for faltung in (self._name_key, self._name_key_vor_83))
-
-    def gruppe_traegt_namen(self, group_id, album_name) -> bool:
-        """Traegt irgendein Album dieser Gruppe diesen Namen schon?
-
-        Gefragt wird mit `derselbe_name`, also mit BEIDEN Faltungen. Gebraucht
-        fuer die Ausnahme in der Kollisionspruefung beim Umbenennen — und zwar
-        ueber die GRUPPE, nicht ueber das einzelne Album.
-
-        Der Unterschied ist gemessen (Blindpruefer, Nacharbeit 1 an #79): Nach
-        einem Teilausfall traegt die Gruppe den neuen Namen schon ueber ihr
-        erstes Album, das zurueckgebliebene aber noch den alten. Fragt die
-        Ausnahme nur dieses Album, wird die Wiederholung dauerhaft mit 409
-        abgelehnt — ein Vorgang, der die Mehrdeutigkeit nachweislich nicht
-        aendert. Das Frontend erlaubt die Wiederholung seit derselben
-        Nacharbeit; das Backend verweigerte sie.
-        """
-        if not group_id:
-            return False
-        return any(self.derselbe_name(album_name, a.get("album_name"))
-                   for a in self._data.get("managed_albums", [])
-                   if a.get("group_id") == group_id)
+        vorher = [dict(a) for a in self._data.get("managed_albums", [])]
+        nachher = [dict(a) for a in vorher]
+        for a in nachher:
+            if a.get("id") == album_id:
+                a["album_name"] = neuer_name
+        anders = {}
+        for name in {a.get("album_name") for a in nachher}:
+            alt = self._gruppe_fuer_namen(name, vorher)
+            if alt is not None and self._gruppe_fuer_namen(name, nachher) != alt:
+                anders[name] = alt
+        return anders
 
     def group_details(self, group_id: str) -> dict:
         """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.

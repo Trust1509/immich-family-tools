@@ -1,22 +1,27 @@
 """Umbenennen über eine ganze Gruppe — die Wege, die die Oberfläche geht (#79).
 
-Alle drei Fälle hier sind Funde des Blindprüfers an der ersten Nacharbeit, und
-alle drei haben eine gemeinsame Wurzel: **Die Kollisionsprüfung urteilte über
-ein Album, der Vorgang betrifft aber eine Gruppe.**
+Die Fälle hier sind Funde aus drei Prüfrunden, und alle haben eine gemeinsame
+Wurzel: **Die Kollisionsprüfung urteilte über einen Namen, der Schaden lebt aber
+in einem Zustand.** Drei Fassungen lang wurde gefragt „gehört dieser Name schon
+einer anderen Gruppe?"; gemessen wurde damit 0 Schaden zu wenig und 4084
+harmlose Vorgänge zu viel — darunter der eine, der aus dem Schaden herausführt.
 
-1. Die Oberfläche benennt eine Gruppe um, indem sie jedes ihrer Alben EINZELN
-   umbenennt. Für diesen Weg — den normalen — gab es keine Backend-Probe; die
-   Ausnahme „die eigene Gruppe zählt nicht als Kollision" liess sich entkernen,
-   ohne dass eine der 236 Proben rot wurde.
-2. Nach einem Teilausfall trägt die Gruppe den neuen Namen schon über ihr
-   erstes Album, das zurückgebliebene noch den alten. Fragte die Ausnahme nur
-   dieses Album, lehnte das Backend die Wiederholung **dauerhaft** mit 409 ab —
-   obwohl das Frontend sie seit derselben Nacharbeit anbietet und obwohl der
-   Vorgang die Mehrdeutigkeit nachweislich nicht verändert.
-3. Die Ausnahme und der Abzug der eigenen Gruppe sind NICHT dasselbe: Der Abzug
-   ist weiter (die eigene Gruppe ist immer ausgenommen), die Ausnahme enger
-   (sie fragt beide Faltungen). Der dritte Test unten ist der Fall, in dem sich
-   die beiden unterscheiden — ohne ihn wäre der Abzug unbewacht.
+Seit der dritten Runde fragt die Prüfung an der Wirkung: Welcher Name antwortet
+nach dem Vorgang anders als vorher (`ConfigStore.namen_mit_anderer_antwort`)?
+Die Tests unten sind die Fälle, an denen sich das entscheidet:
+
+1. **Zwei Alben einer Gruppe** — der normale Weg der Oberfläche, die jedes Album
+   einzeln umbenennt. Hatte drei Fassungen lang keine Backend-Probe.
+2. **Wiederholung nach einem Teilausfall** — die Gruppe trägt den neuen Namen
+   schon über ihr erstes Album, das zurückgebliebene noch den alten.
+3. **Eine zweite Schreibweise in der eigenen Gruppe** — keine andere Gruppe ist
+   beteiligt, also ändert sich keine Antwort.
+4. **Zwei gleichnamige Gruppen wieder unterscheiden** — der Weg AUS dem Schaden
+   von #78 heraus, den alle drei Vorfassungen gesperrt haben.
+5. **Eine Antwort, die still zu einer anderen Gruppe wandert** — abgelehnt,
+   obwohl keine Antwort verschwindet.
+6. **Der alte Name** — dass er niemandem mehr gehört, ist der Zweck des
+   Vorgangs, nicht sein Schaden.
 
 Die Attrappe hier **schreibt wirklich**. Eine zählende Attrappe wie in
 `test_umbenennen_kollision.py` kann diese Fälle nicht messen: Die zweite Anfrage
@@ -75,9 +80,13 @@ def _namen(client):
 def test_beide_alben_einer_gruppe_lassen_sich_umbenennen(mit_bestand):
     """Der normale Weg der Oberfläche — und er hatte keine Backend-Probe.
 
-    Das zweite Album sieht den neuen Namen des ersten schon im Bestand. Ohne die
-    Ausnahme für die eigene Gruppe bekäme es 409, und eine Gruppe mit zwei Alben
-    liesse sich überhaupt nicht umbenennen.
+    Das zweite Album sieht den neuen Namen des ersten schon im Bestand. Ein
+    Prädikat, das dabei „der Name ist vergeben" sagt, schafft die Funktion ab,
+    die es schützen soll: Eine Gruppe mit zwei Alben liesse sich nie umbenennen.
+
+    Getragen wird dieser Fall davon, dass sich die ANTWORT nicht ändert — beide
+    Alben gehören derselben Gruppe, „Herbstfest" zeigt vorher und nachher auf
+    `gruppe-1`.
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
@@ -115,15 +124,93 @@ def test_die_eigene_gruppe_darf_eine_zweite_schreibweise_bekommen(mit_bestand):
     „Strassenfest" — und mit KEINER anderen Gruppe. Es entsteht also keine
     gruppenübergreifende Mehrdeutigkeit, und der Vorgang gehört erlaubt.
 
-    Die Ausnahme allein trägt das nicht: `derselbe_name` verneint für beide
-    eigenen Namen (Stufe 2 unterscheidet sie). Es ist der Abzug der eigenen
-    Gruppe, der hier entscheidet — und ohne diesen Test wäre er unbewacht.
+    Das Prädikat sieht das an der Wirkung: Vor und nach dem Vorgang zeigt
+    „Strassenfest" auf `gruppe-1` und „Straßenfest" ebenfalls — keine Antwort
+    ändert sich, also gibt es nichts abzulehnen.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
     antwort = c.patch("/api/sync/albums/a2", json={"album_name": "Straßenfest"})
     assert antwort.status_code == 200, antwort.text
     assert _namen(c) == {"a1": "Strassenfest", "a2": "Straßenfest"}
+
+
+def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand):
+    """Der Weg AUS dem Schaden von #78 heraus — drei Fassungen lang gesperrt.
+
+    Zwei Gruppen heissen versehentlich gleich. Die Gruppenvorschau schweigt
+    deshalb für beide: Wer den Namen tippt, bekommt keine Gruppe angeboten.
+    Der eine Vorgang, der das behebt, ist eine Schreibweise zu ändern, die nur
+    in der ersten Faltungsstufe zusammenfällt.
+
+    Alle drei Vorfassungen der Kollisionsprüfung haben genau diesen Vorgang mit
+    409 abgelehnt — mit einer Auskunft, die nicht stimmte: Die andere Gruppe
+    trägt diesen Namen nicht, sie trägt eine andere Schreibweise. Gemessen vom
+    Blindprüfer, 4084 solche Ablehnungen bei 0 schädlichen Durchlässen.
+
+    Gemessen wird hier nicht der Statuscode allein, sondern die WIRKUNG an der
+    Tür, um die es geht: Die Vorschau muss danach für beide Schreibweisen
+    antworten.
+    """
+    c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
+                     _album("a2", "Strassenfest", "gruppe-2")])
+
+    # Vorher schweigt die Vorschau für beide — das ist der Schaden.
+    for schreibweise in ("Strassenfest", "Straßenfest"):
+        assert c.get("/api/sync/album-group",
+                     params={"album_name": schreibweise}).json() is None
+
+    antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Straßenfest"})
+    assert antwort.status_code == 200, antwort.text
+
+    # Danach antwortet sie für beide, und zwar mit VERSCHIEDENEN Gruppen.
+    mit_scharf = c.get("/api/sync/album-group",
+                       params={"album_name": "Straßenfest"}).json()
+    mit_doppel_s = c.get("/api/sync/album-group",
+                         params={"album_name": "Strassenfest"}).json()
+    assert mit_scharf and mit_scharf["group_id"] == "gruppe-1", mit_scharf
+    assert mit_doppel_s and mit_doppel_s["group_id"] == "gruppe-2", mit_doppel_s
+
+
+def test_ein_name_darf_nicht_still_zu_einer_anderen_gruppe_wandern(mit_bestand):
+    """Der dritte Fall des Prädikats: die Antwort wandert, statt zu verschwinden.
+
+    `gruppe-1` heisst „Straßenfest", sonst niemand — „Strassenfest" zeigt
+    deshalb heute auf `gruppe-1` (Stufe 1 ist eindeutig). Wer `gruppe-2` genau
+    so nennt, dreht diese Antwort auf `gruppe-2` um: Ein künftiges Album mit
+    dieser Schreibweise träte still einer anderen Gruppe bei als bisher.
+
+    Niemand merkt das, und deshalb wird es abgelehnt — obwohl kein Name seine
+    Antwort VERLIERT. Ohne diesen Fall wäre „nur ablehnen, wenn eine Antwort
+    verschwindet" die halbe Regel.
+    """
+    c = mit_bestand([_album("a1", "Straßenfest", "gruppe-1"),
+                     _album("a2", "Sommerfest", "gruppe-2")])
+    vorher = c.get("/api/sync/album-group",
+                   params={"album_name": "Strassenfest"}).json()
+    assert vorher and vorher["group_id"] == "gruppe-1", vorher
+
+    antwort = c.patch("/api/sync/albums/a2", json={"album_name": "Strassenfest"})
+    assert antwort.status_code == 409, antwort.text
+    assert _namen(c)["a2"] == "Sommerfest"
+
+
+def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
+    """Dass der alte Name danach niemandem gehört, ist der ZWECK des Vorgangs.
+
+    Ohne diese Unterscheidung wäre jedes Umbenennen abgelehnt: Der alte Name
+    verliert immer seine Gruppe. Das Prädikat zählt deshalb nur Namen, die es
+    nachher noch gibt.
+    """
+    c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1")])
+    vorher = c.get("/api/sync/album-group",
+                   params={"album_name": "Sommerfest"}).json()
+    assert vorher and vorher["group_id"] == "gruppe-1"
+
+    antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Herbstfest"})
+    assert antwort.status_code == 200, antwort.text
+    assert c.get("/api/sync/album-group",
+                 params={"album_name": "Sommerfest"}).json() is None
 
 
 def test_eine_fremde_gruppe_bleibt_auch_hier_gesperrt(mit_bestand):

@@ -517,11 +517,17 @@ async def rename_managed_album(
     if not owner:
         raise errors.owner_account_not_found()
     # KOLLISION, und zwar VOR dem ersten Schreibvorgang (Auflage aus dem
-    # Review zu #79). Gehoert der Zielname schon einer anderen Gruppe, wuerden
-    # danach zwei Gruppen denselben Namen tragen — und die Gruppenvorschau
-    # schweigt fuer beide (#78). Die eigene Gruppe ist ausgenommen: Die
-    # Oberflaeche benennt alle Alben einer Gruppe einzeln um, das zweite sieht
-    # also den neuen Namen des ersten.
+    # Review zu #79). Gefragt wird an der WIRKUNG: Welcher Name antwortet nach
+    # dieser Umbenennung anders als vorher? Abgelehnt wird nur, wenn ein Name
+    # seine Gruppe verliert oder still eine andere bekommt — nicht, wenn eine
+    # Mehrdeutigkeit kleiner wird. Begruendung, Messung und die drei
+    # unterschiedenen Faelle stehen bei
+    # `ConfigStore.namen_mit_anderer_antwort`.
+    #
+    # Die drei Vorgaenger dieser Zeile (`gruppen_mit_namen`, Abzug der eigenen
+    # Gruppe, `gruppe_traegt_namen`) sind damit weg. Sie haben in drei Runden
+    # dreimal denselben Fehler gemacht: ueber ein Album geurteilt, wo es um
+    # einen Zustand geht.
     #
     # UNTER DEM NAMENSSCHLOSS, ueber Pruefung UND Schreibvorgang (Fund des
     # Fremdpruefers an #79): Ohne es war das ein Pruefen-dann-Handeln mit
@@ -536,20 +542,7 @@ async def rename_managed_album(
     # (das Albumschloss nimmt `sync_service.rename_managed_album` innen).
     # Wer sie dreht, baut eine Verklemmung.
     async with store.gruppen_schloss(new_name):
-        fremd = store.gruppen_mit_namen(new_name) - {managed.group_id}
-        # AUSNAHME (Fund des Blindpruefers an #79): Traegt die EIGENE GRUPPE
-        # diesen Namen schon — ueber irgendeines ihrer Alben —, dann aendert
-        # dieser Vorgang die Mehrdeutigkeit nicht, und die Ablehnung ist
-        # falsch. Betroffen ist genau der Bestand, fuer den #83 die zweite
-        # Faltungsstufe hat: zwei Schreibweisen desselben Namens in zwei
-        # Gruppen.
-        #
-        # Ueber die GRUPPE, nicht ueber dieses Album: Nach einem Teilausfall
-        # traegt die Gruppe den neuen Namen schon ueber ihr erstes Album, das
-        # zurueckgebliebene noch den alten — und genau dessen Wiederholung
-        # wurde sonst dauerhaft abgelehnt (Nacharbeit 2). Begruendung steht
-        # bei `ConfigStore.gruppe_traegt_namen`.
-        if fremd and not store.gruppe_traegt_namen(managed.group_id, new_name):
+        if store.namen_mit_anderer_antwort(managed.id, new_name):
             raise errors.album_name_in_use(new_name)
         logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)

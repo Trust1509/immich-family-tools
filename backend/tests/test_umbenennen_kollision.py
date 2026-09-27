@@ -7,10 +7,15 @@ verschmelzen: Beide tragen danach denselben Namen, und
 Nutzer sieht zwei Karten mit gleichem Namen und bekommt beim naechsten
 Anlegen keine Gruppenvorschau mehr.
 
-DIE PRUEFUNG BENUTZT DIESELBE FALTUNG wie die Zuordnung — und das ist seit
-#83 keine Formalie: Mit einem `==` auf dem Namen haette sie „Strassenfest"
-gegen „Straßenfest" durchgelassen, obwohl das heute derselbe Name ist. Genau
-dieser Fall steht unten.
+DIE PRUEFUNG BENUTZT DIE ZUORDNUNG SELBST — sie vergleicht `Name -> Gruppe`
+vor und nach dem Vorgang (`ConfigStore.namen_mit_anderer_antwort`). Seit #83
+ist das keine Formalie: Mit einem `==` auf dem Namen haette sie
+„Strassenfest" gegen „Straßenfest" durchgelassen, obwohl das heute derselbe
+Name ist. Genau dieser Fall steht unten.
+
+Was die Pruefung NICHT tut, seit der dritten Nacharbeit: eine Mehrdeutigkeit
+ablehnen, die schon da war und kleiner wird. Diese Faelle stehen in
+`test_umbenennen_gruppe.py`.
 
 Die Ablehnung steht VOR dem ersten Schreibvorgang — sonst waere sie die
 Klasse, die diese Datei dreimal getroffen hat: ein Fehler, der sich als

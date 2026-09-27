@@ -407,11 +407,11 @@ def test_backfill_haengt_an_der_fehlenden_kennung_nicht_an_der_schemaversion(tmp
 # Problem — das grössere war, dass die tragende Aussage überhaupt nur als Satz
 # im Kommentar stand.
 #
-# Tragend ist die RICHTUNG: Die Kollisionsprüfung (`gruppen_mit_namen`) benutzt
-# Stufe 1, die Zuordnung (`_gruppe_fuer_namen`) beide Stufen. Solange nichts
-# ausschliesslich in Stufe 2 kollidiert, ist die Prüfung nie laxer als die
-# Zuordnung — sie kann also keine Mehrdeutigkeit durchlassen, die die Zuordnung
-# danach stört. Genau das steht hier fest.
+# Tragend ist die RICHTUNG: Das Namensschloss (`gruppen_schloss`) schlüsselt auf
+# Stufe 1, die Zuordnung (`_gruppe_fuer_namen`) benutzt beide Stufen. Solange
+# nichts ausschliesslich in Stufe 2 kollidiert, ist der Schlüssel des Schlosses
+# stets gröber als die Zuordnung — zwei Umbenennungen, die sich in der Zuordnung
+# begegnen können, nehmen also immer dasselbe Schloss. Genau das steht hier fest.
 # ---------------------------------------------------------------------------
 
 

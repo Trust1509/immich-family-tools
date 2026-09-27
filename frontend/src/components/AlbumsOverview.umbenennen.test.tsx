@@ -427,7 +427,22 @@ describe("Nach einem Sammellauf", () => {
     expect(await screen.findByText("Eintrag zu album-eins")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Alle synchronisieren/ }));
+
+    // ZWEIMAL warten, und das ist der Beweis, nicht Umständlichkeit: Dass die
+    // Attrappe zweimal gerufen wurde, heisst NICHT, dass der Sammellauf fertig
+    // ist — `setBulkSyncState` und das Neuzeichnen kommen danach. Die
+    // Zusicherung las sonst noch das Bild von vorher und blieb grün, obwohl
+    // der Fehler drin war: gemessen 1 von 6 Läufen mit der Mutation
+    // `bulkEntry ?? undefined`. Gewartet wird deshalb, bis der Knopf wieder
+    // bedienbar ist — das passiert erst nach dem Ablegen des Ergebnisses.
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", {
+          name: /Alle synchronisieren/,
+        }) as HTMLButtonElement).disabled
+      ).toBe(false)
+    );
 
     // Die Karte behält, was sie hat, statt leer zu werden.
     expect(screen.getByText("Eintrag zu album-eins")).toBeTruthy();
