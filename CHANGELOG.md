@@ -2,6 +2,58 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.8.0] – 2026-09-27
+
+**Risk: backup**
+
+No data migration in this release. The backup line is here for a different
+reason: this release changes how the app decides whether an album name may be
+used, and it renames albums **in Immich**. A snapshot before the upgrade costs
+nothing and makes the change reversible.
+
+### You can rename an album group (#79)
+
+Contributed by @crisvale and reworked here. A group card now has a pencil: type
+a new name, press Enter, and every real Immich album behind that card is
+renamed. The group itself does not depend on the name (since 1.7.0 it carries
+its own identifier), so renaming cannot split it.
+
+What the rework added, in the order you would notice it:
+
+- **A rename can no longer be undone behind your back.** If an automatic sync
+  was running with an older snapshot of the album, it used to write the old name
+  back — while Immich already carried the new one, and both log entries said
+  "success". There was no error anywhere to see.
+- **A partial failure is visible, and you can retry it.** If one album of the
+  group fails, its log entry is shown as an error and the input stays open.
+  Pressing Enter again now reaches the album that stayed behind; before, the
+  retry silently did nothing.
+- **A failed rename no longer hides what already worked.** If a later album
+  throws an HTTP error, the entries collected so far stay on the card next to
+  the error message.
+- **The card shows the result of your last action.** A "Sync all" result used to
+  take precedence for as long as it sat in memory, so a rename afterwards showed
+  nothing at all — not even a failure.
+
+### The app no longer blocks the way out of a name clash
+
+Two groups can end up with the same name, and while they do, the group preview
+stays silent for both: typing that name offers you no group. The one operation
+that fixes this — changing one of them to a spelling that only _looks_ the same,
+like "Strassenfest" against "Straßenfest" — is now allowed.
+
+A rename is refused only when it would make things worse: when a name would lose
+its group, or when it would quietly point at a _different_ group than before. In
+that case you get a message naming the album.
+
+### Upgrade notes
+
+- Take a snapshot of the dataset volume before you upgrade. The app writes to
+  `accounts.json` on every rename.
+- Renaming writes to Immich. Your API key needs write access to albums — the
+  same access the app already needs for creating and sharing them.
+- Nothing in the stored file changes shape. Rolling back to 1.7.0 keeps working.
+
 ## [1.7.0] – 2026-09-21
 
 **Risk: backup**
