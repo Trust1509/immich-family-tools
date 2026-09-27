@@ -1641,3 +1641,64 @@ sich der `concurrency`-Einstellung, die ihn abbrach, nicht der Sorgfalt.
 **Eine Regel, die nur durch eine Einstellung eingehalten wird, die man nicht
 im Blick hatte, ist nicht eingehalten — sie ist noch nicht zugeschlagen.**
 Beim Zusammenfassen gehört die Kennung ausdrücklich in die neue Nachricht.
+
+## 43. Eine Regel an einer Tür, die das Produkt an einer anderen bewusst bricht
+
+**Anlass:** Im Review des zugelieferten Zweigs zu #79 habe ich eine Auflage
+gestellt: Umbenennen darf keinen Namen annehmen, der schon einer anderen Gruppe
+gehört — sonst tragen zwei Gruppen denselben Namen und die Gruppenvorschau
+schweigt für beide (#78). Die Auflage wurde gebaut, mit fünf Proben belegt und
+gegen sechs Mutationen rot bewiesen. Der Gegenprüfer hat dann gemessen, dass
+dieselbe Lage über `resolve_group_id(force_new=True)` beim **Anlegen** ohne
+jede Prüfung entsteht — und dass im Frontend als Kommentar steht, zwei Gruppen
+dürften gleich heißen.
+
+Die Prüfung war also nicht falsch gebaut. Sie war **eine Produktregel, die
+niemand beschlossen hat**, eingeführt an der einen Tür, die gerade offen stand.
+
+**Die Klasse.** Eine Invariante gilt für einen Zustand, nicht für einen
+Endpunkt. Wer sie an einer Schreibstelle durchsetzt, hat sie nicht eingeführt —
+er hat die Stellen **ungleich** gemacht. Und weil die neue Stelle die strengere
+ist, sieht die Ungleichheit wie Sorgfalt aus: Die Proben sind echt, die
+Mutationen sterben, der Bericht liest sich gut. Auffallen kann es nur jemandem,
+der die ANDEREN Türen zählt — und danach fragt das Prüfraster nicht.
+
+Verwandt mit „Den Orchestrator prüft niemand" (`bau-brief.md`): Der Bau-Brief
+geht durchs Panel, die **Auflage** im Brief nicht. Eine Auflage ist eine
+Entscheidung ohne Entscheider.
+
+**Regel:** Wer eine Ablehnung fordert, die es vorher nicht gab, prüft und nennt
+im selben Atemzug **alle** Wege, die denselben Zustand erzeugen. Deckt die
+Forderung sie nicht ab, ist sie keine technische Feinheit mehr, sondern eine
+fachliche Frage — sie geht als solche an den Owner (hier: #98), und der Slice
+liefert die vorsichtigere Variante mit dem Vermerk, dass sie zur Entscheidung
+steht.
+
+## 44. Ein Schloss, an dem niemand warten muss, bindet sich nicht — und die Probe bleibt grün
+
+**Anlass:** Zur Nacharbeit an #79 habe ich einen Test geschrieben, der belegen
+sollte, dass das Albumschloss einen Wechsel des Ereignis-Rings übersteht (die
+Klasse aus dem Kopf von `sync_service.py`). Der Test führte zwei Umbenennungen
+in zwei getrennten `asyncio.run`-Läufen. Er war grün — **auch mit der defekten
+Schlossform**, gegen die er geschrieben war. Gefunden hat das nicht der Test,
+sondern der Mutationslauf: „B1a UEBERLEBT".
+
+Der Grund steht in CPython: `asyncio.Lock.acquire` nimmt den **schnellen Weg**,
+wenn das Schloss frei ist, und fragt dabei `_get_loop()` nie. Die Bindung an
+eine Schleife entsteht erst, wenn jemand **warten** muss. Meine Attrappe
+kehrte ohne `await` zurück, also lief die erste Umbenennung fertig, bevor die
+zweite begann — keine Kollision, keine Bindung, kein Fund. Ein `await
+asyncio.sleep(0)` in der Attrappe macht den Test rot.
+
+**Die Klasse.** Eine Probe über Gleichzeitigkeit muss die Gleichzeitigkeit
+**erzwingen**, nicht bloß zwei Aufgaben starten. Der Ereignis-Ring darf
+zwischen dem Betreten und dem Verlassen des kritischen Abschnitts wechseln
+können — sonst prüft man zwei Vorgänge, die sich nie begegnet sind. Verwandt
+mit §40 (ein Test, der aufs Endergebnis wartet, übersieht den toten
+Zwischenzustand): In beiden Fällen ist die Messung an der Stelle blind, an der
+der Fehler lebt.
+
+**Regel:** In jeder Nebenläufigkeits-Probe steht eine Zeile, die das Fenster
+öffnet — und ein Kommentar daneben, der sagt, dass sie der Beweis ist und nicht
+Kosmetik. Wer sie entfernt, muss die Probe rot machen; wenn nicht, hat sie nie
+gemessen.
