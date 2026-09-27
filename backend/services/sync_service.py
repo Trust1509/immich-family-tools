@@ -550,6 +550,30 @@ async def _refresh_managed_album_unlocked(
     return logs
 
 
+def _frisch(managed: ManagedAlbum, store: ConfigStore) -> ManagedAlbum:
+    """Denselben Datensatz noch einmal lesen — INNERHALB des Schlosses.
+
+    Das Schloss allein reicht nicht, und genau das hat die erste Nacharbeit an
+    #79 uebersehen: Es serialisiert die RUEMPFE, aber beide Seiten haben ihre
+    Kopie schon vorher in der Hand. Der Auto-Sync liest alle Alben EINMAL und
+    arbeitet sie danach der Reihe nach ab (`main._run_auto_sync`); die Router
+    lesen ihren Datensatz vor dem Aufruf. Und `update_managed_album` ersetzt
+    den Datensatz GANZ — wer mit einer alten Kopie schreibt, nimmt damit jede
+    Aenderung zurueck, die dazwischen lag.
+
+    Gemessen am echten Weg: Umbenennen auf „Neu“ geht durch, danach kommt der
+    Auto-Sync mit seinem alten Abbild an, und der Bestand steht wieder auf
+    „Alt“ — waehrend Immich „Neu“ traegt und BEIDE Protokolleintraege Erfolg
+    melden. Es gibt keinen Fehler an keiner Stelle, den ein Nutzer sehen
+    koennte.
+
+    Faellt das Album zwischendurch weg, bleibt die uebergebene Kopie die
+    Grundlage: Der Aufrufer bekommt dann den Weg fuer „gibt es nicht mehr“,
+    statt an einem `None` zu scheitern.
+    """
+    return store.get_managed_album(managed.id) or managed
+
+
 def _album_schloss(album_id: str) -> asyncio.Lock:
     """Das Schloss fuer dieses Album — EINE Stelle, weil zwei Formen keins sind.
 
@@ -578,7 +602,9 @@ async def refresh_managed_album(
 ) -> list[SyncLogEntry]:
     """Serialize refreshes per album across manual and automatic sync."""
     async with _album_schloss(managed.id):
-        return await _refresh_managed_album_unlocked(managed, all_accounts, store)
+        return await _refresh_managed_album_unlocked(
+            _frisch(managed, store), all_accounts, store
+        )
 
 
 async def _rename_managed_album_unlocked(
@@ -637,12 +663,14 @@ async def rename_managed_album(
 ) -> list[SyncLogEntry]:
     """Serialize renames with refreshes so stale snapshots cannot restore the old name.
 
-    Dieselbe Schlossform wie der Refresh — siehe `_album_schloss`. Die
-    Zusicherung dieses Docstrings war bis zur Nacharbeit an #79 falsch.
+    Dieselbe Schlossform wie der Refresh — siehe `_album_schloss` — und
+    derselbe Neu-Einlesevorgang: siehe `_frisch`. Die Zusicherung dieses
+    Docstrings war bis zur ZWEITEN Nacharbeit an #79 falsch, und beim ersten
+    Anlauf nur zur Haelfte richtig.
     """
     async with _album_schloss(managed.id):
         return await _rename_managed_album_unlocked(
-            managed, owner_account, new_name, store
+            _frisch(managed, store), owner_account, new_name, store
         )
 
 

@@ -396,3 +396,70 @@ def test_backfill_haengt_an_der_fehlenden_kennung_nicht_an_der_schemaversion(tmp
     assert nach_id["a-g1"] == "g1" and nach_id["a-g2"] == "g2", nach_id
     # Keine dritte Gruppe entstanden.
     assert set(nach_id.values()) == {"g1", "g2"}, nach_id
+
+
+# ---------------------------------------------------------------------------
+# Die RICHTUNG der beiden Faltungsstufen — als Probe, nicht als Behauptung.
+#
+# Anlass: Ein Docstring in `errors.py` nannte eine Zahl („943 Paare"), die aus
+# einem Prüfbericht übernommen und nie nachgemessen worden war. Sie liess sich
+# in keiner Deutung reproduzieren (gemessen: 1203). Die Zahl war das kleinere
+# Problem — das grössere war, dass die tragende Aussage überhaupt nur als Satz
+# im Kommentar stand.
+#
+# Tragend ist die RICHTUNG: Die Kollisionsprüfung (`gruppen_mit_namen`) benutzt
+# Stufe 1, die Zuordnung (`_gruppe_fuer_namen`) beide Stufen. Solange nichts
+# ausschliesslich in Stufe 2 kollidiert, ist die Prüfung nie laxer als die
+# Zuordnung — sie kann also keine Mehrdeutigkeit durchlassen, die die Zuordnung
+# danach stört. Genau das steht hier fest.
+# ---------------------------------------------------------------------------
+
+
+def _paare_je_stufe():
+    from collections import defaultdict
+
+    nach_stufe1, nach_stufe2 = defaultdict(list), defaultdict(list)
+    for cp in range(0x110000):
+        zeichen = chr(cp)
+        eins, zwei = ConfigStore._name_key(zeichen), ConfigStore._name_key_vor_83(zeichen)
+        if eins:
+            nach_stufe1[eins].append(zeichen)
+        if zwei:
+            nach_stufe2[zwei].append(zeichen)
+
+    def paare(topf):
+        ergebnis = set()
+        for zeichen in topf.values():
+            for i in range(len(zeichen)):
+                for j in range(i + 1, len(zeichen)):
+                    ergebnis.add((zeichen[i], zeichen[j]))
+        return ergebnis
+
+    return paare(nach_stufe1), paare(nach_stufe2)
+
+
+def test_keine_kollision_gehoert_allein_der_zweiten_stufe():
+    """Stufe 1 ist gröber als Stufe 2 — in JEDEM Zeichenpaar.
+
+    Das ist die Zusicherung, auf der die Kollisionsprüfung beim Umbenennen
+    ruht, und auf der das Namensschloss ruht (sein Schlüssel ist Stufe 1).
+    Fiele sie, gäbe es Namen, die die Prüfung durchlässt und die Zuordnung
+    danach nicht mehr auseinanderhält.
+    """
+    stufe1, stufe2 = _paare_je_stufe()
+    nur_stufe2 = stufe2 - stufe1
+    assert nur_stufe2 == set(), sorted(nur_stufe2)[:5]
+
+
+def test_die_erste_stufe_ist_wirklich_groeber():
+    """Die Gegenprobe: Ohne sie wäre der Test darüber auch für zwei identische
+    Faltungen grün — und dann sagte er nichts über eine Abstufung, weil es
+    keine gäbe.
+
+    Die gemessene Zahl (Python 3.14.5, Unicode 16) steht als Grössenordnung im
+    Kommentar, nicht in der Zusicherung: Sie wandert mit jeder Unicode-Fassung,
+    die Richtung nicht. Stand 27.09.2026: 1203 Paare über 2023 Zeichen.
+    """
+    stufe1, stufe2 = _paare_je_stufe()
+    nur_stufe1 = stufe1 - stufe2
+    assert len(nur_stufe1) > 100, len(nur_stufe1)

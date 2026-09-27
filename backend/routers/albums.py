@@ -537,13 +537,19 @@ async def rename_managed_album(
     # Wer sie dreht, baut eine Verklemmung.
     async with store.gruppen_schloss(new_name):
         fremd = store.gruppen_mit_namen(new_name) - {managed.group_id}
-        # AUSNAHME (Fund des Blindpruefers an #79): Wenn keine der beiden
-        # Faltungen den neuen Namen vom alten unterscheidet, aendert dieser
-        # Vorgang die Mehrdeutigkeit nicht — dann ist die Ablehnung falsch.
-        # Betroffen ist genau der Bestand, fuer den #83 die zweite Stufe hat:
-        # zwei Schreibweisen desselben Namens in zwei Gruppen. Begruendung
-        # steht bei `ConfigStore.derselbe_name`.
-        if fremd and not store.derselbe_name(new_name, managed.album_name):
+        # AUSNAHME (Fund des Blindpruefers an #79): Traegt die EIGENE GRUPPE
+        # diesen Namen schon — ueber irgendeines ihrer Alben —, dann aendert
+        # dieser Vorgang die Mehrdeutigkeit nicht, und die Ablehnung ist
+        # falsch. Betroffen ist genau der Bestand, fuer den #83 die zweite
+        # Faltungsstufe hat: zwei Schreibweisen desselben Namens in zwei
+        # Gruppen.
+        #
+        # Ueber die GRUPPE, nicht ueber dieses Album: Nach einem Teilausfall
+        # traegt die Gruppe den neuen Namen schon ueber ihr erstes Album, das
+        # zurueckgebliebene noch den alten — und genau dessen Wiederholung
+        # wurde sonst dauerhaft abgelehnt (Nacharbeit 2). Begruendung steht
+        # bei `ConfigStore.gruppe_traegt_namen`.
+        if fremd and not store.gruppe_traegt_namen(managed.group_id, new_name):
             raise errors.album_name_in_use(new_name)
         logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)

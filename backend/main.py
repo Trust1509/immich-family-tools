@@ -105,7 +105,9 @@ async def _run_auto_sync(app_state) -> None:
         try:
             logs = await refresh_managed_album(album, all_accounts, store)
             store.append_log(logs)
-            logger.info("Auto-sync: album '%s' done (%d log entries)", album.album_name, len(logs))
+            # Die Kennung, nicht der Name: Der Name in dieser Kopie kann alt
+            # sein — die Liste wurde EINMAL vor der Schleife gelesen.
+            logger.info("Auto-sync: album %s done (%d log entries)", album.id, len(logs))
         except Exception as exc:
             logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
 

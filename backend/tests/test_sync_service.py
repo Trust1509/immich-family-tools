@@ -16,6 +16,43 @@ def account(account_id: str) -> Account:
     )
 
 
+class StoreDoppel:
+    """Test-Doppel des Stores, das Alben WIRKLICH haelt.
+
+    `sync_service` liest den Datensatz innerhalb seines Schlosses neu
+    (`_frisch`), weil ein Schnappschuss von vor dem Schloss jede Aenderung
+    zurueckdreht, die dazwischen lag. Ein Doppel, das nur
+    `update_managed_album` kennt, laesst diesen Weg nicht laufen — und haette
+    ihn beim Einbau als „bricht die Tests" erscheinen lassen, obwohl die Tests
+    nur unvollstaendig doppelten.
+
+    Wer ein Album nicht mitgibt, doppelt damit den Fall „steht nicht im
+    Bestand": Dann greift der Rueckfall auf die uebergebene Kopie.
+    """
+
+    def __init__(self, *alben):
+        self.alben = {a.id: a for a in alben}
+        self.geschrieben = []
+
+    def get_managed_album(self, album_id):
+        # Eine KOPIE, wie der echte Store: `get_managed_albums` baut bei jedem
+        # Aufruf neue Objekte. Ein Doppel, das dieselbe Instanz zurueckgibt,
+        # laesst Code durchgehen, der auf das Mitwandern einer Aenderung im
+        # Objekt des Aufrufers baut.
+        album = self.alben.get(album_id)
+        return album.model_copy(deep=True) if album else None
+
+    def update_managed_album(self, album):
+        self.alben[album.id] = album
+        self.geschrieben.append(album)
+
+    def add_managed_album(self, album):
+        self.alben[album.id] = album
+
+    def group_id_for_name(self, _name):
+        return "gruppe-testdoppel"
+
+
 @pytest.mark.asyncio
 async def test_name_sync_records_previous_name(monkeypatch):
     class Client:
@@ -53,12 +90,6 @@ async def test_album_is_shared_only_with_participants(monkeypatch):
         captured.extend(a.id for a in accounts)
         return []
 
-    class Store:
-        def add_managed_album(self, _album):
-            pass
-
-        def group_id_for_name(self, _name):
-            return "gruppe-testdoppel"
 
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
@@ -67,7 +98,7 @@ async def test_album_is_shared_only_with_participants(monkeypatch):
         {"account_id": "participant", "person_id": "p2"},
     ]
     await sync_service.create_shared_album(
-        "match", owner, [owner, participant, unrelated], refs, "Album", Store(),
+        "match", owner, [owner, participant, unrelated], refs, "Album", StoreDoppel(),
         group_id="gruppe-testdoppel",
     )
     assert captured == ["participant"]
@@ -93,10 +124,6 @@ async def test_refresh_does_not_readd_assets_already_in_the_album(monkeypatch):
     async def skip_sharing(*_args):
         return []
 
-    class Store:
-        def update_managed_album(self, _album):
-            pass
-
     owner = account("owner")
     managed = ManagedAlbum(
         id="managed-1",
@@ -111,10 +138,14 @@ async def test_refresh_does_not_readd_assets_already_in_the_album(monkeypatch):
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
 
-    entries = await sync_service.refresh_managed_album(managed, [owner], Store())
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
 
     assert add_calls == []
-    assert managed.total_assets == 1
+    # Gemessen am BESTAND: Der Dienst arbeitet seit der zweiten Nacharbeit an
+    # #79 auf einem im Schloss frisch gelesenen Datensatz, die Kopie des
+    # Aufrufers wandert also nicht mehr mit — und das ist der Sinn der Sache.
+    assert store.get_managed_album("managed-1").total_assets == 1
     assert entries[0].status == "success"
 
 
@@ -139,10 +170,6 @@ async def test_refresh_adds_only_new_assets_and_updates_the_total(monkeypatch):
     async def skip_sharing(*_args):
         return []
 
-    class Store:
-        def update_managed_album(self, _album):
-            pass
-
     owner = account("owner")
     managed = ManagedAlbum(
         id="managed-1",
@@ -157,10 +184,14 @@ async def test_refresh_adds_only_new_assets_and_updates_the_total(monkeypatch):
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
 
-    entries = await sync_service.refresh_managed_album(managed, [owner], Store())
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
 
     assert add_calls == [["asset-2"]]
-    assert managed.total_assets == 2
+    # Gemessen am BESTAND: Der Dienst arbeitet seit der zweiten Nacharbeit an
+    # #79 auf einem im Schloss frisch gelesenen Datensatz, die Kopie des
+    # Aufrufers wandert also nicht mehr mit — und das ist der Sinn der Sache.
+    assert store.get_managed_album("managed-1").total_assets == 2
     assert entries[0].message_key == "log_assets_added_to_album"
     assert entries[0].message_params == {"count": 1, "account": owner.name, "album": managed.album_name}
 
@@ -187,10 +218,6 @@ async def test_refresh_reports_partial_failures_and_ignores_duplicates(monkeypat
     async def skip_sharing(*_args):
         return []
 
-    class Store:
-        def update_managed_album(self, _album):
-            pass
-
     owner = account("owner")
     managed = ManagedAlbum(
         id="managed-1",
@@ -205,10 +232,14 @@ async def test_refresh_reports_partial_failures_and_ignores_duplicates(monkeypat
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
 
-    entries = await sync_service.refresh_managed_album(managed, [owner], Store())
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
 
     # Only the real success counts toward the total.
-    assert managed.total_assets == 2
+    # Gemessen am BESTAND: Der Dienst arbeitet seit der zweiten Nacharbeit an
+    # #79 auf einem im Schloss frisch gelesenen Datensatz, die Kopie des
+    # Aufrufers wandert also nicht mehr mit — und das ist der Sinn der Sache.
+    assert store.get_managed_album("managed-1").total_assets == 2
 
     success_entries = [e for e in entries if e.status == "success"]
     failure_entries = [e for e in entries if e.status == "error"]
@@ -248,10 +279,6 @@ async def test_extend_match_adds_only_assets_missing_from_the_album(monkeypatch)
     async def skip_sharing(*_args):
         return []
 
-    class Store:
-        def update_managed_album(self, _album):
-            pass
-
     owner = account("owner")
     participant = account("participant")
     managed = ManagedAlbum(
@@ -268,6 +295,7 @@ async def test_extend_match_adds_only_assets_missing_from_the_album(monkeypatch)
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
 
+    store = StoreDoppel(managed)
     await sync_service.extend_match(
         managed,
         participant,
@@ -275,11 +303,14 @@ async def test_extend_match_adds_only_assets_missing_from_the_album(monkeypatch)
         "Family",
         None,
         [owner, participant],
-        Store(),
+        store,
     )
 
     assert add_calls == [["asset-2"]]
-    assert managed.total_assets == 2
+    # Gemessen am BESTAND: Der Dienst arbeitet seit der zweiten Nacharbeit an
+    # #79 auf einem im Schloss frisch gelesenen Datensatz, die Kopie des
+    # Aufrufers wandert also nicht mehr mit — und das ist der Sinn der Sache.
+    assert store.get_managed_album("managed-1").total_assets == 2
 
 
 # ----------------------------------------------------------------------
@@ -501,10 +532,6 @@ def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
     async def skip_sharing(*_args, **_k):
         return []
 
-    class Store:
-        def update_managed_album(self, _album):
-            pass
-
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
     monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
     owner = account("owner")
@@ -523,8 +550,10 @@ def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
 
     async def umkaempft():
         await asyncio.gather(
-            sync_service.refresh_managed_album(frisches_album(), [owner], Store()),
-            sync_service.refresh_managed_album(frisches_album(), [owner], Store()),
+            sync_service.refresh_managed_album(
+                frisches_album(), [owner], StoreDoppel(frisches_album())),
+            sync_service.refresh_managed_album(
+                frisches_album(), [owner], StoreDoppel(frisches_album())),
         )
         return True
 
@@ -536,7 +565,6 @@ def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
 @pytest.mark.asyncio
 async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatch):
     updates: list[tuple[str, dict]] = []
-    persisted: list[ManagedAlbum] = []
 
     class Client:
         def __init__(self, *_):
@@ -545,10 +573,6 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
         async def update_album(self, album_id, payload):
             updates.append((album_id, payload))
             return {"id": album_id, **payload}
-
-    class Store:
-        def update_managed_album(self, album):
-            persisted.append(album)
 
     owner = account("owner")
     managed = ManagedAlbum(
@@ -566,12 +590,17 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
     )
     monkeypatch.setattr(sync_service, "ImmichClient", Client)
 
+    store = StoreDoppel(managed)
     logs = await sync_service.rename_managed_album(
-        managed, owner, "New family name", Store()
+        managed, owner, "New family name", store
     )
 
     assert updates == [("album-1", {"albumName": "New family name"})]
-    assert managed.album_name == "New family name"
-    assert persisted == [managed]
+    # Gemessen am BESTAND, nicht an der Kopie des Aufrufers: Seit der zweiten
+    # Nacharbeit an #79 arbeitet der Dienst auf einem im Schloss frisch
+    # gelesenen Datensatz, und das ist der Sinn der Sache — die Kopie des
+    # Aufrufers ist womoeglich alt. Was zaehlt, ist, was gespeichert wurde.
+    assert store.get_managed_album("managed-1").album_name == "New family name"
+    assert [a.album_name for a in store.geschrieben] == ["New family name"]
     assert logs[0].status == "success"
     assert logs[0].message_key == "log_album_renamed"

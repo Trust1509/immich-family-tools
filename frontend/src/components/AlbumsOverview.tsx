@@ -457,7 +457,15 @@ export default function AlbumsOverview() {
             const bulkEntry = bulkSyncState.get(group.group_id);
             // null in map = currently syncing; array = done with results
             const externalSyncing = bulkSyncState.has(group.group_id) && bulkEntry === null;
-            const externalLogs = bulkEntry ?? undefined;
+            // Ein LEERES Sammelergebnis ist kein Ergebnis (Fund des
+            // Blindpruefers an der Nacharbeit): Werfen alle Auffrischungen
+            // einer Gruppe, ist `bulkEntry` ein leeres Feld — nicht
+            // `undefined`. Es bekam damit den Vorrang, `SyncLogDisplay` gibt
+            // fuer ein leeres Feld nichts zurueck, und die Karte stand leer
+            // da: das vorige Umbenenn-Ergebnis war spurlos weg. Der
+            // Sammellauf schluckt seine Fehler ausserdem, es gab also auch
+            // keine Meldung.
+            const externalLogs = bulkEntry && bulkEntry.length ? bulkEntry : undefined;
             return (
               <AlbumGroupCard
                 key={group.group_id}

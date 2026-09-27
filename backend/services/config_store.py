@@ -598,6 +598,27 @@ class ConfigStore:
         return all(faltung(einer) == faltung(anderer)
                    for faltung in (self._name_key, self._name_key_vor_83))
 
+    def gruppe_traegt_namen(self, group_id, album_name) -> bool:
+        """Traegt irgendein Album dieser Gruppe diesen Namen schon?
+
+        Gefragt wird mit `derselbe_name`, also mit BEIDEN Faltungen. Gebraucht
+        fuer die Ausnahme in der Kollisionspruefung beim Umbenennen — und zwar
+        ueber die GRUPPE, nicht ueber das einzelne Album.
+
+        Der Unterschied ist gemessen (Blindpruefer, Nacharbeit 1 an #79): Nach
+        einem Teilausfall traegt die Gruppe den neuen Namen schon ueber ihr
+        erstes Album, das zurueckgebliebene aber noch den alten. Fragt die
+        Ausnahme nur dieses Album, wird die Wiederholung dauerhaft mit 409
+        abgelehnt — ein Vorgang, der die Mehrdeutigkeit nachweislich nicht
+        aendert. Das Frontend erlaubt die Wiederholung seit derselben
+        Nacharbeit; das Backend verweigerte sie.
+        """
+        if not group_id:
+            return False
+        return any(self.derselbe_name(album_name, a.get("album_name"))
+                   for a in self._data.get("managed_albums", [])
+                   if a.get("group_id") == group_id)
+
     def group_details(self, group_id: str) -> dict:
         """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.
 
@@ -956,6 +977,21 @@ class ConfigStore:
 
     def get_managed_albums(self) -> list[ManagedAlbum]:
         return [ManagedAlbum(**a) for a in self._data.get("managed_albums", [])]
+
+    def get_managed_album(self, album_id: str) -> ManagedAlbum | None:
+        """Ein einzelnes Album, frisch aus dem Bestand.
+
+        Dafuer da, dass ein Aufrufer INNERHALB seines Schlosses neu lesen kann.
+        `get_managed_albums()` baut bei jedem Aufruf neue Objekte, ein
+        Schnappschuss von vorher ist also eine echte Kopie — und
+        `update_managed_album` ersetzt den Datensatz GANZ. Wer mit einer alten
+        Kopie schreibt, macht damit jede Aenderung rueckgaengig, die zwischen
+        seinem Lesen und seinem Schreiben liegt.
+        """
+        for a in self._data.get("managed_albums", []):
+            if a["id"] == album_id:
+                return ManagedAlbum(**a)
+        return None
 
     def add_managed_album(self, album: ManagedAlbum) -> None:
         # Always compute linked_match_ids before saving

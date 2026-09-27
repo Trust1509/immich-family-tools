@@ -365,4 +365,71 @@ describe("Nach einem Sammellauf", () => {
     expect(await screen.findByText("Sammellauf zu album-eins")).toBeTruthy();
     expect(screen.queryByText("Eintrag zu album-eins")).toBeNull();
   });
+
+  it("zeigt auch ein einzelnes Synchronisieren sein eigenes Ergebnis", async () => {
+    // Gemessen vom Blindprüfer an der ersten Nacharbeit: `setLokalZuletzt(true)`
+    // aus `handleRefresh` entfernt → alle 125 Proben blieben grün. Der neue
+    // Vorrang war ausschliesslich am Umbenennen gemessen, obwohl er für JEDE
+    // lokale Handlung gilt.
+    let lauf = 0;
+    refreshMock.mockImplementation(async (albumId: string) => {
+      lauf += 1;
+      return [
+        {
+          id: `log-${lauf}-${albumId}`,
+          timestamp: "2026-01-04T00:00:00+00:00",
+          action: "refresh_album",
+          details: lauf <= 2 ? `Sammellauf zu ${albumId}` : `Einzellauf zu ${albumId}`,
+          status: "success",
+        },
+      ];
+    });
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByText("Testalbum")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Alle synchronisieren/ }));
+    expect(await screen.findByText("Sammellauf zu album-eins")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Jetzt synchronisieren/ }));
+
+    expect(await screen.findByText("Einzellauf zu album-eins")).toBeTruthy();
+    expect(screen.queryByText("Sammellauf zu album-eins")).toBeNull();
+  });
+
+  it("löscht ein gescheiterter Sammellauf das vorige Ergebnis nicht", async () => {
+    // Werfen ALLE Auffrischungen einer Gruppe, ist der Sammel-Eintrag ein
+    // LEERES Feld — nicht `undefined`. Es bekam damit den Vorrang, und
+    // `SyncLogDisplay` zeigt für ein leeres Feld nichts: Die Karte stand leer
+    // da, das Umbenenn-Ergebnis war spurlos weg (Fund des Blindprüfers). Dass
+    // der Sammellauf seine Fehler schluckt, ist alt — das Löschen war neu.
+    renameMock.mockImplementation(async (albumId: string) => [
+      {
+        id: `log-${albumId}`,
+        timestamp: "2026-01-03T00:00:00+00:00",
+        action: "rename_album",
+        details: `Eintrag zu ${albumId}`,
+        status: "success",
+      },
+    ]);
+    refreshMock.mockRejectedValue(new Error("Immich antwortet nicht"));
+
+    await umbenennen("Neuer Name");
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Eintrag zu album-eins")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Alle synchronisieren/ }));
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(2));
+
+    // Die Karte behält, was sie hat, statt leer zu werden.
+    expect(screen.getByText("Eintrag zu album-eins")).toBeTruthy();
+  });
 });

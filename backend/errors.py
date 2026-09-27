@@ -158,10 +158,19 @@ def album_name_in_use(album_name: str) -> AppError:
     NICHT dieselbe Faltung wie die Zuordnung — hier stand bis zur Nacharbeit an
     #79 das Gegenteil, und der Gegenpruefer hat es widerlegt: Die Zuordnung
     (`_gruppe_fuer_namen`) ist ZWEISTUFIG, `gruppen_mit_namen` nimmt nur die
-    erste Stufe. Gemessen ueber alle Codepunkte: 943 Paare kollidieren in
-    Stufe 1 und nicht in Stufe 2, KEINES umgekehrt — die Pruefung ist damit
-    stets strenger als die Zuordnung, nie laxer. Wo diese Strenge zu weit ging,
-    steht die Ausnahme: `ConfigStore.derselbe_name`.
+    erste Stufe. Sie ist damit stets strenger als die Zuordnung, nie laxer.
+
+    Diese Richtung steht als PROBE, nicht als Satz:
+    `tests/test_namensfaltung.py::test_keine_kollision_gehoert_allein_der_zweiten_stufe`.
+    Hier stand eine Fassung lang eine Zahl aus einem Pruefbericht („943
+    Paare"), die niemand nachgemessen hatte und die sich in keiner Deutung
+    reproduzieren liess — gemessen sind es 1203 Paare ueber 2023 Zeichen
+    (Unicode 16). Die Zahl wandert mit der Unicode-Fassung, die Richtung nicht;
+    deshalb sichert die Probe die Richtung und nennt die Zahl nur als
+    Groessenordnung.
+
+    Wo diese Strenge zu weit ging, stehen zwei Ausnahmen: der Abzug der eigenen
+    Gruppe und `ConfigStore.gruppe_traegt_namen`.
     """
     return AppError(
         409,

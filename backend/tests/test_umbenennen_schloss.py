@@ -182,6 +182,116 @@ async def test_zwei_alben_blockieren_sich_nicht_gegenseitig(tmp_path, monkeypatc
     await asyncio.gather(a, b)
 
 
+# ------------------------- 1b) Das Schloss allein reicht nicht
+
+def _immich_attrappe(monkeypatch, name_draussen, bestand=("x1", "x2")):
+    """Ein Immich, das den Namen mitschreibt und ein paar Assets kennt.
+
+    Die Assets sind nötig, weil der Refresh `total_assets` daraus setzt — und
+    genau daran zeigt sich die Gegenrichtung des Fehlers.
+    """
+    from services import sync_service
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def update_album(self, album_id, payload):
+            name_draussen["wert"] = payload["albumName"]
+            return {"id": album_id, **payload}
+
+        async def get_album_assets(self, _album_id):
+            await asyncio.sleep(0)
+            return list(bestand)
+
+        async def get_person_assets(self, _person_id):
+            await asyncio.sleep(0)
+            return []
+
+        async def add_assets_to_album(self, _album_id, _ids):
+            return []
+
+    async def ohne_teilen(*_a, **_k):
+        return []
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", ohne_teilen)
+    return Client
+
+
+@pytest.mark.asyncio
+async def test_ein_refresh_mit_altem_abbild_holt_den_alten_namen_nicht_zurueck(
+    tmp_path, monkeypatch
+):
+    """Der Kern des Funds an der ERSTEN Nacharbeit.
+
+    Das Schloss serialisiert die Rümpfe — aber beide Seiten haben ihre Kopie
+    schon vorher in der Hand. Der Auto-Sync liest ALLE Alben einmal und
+    arbeitet sie danach der Reihe nach ab (`main._run_auto_sync`), und
+    `update_managed_album` ersetzt den Datensatz GANZ.
+
+    Gemessen ohne die Nachbesserung: Immich trägt „Neu", der Bestand fällt auf
+    „Alt" zurück, und BEIDE Protokolleinträge melden Erfolg. Es gibt keinen
+    Fehler, den ein Nutzer sehen könnte — deshalb ist das ein Blocker und
+    keine Unschönheit.
+    """
+    from services import sync_service
+
+    store = _store(tmp_path, [_album("a1", "Alt", "g1")])
+    konto = store.get_account("konto-1")
+    draussen = {"wert": "Alt"}
+    _immich_attrappe(monkeypatch, draussen)
+
+    # So liest der Auto-Sync: EINMAL, vor der Schleife.
+    abbild_des_autosync = store.get_managed_albums()[0]
+
+    await sync_service.rename_managed_album(
+        store.get_managed_albums()[0], konto, "Neu", store)
+    assert draussen["wert"] == "Neu"
+
+    # Und jetzt kommt er an diesem Album an.
+    logs = await sync_service.refresh_managed_album(
+        abbild_des_autosync, [konto], store)
+
+    assert [e.status for e in logs] == ["success"], logs
+    assert store.get_managed_album("a1").album_name == "Neu", "alter Name zurückgeholt"
+
+
+@pytest.mark.asyncio
+async def test_ein_umbenennen_mit_altem_abbild_wirft_den_refresh_nicht_weg(
+    tmp_path, monkeypatch
+):
+    """Die Gegenrichtung desselben Fehlers.
+
+    Hier verliert nicht der Name, sondern das Ergebnis des Abgleichs:
+    `total_assets` und `last_synced_at` stehen im selben Datensatz. Ein
+    Umbenennen mit altem Abbild schrieb sie zurück auf den Stand von vorher.
+    """
+    from services import sync_service
+
+    store = _store(tmp_path, [_album("a1", "Alt", "g1")])
+    konto = store.get_account("konto-1")
+    draussen = {"wert": "Alt"}
+    _immich_attrappe(monkeypatch, draussen)
+
+    # Das Abbild, das der Umbenenner gleich benutzt — gelesen VOR dem Refresh.
+    altes_abbild = store.get_managed_albums()[0]
+    assert altes_abbild.total_assets == 0
+
+    await sync_service.refresh_managed_album(
+        store.get_managed_albums()[0], [konto], store)
+    nach_refresh = store.get_managed_album("a1")
+    assert nach_refresh.total_assets == 2, "Attrappe liefert zwei Assets"
+    assert nach_refresh.last_synced_at
+
+    await sync_service.rename_managed_album(altes_abbild, konto, "Neu", store)
+
+    danach = store.get_managed_album("a1")
+    assert danach.album_name == "Neu"
+    assert danach.total_assets == 2, "Ergebnis des Abgleichs weggeworfen"
+    assert danach.last_synced_at == nach_refresh.last_synced_at
+
+
 # --------------------------------------- 2) Umbenennen gegen Umbenennen
 
 @pytest.mark.asyncio
