@@ -115,7 +115,8 @@ def immich_request_failed() -> AppError:
 
 def album_name_required() -> AppError:
     return AppError(
-        422, "err_album_name_required", "album_name erforderlich für neues Album"
+        # Neutral, weil dieselbe Meldung seit #79 auch beim Umbenennen kommt.
+        422, "err_album_name_required", "album_name erforderlich"
     )
 
 
@@ -150,10 +151,17 @@ def album_name_in_use(album_name: str) -> AppError:
     mit gleichem Namen und bekommt beim naechsten Anlegen keine
     Gruppenvorschau mehr.
 
-    Die Pruefung benutzt `ConfigStore.gruppen_mit_namen` und damit dieselbe
-    Faltung wie die Zuordnung selbst. Mit einem eigenen Vergleich hier waere
-    sie seit #83 falsch: "Strassenfest" und "Straßenfest" sind heute derselbe
-    Name, ein `==` haette die Kollision nicht gesehen.
+    Die Pruefung benutzt `ConfigStore.gruppen_mit_namen`. Mit einem eigenen
+    Vergleich hier waere sie seit #83 falsch: "Strassenfest" und "Straßenfest"
+    sind heute derselbe Name, ein `==` haette die Kollision nicht gesehen.
+
+    NICHT dieselbe Faltung wie die Zuordnung — hier stand bis zur Nacharbeit an
+    #79 das Gegenteil, und der Gegenpruefer hat es widerlegt: Die Zuordnung
+    (`_gruppe_fuer_namen`) ist ZWEISTUFIG, `gruppen_mit_namen` nimmt nur die
+    erste Stufe. Gemessen ueber alle Codepunkte: 943 Paare kollidieren in
+    Stufe 1 und nicht in Stufe 2, KEINES umgekehrt — die Pruefung ist damit
+    stets strenger als die Zuordnung, nie laxer. Wo diese Strenge zu weit ging,
+    steht die Ausnahme: `ConfigStore.derselbe_name`.
     """
     return AppError(
         409,

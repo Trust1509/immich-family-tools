@@ -99,8 +99,18 @@ function AlbumGroupCard({
   const [renameValue, setRenameValue] = React.useState(group.album_name);
   const [renameError, setRenameError] = React.useState<string | null>(null);
 
-  // External (bulk) results take priority over local results
-  const displayLogs = externalLogs !== undefined ? externalLogs : localLogs;
+  // Ein lokales Ergebnis ist NEUER als ein liegengebliebenes Sammelergebnis
+  // (Fund des Fremdpruefers an #79). Vorher hatte `externalLogs` Vorrang,
+  // solange der Eintrag aus „Alle synchronisieren“ im Zustand stand — ein
+  // danach ausgeloestes Umbenennen zeigte sein Ergebnis dann nirgends, auch
+  // ein fehlerhaftes nicht. Beim naechsten Sammellauf dreht sich der Vorrang
+  // zurueck: `externalLogs` wechselt die Identitaet, der Effekt laeuft.
+  const [lokalZuletzt, setLokalZuletzt] = React.useState(false);
+  React.useEffect(() => {
+    setLokalZuletzt(false);
+  }, [externalLogs]);
+  const displayLogs =
+    !lokalZuletzt && externalLogs !== undefined ? externalLogs : localLogs;
   const syncing = externalSyncing || localSyncing;
 
   const handleRefresh = async () => {
@@ -113,6 +123,7 @@ function AlbumGroupCard({
       } catch (_) {}
     }
     setLocalLogs(allLogs);
+    setLokalZuletzt(true);
     setLocalSyncing(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["sync-log"] });
@@ -133,7 +144,13 @@ function AlbumGroupCard({
 
   const handleRename = async () => {
     const nextName = renameValue.trim();
-    if (!nextName || nextName === group.album_name) {
+    // KEIN Abbruch bei „Name gleich dem Gruppennamen“: Der Gruppenname ist vom
+    // ERSTEN Album abgeleitet (`groupAlbums`). Nach einem Teilfehler traegt das
+    // erste Album schon den neuen Namen — mit dem alten Vergleich war der
+    // zweite Versuch deshalb ein Nullvorgang, und das fehlgeschlagene Album
+    // blieb fuer immer zurueck (Fund des Fremdpruefers an #79). Abgebrochen
+    // wird nur, wenn ALLE Alben der Gruppe den Namen schon tragen.
+    if (!nextName || group.albums.every((album) => album.album_name === nextName)) {
       setRenaming(false);
       setRenameValue(group.album_name);
       return;
@@ -146,15 +163,23 @@ function AlbumGroupCard({
       for (const album of group.albums) {
         logs.push(...(await api.sync.renameAlbum(album.id, nextName)));
       }
-      setLocalLogs(logs);
       if (logs.every((entry) => entry.status === "success")) setRenaming(false);
-      qc.invalidateQueries({ queryKey: ["managed-albums"] });
-      qc.invalidateQueries({ queryKey: ["sync-log"] });
-      qc.invalidateQueries({ queryKey: ["matches"] });
     } catch (error) {
       setRenameError(errorText(error as ServerErrorLike));
     } finally {
+      // Die schon gesammelten Eintraege gehoeren auch dann auf die Karte, wenn
+      // eine SPAETERE Anfrage geworfen hat (Fund des Fremdpruefers an #79):
+      // `setLocalLogs` und die Invalidierungen standen hinter der Schleife, ein
+      // Wurf sprang ueber beides — der Nutzer sah nur den Fehlertext und nicht,
+      // was vorher schon umbenannt worden war.
+      if (logs.length) {
+        setLocalLogs(logs);
+        setLokalZuletzt(true);
+      }
       setLocalSyncing(false);
+      qc.invalidateQueries({ queryKey: ["managed-albums"] });
+      qc.invalidateQueries({ queryKey: ["sync-log"] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
     }
   };
 

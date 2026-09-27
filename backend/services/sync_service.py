@@ -550,16 +550,34 @@ async def _refresh_managed_album_unlocked(
     return logs
 
 
+def _album_schloss(album_id: str) -> asyncio.Lock:
+    """Das Schloss fuer dieses Album — EINE Stelle, weil zwei Formen keins sind.
+
+    Gefunden vom Fremdpruefer an #79: Der zugelieferte Zweig nahm
+    `_album_locks.setdefault(managed.id, ...)`, der Refresh daneben
+    `(id(loop), managed.id)`. Zwei verschieden geformte Schluessel in
+    DERSELBEN Ablage schliessen sich nicht aus — Umbenennen und Refresh liefen
+    ungebremst nebeneinander, obwohl der Docstring des Umbenennens das
+    Gegenteil behauptete. Der Zweig war beim Rebase textlich sauber: Die
+    Loop-Kennung kam aus UNSERER spaeteren Arbeit, nicht aus seiner. Deshalb
+    steht die Form jetzt an einer Stelle und nicht an zweien.
+
+    Die Loop-Kennung gehoert dazu, weil jeder Test seinen eigenen
+    Ereignis-Ring fuehrt: Ein Schloss aus einem beendeten Ring gehoert
+    niemandem mehr.
+    """
+    return _album_locks.setdefault(
+        (id(asyncio.get_running_loop()), album_id), asyncio.Lock()
+    )
+
+
 async def refresh_managed_album(
     managed: ManagedAlbum,
     all_accounts: list[Account],
     store: ConfigStore,
 ) -> list[SyncLogEntry]:
     """Serialize refreshes per album across manual and automatic sync."""
-    lock = _album_locks.setdefault(
-        (id(asyncio.get_running_loop()), managed.id), asyncio.Lock()
-    )
-    async with lock:
+    async with _album_schloss(managed.id):
         return await _refresh_managed_album_unlocked(managed, all_accounts, store)
 
 
@@ -591,6 +609,15 @@ async def _rename_managed_album_unlocked(
             message_params={"album": previous_name},
         )]
 
+    # GRENZE, benannt statt behauptet (Fund des Fremdpruefers an #79): Wenn
+    # dieses Speichern scheitert, traegt Immich schon den neuen Namen und wir
+    # noch den alten. Ein Fehler-Protokolleintrag hilft dann NICHT — das
+    # Protokoll liegt in derselben Datei (`append_log` ruft `_save`), das
+    # Schreiben ist also gerade erst gescheitert. Der Aufrufer bekommt 500,
+    # und der Abgleich in die andere Richtung (Refresh uebernimmt den Namen
+    # aus Immich) fehlt heute ganz. Das ist kein Fall dieses Zweigs, sondern
+    # die allgemeine Form aller Schreibpfade dieser Anwendung; als Issue
+    # gemeldet, nicht hier geheilt.
     managed.album_name = new_name
     store.update_managed_album(managed)
     return [SyncLogEntry(
@@ -608,9 +635,12 @@ async def rename_managed_album(
     new_name: str,
     store: ConfigStore,
 ) -> list[SyncLogEntry]:
-    """Serialize renames with refreshes so stale snapshots cannot restore the old name."""
-    lock = _album_locks.setdefault(managed.id, asyncio.Lock())
-    async with lock:
+    """Serialize renames with refreshes so stale snapshots cannot restore the old name.
+
+    Dieselbe Schlossform wie der Refresh — siehe `_album_schloss`. Die
+    Zusicherung dieses Docstrings war bis zur Nacharbeit an #79 falsch.
+    """
+    async with _album_schloss(managed.id):
         return await _rename_managed_album_unlocked(
             managed, owner_account, new_name, store
         )

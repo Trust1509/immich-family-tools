@@ -231,8 +231,8 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     # Albumnamens stand NACH sync_names_multi. Schlug sie fehl (Netz, 401,
     # geloeschtes Album), waren die Personen in Immich bereits umbenannt, das
     # Protokoll geschrieben und die Paare als abgeglichen markiert — und der
-    # Aufrufer bekam 422 "album_name erforderlich fuer neues Album", was
-    # weder stimmte noch half.
+    # Aufrufer bekam 422 "album_name erforderlich fuer neues Album" (der
+    # damalige Wortlaut, seit #79 neutral), was weder stimmte noch half.
     #
     # Dieselbe Klasse traf schon vorher `owner_account_id_not_found`: auch das
     # lehnte erst ab, nachdem umbenannt war. Beides steht jetzt davor.
@@ -495,6 +495,8 @@ def _mit_lebenden_kontodaten(store, person_refs: list[dict]) -> list[dict]:
             if not ref.get("account_name"):
                 ref["account_name"] = acc.name
     return person_refs
+
+
 @router.patch("/albums/{managed_album_id}", response_model=list[SyncLogEntry])
 async def rename_managed_album(
     managed_album_id: str,
@@ -520,10 +522,30 @@ async def rename_managed_album(
     # schweigt fuer beide (#78). Die eigene Gruppe ist ausgenommen: Die
     # Oberflaeche benennt alle Alben einer Gruppe einzeln um, das zweite sieht
     # also den neuen Namen des ersten.
-    fremd = store.gruppen_mit_namen(new_name) - {managed.group_id}
-    if fremd:
-        raise errors.album_name_in_use(new_name)
-    logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
+    #
+    # UNTER DEM NAMENSSCHLOSS, ueber Pruefung UND Schreibvorgang (Fund des
+    # Fremdpruefers an #79): Ohne es war das ein Pruefen-dann-Handeln mit
+    # einem Fenster dazwischen — zwei gleichzeitige Umbenennungen auf
+    # denselben Namen kamen BEIDE durch und erzeugten genau die zwei
+    # gleichnamigen Gruppen, die die Pruefung verhindern soll. Es ist
+    # dasselbe Schloss, das die Anlage nimmt (`create_album`,
+    # `create_manual_album`); nur so hilft es auch gegen Umbenennen gegen
+    # Anlegen.
+    #
+    # REIHENFOLGE DER SCHLOESSER in dieser Datei: Treffer -> Gruppe -> Album
+    # (das Albumschloss nimmt `sync_service.rename_managed_album` innen).
+    # Wer sie dreht, baut eine Verklemmung.
+    async with store.gruppen_schloss(new_name):
+        fremd = store.gruppen_mit_namen(new_name) - {managed.group_id}
+        # AUSNAHME (Fund des Blindpruefers an #79): Wenn keine der beiden
+        # Faltungen den neuen Namen vom alten unterscheidet, aendert dieser
+        # Vorgang die Mehrdeutigkeit nicht — dann ist die Ablehnung falsch.
+        # Betroffen ist genau der Bestand, fuer den #83 die zweite Stufe hat:
+        # zwei Schreibweisen desselben Namens in zwei Gruppen. Begruendung
+        # steht bei `ConfigStore.derselbe_name`.
+        if fremd and not store.derselbe_name(new_name, managed.album_name):
+            raise errors.album_name_in_use(new_name)
+        logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)
     return logs
 

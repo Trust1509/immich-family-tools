@@ -47,17 +47,18 @@ const GRUPPE = ["album-eins", "album-zwei"].map((id, nr) => ({
   total_assets: 1,
 }));
 
-const { albenMock, autoSyncGet, renameMock } = vi.hoisted(() => ({
+const { albenMock, autoSyncGet, renameMock, refreshMock } = vi.hoisted(() => ({
   albenMock: vi.fn(),
   autoSyncGet: vi.fn(),
   renameMock: vi.fn(),
+  refreshMock: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
   api: {
     sync: {
       albums: albenMock,
-      refreshAlbum: vi.fn(),
+      refreshAlbum: refreshMock,
       deleteAlbum: vi.fn(),
       renameAlbum: renameMock,
     },
@@ -131,6 +132,31 @@ describe("Umbenennen einer Gruppe mit mehreren Alben", () => {
     expect(screen.queryByDisplayValue("Neuer Name")).toBeTruthy();
   });
 
+  it("schickt den getippten Namen an jedes Album der Gruppe", async () => {
+    // Gemessen vom Blindpruefer: Zwischen Eingabefeld und HTTP-Koerper hielt
+    // NICHTS. Der getippte Name durch einen Festwert ersetzt — und alle 118
+    // Proben blieben gruen. Die Aufrufzahl allein prueft die Schleife, nicht
+    // die Uebergabe.
+    renameMock.mockResolvedValue([]);
+
+    await umbenennen("Ein ganz neuer Name");
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+
+    expect(renameMock).toHaveBeenCalledWith("album-eins", "Ein ganz neuer Name");
+    expect(renameMock).toHaveBeenCalledWith("album-zwei", "Ein ganz neuer Name");
+  });
+
+  it("schneidet Leerraum ab, bevor der Name hinausgeht", async () => {
+    // Die Gegenprobe zum `trim()`: Sonst waere „ Fest " ein anderer Name als
+    // „Fest", und die Gruppe zerfiele beim Umbenennen in zwei.
+    renameMock.mockResolvedValue([]);
+
+    await umbenennen("   Umrandeter Name   ");
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+
+    expect(renameMock).toHaveBeenCalledWith("album-eins", "Umrandeter Name");
+  });
+
   it("meldet nichts, wenn alle Alben gelingen", async () => {
     renameMock.mockImplementation(async (albumId: string) => [
       {
@@ -150,5 +176,193 @@ describe("Umbenennen einer Gruppe mit mehreren Alben", () => {
     expect(eins.className).toMatch(/emerald/);
     expect(eins.className).not.toMatch(/red/);
     await waitFor(() => expect(screen.queryByDisplayValue("Neuer Name")).toBeNull());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drei Funde des Fremdpruefers an der gerebasten Fassung. Alle drei betreffen
+// nicht das Umbenennen selbst, sondern was der Nutzer DANACH tun kann und
+// sieht — genau die Stelle, an der eine Funktion "da" ist und trotzdem nicht
+// benutzbar.
+// ---------------------------------------------------------------------------
+
+describe("Nach einem Teilausfall", () => {
+  it("erreicht der zweite Versuch das zurueckgebliebene Album", async () => {
+    // DER STAND NACH EINEM TEILAUSFALL: Album eins traegt den neuen Namen,
+    // Album zwei noch den alten. Der Gruppenname wird vom ERSTEN Album
+    // abgeleitet — mit dem alten Vergleich `nextName === group.album_name`
+    // war der zweite Versuch deshalb ein Nullvorgang, und das
+    // fehlgeschlagene Album liess sich NIE mehr nachziehen.
+    albenMock.mockResolvedValue([
+      { ...GRUPPE[0], album_name: "Neuer Name" },
+      GRUPPE[1],
+    ]);
+    renameMock.mockResolvedValue([]);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByText("Neuer Name")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/ }));
+    // Der Nutzer bestaetigt denselben Namen noch einmal — die Wiederholung.
+    const feld = await screen.findByDisplayValue("Neuer Name");
+    fireEvent.keyDown(feld, { key: "Enter" });
+
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+    expect(renameMock.mock.calls.map((aufruf) => aufruf[0])).toContain("album-zwei");
+  });
+
+  it("bricht ab, wenn ALLE Alben den Namen schon tragen", async () => {
+    // Die Gegenprobe zur Zeile darueber: Ohne sie waere die billigste Antwort
+    // "immer umbenennen", und jedes Oeffnen-und-Bestaetigen des unveraenderten
+    // Namens schickte zwei Anfragen nach Immich.
+    albenMock.mockResolvedValue([
+      { ...GRUPPE[0], album_name: "Gleicher Name" },
+      { ...GRUPPE[1], album_name: "Gleicher Name" },
+    ]);
+    renameMock.mockResolvedValue([]);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByText("Gleicher Name")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/ }));
+    const feld = await screen.findByDisplayValue("Gleicher Name");
+    fireEvent.keyDown(feld, { key: "Enter" });
+
+    // Das Feld schliesst sich, und NICHTS geht hinaus.
+    await waitFor(() => expect(screen.queryByDisplayValue("Gleicher Name")).toBeNull());
+    expect(renameMock).not.toHaveBeenCalled();
+  });
+
+  it("zeigt die schon gesammelten Eintraege, wenn ein spaeterer Aufruf wirft", async () => {
+    // Ein WURF (HTTP-Fehler, etwa die Namenskollision) ist etwas anderes als
+    // ein Fehler-Protokolleintrag: Er springt aus der Schleife. Vorher standen
+    // `setLocalLogs` und die Invalidierungen dahinter — der Nutzer sah nur den
+    // Fehlertext und nicht, dass Album eins schon umbenannt WAR.
+    renameMock.mockImplementation(async (albumId: string) => {
+      if (albumId === "album-zwei") {
+        throw { message: "Der Name gehört bereits zu einer anderen Gruppe." };
+      }
+      return [
+        {
+          id: `log-${albumId}`,
+          timestamp: "2026-01-03T00:00:00+00:00",
+          action: "rename_album",
+          details: `Eintrag zu ${albumId}`,
+          status: "success",
+        },
+      ];
+    });
+
+    await umbenennen("Neuer Name");
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+
+    // BEIDES muss zu sehen sein: der Fehlertext UND der gelungene Eintrag.
+    expect(await screen.findByText("Eintrag zu album-eins")).toBeTruthy();
+    expect(screen.getByText(/gehört bereits zu einer anderen Gruppe/)).toBeTruthy();
+  });
+});
+
+describe("Nach einem Sammellauf", () => {
+  it("zeigt das Umbenennen sein eigenes Ergebnis", async () => {
+    // Der Sammellauf legt fuer jede Gruppe ein Ergebnis ab, und das hatte
+    // Vorrang, SOLANGE es im Zustand stand. Ein danach ausgeloestes
+    // Umbenennen zeigte sein Ergebnis dadurch nirgends — auch kein
+    // fehlerhaftes. Gemessen wird die Reihenfolge: erst sammeln, dann
+    // umbenennen.
+    // Je Album EIN Eintrag mit eigenem Text — zwei gleiche Texte waeren beim
+    // Suchen nicht unterscheidbar, und die Karte steht fuer zwei Alben.
+    refreshMock.mockImplementation(async (albumId: string) => [
+      {
+        id: `log-sammellauf-${albumId}`,
+        timestamp: "2026-01-02T00:00:00+00:00",
+        action: "refresh_album",
+        details: `Sammellauf zu ${albumId}`,
+        status: "success",
+      },
+    ]);
+    renameMock.mockImplementation(async (albumId: string) => [
+      {
+        id: `log-${albumId}`,
+        timestamp: "2026-01-03T00:00:00+00:00",
+        action: "rename_album",
+        details: `Eintrag zu ${albumId}`,
+        status: albumId === "album-eins" ? "success" : "error",
+        ...(albumId === "album-eins" ? {} : { error_message: "IMMICH_API_ERROR" }),
+      },
+    ]);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByText("Testalbum")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Alle synchronisieren/ }));
+    expect(await screen.findByText("Sammellauf zu album-eins")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/ }));
+    const feld = await screen.findByDisplayValue("Testalbum");
+    fireEvent.change(feld, { target: { value: "Neuer Name" } });
+    fireEvent.keyDown(feld, { key: "Enter" });
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+
+    // DER KERN: Das Ergebnis des Umbenennens steht auf der Karte, samt dem
+    // fehlgeschlagenen Eintrag.
+    const fehler = await screen.findByText("Eintrag zu album-zwei");
+    expect(fehler.className).toMatch(/red/);
+    expect(screen.queryByText("Sammellauf zu album-eins")).toBeNull();
+  });
+
+  it("dreht der naechste Sammellauf den Vorrang zurueck", async () => {
+    // Die Gegenprobe zur Zeile darueber, und der Waechter ueber die eigene
+    // Loesung: „lokal hat ab jetzt immer Vorrang" waere die billigste Antwort
+    // gewesen — und haette das Sammelergebnis fuer immer verdeckt. Gemessen
+    // wird die umgekehrte Reihenfolge: erst umbenennen, dann sammeln.
+    refreshMock.mockImplementation(async (albumId: string) => [
+      {
+        id: `log-sammellauf-${albumId}`,
+        timestamp: "2026-01-04T00:00:00+00:00",
+        action: "refresh_album",
+        details: `Sammellauf zu ${albumId}`,
+        status: "success",
+      },
+    ]);
+    renameMock.mockImplementation(async (albumId: string) => [
+      {
+        id: `log-${albumId}`,
+        timestamp: "2026-01-03T00:00:00+00:00",
+        action: "rename_album",
+        details: `Eintrag zu ${albumId}`,
+        status: "success",
+      },
+    ]);
+
+    await umbenennen("Neuer Name");
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Eintrag zu album-eins")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Alle synchronisieren/ }));
+
+    expect(await screen.findByText("Sammellauf zu album-eins")).toBeTruthy();
+    expect(screen.queryByText("Eintrag zu album-eins")).toBeNull();
   });
 });

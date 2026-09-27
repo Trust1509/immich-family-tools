@@ -1073,14 +1073,16 @@ export const translations = {
     "pt-BR": "Esse grupo de álbuns não existe mais",
   },
   err_album_name_required: {
-    de: "Für ein neues Album wird ein Name benötigt",
-    en: "A name is required for a new album",
-    "es-ES": "Se necesita un nombre para el álbum nuevo",
-    "pt-BR": "É necessário um nome para o novo álbum",
+    // Neutral formuliert, weil dieselbe Meldung seit #79 auch beim UMBENENNEN
+    // kommt — „für ein neues Album“ war dort schlicht falsch.
+    de: "Ein Albumname wird benötigt",
+    en: "An album name is required",
+    "es-ES": "Se necesita un nombre de álbum",
+    "pt-BR": "É necessário um nome de álbum",
   },
   err_album_name_in_use: {
     de: (album: string) =>
-      `Der Name „${album}" gehört bereits zu einer anderen Gruppe. Wähle einen anderen Namen.`,
+      `Der Name „${album}“ gehört bereits zu einer anderen Gruppe. Wähle einen anderen Namen.`,
     en: (album: string) =>
       `The name “${album}” already belongs to a different group. Pick another name.`,
     "es-ES": (album: string) =>

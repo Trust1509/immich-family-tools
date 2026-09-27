@@ -576,6 +576,28 @@ class ConfigStore:
             self._data.get("managed_albums", [])).get(
                 self._name_key(album_name), set()))
 
+    def derselbe_name(self, einer, anderer) -> bool:
+        """Wahr, wenn KEINE der beiden Faltungen die Namen unterscheidet.
+
+        Gebraucht fuer eine Ausnahme in der Kollisionspruefung beim
+        Umbenennen, gefunden vom Blindpruefer an #79: In dem Bestand, fuer den
+        die zweite Faltungsstufe aus #83 ueberhaupt existiert — zwei
+        Schreibweisen desselben Namens in ZWEI Gruppen —, konnte eine Gruppe
+        die Grossschreibung ihres EIGENEN Namens nicht mehr aendern. Die
+        Mehrdeutigkeit war vorher und nachher dieselbe, die Ablehnung
+        verhinderte nichts, und ihre Meldung („gehoert bereits zu einer
+        anderen Gruppe“) fuehrte in die Irre.
+
+        BEIDE Faltungen, nicht nur die heutige: Wer „Strassenfest“ in
+        „Straßenfest“ aendert, waehrend eine andere Gruppe genau so heisst,
+        laesst die heutige Faltung unberuehrt (sie zog die beiden schon
+        zusammen) — aber die zweite Stufe, die sie bisher auseinanderhielt,
+        kollidiert danach. Das ist eine NEUE Mehrdeutigkeit und bleibt
+        abgelehnt.
+        """
+        return all(faltung(einer) == faltung(anderer)
+                   for faltung in (self._name_key, self._name_key_vor_83))
+
     def group_details(self, group_id: str) -> dict:
         """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.
 

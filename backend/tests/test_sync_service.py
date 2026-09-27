@@ -531,6 +531,8 @@ def test_album_schloss_ueberlebt_einen_schleifenwechsel(monkeypatch):
     # Zwei getrennte Schleifen, dasselbe Album.
     assert asyncio.run(umkaempft())
     assert asyncio.run(umkaempft()), "zweite Schleife scheiterte"
+
+
 @pytest.mark.asyncio
 async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatch):
     updates: list[tuple[str, dict]] = []
