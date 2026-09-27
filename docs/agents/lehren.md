@@ -1702,3 +1702,34 @@ der Fehler lebt.
 öffnet — und ein Kommentar daneben, der sagt, dass sie der Beweis ist und nicht
 Kosmetik. Wer sie entfernt, muss die Probe rot machen; wenn nicht, hat sie nie
 gemessen.
+
+## 45. Ein bekanntes Falschsignal verdeckt echte Funde — und erzieht alle dazu, das Tor zu ignorieren
+
+**Anlass:** Der Release-Lauf von 1.8.0 ist rot geworden, an zwei Dateien mit
+Formatierungsfehlern. Lokal war das nicht zu sehen — nicht weil niemand
+hingesehen hätte, sondern weil alle hingesehen und es **wegerklärt** haben:
+`core.autocrlf=true` lässt den Arbeitsbaum CRLF tragen, Prettier erwartet LF,
+also meldet `npx prettier --check .` hier rund 22 Dateien, die in der CI sauber
+sind. Zwei Prüfstimmen haben diese Meldungen unabhängig voneinander als
+„Artefakt der Extraktion, kein Fund" abgehakt — korrekt für die 22, falsch für
+die zwei, die darin lagen. Ich habe dieselbe Abkürzung genommen.
+
+Dazu kam ein zweiter Grund, der allein schon gereicht hätte: Der
+Prettier-Schritt stand **nicht** in der CLAUDE.md-Liste „alle Kommandos, die
+die CI fährt" — der Liste, die genau dafür existiert, dass es keinen
+Prüfschritt gibt, den nur die CI kennt.
+
+**Die Klasse.** Ein Tor, dessen Meldungen regelmäßig falsch sind, wird nicht
+teilweise ignoriert, sondern ganz. Und es ist schlimmer als kein Tor: Es
+erzeugt das Gefühl, geprüft zu haben. Die Erklärung „das ist nur das bekannte
+Artefakt" ist dabei jedes Mal wahr — nur beantwortet sie nicht die Frage, ob
+**ausschließlich** das Artefakt drin ist. Verwandt mit §18 (ein Wächter, dessen
+Abdeckungszahl zur Beruhigung wird) und §42 (der Statuskanal trägt weniger, als
+der Leser ihm zutraut).
+
+**Regel:** Ein Tor, das wiederkehrend Falschmeldungen liefert, gilt als
+**defekt** und bekommt ein Issue — nicht eine Merkregel im Kopf der
+Beteiligten. Solange es defekt ist, wird es nicht gelesen, sondern **gezielt**
+gefahren: auf die eigenen geänderten Dateien, wo das Ergebnis eindeutig ist
+(`npx prettier --check <datei> …`). Und: Wer eine Liste führt, die „alle" sagt,
+prüft sie gegen die Quelle, statt sie zu glauben — hier `.github/workflows/`.
