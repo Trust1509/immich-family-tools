@@ -209,13 +209,22 @@ def _immich_attrappe(monkeypatch, name_draussen, bestand=("x1", "x2")):
             # Blindpruefers): Wuerde hier `name_draussen["wert"]` stehen,
             # wuerde die Namensuebernahme jede Diskrepanz zwischen einem
             # frischen und einem veralteten `managed`-Abbild selbst reparieren
-            # — und genau das ist die Klasse, die `test_frisch` (unten)
-            # beweisen soll. Gemessen: Mit dem Namen aus `name_draussen` blieb
-            # die Mutation `_frisch(managed, store) -> managed` in
-            # `refresh_managed_album` GRUEN, obwohl der Schaden real ist
-            # (ein veraltetes Abbild schreibt auch `person_refs`/`status`
-            # zurueck). Diese Attrappe prueft die Schlossform, nicht die
-            # Namensuebernahme — die hat ihre eigenen Tests in
+            # — und genau das ist die Klasse, die
+            # `test_ein_refresh_mit_altem_abbild_holt_den_alten_namen_nicht_zurueck`
+            # (unten) beweisen soll. Gemessen zum STAND DES ERSTBAUS: Mit dem
+            # Namen aus `name_draussen` blieb die Mutation `_frisch(managed,
+            # store) -> managed` in `refresh_managed_album` GRUEN ueber den
+            # `album_name`-Vergleich. Nachgemessen in Nacharbeit 2: Mit der
+            # damaligen Attrappe UND derselben Mutation wird der Test heute
+            # zwar rot, aber ueber die PROTOKOLLANZAHL
+            # (`[e.status for e in logs] == ["success"]` scheitert an einem
+            # zusaetzlichen Eintrag, nicht am Namen) — die Nacharbeit-1-Regel
+            # „Name ist eine zusaetzliche Meldung" haette die urspruengliche
+            # Luecke also zufaellig mitgedeckt. Diese Attrappe bleibt trotzdem
+            # namenlos: Sie soll die Schlossform pruefen, nicht sich auf einen
+            # Seiteneffekt einer anderen Regel verlassen. Der Schaden bleibt
+            # real (ein veraltetes Abbild schreibt auch `person_refs`/`status`
+            # zurueck). Die Namensuebernahme hat ihre eigenen Tests in
             # `test_sync_service.py`.
             await asyncio.sleep(0)
             return None, list(bestand)

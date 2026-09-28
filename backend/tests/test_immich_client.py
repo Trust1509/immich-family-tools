@@ -53,12 +53,14 @@ async def test_album_assets_are_loaded_across_all_search_pages():
 
 @pytest.mark.asyncio
 async def test_get_album_assets_with_name_reads_the_album_name_from_the_get_response():
-    """Nachweis 2, Nacharbeit 1 zu #97 (Blindpruefer + Fremdpruefer): Kein
-    Test der ECHTEN `ImmichClient.get_album_assets_with_name` prüfte bisher,
-    dass der Name wirklich aus dem Feld `albumName` der GET-Antwort kommt —
-    `info.get("name")` oder ein hartes `return None, asset_ids` blieben grün.
-    Das hier ist die echte Klasse gegen eine echte HTTP-Antwort, kein
-    handgeschriebenes Testdouble."""
+    """Panel-Fund zu #97, Nacharbeit 1 (Blindprüfer + Fremdprüfer) — eigene
+    Nummerierung, um sie nicht mit den fünf „Nachweis"-Proben aus dem
+    Bau-Brief in `test_sync_service.py` zu verwechseln. Kein Test der ECHTEN
+    `ImmichClient.get_album_assets_with_name` prüfte bisher, dass der Name
+    wirklich aus dem Feld `albumName` der GET-Antwort kommt — `info.get("name")`
+    oder ein hartes `return None, asset_ids` blieben grün. Das hier ist die
+    echte Klasse gegen eine echte HTTP-Antwort, kein handgeschriebenes
+    Testdouble."""
     def handle(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             return httpx.Response(

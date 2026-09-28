@@ -293,15 +293,21 @@ def _album_fuer_namensuebernahme(**overrides) -> ManagedAlbum:
     return ManagedAlbum(**basis)
 
 
-def _immich_client_mit_namen(monkeypatch, name, bestand=("asset-1",)):
+def _immich_client_mit_namen(monkeypatch, name, bestand=("asset-1",), person_assets=None):
     """ImmichClient-Attrappe, die den Immich-Albumnamen mitliefert und die
     echten `GET /api/albums/{id}`-Aufrufe zählt (#97).
 
     `get_album_assets_with_name` ruft ihren EIGENEN `get_album_info` auf —
     genau wie die echte Klasse —, damit der Zähler den tatsächlichen
     Netzwerkaufruf misst, nicht nur den Aufruf der Hülle.
+
+    `person_assets` ist standardmäßig deckungsgleich mit `bestand` (dann
+    entstehen nie neue Assets — der bisherige Normalfall dieser Attrappe).
+    Ein abweichender Wert lässt echte neue Assets entstehen, für Tests, die
+    Namensübernahme UND Asset-Zuwachs gleichzeitig brauchen (Nacharbeit 2).
     """
     calls = {"get_album_info": 0}
+    person_ids = bestand if person_assets is None else person_assets
 
     class Client:
         def __init__(self, *_a, **_k):
@@ -316,7 +322,7 @@ def _immich_client_mit_namen(monkeypatch, name, bestand=("asset-1",)):
             return info.get("albumName"), list(bestand)
 
         async def get_person_assets(self, _person_id):
-            return [{"id": asset_id} for asset_id in bestand]
+            return [{"id": asset_id} for asset_id in person_ids]
 
         async def add_assets_to_album(self, _album_id, asset_ids):
             return [{"id": a, "success": True} for a in asset_ids]
@@ -349,6 +355,29 @@ async def test_refresh_uebernimmt_den_aktuellen_namen_aus_immich(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refresh_zeigt_namensuebernahme_und_neue_assets_nebeneinander(monkeypatch):
+    """Nacharbeit 2 (#97, Blindpruefer): „Zusaetzlich, kein Ersatz" war nur in
+    EINER Richtung bewacht — ein Umbau zu `if not logs or name_entry is not
+    None:` blieb bei den bisherigen 266 Faellen unentdeckt gruen, meldete dann
+    aber bei Namensuebernahme UND neuen Assets faelschlich zusaetzlich „keine
+    neuen Assets". Dieser Test deckt genau die fehlende Kombination ab."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+    _immich_client_mit_namen(
+        monkeypatch, "Neu in Immich",
+        bestand=("asset-1",), person_assets=("asset-1", "asset-2"),
+    )
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_album_name_adopted", "log_assets_added_to_album",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
 async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkeypatch):
     """Nachweis 2 (#97): Gleicher Name -> kein Namens-Eintrag, Name unverändert."""
     owner = _konto_eins()
@@ -363,20 +392,50 @@ async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkey
 
 
 @pytest.mark.asyncio
+async def test_refresh_uebernimmt_den_namen_roh_auch_bei_sichtbar_gleichem_namen(monkeypatch):
+    """Nacharbeit 2 (#97): 'Immich gewinnt' gilt WOERTLICH, nicht bereinigt.
+
+    Ein Name, der sich nur durch Leerraum am Rand unterscheidet („Foo" gegen
+    „Foo "), ist als Python-String ungleich — er wird uebernommen und roh
+    gespeichert, auch wenn beide fuer einen Menschen gleich aussehen. Das ist
+    keine Regression des Leerraum-Schutzes (der faengt nur einen Namen aus
+    AUSSCHLIESSLICH Leerraum ab), sondern die bewusste Kehrseite von
+    'woertlich, nicht bereinigt'."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Foo")
+    _immich_client_mit_namen(monkeypatch, "Foo ")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    name_entries = [e for e in entries if e.message_key == "log_album_name_adopted"]
+    assert len(name_entries) == 1, entries
+    assert name_entries[0].message_params == {"old_name": "Foo", "new_name": "Foo "}
+    assert store.get_managed_album("managed-1").album_name == "Foo "
+
+
+def _leerraum_zeichen() -> list[str]:
+    """Alle Codepunkte, die Python `str.strip()` als Leerraum faltet.
+
+    Selbst gemessen (Owner-Vorgabe: keine Zahl abschreiben), nicht die vom
+    Panel genannte Zahl uebernommen — 29 Zeichen zum Zeitpunkt dieses Baus.
+    Kein Import einer fremden Liste: Aendert Python diese Menge je, aendert
+    sich auch diese Liste automatisch mit.
+    """
+    return [chr(i) for i in range(0x110000) if chr(i).strip() == ""]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "immich_name",
-    [
-        None,
-        "",
-        "   ",  # nur Leerzeichen
-        "\t",  # nur Tab
-        "\xa0",  # nur geschuetztes Leerzeichen (NBSP) — sichtbar leer, aber truthy
-        " \t\xa0 ",  # Mischung
-    ],
+    [None, ""] + _leerraum_zeichen() + ["".join(_leerraum_zeichen())],
 )
 async def test_refresh_behaelt_den_namen_wenn_immich_keinen_liefert(monkeypatch, immich_name):
-    """Nachweis 3 (#97, erweitert in Nacharbeit 1): Kein, ein leerer oder ein
-    NUR aus Leerraum bestehender Name aus Immich leert den Bestand nicht.
+    """Nachweis 3 (#97, erweitert in Nacharbeit 1 und 2): Kein, ein leerer
+    oder ein NUR aus Leerraum bestehender Name aus Immich leert den Bestand
+    nicht — parametrisiert ueber JEDEN Codepunkt, den Python als Leerraum
+    faltet (siehe `_leerraum_zeichen`), plus alle 29 zusammen in einem
+    String.
 
     Gemessen ohne den `.strip()`-Schutz (Fund von Blind- und Fremdpruefer):
     Ein Name aus reinem Leerraum ist in Python truthy und ungleich dem
@@ -424,11 +483,16 @@ async def test_ein_abgleich_ruft_get_album_info_nur_einmal_auf(monkeypatch):
     'kein Doppelaufruf'-Zusage im Befund.
 
     Die Zusicherung gilt hier für ein Album mit EINEM Konto (`person_refs`
-    enthält nur den Owner) — `_share_album_if_needed` wird dann uebersprungen,
-    weil es niemanden zu teilen gibt. Mit einem weiteren Teilnehmer holt
-    `get_album_user_ids` denselben Endpunkt ein ZWEITES Mal (gemessen: 1 Aufruf
-    ohne, 2 Aufrufe mit einem zu teilenden Konto) — das ist keine Regression
-    dieses Slices, sondern der bereits vorher bestehende Weg des Teilens."""
+    enthält nur den Owner): `_share_album_if_needed` wird trotzdem aufgerufen,
+    kehrt aber sofort zurück (`if not accounts_to_share: return logs`), noch
+    bevor sie `get_album_user_ids` erreicht — deshalb bleibt es bei einem
+    Aufruf. Mit einem weiteren Teilnehmer holt `get_album_user_ids` denselben
+    Endpunkt ein ZWEITES Mal, UNABHÄNGIG davon, ob dieser Teilnehmer schon
+    Mitglied ist — die Mitgliedschaftsprüfung braucht den Aufruf so oder so
+    (gemessen per Wegwerf-Skript, Nacharbeit 2: 1 Aufruf ohne weiteren
+    Teilnehmer, 2 Aufrufe mit einem neuen Teilnehmer, 2 Aufrufe mit einem
+    bereits vorhandenen Teilnehmer). Das ist keine Regression dieses Slices,
+    sondern der bereits vorher bestehende Weg des Teilens."""
     owner = _konto_eins()
     managed = _album_fuer_namensuebernahme(album_name="Alter Name")
     calls = _immich_client_mit_namen(

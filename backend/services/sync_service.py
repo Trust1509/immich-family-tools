@@ -455,15 +455,27 @@ def _uebernimm_immich_namen(
 
     Ein leerer oder fehlender Name aus Immich LEERT den Bestand nicht — das
     wäre ein Datenverlust, den niemand angefragt hat. Dasselbe gilt fuer einen
-    Namen aus reinem Leerraum (Space, Tab, NBSP): `str.strip()` faltet ihn auf
-    leer, genau wie die Pruefung im Umbenennen-Router (`new_name =
-    body.album_name.strip()`) — ohne diese Faltung haette ein solcher Name den
-    sichtbaren Bestandsnamen geleert, gemessen an der Gruppenvorschau
-    (Nacharbeit 1, Panel). Bleibt der Name gleich, gibt es keinen
-    Protokolleintrag: Nur eine tatsächliche Änderung ist eine Meldung wert.
-    Mutiert `managed` in-place, wie die Nachbarfunktionen dieses Moduls es mit
-    `total_assets`/`last_synced_at` auch tun — das Schreiben in den Bestand
-    übernimmt weiterhin der Aufrufer.
+    Namen aus reinem Leerraum: `str.strip()` faltet ihn auf leer, genau wie
+    die Pruefung im Umbenennen-Router (`new_name = body.album_name.strip()`)
+    — ohne diese Faltung haette ein solcher Name den sichtbaren Bestandsnamen
+    geleert, gemessen am BESTAND ueber `StoreDoppel` in
+    `test_sync_service.py` (Nacharbeit 1, Panel; nicht an der
+    Gruppenvorschau — die hat keinen eigenen Test dafuer).
+
+    Der Name wird ROH uebernommen, nicht bereinigt: „Immich gewinnt" gilt
+    woertlich, nicht „Immich gewinnt, um Leerraum am Rand bereinigt".
+    Gemessen (Nacharbeit 2): Bestandsname „Foo" gegen Immich-Namen „Foo "
+    (mit angehaengtem Leerzeichen) sind als Python-Strings UNGLEICH — die
+    Funktion uebernimmt „Foo " und meldet eine Namensaenderung zwischen zwei
+    fuer einen Menschen sichtbar gleichen Namen. Das ist beabsichtigt, kein
+    Fehler dieser Funktion; nur ein Name aus AUSSCHLIESSLICH Leerraum wird
+    oben abgefangen.
+
+    Bleibt der Name gleich, gibt es keinen Protokolleintrag: Nur eine
+    tatsächliche Änderung ist eine Meldung wert. Mutiert `managed` in-place,
+    wie die Nachbarfunktionen dieses Moduls es mit `total_assets`/
+    `last_synced_at` auch tun — das Schreiben in den Bestand übernimmt
+    weiterhin der Aufrufer.
     """
     if not immich_name or not immich_name.strip() or immich_name == managed.album_name:
         return None
@@ -683,15 +695,23 @@ async def _rename_managed_album_unlocked(
     # Protokoll liegt in derselben Datei (`append_log` ruft `_save`), das
     # Schreiben ist also gerade erst gescheitert. Der Aufrufer bekommt 500.
     #
-    # Seit #97 (Nacharbeit 1, ueberholt die urspruengliche Fassung dieses
-    # Kommentars): Der naechste ERFOLGREICHE Refresh liest den Immich-Namen
-    # ueber `get_album_assets_with_name` und uebernimmt ihn
-    # (`_uebernimm_immich_namen`) — die Diskrepanz bleibt also nicht auf
-    # Dauer stehen, sondern nur bis zum naechsten Abgleich. Ungemessen bleibt,
-    # wie lange dieses Fenster in der Praxis dauert (haengt am Sync-Intervall)
-    # und was passiert, wenn ein Refresh in genau diesem Fenster selbst
-    # scheitert — dafuer gibt es weiterhin keinen eigenen Heilungspfad, nur
-    # den naechsten Versuch.
+    # Seit #97 (Nacharbeit 2, PRAEZISIERT — die Fassung aus Nacharbeit 1
+    # nannte den falschen Mechanismus): `ConfigStore.update_managed_album`
+    # aendert `self._data` VOR dem Aufruf von `_save()` (siehe dort) — der
+    # Speicher haelt "Neu" also schon, bevor je geschrieben wurde. Im
+    # LAUFENDEN Prozess heilt deshalb NICHT `_uebernimm_immich_namen`,
+    # sondern das naechste erfolgreiche Speichern eines beliebigen Refreshs:
+    # `_frisch` liest "Neu" aus dem Speicher, Immich meldet ebenfalls "Neu",
+    # beide sind gleich, und der Refresh schreibt die Platte einfach nach —
+    # ohne je durch die Namensuebernahme zu laufen (die Meldung ist dann nur
+    # `log_no_new_assets`). Der Weg ueber `_uebernimm_immich_namen`/
+    # `log_album_name_adopted` greift erst nach einem NEUSTART des Prozesses,
+    # wenn der Speicher wieder von der Platte ("Alt") geladen wurde. Der
+    # Auto-Sync ist dafuer kein Heilungspfad mit fester Frist: Er laeuft zu
+    # EINEM taeglichen, konfigurierbaren Zeitpunkt (`main._auto_sync_loop`)
+    # und ist abschaltbar — beides bleibt hier ungemessen: wie lange dieses
+    # Fenster in der Praxis dauert, und was ein Scheitern GENAU darin
+    # bewirkt.
     managed.album_name = new_name
     store.update_managed_album(managed)
     return [SyncLogEntry(
