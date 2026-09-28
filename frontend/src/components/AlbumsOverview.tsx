@@ -61,10 +61,15 @@ function ruleKey(album: ManagedAlbum): string {
   const minimum = album.minimum_person_count ?? 1;
   const linkedIds = [...new Set(album.linked_person_ids ?? [])].sort();
   if (minimum === 1 && linkedIds.length === 0) return "normal";
-  const people = [...new Set(album.person_refs.map((ref) =>
-    JSON.stringify([ref.account_id, ref.person_id])
-  ))].sort();
-  return JSON.stringify([minimum, album.condition_person_count ?? people.length, linkedIds, people]);
+  const people = [
+    ...new Set(album.person_refs.map((ref) => JSON.stringify([ref.account_id, ref.person_id]))),
+  ].sort();
+  return JSON.stringify([
+    minimum,
+    album.condition_person_count ?? people.length,
+    linkedIds,
+    people,
+  ]);
 }
 
 function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
@@ -656,7 +661,8 @@ function AlbumGroupCard({
 
       <div className="space-y-1.5">
         <p className="text-xs text-gray-500 font-medium">{t("linked_people")}</p>
-        {(group.minimum_person_count > 1 || (group.albums[0].linked_person_ids?.length ?? 0) > 0) && (
+        {(group.minimum_person_count > 1 ||
+          (group.albums[0].linked_person_ids?.length ?? 0) > 0) && (
           <p className="text-xs text-blue-300">
             {t("conditional_album_rule", group.minimum_person_count, group.condition_person_count)}
           </p>
