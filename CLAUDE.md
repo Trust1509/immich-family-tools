@@ -304,6 +304,13 @@ nicht):\*\*
   lokal und nur nach einem `npm install` in der Wurzel; ohne diesen Lauf wäre
   seine Abdeckung reine Behauptung. Sie fährt echte Commits in Wegwerf-Repos
   und prüft, was git **speichert**, nicht nur, was der Hook sieht.
+- Backend: `sh scripts/zeilenenden.sh` und `sh scripts/zeilenenden-selbstprobe.sh`
+  — der Wächter für #104: jede versionierte Datei hat `eol=lf`
+  (`git check-attr`), kein Blob trägt CRLF (`git ls-files --eol`). Er fragt
+  Attribute und Index ab, nicht den Arbeitsbaum, weil der Linux-Läufer
+  ohnehin LF auscheckt und einen Rückbau sonst nie sähe. Die Selbstprobe
+  baut die gemessenen Rückbau-Varianten nach (Regel gelöscht, `*.md -eol`,
+  verschachtelte `.gitattributes` mit `eol=crlf`, CRLF-Blob).
 - Backend: `python scripts/faltung-sonde-selbsttest.py` — die Selbstprobe der
   Faltungs-Sonde (#83). Hier aus demselben Grund wie die beiden darüber, nur
   schärfer: Die Sonde trägt eine Owner-Entscheidung über eine **unumkehrbare**
@@ -322,12 +329,19 @@ nicht):\*\*
   CI-Läufer, auch bei `core.autocrlf=true`. Gemessen in einem frischen Klon
   mit `autocrlf=true`: alle Textdateien `w/lf`, `npx prettier --check .`
   ohne Meldung. **Ein Checkout von vor #104 bleibt CRLF**, bis die Dateien
-  neu ausgecheckt werden — `git status` zeigt dabei nichts an (gemessen),
-  man sieht es nur an `git ls-files --eol` (`w/crlf`). Auffrischen auf einem
-  SAUBEREN Baum (verwirft ungesicherte Änderungen!):
-  `git rm -r -q --cached . && git reset -q --hard`. Vorher war der lokale
-  Lauf wertlos: rund zwei Dutzend Falschmeldungen, hinter denen beim Release
-  1.8.0 zwei echte Funde verschwanden (`docs/agents/lehren.md` §45).
+  neu ausgecheckt werden. `git status` zeigt das nicht an (gemessen, auch
+  nach `touch`); zu sehen ist es an `git ls-files --eol` (`w/crlf`) und an
+  den Warnungen „CRLF will be replaced by LF" bei `git diff`/`git add`. Wer
+  `core.safecrlf=true` gesetzt hat, kann in einem solchen Checkout nicht
+  mehr committen (`fatal: CRLF would be replaced by LF`, gemessen) — dann
+  zuerst auffrischen. Auffrischen, mit Riegel gegen ungesicherte Änderungen
+  (bricht mit Exit 1 ab, wenn etwas gestaged oder geändert ist; `:/` wirkt
+  vom ganzen Repo aus, egal in welchem Verzeichnis man steht):
+  `git diff --quiet HEAD -- && git rm -r -q --cached :/ && git reset -q --hard`.
+  Unversionierte und ignorierte Dateien bleiben erhalten. Vorher war der
+  lokale Lauf wertlos: Beim Release 1.8.0 meldete er rund zwei Dutzend
+  Dateien, die in der CI sauber waren, und zwei echte Funde gingen darin
+  unter (`docs/agents/lehren.md` §45).
 - Frontend (in `frontend/`): `npm test` — seit #72 unter einem **echten DOM**
   (`happy-dom`, gewählt gegen `jsdom`: gemessen +9 statt +37 Pakete im Baum —
   wobei die Paketzahl die Lieferkette misst, nicht die DOM-Treue; die

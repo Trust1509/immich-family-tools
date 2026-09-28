@@ -1,8 +1,9 @@
 # Alle Textdateien mit LF im Arbeitsbaum, auch bei core.autocrlf=true (#104).
 # Die Blobs im Repo tragen schon LF (gemessen: 0 Dateien i/crlf); die CI prueft
 # mit Prettier auf LF (`endOfLine` Vorgabe). Mit CRLF im Arbeitsbaum meldete ein
-# lokaler `npx prettier --check .` rund zwei Dutzend Falschtreffer, hinter denen
-# echte Funde verschwanden (Release 1.8.0 rot, docs/agents/lehren.md §45).
+# lokaler `npx prettier --check .` beim Release 1.8.0 rund zwei Dutzend
+# Falschtreffer, hinter denen zwei echte Funde verschwanden (lehren.md §45).
+# Bewacht von scripts/zeilenenden.sh (CI) samt Selbstprobe.
 * text=auto eol=lf
 
 # Shell-Skripte laufen unter sh/dash; CRLF bricht dort mit "set: Illegal option -"

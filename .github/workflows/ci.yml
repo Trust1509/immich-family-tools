@@ -91,6 +91,15 @@ jobs:
       # faehrt echte Commits in Wegwerf-Repos und prueft, was git SPEICHERT,
       # nicht nur, was der Hook sieht.
       - run: sh scripts/commit-msg-selbstprobe.sh
+      # Zeilenenden (#104). Das Ziel — der Arbeitsbaum traegt auch unter
+      # core.autocrlf=true LF — ist auf diesem Laeufer nicht zu sehen: Linux
+      # checkt ohnehin LF aus, der Prettier-Schritt bliebe gruen, auch wenn
+      # die Regel in .gitattributes weg ist (gemessen von der blinden
+      # Erststimme). Deshalb fragt der Waechter die ATTRIBUTE und den INDEX
+      # ab, nicht den Arbeitsbaum; die Selbstprobe baut die gemessenen
+      # Rueckbau-Varianten nach und verlangt je Exit 1.
+      - run: sh scripts/zeilenenden.sh
+      - run: sh scripts/zeilenenden-selbstprobe.sh
       # Die Selbstprobe der Faltungs-Sonde (#83). Dieselbe Begruendung, und
       # hier besonders scharf: Die Sonde traegt eine Owner-Entscheidung ueber
       # eine UNUMKEHRBARE Datenwanderung. Ihre erste Fassung meldete
