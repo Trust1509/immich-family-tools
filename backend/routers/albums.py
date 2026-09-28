@@ -521,10 +521,9 @@ async def rename_managed_album(
     # dieser Umbenennung anders als vorher? Abgelehnt wird nur, wenn ein Name,
     # den es nachher noch gibt, seine Gruppe verliert oder eine andere bekommt
     # — nicht, wenn eine Mehrdeutigkeit kleiner wird, und nicht fuer den Namen,
-    # von dem weg umbenannt wird (der geht an eine Gruppe mit gleichwertiger
-    # Schreibweise ueber, wenn es genau eine gibt; Regel offen in #98).
-    # Begruendung, Messung und die
-    # unterschiedenen Faelle stehen bei `ConfigStore.namen_mit_anderer_antwort`.
+    # von dem weg umbenannt wird (was aus ihm wird, haengt am Bestand; offen
+    # in #98). Die Faelle und ihre Proben stehen bei
+    # `ConfigStore.namen_mit_anderer_antwort`.
     #
     # Die drei Vorgaenger dieser Zeile (`gruppen_mit_namen`, Abzug der eigenen
     # Gruppe, `gruppe_traegt_namen`) sind damit weg. Sie haben in drei Runden
@@ -548,8 +547,9 @@ async def rename_managed_album(
     # subscriptum plus Perispomeni); mit zwei kombinierenden Zeichen sind es
     # Tausende, mit weiteren Zeichen davor oder dahinter beliebig viele.
     # Die Proben in `test_namensfaltung.py` halten die EIGENSCHAFT der
-    # Faltung fest — das Schloss selbst prueft keine Probe (eine Mutation, die
-    # es auf Stufe 2 schluesselt, bleibt gruen). Die Antwort gehoert zu #95.
+    # Faltung fest. Dass das Schloss normalisiert und je Name schluesselt,
+    # pruefen Proben; AUF WELCHER STUFE es schluesselt, prueft keine (eine
+    # Mutation auf Stufe 2 bleibt gruen). Die Antwort gehoert zu #95.
     #
     # REIHENFOLGE DER SCHLOESSER in dieser Datei: Treffer -> Gruppe -> Album
     # (das Albumschloss nimmt `sync_service.rename_managed_album` innen).

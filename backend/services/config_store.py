@@ -561,101 +561,50 @@ class ConfigStore:
     def namen_mit_anderer_antwort(self, album_id, neuer_name) -> dict:
         """Welche Namen antworten nach dieser Umbenennung ANDERS als vorher?
 
-        Das ist die Frage, um die es bei einer Namenskollision wirklich geht —
-        und die drei Vorgaenger dieses Praedikats haben sie nur angenaehert.
-        Sie fragten „gehoert der Zielname schon einer anderen Gruppe?" und
-        lehnten damit Harmloses ab — darunter den einen Vorgang, der den
-        Schaden aus #78 BEHEBT: zwei versehentlich gleichnamige Gruppen ueber
-        eine ß/ss-Schreibweise wieder auseinanderhalten. Das ist hier als
-        Probe festgehalten
-        (`test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden`).
-        Zahlen ueber grosse Bestandsmengen stehen in #108, mit Quelle — hier
-        nicht, weil die Sonde, die sie gemessen hat, nicht im Repo liegt und
-        eine nicht nachpruefbare Zahl in einem Docstring genau so entsteht,
-        wie „943 Paare" entstanden ist.
+        WAS ES TUT — und dieser Docstring behauptet bewusst nichts darueber
+        hinaus: Es spielt die Umbenennung auf einer Kopie des Bestands nach.
+        Fuer jeden Albumnamen, den es NACHHER gibt, vergleicht es die Antwort
+        von `_gruppe_fuer_namen` (beide Faltungsstufen) vorher und nachher.
+        Gemeldet wird jeder solche Name, der vorher eine Gruppe hatte und
+        danach eine andere oder keine. Eine Antwort, die erst entsteht, wird
+        nicht gemeldet.
 
-        Gefragt wird deshalb direkt an der Wirkung. Gemessen wird `Name ->
-        Gruppe` (also `_gruppe_fuer_namen`, beide Stufen) fuer jeden Namen, den
-        es NACH der Umbenennung noch gibt, vorher und nachher. Gemeldet wird
-        jeder solche Name, der vorher eine Gruppe hatte und danach eine andere
-        oder keine.
+        Die drei Faelle, je mit einer Probe in `tests/test_umbenennen_gruppe.py`
+        oder `tests/test_umbenennen_kollision.py`:
 
-        Die drei Faelle, die dadurch auseinandergehalten werden:
+        * `g -> None` — abgelehnt. Der Schaden aus #78: Die Vorschau verstummt.
+        * `None -> g` — erlaubt. Die Mehrdeutigkeit wird kleiner; das ist der
+          Weg aus dem #78-Schaden heraus, den die drei Vorgaenger dieses
+          Praedikats gesperrt haben.
+        * `g1 -> g2` — abgelehnt. Ein kuenftiges Album mit diesem Namen traete
+          einer anderen Gruppe bei als bisher.
 
-        * `g2 -> None` — eine Gruppe verliert ihre Antwort. Genau der Schaden
-          aus #78: Der Nutzer sieht zwei gleichnamige Karten und bekommt beim
-          naechsten Anlegen keine Gruppenvorschau mehr. **Abgelehnt.**
-        * `None -> g2` — ein Name GEWINNT eine Antwort. Die Mehrdeutigkeit war
-          schon da und wird kleiner. **Erlaubt** — das ist der Weg aus dem
-          Schaden heraus, und die alte Pruefung hat ihn gesperrt.
-        * `g1 -> g2` — die Antwort wandert zu einer anderen Gruppe, obwohl die
-          alte sie weiter traegt. Ein kuenftiges Album mit diesem Namen traete
-          danach einer anderen Gruppe bei als bisher: Die alte Gruppe wird
-          VERDRAENGT. **Abgelehnt.**
+        DIE SCHLEIFE UEBER ALLE NACHHER VORHANDENEN NAMEN TRAEGT LAST. Es gibt
+        Bestaende, in denen der Zielname seine Antwort behaelt und ein ANDERER
+        Name sie verliert; nur die volle Schleife lehnt dort ab
+        (`test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen`). Die
+        Meldung nennt in diesem Fall trotzdem den Zielnamen (#108). Bis zur
+        zweiten Nacharbeit an #108 stand hier, eine Pruefung nur des Zielnamens
+        sei gleichwertig — erst als Beweis, dann als Messung. Beides war falsch.
 
-        DER NAME, VON DEM WEG UMBENANNT WIRD, WIRD NICHT GEPRUEFT — und das
-        ist eine Regel, keine Nebensache. Stand hier bis #108 mit der
-        Begruendung, er „gehoere danach niemandem mehr". Das war falsch
-        (Blindpruefung, am echten Router reproduziert): Traegt eine andere
-        Gruppe eine gleichwertige Schreibweise, geht die Klasse des alten
-        Namens an sie ueber.
+        WAS ES NICHT PRUEFT: den Namen, von dem weg umbenannt wird — es gibt
+        ihn nachher nicht mehr. Was aus ihm wird, haengt am ganzen Bestand und
+        an beiden Faltungsstufen. Gemessen (#108) sind alle drei Ausgaenge: Er
+        kann danach auf eine ANDERE Gruppe zeigen („Strasse" weg umbenannt,
+        eine andere Gruppe traegt „Straße"), auf KEINE (dieselbe Lage, aber die
+        eigene Gruppe traegt noch „Straſse"), oder auf die EIGENE (sie traegt
+        noch „STRASSE"). Festgehalten als heutiges Verhalten ist der erste
+        Ausgang, ueber beide Faltungsstufen:
+        `test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin`.
 
-            Bestand: a1 "Strasse" -> gruppe-1 ; a2 "Straße" -> gruppe-2
-            PATCH a1 -> "Herbstfest"            -> 200
-            vorher 'Strasse' -> gruppe-1 ; nachher 'Strasse' -> gruppe-2
+        Allgemeine Regeln fuer diesen Namen standen hier in drei Fassungen, und
+        jede wurde von einer Pruefstimme widerlegt. Deshalb steht hier keine
+        mehr. Ob und wie er geprueft werden soll, ist eine offene
+        Owner-Entscheidung; die gemessenen Varianten stehen in #98.
 
-        Die Regel dahinter: **Wer einen Namen verdraengt, wird abgelehnt; wer
-        einen frei gewordenen uebernimmt, nicht.** `gruppe-1` hat die Klasse
-        „strasse" verlassen, `gruppe-2` ist ihre einzige Traegerin — seit #83
-        sind die beiden Schreibweisen derselbe Name. Tragen ZWEI andere
-        Gruppen eine gleichwertige Schreibweise, geht der Name an keine ueber:
-        Er zeigt danach auf gar keine Gruppe (gefunden von der Blindpruefung
-        zu #108, nachgemessen: „Strasse"/„Straße"/„Straſse" in drei Gruppen,
-        die erste weg umbenannt -> „Strasse" zeigt auf keine). Ebenso koennen
-        Schreibweisen, die bis dahin nur der Stufe-2-Rueckgriff auseinander-
-        hielt, ihre Antwort verlieren (gemessen: nach „Strasse" -> „Straſse"
-        zeigt „STRASSE" auf keine Gruppe mehr). Kein Datenschaden: Die
-        Zugehoerigkeit bestehender Alben haengt an der Kennung, betroffen ist
-        nur, was die Vorschau fuer eine Schreibweise ANBIETET. Dass die
-        Vorschau das vor dem Beitritt ZEIGT, gilt nicht immer: Sie wartet
-        300 ms und zeigt waehrend der Abfrage nichts, und ein schneller Klick
-        legt vorher an (#110).
-
-        Den alten Namen mitzupruefen geht auf zwei Arten, und nur eine davon
-        ist eine echte Alternative:
-
-        * Jede ANTWORT-AENDERUNG des alten Namens ablehnen: Unsinn. Der alte
-          Name verliert beim Umbenennen fast immer seine Antwort, das sperrte
-          jedes Umbenennen. (Hier stand bis zur Nacharbeit an #108, diese
-          Mutation breche „zwei gewoehnliche Umbenenn-Proben". Die Zwei war
-          die Groesse der Auswahl, die ich hatte laufen lassen, keine
-          Eigenschaft der Mutation — die ganze Suite verliert 14 von 254
-          Proben, gemessen am 28.09.2026.)
-        * Nur die WANDERUNG des alten Namens zu einer anderen Gruppe ablehnen,
-          das Freiwerden erlauben: eine stimmige ZWEITE Regel. Sie bricht
-          keine gewoehnliche Probe, nur die Probe, die die heutige Regel
-          festhaelt. Ihr Preis: Eine Gruppe liesse sich nicht von ihrem Namen
-          weg umbenennen, solange genau eine andere Gruppe eine gleichwertige
-          Schreibweise traegt.
-
-        **Welche der beiden Regeln gilt, entscheidet der Owner in #98.** Festgenagelt ist sie als heutiges Verhalten in
-        `tests/test_umbenennen_gruppe.py::test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin`
-        — das ist der Test, der kippt, wenn #98 anders entscheidet.
-
-        DIE SCHLEIFE UEBER ALLE NAMEN TRAEGT LAST. Sie ist NICHT gleichwertig
-        zu einer, die nur den Zielnamen prueft — auch wenn das zwei Fassungen
-        lang hier stand, erst als Beweis, dann als Messung. Beides war falsch.
-        Blind- und Fremdpruefer zu #108 haben unabhaengig je ein Gegenbeispiel
-        gebaut, beide ueber die griechischen Namen, die nur in Stufe 2
-        kollidieren: Der Zielname behaelt seine Antwort, aber ein ANDERER
-        Name, den es nachher noch gibt, verliert sie. Die volle Schleife lehnt
-        ab, die verkuerzte liesse durch. Festgenagelt in
-        `tests/test_umbenennen_gruppe.py::test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen`.
-
-        Daraus folgt auch: Die Meldung nennt den ZIELNAMEN, verdraengt wird im
-        Gegenbeispiel aber ein anderer. Die Auskunft „gehoert bereits zu einer
-        anderen Gruppe" ist in diesem Fall ungenau (Verhalten, nicht Kopftext —
-        steht in #108).
+        In keinem dieser Faelle entsteht ein Datenschaden: Die Zugehoerigkeit
+        bestehender Alben haengt an der Gruppenkennung. Betroffen ist, welche
+        Gruppe die Vorschau fuer eine Schreibweise ANBIETET.
         """
         vorher = [dict(a) for a in self._data.get("managed_albums", [])]
         nachher = [dict(a) for a in vorher]

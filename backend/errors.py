@@ -157,9 +157,8 @@ def album_name_in_use(album_name: str) -> AppError:
     NACHHER NOCH GIBT, seine Gruppe verliert oder eine andere bekommt.
     Gewinnt ein Name eine Antwort, wird die Mehrdeutigkeit kleiner — dann
     kommt sie nicht. Der Name, von dem WEG umbenannt wird, ist ausgenommen;
-    traegt genau eine andere Gruppe eine gleichwertige Schreibweise, geht er
-    an sie ueber, tragen mehrere, zeigt er danach auf keine. Regel und offene
-    Entscheidung: #98, Beleg: #108.
+    was aus ihm wird, haengt am Bestand (Beispiele in #108), und ob er
+    geprueft werden soll, entscheidet #98.
 
     Drei Fassungen dieser Pruefung haben vorher ueber ein ALBUM geurteilt, wo
     es um einen Zustand geht; jede hat harmlose Vorgaenge abgelehnt, und die

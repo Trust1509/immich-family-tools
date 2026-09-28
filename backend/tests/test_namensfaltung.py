@@ -507,15 +507,14 @@ def test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen(klein, gross):
     Grenze geschlossen, und die Kommentare am Namensschloss und am Prädikat
     beschreiben dann einen Zustand, den es nicht mehr gibt.
 
-    Grund der Kollision — sie entsteht in der ERSTEN Normalform, nicht in
-    `casefold` (hier stand bis zur Nacharbeit an #108 das Gegenteil; die
-    Blindprüfung hat es widerlegt): Der kleine Buchstabe mit Iota subscriptum
-    plus Perispomeni hat eine vorkomponierte Form (`U+1FB7`), der grosse
-    nicht. Nach der ersten Normalform liegen also zwei verschiedene Folgen
-    vor, und `casefold` reiht Perispomeni und Iota darin verschieden. Ohne die
-    erste Normalform fielen beide zusammen — die Mutation macht alle drei
-    Fälle rot. Stufe 2 normalisiert nicht und legt beide über `lower()`
-    zusammen.
+    Woher das kommt: ZUSAMMEN fallen die beiden in Stufe 2, weil `lower()`
+    aus dem grossen Buchstaben den kleinen macht und Stufe 2 nicht
+    normalisiert. GETRENNT bleiben sie in Stufe 1 wegen der ersten
+    Normalform: Der kleine Buchstabe mit Iota subscriptum plus Perispomeni
+    hat eine vorkomponierte Form (`U+1FB7`), der grosse nicht; `casefold`
+    reiht Perispomeni und Iota danach verschieden. Ohne die erste Normalform
+    fielen sie auch in Stufe 1 zusammen — die Mutation macht alle drei Fälle
+    rot. (Bis zur Nacharbeit an #108 stand hier, `casefold` sei die Ursache.)
     """
     stufe1, stufe2 = ConfigStore._name_key, ConfigStore._name_key_vor_83
     assert stufe1(klein) != stufe1(gross), "Stufe 1 trennt die beiden nicht mehr"
