@@ -230,9 +230,13 @@ export default function ExtendMatch() {
   });
 
   const groups = useMemo(
-    () => groupAlbums(rawAlbums.filter((album) =>
-      (album.minimum_person_count ?? 1) === 1 && (album.linked_person_ids?.length ?? 0) === 0
-    )),
+    () =>
+      groupAlbums(
+        rawAlbums.filter(
+          (album) =>
+            (album.minimum_person_count ?? 1) === 1 && (album.linked_person_ids?.length ?? 0) === 0
+        )
+      ),
     [rawAlbums]
   );
 

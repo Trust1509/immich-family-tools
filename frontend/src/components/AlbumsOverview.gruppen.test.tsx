@@ -172,8 +172,12 @@ describe("AlbumsOverview: bedingte Regeln", () => {
     ]);
 
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <LanguageProvider><AlbumsOverview /></LanguageProvider>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
       </QueryClientProvider>
     );
 
@@ -192,15 +196,35 @@ describe("AlbumsOverview: bedingte Regeln", () => {
     albenMock.mockResolvedValue([
       album("normal-a", "person-a", "Person A"),
       album("normal-b", "person-b", "Person B"),
-      { ...album("regel-zwei", "person-c", "Person C"), minimum_person_count: 2, condition_person_count: 2 },
-      { ...album("regel-drei", "person-d", "Person D"), minimum_person_count: 2, condition_person_count: 3 },
-      { ...album("link-e", "person-e", "Person E"), minimum_person_count: 1, linked_person_ids: ["identitaet-e"] },
-      { ...album("link-f", "person-f", "Person F"), minimum_person_count: 1, linked_person_ids: ["identitaet-f"] },
+      {
+        ...album("regel-zwei", "person-c", "Person C"),
+        minimum_person_count: 2,
+        condition_person_count: 2,
+      },
+      {
+        ...album("regel-drei", "person-d", "Person D"),
+        minimum_person_count: 2,
+        condition_person_count: 3,
+      },
+      {
+        ...album("link-e", "person-e", "Person E"),
+        minimum_person_count: 1,
+        linked_person_ids: ["identitaet-e"],
+      },
+      {
+        ...album("link-f", "person-f", "Person F"),
+        minimum_person_count: 1,
+        linked_person_ids: ["identitaet-f"],
+      },
     ]);
 
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <LanguageProvider><AlbumsOverview /></LanguageProvider>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
       </QueryClientProvider>
     );
 

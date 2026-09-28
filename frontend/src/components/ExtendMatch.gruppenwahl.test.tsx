@@ -223,8 +223,26 @@ describe("ExtendMatch: bedingte Alben", () => {
   it("bietet nur normale Alben zum Erweitern an, auch bei gleicher Gruppenkennung", async () => {
     albenMock.mockResolvedValue([
       ALBEN[0],
-      { ...ALBEN[0], id: "album-mindestzahl", group_id: "gruppe-1", person_refs: [{ ...ALBEN[0].person_refs[0], person_id: "person-c", person_name: "Person C" }], minimum_person_count: 2, condition_person_count: 2 },
-      { ...ALBEN[0], id: "album-verknuepft", group_id: "gruppe-1", person_refs: [{ ...ALBEN[0].person_refs[0], person_id: "person-d", person_name: "Person D" }], minimum_person_count: 1, linked_person_ids: ["identitaet-1"] },
+      {
+        ...ALBEN[0],
+        id: "album-mindestzahl",
+        group_id: "gruppe-1",
+        person_refs: [
+          { ...ALBEN[0].person_refs[0], person_id: "person-c", person_name: "Person C" },
+        ],
+        minimum_person_count: 2,
+        condition_person_count: 2,
+      },
+      {
+        ...ALBEN[0],
+        id: "album-verknuepft",
+        group_id: "gruppe-1",
+        person_refs: [
+          { ...ALBEN[0].person_refs[0], person_id: "person-d", person_name: "Person D" },
+        ],
+        minimum_person_count: 1,
+        linked_person_ids: ["identitaet-1"],
+      },
     ]);
 
     zeichne();
