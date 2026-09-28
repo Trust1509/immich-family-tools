@@ -204,6 +204,14 @@ def _immich_attrappe(monkeypatch, name_draussen, bestand=("x1", "x2")):
             await asyncio.sleep(0)
             return list(bestand)
 
+        async def get_album_assets_with_name(self, _album_id):
+            # Derselbe „aussen" gefuehrte Name wie `update_album` ihn schreibt
+            # (#97) — der Refresh in diesen Tests prueft die Schlossform, nicht
+            # die Namensuebernahme; dieser Wert haelt sie deckungsgleich zum
+            # Bestand, solange niemand zwischendurch umbenannt hat.
+            await asyncio.sleep(0)
+            return name_draussen["wert"], list(bestand)
+
         async def get_person_assets(self, _person_id):
             await asyncio.sleep(0)
             return []

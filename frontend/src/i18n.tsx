@@ -1335,6 +1335,14 @@ const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
     "pt-BR": (p) => `Álbum '${p.old_name}' renomeado para '${p.new_name}'`,
     "es-ES": (p) => `Álbum '${p.old_name}' renombrado como '${p.new_name}'`,
   },
+  log_album_name_adopted: {
+    de: (p) => `Album '${p.old_name}' heißt in Immich jetzt '${p.new_name}' — Name übernommen`,
+    en: (p) => `Album '${p.old_name}' is now called '${p.new_name}' in Immich — name adopted`,
+    "pt-BR": (p) =>
+      `O álbum '${p.old_name}' agora se chama '${p.new_name}' no Immich — nome adotado`,
+    "es-ES": (p) =>
+      `El álbum '${p.old_name}' ahora se llama '${p.new_name}' en Immich — nombre adoptado`,
+  },
   log_album_rename_failed: {
     de: (p) => `Album '${p.album}' konnte nicht umbenannt werden`,
     en: (p) => `Album '${p.album}' could not be renamed`,

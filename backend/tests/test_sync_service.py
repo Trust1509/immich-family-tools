@@ -3,6 +3,7 @@ import pytest
 from models.account import Account
 from models.match import ManagedAlbum
 from services import sync_service
+from services.immich_client import AlbumNotFoundError
 
 
 def account(account_id: str) -> Account:
@@ -115,6 +116,11 @@ async def test_refresh_does_not_readd_assets_already_in_the_album(monkeypatch):
         async def get_album_assets(self, _album_id):
             return ["asset-1"]
 
+        async def get_album_assets_with_name(self, _album_id):
+            # Namensuebernahme (#97) ist hier nicht Gegenstand des Tests —
+            # derselbe Name wie der Bestand haelt sie ausdruecklich aus.
+            return "Family", ["asset-1"]
+
         async def get_person_assets(self, _person_id):
             return [{"id": "asset-1"}]
 
@@ -160,6 +166,11 @@ async def test_refresh_adds_only_new_assets_and_updates_the_total(monkeypatch):
         async def get_album_assets(self, _album_id):
             return ["asset-1"]
 
+        async def get_album_assets_with_name(self, _album_id):
+            # Namensuebernahme (#97) ist hier nicht Gegenstand des Tests —
+            # derselbe Name wie der Bestand haelt sie ausdruecklich aus.
+            return "Family", ["asset-1"]
+
         async def get_person_assets(self, _person_id):
             return [{"id": "asset-1"}, {"id": "asset-2"}]
 
@@ -204,6 +215,11 @@ async def test_refresh_reports_partial_failures_and_ignores_duplicates(monkeypat
 
         async def get_album_assets(self, _album_id):
             return ["asset-1"]
+
+        async def get_album_assets_with_name(self, _album_id):
+            # Namensuebernahme (#97) ist hier nicht Gegenstand des Tests —
+            # derselbe Name wie der Bestand haelt sie ausdruecklich aus.
+            return "Family", ["asset-1"]
 
         async def get_person_assets(self, _person_id):
             return [{"id": "asset-1"}, {"id": "asset-2"}, {"id": "asset-3"}, {"id": "asset-4"}]
@@ -253,6 +269,147 @@ async def test_refresh_reports_partial_failures_and_ignores_duplicates(monkeypat
     assert failure_entries[0].message_key == "log_assets_partial_failure"
     assert failure_entries[0].message_params == {"count": 1, "account": owner.name}
     assert "1 Assets von 'owner' konnten nicht hinzugefügt werden" in failure_entries[0].details
+
+
+# --------------------------- #97: Der Albumname aus Immich gewinnt beim Abgleich
+
+def _konto_eins() -> Account:
+    """Das Konto aus dem Bau-Brief zu #97 — offensichtlich erfundene Werte."""
+    return Account(
+        id="konto-1", name="Konto Eins", immich_url="http://beispiel.invalid",
+        api_key="platzhalter", color="#111111", user_id="u1",
+    )
+
+
+def _album_fuer_namensuebernahme(**overrides) -> ManagedAlbum:
+    basis = dict(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Alter Name", group_id="gruppe-1",
+        owner_account_id="konto-1",
+        person_refs=[{"account_id": "konto-1", "person_id": "person-1"}],
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+    basis.update(overrides)
+    return ManagedAlbum(**basis)
+
+
+def _immich_client_mit_namen(monkeypatch, name, bestand=("asset-1",)):
+    """ImmichClient-Attrappe, die den Immich-Albumnamen mitliefert und die
+    echten `GET /api/albums/{id}`-Aufrufe zählt (#97).
+
+    `get_album_assets_with_name` ruft ihren EIGENEN `get_album_info` auf —
+    genau wie die echte Klasse —, damit der Zähler den tatsächlichen
+    Netzwerkaufruf misst, nicht nur den Aufruf der Hülle.
+    """
+    calls = {"get_album_info": 0}
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_info(self, _album_id):
+            calls["get_album_info"] += 1
+            return {"id": _album_id, "albumName": name}
+
+        async def get_album_assets_with_name(self, album_id):
+            info = await self.get_album_info(album_id)
+            return info.get("albumName"), list(bestand)
+
+        async def get_person_assets(self, _person_id):
+            return [{"id": asset_id} for asset_id in bestand]
+
+        async def add_assets_to_album(self, _album_id, asset_ids):
+            return [{"id": a, "success": True} for a in asset_ids]
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_refresh_uebernimmt_den_aktuellen_namen_aus_immich(monkeypatch):
+    """Nachweis 1 (#97): Ein abweichender Name aus Immich gewinnt — der BESTAND
+    (echter Store, keine Attrappe) trägt danach den neuen Namen, und das
+    Protokoll enthält genau einen Eintrag mit dem neuen Schlüssel."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+    calls = _immich_client_mit_namen(monkeypatch, "Neu in Immich")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert calls["get_album_info"] == 1, "GET /api/albums/{id} darf nur einmal laufen"
+    assert store.get_managed_album("managed-1").album_name == "Neu in Immich"
+    assert len(entries) == 1, entries
+    assert entries[0].message_key == "log_album_name_adopted"
+    assert entries[0].message_params == {"old_name": "Alter Name", "new_name": "Neu in Immich"}
+
+
+@pytest.mark.asyncio
+async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkeypatch):
+    """Nachweis 2 (#97): Gleicher Name -> kein Namens-Eintrag, Name unverändert."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+    _immich_client_mit_namen(monkeypatch, "Alter Name")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert not any(e.message_key == "log_album_name_adopted" for e in entries), entries
+    assert store.get_managed_album("managed-1").album_name == "Alter Name"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("immich_name", [None, ""])
+async def test_refresh_behaelt_den_namen_wenn_immich_keinen_liefert(monkeypatch, immich_name):
+    """Nachweis 3 (#97): Kein oder ein leerer Name aus Immich leert den Bestand nicht."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+    _immich_client_mit_namen(monkeypatch, immich_name)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert not any(e.message_key == "log_album_name_adopted" for e in entries), entries
+    assert store.get_managed_album("managed-1").album_name == "Alter Name"
+
+
+@pytest.mark.asyncio
+async def test_refresh_eines_geloeschten_albums_uebernimmt_keinen_namen(monkeypatch):
+    """Nachweis 4 (#97): Der bisherige Weg bei gelöschtem Album bleibt
+    unverändert — kein Speichern, kein Namens-Eintrag."""
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, album_id):
+            raise AlbumNotFoundError(album_id)
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == ["log_album_deleted"]
+    assert store.geschrieben == [], "bei gelöschtem Album wird nicht gespeichert"
+    assert store.get_managed_album("managed-1").album_name == "Alter Name"
+
+
+@pytest.mark.asyncio
+async def test_ein_abgleich_ruft_get_album_info_nur_einmal_auf(monkeypatch):
+    """Nachweis 5 (#97): `GET /api/albums/{id}` läuft pro Abgleich genau
+    einmal, nicht zweimal — der Kern der 'kein Doppelaufruf'-Zusage im Befund."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+    calls = _immich_client_mit_namen(
+        monkeypatch, "Neu in Immich", bestand=("asset-1", "asset-2")
+    )
+
+    store = StoreDoppel(managed)
+    await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert calls["get_album_info"] == 1
 
 
 @pytest.mark.asyncio

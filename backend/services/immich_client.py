@@ -244,9 +244,15 @@ class ImmichClient:
             r.raise_for_status()
             return r.json()
 
-    async def get_album_assets(self, album_id: str) -> list[str]:
-        """Return asset IDs already in an album. Raises AlbumNotFoundError if deleted."""
-        await self.get_album_info(album_id)
+    async def get_album_assets_with_name(self, album_id: str) -> tuple[Optional[str], list[str]]:
+        """Wie `get_album_assets`, liefert zusätzlich den aktuellen Albumnamen (#97).
+
+        Ein zweiter Aufruf von `GET /api/albums/{id}` wäre hier der Fehler: Der
+        Name steht schon in der Antwort, die `get_album_info` für die
+        Existenzprüfung ohnehin holt — nur verwarf `get_album_assets` sie
+        bisher. Raises AlbumNotFoundError if deleted.
+        """
+        info = await self.get_album_info(album_id)
         items = await self._search_metadata_all_pages({"albumIds": [album_id]})
         asset_ids: list[str] = []
         seen_ids: set[str] = set()
@@ -255,6 +261,11 @@ class ImmichClient:
             if asset_id not in seen_ids:
                 seen_ids.add(asset_id)
                 asset_ids.append(asset_id)
+        return info.get("albumName"), asset_ids
+
+    async def get_album_assets(self, album_id: str) -> list[str]:
+        """Return asset IDs already in an album. Raises AlbumNotFoundError if deleted."""
+        _, asset_ids = await self.get_album_assets_with_name(album_id)
         return asset_ids
 
     async def get_album_user_ids(self, album_id: str) -> set[str]:

@@ -448,6 +448,31 @@ async def link_existing_album(
     return managed, logs
 
 
+def _uebernimm_immich_namen(
+    managed: ManagedAlbum, immich_name: Optional[str]
+) -> Optional[SyncLogEntry]:
+    """Der Name in Immich gewinnt (#97, CONTEXT.md „Album Name Source").
+
+    Ein leerer oder fehlender Name aus Immich LEERT den Bestand nicht — das
+    wäre ein Datenverlust, den niemand angefragt hat. Bleibt der Name gleich,
+    gibt es keinen Protokolleintrag: Nur eine tatsächliche Änderung ist eine
+    Meldung wert. Mutiert `managed` in-place, wie die Nachbarfunktionen dieses
+    Moduls es mit `total_assets`/`last_synced_at` auch tun — das Schreiben in
+    den Bestand übernimmt weiterhin der Aufrufer.
+    """
+    if not immich_name or immich_name == managed.album_name:
+        return None
+    previous_name = managed.album_name
+    managed.album_name = immich_name
+    return SyncLogEntry(
+        id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
+        details=f"Album '{previous_name}' heißt in Immich jetzt '{immich_name}' — Name übernommen",
+        status="success",
+        message_key="log_album_name_adopted",
+        message_params={"old_name": previous_name, "new_name": immich_name},
+    )
+
+
 async def _refresh_managed_album_unlocked(
     managed: ManagedAlbum,
     all_accounts: list[Account],
@@ -483,7 +508,9 @@ async def _refresh_managed_album_unlocked(
         )
     )
     try:
-        existing_ids = set(await owner_client.get_album_assets(managed.album_id))
+        immich_album_name, existing_asset_ids = await owner_client.get_album_assets_with_name(
+            managed.album_id
+        )
     except AlbumNotFoundError:
         return [SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
@@ -499,6 +526,11 @@ async def _refresh_managed_album_unlocked(
             status="error",
             message_key="log_album_unreachable", message_params={},
         )]
+
+    existing_ids = set(existing_asset_ids)
+    name_entry = _uebernimm_immich_namen(managed, immich_album_name)
+    if name_entry:
+        logs.append(name_entry)
 
     for ref in managed.person_refs:
         account = account_map.get(ref["account_id"])
