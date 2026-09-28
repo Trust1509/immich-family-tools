@@ -628,9 +628,17 @@ def _frisch(managed: ManagedAlbum, store: ConfigStore) -> Optional[ManagedAlbum]
     „gibt es nicht mehr"-Weg, den es nicht gab: Alle drei Aufrufer arbeiteten
     anschliessend klaglos mit der alten Kopie weiter, veraenderten Immich und
     schrieben einen Erfolgseintrag, waehrend `store.update_managed_album`
-    mangels passender Zeile still nichts speicherte — gemessen vom
-    Blindpruefer, `test_P2_album_vor_dem_schloss_geloescht`). Jeder Aufrufer
-    prueft jetzt selbst auf `None` und bricht VOR jedem Immich-Aufruf ab.
+    mangels passender Zeile still nichts speicherte — Fund des Blindpruefers,
+    nachgebaut in `backend/tests/test_album_geloescht_vor_dem_schloss.py`).
+    Jeder Aufrufer prueft jetzt selbst auf `None` und bricht VOR jedem
+    Immich-Aufruf ab.
+
+    Das Restfenster DANACH — das Album verschwindet, WAEHREND ein Aufrufer
+    schon im Schloss auf Immich wartet — schliesst `_frisch` allein nicht:
+    Es liest nur einmal, zu Beginn. Dafuer nimmt seit Nacharbeit 2 auch
+    `DELETE /api/sync/albums/{id}` dasselbe `_album_schloss` wie die drei
+    Aufrufer (`routers/albums.py::delete_managed_album`) — das Loeschen
+    wartet dann, bis die laufende Operation fertig ist.
     """
     return store.get_managed_album(managed.id)
 

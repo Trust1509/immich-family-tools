@@ -548,8 +548,22 @@ async def list_managed_albums(request: Request):
 
 @router.delete("/albums/{managed_album_id}", status_code=204)
 async def delete_managed_album(managed_album_id: str, request: Request):
-    """Remove a managed album record (does NOT delete the album in Immich)."""
-    ok = request.app.state.store.delete_managed_album(managed_album_id)
+    """Remove a managed album record (does NOT delete the album in Immich).
+
+    Nimmt dasselbe Albumschloss wie Refresh/Umbenennen/Erweitern (#101,
+    Nacharbeit 2). Ohne das Schloss bleibt genau das Restfenster offen, das
+    `_frisch` innerhalb des Schlosses schliessen soll: Laeuft einer der drei
+    Wrapper gerade im Schloss und wartet auf Immich, kommt dieses Loeschen
+    dazwischen — 200/204, Immich wird trotzdem noch veraendert, ein
+    Erfolgseintrag entsteht, und `update_managed_album` speichert am Ende
+    mangels passender Zeile still nichts (gemessen: Fremdpruefer, HTTP-Probe
+    gegen alle drei Wrapper). Unter demselben Schloss wartet das Loeschen,
+    bis die laufende Operation fertig ist, und entfernt danach den (dann
+    aktuellen) Datensatz.
+    """
+    store = request.app.state.store
+    async with sync_service._album_schloss(managed_album_id):
+        ok = store.delete_managed_album(managed_album_id)
     if not ok:
         raise errors.managed_album_not_found()
 

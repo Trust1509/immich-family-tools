@@ -318,3 +318,109 @@ async def test_ein_umbenennen_mit_altem_abbild_wirft_den_refresh_nicht_weg(
     assert danach.album_name == "Neu"
     assert danach.total_assets == 2, "Ergebnis des Abgleichs weggeworfen"
     assert danach.last_synced_at == nach_refresh.last_synced_at
+
+
+# ------------------- 1c) `_frisch` muss INNERHALB des Schlosses laufen (M5b/M5c)
+#
+# #101, Nacharbeit 2 (Blindpruefer): Die beiden Tests oben (1b) sind
+# SEQUENZIELL — ein Aufruf laeuft ganz zu Ende, bevor der naechste beginnt.
+# Damit pruefen sie, dass `_frisch` VOR dem Schreiben liest, aber nicht, DASS
+# es das WAEHREND das Schloss gehalten wird tut. Gemessen: Verschiebt man den
+# `_frisch`-Aufruf in `rename_managed_album` bzw. `refresh_managed_album` vor
+# den `async with _album_schloss(...)`-Block (die Sperre bleibt bestehen, nur
+# der Lesezeitpunkt wandert), bleiben ALLE 308 Tests gruen — auch diese
+# beiden 1b-Tests, weil dort niemand gleichzeitig etwas schreibt, waehrend der
+# jeweils andere sein Abbild einliest.
+#
+# Die beiden Proben hier erzwingen genau das fehlende Fenster: EIN Aufruf haelt
+# das Schloss und schreibt (hinter einem Tor verzoegert), der ANDERE startet
+# waehrenddessen und liest sein Abbild — mit `_frisch` vor dem Schloss noch
+# VOR dem Schreiben, mit `_frisch` im Schloss (der korrekte Stand) erst NACH
+# dessen Freigabe.
+
+@pytest.mark.asyncio
+async def test_umbenennen_gleichzeitig_mit_refresh_behaelt_refresh_ergebnis(
+    tmp_path, monkeypatch
+):
+    """M5b: `_frisch` vor dem Schloss bei `rename_managed_album`.
+
+    Fund des Blindpruefers (eigene Probendatei `test_probe_frisch_im_schloss.py`,
+    hier uebernommen). Refresh haelt das Schloss und wartet an einem Tor,
+    BEVOR es schreibt; Umbenennen startet waehrenddessen mit demselben alten
+    Abbild. Mit `_frisch` im Schloss (Stand nach dieser Nacharbeit) liest
+    Umbenennen sein Abbild ERST NACH der Freigabe — also nach Refreshs
+    Schreibvorgang — und `total_assets` bleibt erhalten. Mit `_frisch` vor
+    dem Schloss (M5b) liest Umbenennen VORHER, wirft das Refresh-Ergebnis beim
+    eigenen Schreiben weg: `total_assets` faellt von 2 auf 0 zurueck.
+    """
+    from services import sync_service
+
+    store = _store(tmp_path, [_album("a1", "Alt", "g1")])
+    konto = store.get_account("konto-1")
+    _immich_attrappe(monkeypatch, {"wert": "Alt"})
+    sync_service._album_locks.clear()
+
+    tor = asyncio.Event()
+    orig = sync_service._refresh_managed_album_unlocked
+
+    async def refresh_mit_tor(*a, **k):
+        await tor.wait()
+        return await orig(*a, **k)
+
+    monkeypatch.setattr(sync_service, "_refresh_managed_album_unlocked", refresh_mit_tor)
+
+    abbild = store.get_managed_albums()[0]
+    r = asyncio.create_task(sync_service.refresh_managed_album(abbild, [konto], store))
+    await asyncio.sleep(0)
+    n = asyncio.create_task(sync_service.rename_managed_album(abbild, konto, "Neu", store))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    tor.set()
+    await asyncio.gather(r, n)
+
+    d = store.get_managed_album("a1")
+    assert d.album_name == "Neu"
+    assert d.total_assets == 2, f"Refresh-Ergebnis weggeworfen: {d.total_assets}"
+
+
+@pytest.mark.asyncio
+async def test_refresh_gleichzeitig_mit_umbenennen_behaelt_den_neuen_namen(
+    tmp_path, monkeypatch
+):
+    """M5c: dieselbe Probe, gespiegelt gegen `refresh_managed_album`.
+
+    Umbenennen haelt das Schloss und wartet an einem Tor, BEVOR es schreibt;
+    Refresh startet waehrenddessen mit demselben alten Abbild. Mit `_frisch`
+    im Schloss liest Refresh sein Abbild erst nach der Freigabe und behaelt
+    den neuen Namen. Mit `_frisch` vor dem Schloss (M5c) liest Refresh vorher
+    ("Alt") und schreibt beim eigenen Speichern den alten Namen zurueck.
+    """
+    from services import sync_service
+
+    store = _store(tmp_path, [_album("a1", "Alt", "g1")])
+    konto = store.get_account("konto-1")
+    _immich_attrappe(monkeypatch, {"wert": "Alt"})
+    sync_service._album_locks.clear()
+
+    tor = asyncio.Event()
+    orig = sync_service._rename_managed_album_unlocked
+
+    async def umbenennen_mit_tor(*a, **k):
+        await tor.wait()
+        return await orig(*a, **k)
+
+    monkeypatch.setattr(sync_service, "_rename_managed_album_unlocked", umbenennen_mit_tor)
+
+    abbild = store.get_managed_albums()[0]
+    n = asyncio.create_task(
+        sync_service.rename_managed_album(abbild, konto, "Neu", store))
+    await asyncio.sleep(0)
+    r = asyncio.create_task(sync_service.refresh_managed_album(abbild, [konto], store))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    tor.set()
+    await asyncio.gather(n, r)
+
+    d = store.get_managed_album("a1")
+    assert d.album_name == "Neu", f"Umbenennen-Ergebnis weggeworfen: {d.album_name}"
+    assert d.total_assets == 2

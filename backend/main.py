@@ -108,6 +108,17 @@ async def _run_auto_sync(app_state) -> None:
             # Die Kennung, nicht der Name: Der Name in dieser Kopie kann alt
             # sein — die Liste wurde EINMAL vor der Schleife gelesen.
             logger.info("Auto-sync: album %s done (%d log entries)", album.id, len(logs))
+        except errors.AppError as exc:
+            if exc.status_code == 404:
+                # #101, Nacharbeit 2: Ein Album, das zwischen dem Lesen der
+                # Liste und dieser Runde entfernt wurde (`refresh_managed_
+                # album` wirft dann `errors.managed_album_not_found()`), ist
+                # kein Fehler des Auto-Syncs — es ist genau das, was ein
+                # Nutzer wollte. Doppelte Namen sind erlaubt (#98), also die
+                # KENNUNG loggen, nicht `album.album_name`.
+                logger.info("Auto-sync: album %s removed, skipped", album.id)
+            else:
+                logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
         except Exception as exc:
             logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
 

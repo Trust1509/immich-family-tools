@@ -24,6 +24,7 @@ dieselbe Ausnahme auch fuer den SPAETEREN Zeitpunkt (Album verschwindet
 NACH dem Lesen des Aufrufers) kommt, und zwar bevor irgendetwas an Immich
 geschickt wurde.
 """
+import asyncio
 import json
 
 import pytest
@@ -180,13 +181,14 @@ async def test_auto_sync_faengt_das_geloeschte_album_ab_und_macht_bei_den_andere
 ):
     """`main._run_auto_sync` verarbeitet Alben EINZELN — eines weg, Rest normal.
 
-    Beantwortet die Frage aus der Nacharbeit-Nachricht: Was landet im Log?
-    `logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)`
-    — der Name ist die Kopie von VOR der Schleife (kann veraltet sein, siehe
-    Kommentar an der Stelle), die Ausnahme selbst ist die `AppError`; ihr
-    `str()` ist "<Statuscode>: <deutscher Klartext>" (Erbe von
-    `HTTPException.__str__`), gemessen hier als
-    "404: Managed Album nicht gefunden".
+    Beantwortet die Frage aus der Nacharbeit-1-Nachricht: Was landet im Log?
+    Urspruenglich `logger.error(...)` mit dem VERALTETEN Namen aus der Kopie
+    von vor der Schleife. Seit Nacharbeit 2 (Blind-/Fremdpruefer, Punkt 5)
+    ist ein zwischendurch entferntes Album KEIN Fehler des Auto-Syncs mehr —
+    ein Nutzer hat genau das gewollt, und doppelte Namen sind seit #98
+    erlaubt (die Kennung ist die einzige verlaessliche Auskunft). Der Fall
+    wird jetzt gezielt am Statuscode (404) abgefangen und als INFO mit der
+    Kennung geloggt; jede ANDERE Ausnahme bleibt ERROR.
     """
     import types
     from services.config_store import ConfigStore
@@ -226,6 +228,98 @@ async def test_auto_sync_faengt_das_geloeschte_album_ab_und_macht_bei_den_andere
     monkeypatch.setattr(store, "get_managed_albums", _lesen_dann_loeschen)
 
     fehler = []
+    info = []
+    orig_error = main.logger.error
+    orig_info = main.logger.info
+
+    def _error_mitschreiben(*a, **k):
+        fehler.append(a)
+        return orig_error(*a, **k)
+
+    def _info_mitschreiben(*a, **k):
+        info.append(a)
+        return orig_info(*a, **k)
+
+    monkeypatch.setattr(main.logger, "error", _error_mitschreiben)
+    monkeypatch.setattr(main.logger, "info", _info_mitschreiben)
+
+    await main._run_auto_sync(types.SimpleNamespace(store=store))
+
+    # "Bleibt" (a2) wurde normal verarbeitet ...
+    nach_a2 = store.get_managed_album("a2")
+    assert nach_a2 is not None
+    assert nach_a2.last_synced_at
+    # ... "Alt" (a1) ist und bleibt weg, nichts wurde fuer sie an Immich
+    # geschickt, und das entfernte Album ist KEIN Fehler (#101, Nacharbeit 2,
+    # Punkt 5): kein `logger.error`-Aufruf nennt es, stattdessen genau eine
+    # INFO-Zeile mit der KENNUNG (nicht dem veralteten Namen "Alt").
+    assert store.get_managed_album("a1") is None
+    aufrufe_fuer_a1 = [a for a in aufrufe if "immich-a1" in a]
+    assert aufrufe_fuer_a1 == [], (
+        f"Immich wurde fuer das geloeschte Album a1 angesprochen: {aufrufe_fuer_a1}")
+    assert fehler == [], f"das entfernte Album haette keinen ERROR ausloesen sollen: {fehler}"
+    a1_info = [a for a in info if "a1" in a]
+    assert len(a1_info) == 1, f"erwartet genau eine INFO-Zeile zu a1, war: {a1_info}"
+    assert "Alt" not in str(a1_info[0]), (
+        "der veraltete Name, nicht die Kennung, wurde geloggt")
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_faengt_eine_unerwartete_ausnahme_ab_und_macht_bei_den_anderen_weiter(
+    tmp_path, monkeypatch
+):
+    """Traegt die GENERISCHE `except Exception`-Zeile in `_run_auto_sync`.
+
+    Seit Punkt 5 (Nacharbeit 2) fängt eine eigene `except errors.AppError`-
+    Zeile den 404-Fall gezielt ab — die obige Probe zum entfernten Album
+    prueft NUR NOCH diesen Zweig, nicht mehr die generische Zeile darunter.
+    Ohne diesen Test waere die generische `except Exception`-Zeile
+    unbelegt: Eine ECHTE, unerwartete Ausnahme (hier: `RuntimeError` aus
+    Immich fuer Album "a1") muss weiterhin als ERROR geloggt werden UND darf
+    die Verarbeitung des anderen Albums ("a2") nicht verhindern.
+    """
+    import types
+    from services.config_store import ConfigStore
+    import main
+
+    album_bleibt = {"id": "a2", "match_id": "m-a2", "album_id": "immich-a2",
+                     "album_name": "Bleibt", "group_id": "g2",
+                     "owner_account_id": "konto-1", "person_refs": [REF1],
+                     "linked_match_ids": [], "created_at": "2026-01-01T00:00:00+00:00",
+                     "total_assets": 0}
+    album_kaputt = {"id": "a1", "match_id": "m-a1", "album_id": "immich-a1",
+                    "album_name": "Kaputt", "group_id": "g1",
+                    "owner_account_id": "konto-1", "person_refs": [REF1],
+                    "linked_match_ids": [], "created_at": "2026-01-01T00:00:00+00:00",
+                    "total_assets": 0}
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({
+        "accounts": {"konto-1": KONTO_EINS},
+        "schema_version": 3, "managed_albums": [album_kaputt, album_bleibt],
+    }), encoding="utf-8")
+    store = ConfigStore(str(pfad))
+
+    from services import sync_service
+
+    _immich_attrappe_mit_zaehler(monkeypatch)
+
+    # `_refresh_managed_album_unlocked` faengt Immich-Fehler LAENGST selbst
+    # ab und macht daraus einen Protokolleintrag (`log_album_unreachable`) —
+    # ein kaputter Immich-Client erreicht `_run_auto_sync` also NIE als
+    # Ausnahme. Um die generische `except Exception`-Zeile dort wirklich zu
+    # treffen, muss der Fehler EINE Ebene hoeher entstehen: direkt in
+    # `refresh_managed_album` selbst, wie es z. B. ein defekter Datensatz
+    # oder ein Schreibfehler des Stores koennte.
+    orig_refresh = sync_service.refresh_managed_album
+
+    async def refresh_mit_fehler_fuer_a1(managed, all_accounts, store):
+        if managed.id == "a1":
+            raise RuntimeError("Immich antwortet nicht")
+        return await orig_refresh(managed, all_accounts, store)
+
+    monkeypatch.setattr(sync_service, "refresh_managed_album", refresh_mit_fehler_fuer_a1)
+
+    fehler = []
     orig_error = main.logger.error
 
     def _error_mitschreiben(*a, **k):
@@ -236,20 +330,82 @@ async def test_auto_sync_faengt_das_geloeschte_album_ab_und_macht_bei_den_andere
 
     await main._run_auto_sync(types.SimpleNamespace(store=store))
 
-    # "Bleibt" (a2) wurde normal verarbeitet ...
     nach_a2 = store.get_managed_album("a2")
-    assert nach_a2 is not None
-    assert nach_a2.last_synced_at
-    # ... "Alt" (a1) ist und bleibt weg, nichts wurde fuer sie an Immich
-    # geschickt, und genau EIN Fehler wurde geloggt.
-    assert store.get_managed_album("a1") is None
-    aufrufe_fuer_a1 = [a for a in aufrufe if "immich-a1" in a]
-    assert aufrufe_fuer_a1 == [], (
-        f"Immich wurde fuer das geloeschte Album a1 angesprochen: {aufrufe_fuer_a1}")
+    assert nach_a2 is not None and nach_a2.last_synced_at, (
+        "a2 haette trotz des Fehlers bei a1 normal laufen sollen")
+    assert len(fehler) == 1, f"erwartet genau einen ERROR-Aufruf, war: {fehler}"
+    assert fehler[0][1] == "Kaputt", "falsches Album im Fehlerlog benannt"
+    assert "Immich antwortet nicht" in str(fehler[0][2])
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_loop_ueberlebt_eine_ausnahme_aus_run_auto_sync(monkeypatch):
+    """#101, Nacharbeit 2, Punkt 3: `_auto_sync_loop` darf an einer Ausnahme
+
+    aus `_run_auto_sync` nicht sterben — sonst laeuft der taegliche Auto-Sync
+    nach dem ERSTEN unerwarteten Fehler nie wieder, bis der Prozess neu
+    startet, und niemand merkt es (kein Aufrufer wartet auf diese
+    Endlosschleife).
+
+    Gemessen (Blindpruefer): Die ERLAUBT-Begruendung fuer `_auto_sync_loop`
+    im Reihenfolge-Waechter stuetzte sich bis hierher auf ein `try`/`except`,
+    das KEIN Test hielt — entfernt man es, bleiben alle Tests gruen. Dieser
+    Test ist der fehlende Beleg: `asyncio.sleep` und `datetime.now()` werden
+    gestubbt, damit die Schleife ohne echte Wartezeit mehrfach durchlaeuft;
+    `_run_auto_sync` wirft beim ersten Aufruf. Danach muss die Schleife noch
+    mindestens zweimal `asyncio.sleep` erreicht haben — sie ist also nicht
+    beendet.
+    """
+    import types
+    from datetime import datetime as _echtes_datetime
+    import main
+
+    rufe = {"schlaf": 0}
+    tor = asyncio.Event()
+    echtes_schlafen = asyncio.sleep  # VOR dem Patchen sichern, sonst ruft die Attrappe sich selbst auf
+
+    async def schnelles_schlafen(_sekunden):
+        rufe["schlaf"] += 1
+        if rufe["schlaf"] >= 3:
+            tor.set()
+        await echtes_schlafen(0)
+
+    async def wirft_beim_ersten_aufruf(_app_state):
+        raise RuntimeError("simulierter Fehler mitten im Auto-Sync")
+
+    class ZeitDoppel:
+        @staticmethod
+        def now():
+            # Immer derselbe Zeitpunkt: `_auto_sync_loop` loest deshalb nur
+            # in RUNDE 1 aus (current_slot == last_run_slot ab Runde 2) —
+            # das genuegt: Die Frage ist, ob die Schleife eine Ausnahme aus
+            # Runde 1 UEBERLEBT, nicht, ob sie erneut ausloest.
+            return _echtes_datetime(2026, 1, 1, 1, 0)
+
+    class StoreDoppel:
+        def get_auto_sync_config(self):
+            return {"enabled": True, "time": "01:00"}
+
+    fehler = []
+    orig_error = main.logger.error
+
+    def _error_mitschreiben(*a, **k):
+        fehler.append(a)
+        return orig_error(*a, **k)
+
+    monkeypatch.setattr(main.asyncio, "sleep", schnelles_schlafen)
+    monkeypatch.setattr(main, "datetime", ZeitDoppel)
+    monkeypatch.setattr(main, "_run_auto_sync", wirft_beim_ersten_aufruf)
+    monkeypatch.setattr(main.logger, "error", _error_mitschreiben)
+
+    aufgabe = asyncio.create_task(main._auto_sync_loop(types.SimpleNamespace(store=StoreDoppel())))
+    try:
+        await asyncio.wait_for(tor.wait(), timeout=5)
+    finally:
+        aufgabe.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await aufgabe
+
+    assert rufe["schlaf"] >= 3, (
+        f"Schleife lief nur {rufe['schlaf']}x — sie ist an der Ausnahme gestorben")
     assert len(fehler) == 1, f"erwartet genau einen geloggten Fehler, war: {fehler}"
-    assert fehler[0][1] == "Alt", "falsches Album im Fehlerlog benannt"
-    # `%s`-Formatierung: die dritte Positionsangabe ist das Exception-Objekt
-    # selbst; `str()` einer `HTTPException` ist "<status>: <detail>" —
-    # gemessen, nicht angenommen (die erste Fassung dieser Zeile erwartete
-    # nur den Klartext ohne Statuscode und war rot).
-    assert str(fehler[0][2]) == "404: Managed Album nicht gefunden"
