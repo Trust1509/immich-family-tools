@@ -28,12 +28,28 @@ interface AlbumGroup {
   owner_name: string;
   person_refs: ManagedAlbum["person_refs"];
   // Markierungen aus GET /api/sync/albums — beim Lesen berechnet, nicht
-  // gespeichert (Owner-Entscheid 28.09.2026, #99/#112). Betrifft IRGENDEIN
-  // Album der Gruppe: Eine Gruppe buendelt je ein Album pro Konto, und schon
-  // ein einziges verwaistes Album darin sperrt das Umbenennen der Gruppe —
-  // WAS genau gesperrt wird, ist eine technische Entscheidung des
-  // Hauptagenten (Nacharbeit 1), siehe `renameLocked` unten.
+  // gespeichert (Owner-Entscheid 28.09.2026, #99/#112). `ownerMissing`
+  // betrifft IRGENDEIN Album der Gruppe: Eine Gruppe buendelt je ein Album
+  // pro Konto, und schon ein einziges verwaistes Album darin sperrt das
+  // Umbenennen der Gruppe (server-seitig durchgesetzt seit Nacharbeit 2,
+  // `errors.group_member_owner_missing`) — WAS genau in der Oberflaeche
+  // gesperrt wird, ist eine technische Entscheidung des Hauptagenten
+  // (Nacharbeit 1), siehe `renameLocked` unten.
   ownerMissing: boolean;
+  // `displayedOwnerMissing` ist ENGER: nur, ob der ANGEZEIGTE Besitzer (der
+  // des ersten Albums, `owner_name` unten) selbst fehlt — nicht irgendein
+  // Geschwister-Album. Nacharbeit 2 (Gegen-/Blindpruefer, gemessen): Eine
+  // gemischte Gruppe zeigte vorher "Besitzerkonto gelöscht" in der
+  // Besitzer-Zeile, obwohl der dort GENANNTE Besitzer noch lebte.
+  displayedOwnerMissing: boolean;
+  // Ob die Gruppe ALS GANZES weniger als zwei verknuepfte Personen hat —
+  // an derselben zusammengefuehrten Liste gemessen, die als
+  // "Verknuepfte Personen" angezeigt wird (`person_refs` oben), NICHT am
+  // Oder ueber die einzelnen Alben. Nacharbeit 2 (Blindpruefer, gemessen):
+  // Das ODER ueber `too_few_people` je Album zeigte "Nur noch eine Person"
+  // auch dann, wenn die zusammengefuehrte Liste bereits drei Personen
+  // enthielt — ein Album der Gruppe hatte fuer sich allein nur eine, weil
+  // Alben derselben Gruppe nicht zwingend denselben Personenkreis fuehren.
   tooFewPeople: boolean;
 }
 
@@ -58,7 +74,8 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
       owner_name: ownerRef?.account_name ?? first.owner_account_id,
       person_refs: personRefs,
       ownerMissing: group.some((a) => a.owner_account_missing),
-      tooFewPeople: group.some((a) => a.too_few_people),
+      displayedOwnerMissing: !!first.owner_account_missing,
+      tooFewPeople: personRefs.length < 2,
     };
   });
 }
@@ -166,19 +183,17 @@ function AlbumGroupCard({
   };
 
   const handleRename = async () => {
-    // Nacharbeit 1 (Gegenpruefer, gemessen): Ohne diese Pruefung HIER blieb
-    // ein bereits GEOEFFNETES Eingabefeld offen, wenn die Sperre erst
-    // WAEHREND des Bearbeitens eintrat (Konto in einem anderen Tab
-    // geloescht, Liste neu geladen) — Enter benannte dann nur das gesunde
-    // Album um, die Gruppe trug danach zwei Namen. Der Effekt unten schliesst
-    // das Feld zusaetzlich von sich aus, sobald die Sperre eintritt; diese
-    // Pruefung faengt das Fenster dazwischen (Klick/Enter, bevor der Effekt
-    // gelaufen ist).
-    if (renameLocked) {
-      setRenaming(false);
-      setRenameValue(group.album_name);
-      return;
-    }
+    // KEINE Client-seitige Sperrpruefung mehr hier (Nacharbeit 1 hatte eine,
+    // Nacharbeit 2 entfernt sie wieder — Blindpruefer, gemessen): Sie war mit
+    // Enter an ein bereits abgehaengtes Eingabefeld praktisch unerreichbar
+    // (Mutation "Pruefung entfernt" blieb bei voller Suite gruen) UND der
+    // eigentliche Grund ist jetzt server-seitig behoben — `PATCH
+    // /api/sync/albums/{id}` lehnt JEDES Album einer Gruppe ab, sobald ein
+    // Geschwister-Album keinen lebenden Besitzer mehr hat
+    // (`errors.group_member_owner_missing`, `routers/albums.py`). Eine
+    // veraltete Liste (zweiter Tab, andere `staleTime`) kann eine Gruppe
+    // damit nicht mehr in zwei Namen zerlegen; das schliessende Feld oben
+    // bleibt reiner Komfort fuer den Normalfall.
     const nextName = renameValue.trim();
     // KEIN Abbruch bei „Name gleich dem Gruppennamen“: Der Gruppenname ist vom
     // ERSTEN Album abgeleitet (`groupAlbums`). Nach einem Teilfehler traegt das
@@ -225,23 +240,37 @@ function AlbumGroupCard({
 
   const isDeleted = displayLogs?.some((e) => e.error_message === "ALBUM_DELETED");
   // NICHT Owner-Entscheid — technisch vom Hauptagenten entschieden
-  // (Nacharbeit 1, #99/#112): Ein Album ohne lebenden Besitzer sperrt
-  // UMBENENNEN der ganzen Gruppe (sonst eine halb umbenannte Gruppe mit
-  // zwei Namen — jedes Album traegt seinen Namen einzeln, Umbenennen laeuft
-  // in einer Schleife ueber `group.albums`). Der ABGLEICH sperrt NICHT:
-  // er laeuft fuer die gesunden Alben weiter und ueberspringt die
-  // verwaisten, siehe `gesundeAlben` oben. Entfernen bleibt in jedem Fall
-  // moeglich. "Nur noch eine Person"/"keine Person mehr" sperrt fuer sich
-  // allein nichts, wird aber ebenfalls sichtbar (Text, nicht nur Farbe).
+  // (Nacharbeit 1, #99/#112): Ein Album ohne lebenden Besitzer sperrt in der
+  // Oberflaeche UMBENENNEN der ganzen Gruppe. Das ist seit Nacharbeit 2 reiner
+  // KOMFORT (verhindert das Oeffnen des Felds und einen von vornherein
+  // aussichtslosen Rundlauf) — die eigentliche Garantie gegen eine halb
+  // umbenannte Gruppe mit zwei Namen steht jetzt server-seitig in
+  // `routers/albums.py::rename_managed_album`
+  // (`errors.group_member_owner_missing`): Er lehnt JEDES Album einer
+  // Gruppe ab, sobald ein Geschwister-Album keinen lebenden Besitzer mehr
+  // hat, unabhaengig davon, wie aktuell die Liste dieses Clients ist. Der
+  // ABGLEICH sperrt NICHT: er laeuft fuer die gesunden Alben weiter und
+  // ueberspringt die verwaisten, siehe `gesundeAlben` oben. Entfernen bleibt
+  // in jedem Fall moeglich. "Nur noch eine Person"/"keine Person mehr"
+  // sperrt fuer sich allein nichts, wird aber ebenfalls sichtbar (Text,
+  // nicht nur Farbe).
   const renameLocked = group.ownerMissing;
 
-  // Schliesst ein offenes Umbenennen-Feld, sobald die Sperre eintritt —
-  // siehe die Pruefung am Kopf von `handleRename` fuer das Fenster davor.
+  // Schliesst ein offenes Umbenennen-Feld, sobald die Sperre eintritt (Konto
+  // in einem anderen Tab geloescht, Liste neu geladen) — NUR das Feld.
+  //
+  // Nacharbeit 2 (Gegenpruefer, gemessen): Die erste Fassung loeschte hier
+  // zusaetzlich `renameError` — nach einem erfolgreichen Umbenennen laedt
+  // `handleRename` im `finally` die Liste neu; kommt sie verwaist zurueck,
+  // sprang `renameLocked` auf true, und dieser Effekt loeschte die gerade
+  // erst gesetzte Fehlermeldung des Servers. Auf der Karte stand danach nur
+  // "ok" und der neue Name — kein Hinweis, dass ein Album des alten Namens
+  // (oder der Ablehnungsgrund) verlorenging. `renameError` gehoert allein
+  // dem Erfolg/Fehlschlag des naechsten Versuchs, nicht dieser Sperre.
   React.useEffect(() => {
     if (renameLocked) {
       setRenaming(false);
       setRenameValue(group.album_name);
-      setRenameError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renameLocked]);
@@ -293,7 +322,8 @@ function AlbumGroupCard({
               <h3 className="font-semibold">{group.album_name}</h3>
             )}
             <p className="text-xs text-gray-500">
-              {t("owner")}: {group.ownerMissing ? t("album_owner_missing_badge") : group.owner_name}
+              {t("owner")}:{" "}
+              {group.displayedOwnerMissing ? t("album_owner_missing_badge") : group.owner_name}
             </p>
           </div>
         </div>
@@ -376,9 +406,16 @@ function AlbumGroupCard({
           onClick={handleRefresh}
           disabled={syncing || gesundeAlben.length === 0}
           title={
+            // Nacharbeit 2 (Blindpruefer, gemessen): eine GANZ verwaiste
+            // Gruppe deaktivierte den Knopf zuvor ohne jeden Hinweis im
+            // Titel — der Hinweistext oben setzt "mindestens ein gesundes
+            // Album" voraus (siehe die Bedingung dort) und erschien hier
+            // nie.
             group.ownerMissing && gesundeAlben.length > 0
               ? t("album_sync_skips_orphaned_hint")
-              : undefined
+              : gesundeAlben.length === 0
+                ? t("album_sync_disabled_all_orphaned_hint")
+                : undefined
           }
         >
           {localSyncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}

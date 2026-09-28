@@ -28,6 +28,12 @@ function album(overrides: Record<string, unknown>) {
     album_name: "Verwaistes Album",
     group_id: "gruppe-verwaist",
     owner_account_id: "konto-tot",
+    // ZWEI Personen als gesunder Regelfall (Nacharbeit 2: die Gruppen-Markierung
+    // "zu wenige Personen" wird aus der ZUSAMMENGEFUEHRTEN Liste berechnet,
+    // siehe `groupAlbums`/`tooFewPeople` — ein Standardalbum mit nur einer
+    // Person haette jeden Test hier faelschlich als "zu wenige Personen"
+    // markiert). Tests, die genau das pruefen wollen, ueberschreiben
+    // `person_refs` gezielt.
     person_refs: [
       {
         account_id: "konto-lebt",
@@ -35,6 +41,13 @@ function album(overrides: Record<string, unknown>) {
         person_name: "Person Eins",
         account_name: "Konto Lebt",
         account_color: "#111111",
+      },
+      {
+        account_id: "zwei",
+        person_id: "person-2",
+        person_name: "Person Zwei",
+        account_name: "Konto Zwei",
+        account_color: "#222222",
       },
     ],
     linked_match_ids: [],
@@ -130,7 +143,21 @@ describe("AlbumsOverview: einzelnes verwaistes Album (nichts Gesundes uebrig)", 
   });
 
   it("sperrt NICHT bei lebendem Besitzer, auch mit nur einer Person", async () => {
-    albenMock.mockResolvedValue([album({ owner_account_missing: false, too_few_people: true })]);
+    albenMock.mockResolvedValue([
+      album({
+        owner_account_missing: false,
+        too_few_people: true,
+        person_refs: [
+          {
+            account_id: "konto-lebt",
+            person_id: "person-1",
+            person_name: "Person Eins",
+            account_name: "Konto Lebt",
+            account_color: "#111111",
+          },
+        ],
+      }),
+    ]);
     await rendern("Verwaistes Album");
 
     expect(screen.getByText("Nur noch eine Person")).toBeTruthy();
@@ -260,5 +287,64 @@ describe("AlbumsOverview: gemischte Gruppe (ein gesundes, ein verwaistes Album)"
     fireEvent.keyDown(feld, { key: "Enter" });
     await new Promise((r) => setTimeout(r, 10));
     expect(renameMock).not.toHaveBeenCalled();
+  });
+
+  it("REGRESSION Nacharbeit 2 (Gegenpruefer, Probe A3b): die Sperre schliesst nur das Feld, sie loescht nicht die Fehlermeldung des Servers", async () => {
+    // Ausgangslage: BEIDE Alben gelten noch als gesund (owner_account_missing
+    // fehlt) — das ist die Lage eines Clients mit veralteter Liste, bevor er
+    // neu laedt. Das Umbenennen laeuft deshalb ungehindert fuer BEIDE Alben.
+    albenMock.mockResolvedValue([
+      album({ id: "gesund", album_name: "Gemischt" }),
+      album({ id: "verwaist", album_name: "Gemischt", owner_account_id: "tot" }),
+    ]);
+    await rendern("Gemischt");
+
+    renameMock.mockImplementation(async (id: string) => {
+      if (id === "verwaist") {
+        throw Object.assign(new Error("Owner-Account nicht gefunden"), {
+          key: "err_owner_account_not_found",
+        });
+      }
+      return [
+        { id: "l1", timestamp: "", action: "rename_album", details: "ok", status: "success" },
+      ];
+    });
+    // Die Neuladung, die `finally` ausloest, haengt — so laesst sich der
+    // Zustand "Fehler steht schon, Neuladung noch nicht angekommen" pruefen.
+    let freigeben: (v: unknown) => void = () => {};
+    albenMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          freigeben = resolve;
+        })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/i }));
+    const feld = screen.getByRole("textbox", { name: /Album umbenennen/i });
+    fireEvent.change(feld, { target: { value: "Neu" } });
+    fireEvent.keyDown(feld, { key: "Enter" });
+
+    await waitFor(() => expect(screen.getByText(/Owner-Account nicht gefunden/)).toBeTruthy());
+
+    // Die Neuladung kommt an: "verwaist" traegt jetzt owner_account_missing.
+    await act(async () => {
+      freigeben([
+        album({ id: "gesund", album_name: "Neu" }),
+        album({
+          id: "verwaist",
+          album_name: "Gemischt",
+          owner_account_id: "tot",
+          owner_account_missing: true,
+        }),
+      ]);
+    });
+
+    // Die Sperre schliesst das Feld ...
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: /Album umbenennen/i })).toBeNull()
+    );
+    // ... die Fehlermeldung des Servers bleibt trotzdem stehen. Die
+    // fehlerhafte erste Fassung dieses Effekts loeschte sie hier mit.
+    expect(screen.getByText(/Owner-Account nicht gefunden/)).toBeTruthy();
   });
 });

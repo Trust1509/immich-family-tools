@@ -507,15 +507,27 @@ async def rename_managed_album(
     if not new_name:
         raise errors.album_name_required()
     store = request.app.state.store
-    managed = next(
-        (album for album in store.get_managed_albums() if album.id == managed_album_id),
-        None,
-    )
+    alle_alben = store.get_managed_albums()
+    managed = next((album for album in alle_alben if album.id == managed_album_id), None)
     if not managed:
         raise errors.managed_album_not_found()
     owner = store.get_account(managed.owner_account_id)
     if not owner:
         raise errors.owner_account_not_found()
+    # Nacharbeit 2 zu #99/#112 (Gegen- und Blindpruefer, gemessen ueber HTTP
+    # mit einem absichtlich veralteten Client): Die gruppenweite
+    # Umbenennen-Sperre der Oberflaeche (`AlbumsOverview.tsx`) ist nur
+    # Komfort — mit einer veralteten Liste (zweiter Tab, 30s `staleTime`,
+    # anderes Geraet) haette die Schleife dort das gesunde Album umbenannt,
+    # bevor sie am verwaisten mit 404 scheitert: eine Gruppe mit zwei Namen.
+    # Die Regel gehoert deshalb HIERHER, vor den ersten Schreibvorgang, wo
+    # sie kein Client mehr umgehen kann.
+    lebende_konten = {a.id for a in store.list_accounts()}
+    if any(
+        a.group_id == managed.group_id and a.owner_account_id not in lebende_konten
+        for a in alle_alben
+    ):
+        raise errors.group_member_owner_missing(managed.group_id)
     # KEINE NAMENSPRUEFUNG MEHR (Owner-Entscheid 28.09.2026, #98): Zwei
     # verschiedene Albumgruppen duerfen denselben Namen tragen. Die
     # Kollisionspruefung, die hier bis #98 stand (`ConfigStore.

@@ -107,10 +107,18 @@ async def _run_auto_sync(app_state) -> None:
     wieder auf das `owner_account_id` des alten Albums. Ein wiederkehrendes,
     bekanntes Fehlersignal verdeckt echte Funde (`docs/agents/lehren.md`
     §45); die Oberflaeche markiert diese Alben bereits (`GET
-    /api/sync/albums`). Der MANUELLE Abgleich (Knopf in der Albumuebersicht,
-    `POST /api/sync/album/{id}/refresh`) laeuft weiterhin unveraendert ueber
-    `sync_service.refresh_managed_album` und meldet den Grund — dieser Skip
-    betrifft ausschliesslich den naechtlichen Auto-Sync.
+    /api/sync/albums`).
+
+    Der manuelle Weg ueber `POST /api/sync/album/{id}/refresh` selbst laeuft
+    weiterhin unveraendert ueber `sync_service.refresh_managed_album` und
+    meldet den Grund. Die BEIDEN Knoepfe in der Albumuebersicht
+    ("Jetzt synchronisieren" je Gruppe, "Alle synchronisieren"), die diesen
+    Weg aufrufen, ueberspringen verwaiste Alben seit Nacharbeit 1 zu #99/#112
+    inzwischen ABER SELBST, BEVOR sie den Endpunkt ueberhaupt erreichen
+    (`AlbumsOverview.tsx`, `gesundeAlben`) — eine eigene, technische
+    Entscheidung des Hauptagenten, nicht Teil dieses Owner-Entscheids und
+    nicht Gegenstand dieses Skips hier. Dieser Skip hier betrifft
+    ausschliesslich den naechtlichen Auto-Sync.
     """
     from services.sync_service import refresh_managed_album
     store = app_state.store

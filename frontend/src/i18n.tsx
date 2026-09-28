@@ -767,6 +767,14 @@ export const translations = {
     "pt-BR": "Álbuns órfãos são ignorados durante a sincronização.",
     "es-ES": "Los álbumes huérfanos se omiten durante la sincronización.",
   },
+  // Nacharbeit 2 (Blindpruefer, kleiner Fund): eine GANZ verwaiste Gruppe
+  // deaktivierte "Jetzt synchronisieren" ohne jeden Grund im Titel.
+  album_sync_disabled_all_orphaned_hint: {
+    de: "Kein Album dieser Gruppe hat noch ein lebendes Besitzerkonto.",
+    en: "No album in this group still has a living owner account.",
+    "pt-BR": "Nenhum álbum deste grupo ainda tem uma conta proprietária ativa.",
+    "es-ES": "Ningún álbum de este grupo tiene ya una cuenta propietaria activa.",
+  },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────
   log_subtitle: {
@@ -1074,6 +1082,14 @@ export const translations = {
     en: (id: string) => `Owner account ${id} not found`,
     "es-ES": (id: string) => `Cuenta propietaria ${id} no encontrada`,
     "pt-BR": (id: string) => `Conta proprietária ${id} não encontrada`,
+  },
+  err_group_member_owner_missing: {
+    de: "Ein Album dieser Gruppe hat kein lebendes Besitzerkonto mehr — Umbenennen ist für die ganze Gruppe gesperrt.",
+    en: "One album in this group no longer has a living owner account — renaming is locked for the whole group.",
+    "es-ES":
+      "Un álbum de este grupo ya no tiene una cuenta propietaria activa — cambiar el nombre está bloqueado para todo el grupo.",
+    "pt-BR":
+      "Um álbum deste grupo não tem mais uma conta proprietária ativa — renomear está bloqueado para o grupo inteiro.",
   },
   err_match_not_found: {
     de: "Match nicht gefunden",

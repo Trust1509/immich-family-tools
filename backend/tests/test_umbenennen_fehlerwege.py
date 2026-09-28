@@ -59,6 +59,10 @@ def client(tmp_path, monkeypatch):
     pfad = _bestand(tmp_path, [
         _album("a1", "Straßenfest", "gruppe-1"),
         _album("a2", "Waisenalbum", "gruppe-2", besitzer="konto-verschwunden"),
+        # Nacharbeit 2 zu #99/#112: eine GEMISCHTE Gruppe — a3-gesund hat
+        # einen lebenden Besitzer, a3-verwaist (dieselbe group_id) nicht.
+        _album("a3-gesund", "Gemischt", "gruppe-3"),
+        _album("a3-verwaist", "Gemischt", "gruppe-3", besitzer="konto-verschwunden"),
     ])
     monkeypatch.setattr(main.settings, "secret", "nur-fuer-den-test", raising=False)
     monkeypatch.setattr(main.settings, "config_path", pfad, raising=False)
@@ -184,6 +188,27 @@ def test_ein_verschwundenes_besitzerkonto_wird_abgelehnt(client):
     assert antwort.status_code == 404, antwort.text
     assert antwort.json().get("error_key") == "err_owner_account_not_found"
     assert _name_im_bestand(client, "a2") == "Waisenalbum"
+
+
+def test_umbenennen_des_gesunden_albums_wird_abgelehnt_wenn_die_gruppe_ein_verwaistes_mitglied_hat(
+    client,
+):
+    """Nacharbeit 2 zu #99/#112 (Gegen- und Blindpruefer, gemessen ueber HTTP).
+
+    `a3-gesund` hat selbst einen lebenden Besitzer — trotzdem lehnt der
+    Server ab, weil `a3-verwaist` (dieselbe `group_id`) keinen mehr hat. Das
+    ist die Lage eines Clients mit veralteter Liste (zweiter Tab, 30s
+    `staleTime`, anderes Geraet): Ohne diese Ablehnung wuerde `a3-gesund`
+    hier erfolgreich umbenannt und `a3-verwaist` schiede mit
+    `err_owner_account_not_found` aus — eine Gruppe mit zwei Namen. Die
+    Oberflaechen-Sperre (`AlbumsOverview.tsx`) ist nur Komfort; hier steht
+    die Regel, die kein Client umgehen kann.
+    """
+    antwort = client.patch("/api/sync/albums/a3-gesund", json={"album_name": "Herbstfest"})
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_member_owner_missing"
+    assert _name_im_bestand(client, "a3-gesund") == "Gemischt", "trotz Ablehnung umbenannt"
+    assert _name_im_bestand(client, "a3-verwaist") == "Gemischt"
 
 
 # --------------------------------------------------- Der Client selbst
