@@ -7,7 +7,7 @@
 // Zeile, die `force_new_group` mitschickt, liess sich entfernen, ohne dass
 // ein Test rot wurde.
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ManualMatch from "./ManualMatch";
@@ -156,6 +156,40 @@ describe("ManualMatch: Gruppenwahl beim VERKNUEPFEN", () => {
   });
 });
 
+describe("Anlegen erst nach Antwort der Gruppenvorschau (#110)", () => {
+  // Der zweite Anlegeweg: dieselbe Owner-Festlegung wie bei MatchSuggestions
+  // (CONTEXT.md, Group Suggestion) — ein Vorschlag ist ein Vorschlag, nie
+  // eine stille Zuordnung.
+  it("sperrt den Startknopf, bis die Vorschau geantwortet hat, und gibt danach frei", async () => {
+    let antworten!: (wert: typeof GRUPPE) => void;
+    vorschauMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          antworten = resolve;
+        })
+    );
+
+    await fuelleFormular();
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+
+    // Sofort klicken, bevor die Vorschau geantwortet hat: keine Anlage.
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    expect(namesMultiMock).not.toHaveBeenCalled();
+
+    // Erst warten, bis die Abfrage wirklich LAEUFT — sonst gibt es noch
+    // keine Zusage-Funktion zum Aufloesen.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalled());
+    await act(async () => {
+      antworten(GRUPPE);
+    });
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+  });
+});
+
 describe("ManualMatch: die angezeigte Gruppe wird auch geschickt", () => {
   it("schickt group_id beim Beitritt mit", async () => {
     // Gemessen vom Gegenpruefer: Das Entfernen des `group_id`-Zweigs hier
@@ -184,6 +218,10 @@ describe("ManualMatch: die angezeigte Gruppe wird auch geschickt", () => {
     const felder = screen.getAllByRole("combobox");
     fireEvent.change(felder[felder.length - 1], { target: { value: "immich-1" } });
 
+    // Seit #110 sperrt der Startknopf, bis die Vorschau zur AKTUELLEN
+    // Eingabe geantwortet hat — hier "Testalbum" (der Name des gewaehlten
+    // Albums), nicht mehr "Stehengeblieben".
+    await waitFor(() => expect(screen.getByText("Tritt der bestehenden Gruppe bei")).toBeTruthy());
     fireEvent.click(screen.getByText(STARTKNOPF));
 
     await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());

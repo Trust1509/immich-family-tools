@@ -207,6 +207,7 @@ function AlbumSection({
   eigeneGruppe,
   onEigeneGruppeChange,
   onGruppeChange,
+  onBereitChange,
   namensVorgabe,
 }: {
   accounts: Account[];
@@ -221,6 +222,8 @@ function AlbumSection({
   eigeneGruppe: boolean;
   onEigeneGruppeChange: (wert: boolean) => void;
   onGruppeChange: (groupId: string | null) => void;
+  /** Ob die Gruppenvorschau zur AKTUELLEN Eingabe geantwortet hat (#110). */
+  onBereitChange: (bereit: boolean) => void;
   /** Rueckfall fuer den Albumnamen, wenn das Feld leer bleibt. */
   namensVorgabe: string;
 }) {
@@ -325,6 +328,7 @@ function AlbumSection({
           eigeneGruppe={eigeneGruppe}
           onEigeneGruppeChange={onEigeneGruppeChange}
           onGruppeChange={onGruppeChange}
+          onBereitChange={onBereitChange}
         />
 
         <p className="text-xs text-gray-600">
@@ -374,6 +378,10 @@ export default function ManualMatch() {
   const [albumName, setAlbumName] = useState("");
   const [eigeneGruppe, setEigeneGruppe] = useState(false);
   const [gruppeId, setGruppeId] = useState<string | null>(null);
+  // Erst frei, wenn die Gruppenvorschau zur AKTUELLEN Eingabe geantwortet hat
+  // (#110) — sonst kann der Startknopf eine Anlage anstossen, bevor feststeht,
+  // ob der Name eine Gruppe trifft.
+  const [gruppenBereit, setGruppenBereit] = useState(false);
   const [ownerAccountId, setOwnerAccountId] = useState("");
   const [existingAlbumId, setExistingAlbumId] = useState("");
   const [result, setResult] = useState<SyncLogEntry[] | null>(null);
@@ -421,7 +429,8 @@ export default function ManualMatch() {
     canonicalName.trim().length > 0 &&
     selections.length >= 2 &&
     selections.every((s) => s.account_id && s.person_id) &&
-    albumReady;
+    albumReady &&
+    gruppenBereit;
 
   return (
     <div className="p-6 max-w-2xl space-y-6">
@@ -494,6 +503,7 @@ export default function ManualMatch() {
         eigeneGruppe={eigeneGruppe}
         onEigeneGruppeChange={setEigeneGruppe}
         onGruppeChange={setGruppeId}
+        onBereitChange={setGruppenBereit}
         namensVorgabe={canonicalName.trim()}
       />
 

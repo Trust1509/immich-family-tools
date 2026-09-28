@@ -52,6 +52,10 @@ function AlbumDialog({
   const [existingAlbumId, setExistingAlbumId] = useState("");
   const [ownGroup, setOwnGroup] = useState(false);
   const [gruppeId, setGruppeId] = useState<string | null>(null);
+  // Erst frei, wenn die Gruppenvorschau zur AKTUELLEN Eingabe geantwortet hat
+  // (#110) — sonst kann ein Klick eine Anlage anstossen, bevor feststeht, ob
+  // der Name eine Gruppe trifft.
+  const [gruppenBereit, setGruppenBereit] = useState(false);
 
   const { data: existingAlbums = [], isFetching: loadingAlbums } = useQuery({
     queryKey: ["account-albums", ownerAccountId],
@@ -87,7 +91,7 @@ function AlbumDialog({
     }
   };
 
-  const canSubmit = mode === "new" ? !!albumName : !!existingAlbumId;
+  const canSubmit = (mode === "new" ? !!albumName : !!existingAlbumId) && gruppenBereit;
 
   return (
     <div className="space-y-3 bg-immich-bg border border-immich-border rounded-lg p-3">
@@ -161,6 +165,7 @@ function AlbumDialog({
         eigeneGruppe={ownGroup}
         onEigeneGruppeChange={setOwnGroup}
         onGruppeChange={setGruppeId}
+        onBereitChange={setGruppenBereit}
       />
 
       <p className="text-xs text-gray-600">

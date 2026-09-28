@@ -209,6 +209,79 @@ describe("Gruppenwahl beim Anlegen", () => {
   });
 });
 
+describe("Anlegen erst nach Antwort der Gruppenvorschau (#110)", () => {
+  // Die Owner-Festlegung in CONTEXT.md (Group Suggestion): ein Vorschlag ist
+  // ein Vorschlag, nie eine stille Zuordnung — wer sofort klickt, darf keine
+  // Anlage anstossen, bevor die Vorschau zur AKTUELLEN Eingabe geantwortet
+  // hat. Vorher wartete nur `GruppenWahl` selbst darauf, der Anlege-Knopf
+  // nicht (Befund im Bau-Brief).
+  it("sperrt 'Album erstellen', bis die Vorschau geantwortet hat, und gibt danach frei", async () => {
+    let antworten!: (wert: typeof GRUPPE) => void;
+    vorschauMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          antworten = resolve;
+        })
+    );
+
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+
+    // Sofort klicken, bevor die Vorschau geantwortet hat: keine Anlage.
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    expect(albumMock).not.toHaveBeenCalled();
+
+    // Erst warten, bis die Abfrage wirklich LAEUFT — sonst gibt es noch
+    // keine Zusage-Funktion zum Aufloesen.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalled());
+    await act(async () => {
+      antworten(GRUPPE);
+    });
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+  });
+
+  it("bleibt gesperrt, wenn waehrend einer laufenden Abfrage weitergetippt wird", async () => {
+    // Die Antwort, die gerade eintrifft, gehoert dann zu einer AELTEREN
+    // Eingabe — genau der Fall, den `passt` in GruppenWahl abfaengt.
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.change(screen.getByPlaceholderText("Album-Name…"), {
+      target: { value: "Noch ein Name" },
+    });
+    expect(knopf().disabled).toBe(true);
+
+    fireEvent.click(knopf());
+    expect(albumMock).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+  });
+
+  it("erlaubt Anlegen trotz fehlgeschlagener Vorschau, mit Hinweis", async () => {
+    // Nicht dauerhaft blockiert: ein Fehlschlag ist eine Antwort, keine
+    // offene Frage.
+    vorschauMock.mockRejectedValue(new Error("netzwerk kaputt"));
+
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Prüfung fehlgeschlagen — Anlegen bleibt trotzdem möglich.")
+      ).toBeTruthy()
+    );
+    expect(knopf().disabled).toBe(false);
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+  });
+});
+
 describe("Gruppenwahl beim VERKNUEPFEN eines bestehenden Albums", () => {
   it("schickt die Wahl auch im Verknuepfen-Zweig mit", async () => {
     // Gemessen vom Blindpruefer: Das Entfernen von `...gruppenwahl` in genau

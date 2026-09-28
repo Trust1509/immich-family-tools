@@ -445,6 +445,12 @@ export const translations = {
     "es-ES": "Comprobando …",
     "pt-BR": "Verificando …",
   },
+  group_check_failed: {
+    de: "Prüfung fehlgeschlagen — Anlegen bleibt trotzdem möglich.",
+    en: "Check failed — you can still create it.",
+    "es-ES": "La comprobación falló — de todos modos puedes crearlo.",
+    "pt-BR": "A verificação falhou — ainda é possível criar.",
+  },
   album_new_desc: {
     de: "Neues Album wird erstellt, mit den beteiligten Accounts geteilt und Fotos automatisch hinzugefügt.",
     en: "New album will be created, shared with participating accounts, and photos added automatically.",

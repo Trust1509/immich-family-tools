@@ -13,12 +13,17 @@ import { useT } from "../i18n";
  *
  * Erscheint nur, wenn der Name wirklich eine Gruppe trifft: Bei einem neuen
  * Namen bleibt der Ablauf unveraendert, ohne zusaetzlichen Klick.
+ *
+ * Meldet ueber `onBereitChange`, ob zur AKTUELLEN Eingabe eine Antwort
+ * vorliegt (#110) — der Aufrufer sperrt sein Anlegen darauf, statt die
+ * Namensregel raten zu lassen, waehrend hier noch gesucht wird.
  */
 export function GruppenWahl({
   albumName,
   eigeneGruppe,
   onEigeneGruppeChange,
   onGruppeChange,
+  onBereitChange,
 }: {
   /** Der Name, um den es beim Gruppieren geht — leer schaltet die Abfrage ab. */
   albumName: string;
@@ -26,6 +31,14 @@ export function GruppenWahl({
   onEigeneGruppeChange: (wert: boolean) => void;
   /** Die angezeigte Gruppe — genau die wird beim Bestaetigen auch geschickt. */
   onGruppeChange: (groupId: string | null) => void;
+  /**
+   * Meldet, ob die Vorschau zur AKTUELLEN Eingabe eine Antwort hat — Erfolg
+   * oder Fehlschlag, beides zaehlt als Antwort. `false` waehrend entprellt
+   * wird oder die Abfrage noch laeuft. Der Aufrufer sperrt sein Anlegen
+   * darauf (#110): Wer sofort klickt, darf keine Anlage anstossen, bevor
+   * diese Antwort da ist.
+   */
+  onBereitChange: (bereit: boolean) => void;
 }) {
   const { t } = useT();
   const [entprellt, setEntprellt] = useState("");
@@ -37,7 +50,11 @@ export function GruppenWahl({
     return () => clearTimeout(zeit);
   }, [gesucht]);
 
-  const { data: gruppe, isFetching } = useQuery({
+  const {
+    data: gruppe,
+    isFetching,
+    isError,
+  } = useQuery({
     queryKey: ["album-group", entprellt],
     queryFn: () => api.sync.albumGroupPreview(entprellt),
     enabled: !!entprellt,
@@ -71,11 +88,25 @@ export function GruppenWahl({
   const zeigeGruppe = !laeuft && !!gesucht && !!gruppe;
   const keineGruppe = !laeuft && !zeigeGruppe;
 
+  // Ein Fehlschlag der Abfrage ist eine ANTWORT, keine offene Frage — die
+  // Owner-Festlegung in CONTEXT.md sagt: ein Vorschlag ist ein Vorschlag, nie
+  // eine stille Sperre (#110). `laeuft` wird nach einem Fehlschlag genauso
+  // falsch wie nach einem Treffer; dieser Ausdruck sagt nur noch, WELCHE der
+  // beiden Antworten es war, fuer die Meldung unten.
+  const fehlerAktuell = !laeuft && !!gesucht && isError;
+
   // Nur zuruecksetzen, wenn SICHER keine Gruppe mehr da ist — nicht, solange
   // noch gesucht wird.
   useEffect(() => {
     if (keineGruppe && eigeneGruppe) onEigeneGruppeChange(false);
   }, [keineGruppe, eigeneGruppe, onEigeneGruppeChange]);
+
+  // Bereit heisst: Zur AKTUELLEN Eingabe liegt eine Antwort vor — Erfolg oder
+  // Fehlschlag, beides zaehlt gleich. Waehrend entprellt oder gesucht wird,
+  // ist "bereit" falsch, und der Aufrufer sperrt sein Anlegen genau darauf.
+  useEffect(() => {
+    onBereitChange(!laeuft);
+  }, [laeuft, onBereitChange]);
 
   // Was ANGEZEIGT wird, wird auch GESCHICKT. Ohne diese Bindung zeigte die
   // App eine Gruppe an und liess das Backend beim Bestaetigen erneut ueber
@@ -88,6 +119,9 @@ export function GruppenWahl({
   }, [angezeigt, onGruppeChange]);
 
   if (laeuft) return <p className="text-xs text-gray-600">{t("group_checking")}</p>;
+  // Fehlschlag zur AKTUELLEN Eingabe: sichtbar machen, aber nicht sperren —
+  // der Aufrufer hat laengst `onBereitChange(true)` bekommen (#110).
+  if (fehlerAktuell) return <p className="text-xs text-amber-500">{t("group_check_failed")}</p>;
   // Ein geleertes Namensfeld ist KEIN Grund, die alte Antwort weiter zu
   // zeigen: `laeuft` ist dann falsch (nichts zu suchen), `gruppe` haengt aber
   // noch am vorigen Schluessel. Ohne diese Schranke behauptete die App rund

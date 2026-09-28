@@ -34,6 +34,7 @@ vi.mock("../api/client", () => ({
 }));
 
 function zeichne(albumName: string) {
+  const bereitMeldungen: boolean[] = [];
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const baum = (name: string) => (
     <QueryClientProvider client={qc}>
@@ -43,12 +44,17 @@ function zeichne(albumName: string) {
           eigeneGruppe={false}
           onEigeneGruppeChange={() => {}}
           onGruppeChange={() => {}}
+          onBereitChange={(b) => bereitMeldungen.push(b)}
         />
       </LanguageProvider>
     </QueryClientProvider>
   );
   const ergebnis = render(baum(albumName));
-  return { ...ergebnis, neuZeichnen: (name: string) => ergebnis.rerender(baum(name)) };
+  return {
+    ...ergebnis,
+    bereitMeldungen,
+    neuZeichnen: (name: string) => ergebnis.rerender(baum(name)),
+  };
 }
 
 beforeEach(() => {
@@ -103,6 +109,7 @@ describe("GruppenWahl", () => {
  *  nicht beobachten, und genau der war ungedeckt. */
 function zeichneMitZustand(start: string) {
   const gemeldet: (string | null)[] = [];
+  const bereitMeldungen: boolean[] = [];
   function Huelle({ name }: { name: string }) {
     const [eigen, setEigen] = React.useState(false);
     return (
@@ -113,6 +120,7 @@ function zeichneMitZustand(start: string) {
           eigeneGruppe={eigen}
           onEigeneGruppeChange={setEigen}
           onGruppeChange={(g) => gemeldet.push(g)}
+          onBereitChange={(b) => bereitMeldungen.push(b)}
         />
       </>
     );
@@ -126,8 +134,69 @@ function zeichneMitZustand(start: string) {
     </QueryClientProvider>
   );
   const e = render(baum(start));
-  return { gemeldet, neuZeichnen: (n: string) => e.rerender(baum(n)) };
+  return { gemeldet, bereitMeldungen, neuZeichnen: (n: string) => e.rerender(baum(n)) };
 }
+
+describe("GruppenWahl: bereit-Meldung fuers Anlegen (#110)", () => {
+  // Der Aufrufer sperrt sein Anlegen auf `onBereitChange` — diese Tests
+  // pruefen das SIGNAL, nicht die Sperre selbst (die steht bei den
+  // Konsumenten: MatchSuggestions.gruppenwahl.test.tsx,
+  // ManualMatch.gruppenwahl.test.tsx).
+  it("meldet sofort bereit, solange kein Name eingegeben ist", () => {
+    // Nichts zu pruefen heisst nichts zu warten — sonst waere jedes leere
+    // Formular ohne Grund gesperrt.
+    const { bereitMeldungen } = zeichne("   ");
+
+    expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(true);
+  });
+
+  it("meldet unbereit, solange geprueft wird, und bereit danach", async () => {
+    let antworten!: (wert: typeof GRUPPE) => void;
+    vorschauMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          antworten = resolve;
+        })
+    );
+
+    const { bereitMeldungen } = zeichne("Testalbum");
+
+    // Schon VOR dem ersten Aufruf unbereit — die Entprellung selbst zaehlt
+    // schon als "noch keine Antwort".
+    expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(false);
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalled());
+    expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(false);
+
+    antworten(GRUPPE);
+    await waitFor(() => expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(true));
+  });
+
+  it("wird beim Weitertippen waehrend einer laufenden Abfrage wieder unbereit", async () => {
+    const { bereitMeldungen, neuZeichnen } = zeichne("Testalbum");
+    await waitFor(() => expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(true));
+
+    neuZeichnen("Ganz anderer Name");
+
+    // Sofort unbereit, nicht erst nach der neuen Antwort — sonst koennte ein
+    // Klick zwischen Tastendruck und Antwort noch durchrutschen.
+    expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(false);
+    await waitFor(() => expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(true));
+  });
+
+  it("meldet bereit UND eine Meldung, wenn die Abfrage fehlschlaegt", async () => {
+    // Owner-Festlegung (CONTEXT.md, Group Suggestion): ein Vorschlag ist ein
+    // Vorschlag, nie eine stille Sperre — ein Fehlschlag darf das Anlegen
+    // nicht dauerhaft verhindern.
+    vorschauMock.mockRejectedValue(new Error("netzwerk kaputt"));
+
+    const { bereitMeldungen } = zeichne("Testalbum");
+
+    await waitFor(() => expect(bereitMeldungen[bereitMeldungen.length - 1]).toBe(true));
+    expect(
+      screen.getByText("Prüfung fehlgeschlagen — Anlegen bleibt trotzdem möglich.")
+    ).toBeTruthy();
+  });
+});
 
 describe("GruppenWahl: die Wahl und ihre Meldung", () => {
   it("setzt die Wahl zurueck, wenn die Gruppe wirklich verschwindet", async () => {
