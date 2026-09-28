@@ -245,13 +245,19 @@ describe("Nach einem Teilausfall", () => {
   });
 
   it("zeigt die schon gesammelten Eintraege, wenn ein spaeterer Aufruf wirft", async () => {
-    // Ein WURF (HTTP-Fehler, etwa die Namenskollision) ist etwas anderes als
-    // ein Fehler-Protokolleintrag: Er springt aus der Schleife. Vorher standen
-    // `setLocalLogs` und die Invalidierungen dahinter — der Nutzer sah nur den
-    // Fehlertext und nicht, dass Album eins schon umbenannt WAR.
+    // Ein WURF (HTTP-Fehler) ist etwas anderes als ein Fehler-Protokolleintrag:
+    // Er springt aus der Schleife. Vorher standen `setLocalLogs` und die
+    // Invalidierungen dahinter — der Nutzer sah nur den Fehlertext und nicht,
+    // dass Album eins schon umbenannt WAR.
+    //
+    // Beispieltext: das zweite Album wurde zwischen Laden und Umbenennen
+    // geloescht (404, `err_managed_album_not_found`) — ein Wurf, den es auch
+    // nach #98 noch gibt. Die frühere Fassung nahm hier die Namenskollision
+    // (409, `err_album_name_in_use`); die ist mit #98 entfernt und kann nicht
+    // mehr auftreten.
     renameMock.mockImplementation(async (albumId: string) => {
       if (albumId === "album-zwei") {
-        throw { message: "Der Name gehört bereits zu einer anderen Gruppe." };
+        throw { message: "Managed Album nicht gefunden" };
       }
       return [
         {
@@ -269,7 +275,7 @@ describe("Nach einem Teilausfall", () => {
 
     // BEIDES muss zu sehen sein: der Fehlertext UND der gelungene Eintrag.
     expect(await screen.findByText("Eintrag zu album-eins")).toBeTruthy();
-    expect(screen.getByText(/gehört bereits zu einer anderen Gruppe/)).toBeTruthy();
+    expect(screen.getByText(/Managed Album nicht gefunden/)).toBeTruthy();
   });
 });
 

@@ -525,12 +525,13 @@ async def rename_managed_album(
     # nichts mehr zu schuetzen; das Schloss stand nur FUER sie.
     #
     # Das Gruppenschloss bleibt bei den beiden ANLEGE-Wegen weiter oben in
-    # dieser Datei (`create_album`, `create_manual_album`) — dort verhindert
-    # es weiterhin, dass zwei gleichzeitige Anlagen mit demselben Namen in
-    # zwei Gruppen zerfallen. Das ALBUMSCHLOSS (Umbenennen gegen Auffrischen)
-    # bleibt ebenfalls unveraendert: Es liegt in
-    # `sync_service.rename_managed_album` und ist von dieser Aenderung nicht
-    # beruehrt.
+    # dieser Datei (automatisch: `create_album`/`_album_anlegen_unter_dem_
+    # schloss`; manuell: `sync_names_multi`/`_manuelles_album_unter_dem_
+    # schloss`) — dort verhindert es weiterhin, dass zwei gleichzeitige
+    # Anlagen mit demselben Namen in zwei Gruppen zerfallen. Das ALBUMSCHLOSS
+    # (Umbenennen gegen Auffrischen) bleibt ebenfalls unveraendert: Es liegt
+    # in `sync_service.rename_managed_album` und ist von dieser Aenderung
+    # nicht beruehrt.
     logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)
     return logs

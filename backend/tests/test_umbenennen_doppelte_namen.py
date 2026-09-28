@@ -9,10 +9,20 @@ Faellen in `test_umbenennen_gruppe.py` und `test_umbenennen_schloss.py`, die
 eine Ablehnung erwarteten. Diese Datei haelt das neue, gewollte Verhalten fest:
 ein Umbenennen auf den Namen einer FREMDEN Gruppe gelingt.
 
-DURCH DIE ECHTE HTTP-TUER, mit einer schreibenden Attrappe fuer den
-Sync-Dienst — wie in `test_umbenennen_gruppe.py`, aus demselben Grund: Eine
-zaehlende Attrappe sieht nicht, was der erste Aufruf im Bestand angerichtet
-hat, und genau das ist hier der Punkt.
+DURCH DIE ECHTE HTTP-TUER, mit dem ECHTEN `sync_service` und dem ECHTEN
+`ConfigStore` — nur `ImmichClient` ist eine Attrappe (kein echter HTTP-Aufruf
+gegen eine Immich-Instanz). Das ist eine Nacharbeit an der ersten Fassung
+dieser Datei: Sie hatte `sync_service.rename_managed_album` KOMPLETT durch
+eine schreibende Attrappe ersetzt. Blind- und Fremdpruefer haben unabhaengig
+voneinander dieselbe Luecke gefunden: Eine Ablehnung, die NICHT im Router
+steht, sondern eine Ebene tiefer im echten Dienst (etwa in
+`_rename_managed_album_unlocked`), waere durch diese Attrappe nie gelaufen —
+die Datei waere gruen geblieben, und mit ihr die ganze Suite (242 von 242,
+nachgemessen). Jetzt laeuft der ganze echte Weg: Router ->
+`sync_service.rename_managed_album` -> `_rename_managed_album_unlocked` ->
+`ImmichClient.update_album` (Attrappe) -> `ConfigStore.update_managed_album`
+(echt, schreibt in die Wegwerf-`accounts.json`). Eine Ablehnung an JEDER
+dieser Stellen wird jetzt rot, nicht nur eine im Router.
 """
 import json
 
@@ -32,12 +42,26 @@ def _album(album_id, name, gruppe):
             "created_at": "2026-01-01T00:00:00+00:00"}
 
 
+class _ImmichAttrappe:
+    """Ersetzt nur den Netzwerk-Rand: kein HTTP, sonst nichts Eigenes.
+
+    Fuer `_rename_managed_album_unlocked` reicht `update_album` — die Funktion
+    ruft weder `get_album_assets` noch `add_assets_to_album` noch teilt sie
+    ein Album. Ein Attribut mehr, als der Aufrufer braucht, waere hier schon
+    eine unbelegte Behauptung ueber den Dienst.
+    """
+
+    def __init__(self, *_a, **_k):
+        pass
+
+    async def update_album(self, album_id, payload):
+        return {"id": album_id, **payload}
+
+
 @pytest.fixture
 def mit_bestand(tmp_path, monkeypatch):
-    """Baut eine Anwendung mit dem übergebenen Bestand und schreibendem Immich.
-
-    Dieselbe Form wie in `test_umbenennen_gruppe.py` — bewusst nicht geteilt,
-    damit diese Datei ohne Blick in die andere lesbar bleibt.
+    """Baut eine Anwendung mit dem übergebenen Bestand, echtem Sync-Dienst und
+    echtem ConfigStore — nur `ImmichClient` ist eine Attrappe.
     """
     def bauen(alben):
         import main
@@ -49,13 +73,8 @@ def mit_bestand(tmp_path, monkeypatch):
                         encoding="utf-8")
         monkeypatch.setattr(main.settings, "secret", "nur-fuer-den-test", raising=False)
         monkeypatch.setattr(main.settings, "config_path", pfad, raising=False)
+        monkeypatch.setattr(sync_service, "ImmichClient", _ImmichAttrappe)
 
-        async def umbenennen(managed, _owner, neuer_name, store):
-            managed.album_name = neuer_name
-            store.update_managed_album(managed)
-            return []
-
-        monkeypatch.setattr(sync_service, "rename_managed_album", umbenennen)
         c = TestClient(main.app)
         c.__enter__()
         c.post("/api/auth/login", json={"token": "nur-fuer-den-test"})

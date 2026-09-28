@@ -108,12 +108,12 @@ def test_die_wiederholung_nach_einem_teilausfall_kommt_durch(mit_bestand):
     """Der Stand nach einem Teilausfall, mit einer fremden Schreibweise daneben.
 
     `gruppe-1` trägt „Herbstfest" schon über a1; a2 blieb zurück. `gruppe-2`
-    hält „HERBSTFEST" — dieselbe Stufe-1-Faltung, andere Stufe 2. Damit steht
-    `gruppe-2` in `fremd`, und die Ausnahme entscheidet.
-
-    Sie muss die GRUPPE fragen: a2 selbst trägt den Namen noch nicht, seine
-    Gruppe schon. Die Mehrdeutigkeit ist vorher und nachher dieselbe — eine
-    Ablehnung würde nichts verhindern und a2 für immer zurücklassen.
+    hält „HERBSTFEST" — dieselbe Stufe-1-Faltung, andere Stufe 2, also ein
+    Bestand, in dem der Zielname schon vor dieser Anfrage doppelt vorkommt.
+    Seit #98 gelingt das Umbenennen ohnehin immer; diese Probe hält zusätzlich
+    fest, dass a2 dabei wirklich ankommt (nicht für immer beim alten Namen
+    zurückbleibt), obwohl im Bestand schon zwei Gruppen mit passender
+    Stufe-1-Faltung existieren.
     """
     c = mit_bestand([_album("a1", "Herbstfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1"),
@@ -124,16 +124,14 @@ def test_die_wiederholung_nach_einem_teilausfall_kommt_durch(mit_bestand):
 
 
 def test_die_eigene_gruppe_darf_eine_zweite_schreibweise_bekommen(mit_bestand):
-    """Der Fall, in dem Abzug und Ausnahme AUSEINANDERGEHEN.
+    """Eine zweite Schreibweise innerhalb der EIGENEN Gruppe.
 
-    `gruppe-1` hält „Strassenfest" und „Sommerfest". Wer „Sommerfest" in
-    „Straßenfest" umbenennt, kollidiert in Stufe 1 mit dem eigenen
-    „Strassenfest" — und mit KEINER anderen Gruppe. Es entsteht also keine
-    gruppenübergreifende Mehrdeutigkeit, und der Vorgang gehört erlaubt.
-
-    Das Prädikat sieht das an der Wirkung: Vor und nach dem Vorgang zeigt
-    „Strassenfest" auf `gruppe-1` und „Straßenfest" ebenfalls — keine Antwort
-    ändert sich, also gibt es nichts abzulehnen.
+    `gruppe-1` hält „Strassenfest" und „Sommerfest". Das Umbenennen von
+    „Sommerfest" in „Straßenfest" gelingt (seit #98 ohnehin immer); diese
+    Probe hält zusätzlich fest, dass sich an der Gruppenzuordnung nichts
+    verschiebt: Vor und nach dem Vorgang zeigt „Strassenfest" auf `gruppe-1`,
+    und „Straßenfest" jetzt ebenfalls — beide Schreibweisen bleiben bei
+    derselben Gruppe.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
@@ -185,11 +183,12 @@ def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
     Das ist der Zweck des Vorgangs. In anderen Beständen kann er danach auf
     eine andere Gruppe zeigen — das misst die Probe darunter.
 
-    Ohne diese Unterscheidung wäre das gewöhnliche Umbenennen gesperrt: In
-    einem Bestand wie diesem verliert der alte Name seine Gruppe
-    zwangsläufig (gemessen am 28.09.2026: die Mutation lässt 14 von 255
-    Proben scheitern, darunter diese). Das Prädikat zählt deshalb nur Namen, die es nachher
-    noch gibt.
+    In einem Bestand wie diesem verliert der alte Name seine Gruppe
+    zwangsläufig — das ist keine Ablehnung mehr wert, seit #98 sowieso nicht,
+    aber auch die Vorschau (`GET /api/sync/album-group`) hält das fest: Sie
+    antwortet für den alten Namen danach mit `null`, weil ihn niemand mehr
+    trägt. Der Fall, in dem er stattdessen an eine ANDERE Gruppe geht, misst
+    die Probe darunter.
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1")])
     vorher = c.get("/api/sync/album-group",
@@ -233,18 +232,17 @@ def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(
     `gruppe-1` heisst „Strasse", `gruppe-2` „Straße"; seit #83 derselbe Name,
     auseinandergehalten nur vom Stufe-2-Rückgriff. Benennt man `gruppe-1` weg,
     zeigt „Strasse" danach auf `gruppe-2` — die Klasse ist frei geworden, und
-    `gruppe-2` die Trägerin einer gleichwertigen Schreibweise. Das Prädikat
-    prüft den Namen, von dem weg umbenannt wird, nicht. Andere Behandlungen
-    sind denkbar und gemessen; sie stehen als Optionen in #98.
+    `gruppe-2` die Trägerin einer gleichwertigen Schreibweise. Das ist allein
+    die Auflösung von `_gruppe_fuer_namen` (siehe `test_namensfaltung.py`) und
+    hat mit der mit #98 entfernten Kollisionsprüfung nichts zu tun: Es gibt
+    seit #98 keine Prüfung mehr, die über den Namen, von dem weg umbenannt
+    wird, entscheiden könnte — was aus ihm wird, bestimmt allein dieser
+    Lesemechanismus.
 
     ZWEI Bestände, weil die Übergabe über BEIDE Stufen laufen kann: bei „ss"
     und „ß" über Stufe 1, beim griechischen Paar nur über Stufe 2. Mit nur dem
     ersten blieb eine Mutation grün, die die Übergabe allein über Stufe 2
     sperrt (Blindprüfung zu #108).
-
-    OB DAS SO BLEIBEN SOLL, IST OFFEN (#98). Diese Probe ist die, die kippt,
-    wenn dort anders entschieden wird — sie misst heutiges Verhalten, keine
-    beschlossene Regel.
     """
     c = mit_bestand([_album("a1", alter_name, "gruppe-1"),
                      _album("a2", fremde_schreibweise, "gruppe-2")])

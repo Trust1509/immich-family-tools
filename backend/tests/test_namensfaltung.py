@@ -42,7 +42,8 @@ das Ergebnis genau des Fehlers, den #83 behebt** (der Nutzer fand die Gruppe
 nicht und legte eine zweite an).
 
 Deshalb laeuft die Abfrage zweistufig (`_gruppe_fuer_namen`): neue Faltung,
-und wo die mehrdeutig wird, die alte. Die Proben dazu stehen unten.
+und wo sie KEINE eindeutige Antwort liefert — mehrdeutig ODER leer (gemessen
+#111) —, die alte. Die Proben dazu stehen unten.
 """
 import unicodedata
 
@@ -504,8 +505,10 @@ def test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen(klein, gross):
     Diese Probe hält fest, dass es Namen gibt, die nur in Stufe 2 kollidieren.
     Sie ist grün, solange die Grenze besteht — und das ist der Zweck: Wird sie
     rot, hat eine Änderung an der Faltung (oder eine neue Unicode-Fassung) die
-    Grenze geschlossen, und die Kommentare am Namensschloss und am Prädikat
-    beschreiben dann einen Zustand, den es nicht mehr gibt.
+    Grenze geschlossen, und der Docstring von `ConfigStore.gruppen_schloss`
+    (der diese Grenze seit #98 direkt benennt, statt sie nur hier im
+    Testkommentar zu halten) beschreibt dann einen Zustand, den es nicht mehr
+    gibt.
 
     Woher das kommt: ZUSAMMEN fallen die beiden in Stufe 2, weil `lower()`
     aus dem grossen Buchstaben den kleinen macht und Stufe 2 nicht

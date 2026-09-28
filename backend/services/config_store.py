@@ -429,14 +429,24 @@ class ConfigStore:
     def _gruppe_fuer_namen(self, album_name, albums: Optional[list] = None) -> Optional[str]:
         """Welche Gruppe traegt diesen Namen — in zwei Stufen.
 
-        Stufe 1 ist die heutige Faltung (`_name_key`, unicode-fest). Ist sie
-        eindeutig, gilt sie.
+        Stufe 1 ist die heutige Faltung (`_name_key`, unicode-fest). Liefert
+        sie genau einen Kandidaten, gilt er.
 
         Stufe 2 ist die Faltung von vor #83. Sie kommt zum Zug, wenn Stufe 1
-        KEINE eindeutige Antwort liefert — mehrdeutig (mehr als ein Kandidat)
-        ODER leer (kein Kandidat, gemessen #111). Beides sind Faelle, in
-        denen die Vergroeberung eine Antwort zerstoert haben koennte, die es
-        vorher gab. Die Begruendung steht bei `_name_key_vor_83`.
+        KEINE eindeutige Antwort liefert — gemessen sind zwei verschiedene
+        Faelle, kein gemeinsamer Mechanismus:
+
+        * MEHRDEUTIG (mehr als ein Kandidat): zwei Schreibweisen, die Stufe 2
+          noch trennte, fallen unter der groeberen Stufe 1 zusammen (Beispiel
+          „Strassenfest"/„Straßenfest").
+        * LEER (kein Kandidat, gemessen #111): Stufe 1 ist fuer bestimmte
+          Zeichenkombinationen FEINER als Stufe 2, nicht groeber — die
+          griechischen Iota-subscriptum-Paare aus `test_namensfaltung.py`
+          (`test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`), wo
+          `casefold` plus erste Normalform zwei Formen trennt, die `lower()`
+          allein zusammenwuerfe.
+
+        Die Begruendung fuer Stufe 2 selbst steht bei `_name_key_vor_83`.
 
         Beide Stufen halten die zwei Ausnahmen aus #78: ein leerer Name sagt
         nichts, ein mehrdeutiger auch nicht.
@@ -556,9 +566,10 @@ class ConfigStore:
         folgenlos ist (`scripts/faltung-sonde.py`).
 
         Die Abfrage laeuft seitdem ZWEISTUFIG (`_gruppe_fuer_namen`): neue
-        Faltung, und wo die mehrdeutig wird, die alte. Ohne die zweite Stufe
-        haette die Verbesserung genau denen geschadet, fuer die sie gebaut ist
-        — wer zwei Schreibweisen in zwei Gruppen hat, verlor beide Antworten.
+        Faltung, und wo sie KEINE eindeutige Antwort liefert — mehrdeutig ODER
+        leer (gemessen #111) —, die alte. Ohne die zweite Stufe haette die
+        Verbesserung genau denen geschadet, fuer die sie gebaut ist — wer zwei
+        Schreibweisen in zwei Gruppen hat, verlor beide Antworten.
         """
         return self._gruppe_fuer_namen(album_name)
 
@@ -624,6 +635,14 @@ class ConfigStore:
         zum Speichern — sonst schuetzt es die Luecke nicht, um die es geht.
         Gesperrt wird nur gegen Anlagen mit DEMSELBEN Namen; alles andere
         laeuft weiter.
+
+        GRENZE, gemessen (#108): Der Schluessel hier ist NUR Stufe 1 der
+        Namensfaltung (`_name_key`); die Gruppenzuordnung (`_gruppe_fuer_namen`)
+        greift zusaetzlich auf Stufe 2 zurueck. Es gibt Namen, die NUR in
+        Stufe 2 kollidieren (`test_namensfaltung.py`,
+        `test_im_kleinen_raum_sind_es_genau_drei_paare`) — sie begegnen sich
+        in der Zuordnung, nehmen hier aber VERSCHIEDENE Schloesser. Ob das
+        geschlossen wird, gehoert zu #95.
         """
         schluessel = (id(asyncio.get_running_loop()), self._name_key(album_name))
         return _gruppen_schloesser.setdefault(schluessel, asyncio.Lock())
