@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -1280,49 +1281,72 @@ def test_gescheitertes_aufraeumen_verhindert_den_start_nicht(tmp_path, monkeypat
 # deshalb zwei Zeilen mit demselben Wort im Protokoll, obwohl nur eine ein
 # Schemasprung war (Beleg: Rollout-Protokoll in Issue #105). Vier Proben,
 # isoliert je Fall UND je Ausgang — jede Fixture loest genau EINEN der beiden
-# Zweige in `_migrate()` aus, sonst wuerden beide Meldungen im selben Lauf
-# entstehen und die Unterscheidung nicht pruefbar machen.
+# Zweige in `_migrate()` aus. GEMESSEN, nicht angenommen: Isoliert heisst nur
+# "diese eine Fixture loest genau einen Zweig aus" — die beiden Zweige
+# SCHLIESSEN EINANDER NICHT AUS (ein Altbestand ohne `schema_version` UND mit
+# einer fehlenden Kennung loest in einem Lauf BEIDE aus, gemessen in
+# Nacharbeit 2); die Isolation ist eine Eigenschaft der Testdaten, keine
+# Eigenschaft des Codes.
 #
 # NACHARBEIT 1 (#105, Fremdpruefer): Die erste Fassung dieser vier Proben
 # schloss nicht aus, dass Erfolgs- UND Fehlermeldung fuer DENSELBEN Fall
 # gleichzeitig geloggt werden — eine `_migrate()`-Fassung, die je Fall beide
-# Zeilen ausgibt, waere an allen vier Proben vorbeigekommen. Jede Probe prueft
-# deshalb jetzt zusaetzlich explizit die ABWESENHEIT der jeweils anderen
-# Meldungsart, nagelt das Log-Level fest (INFO fuer Erfolg, WARNING fuer
-# Scheitern) und sichert den erwarteten Zielpfad in der Meldung zu.
+# Zeilen ausgibt, waere an allen vier Proben vorbeigekommen.
+#
+# NACHARBEIT 2 (#105, Blindpruefer): Die Nacharbeit-1-Fassung schloss immer
+# noch nicht genug aus — sie verlangte nur die ABWESENHEIT des exakten neuen
+# Wortlauts der Gegenseite. Fuenf Gegenbeispiele blieben gruen: eine
+# zusaetzliche Zeile im ALTEN Wortlaut (der weder "nicht moeglich" noch die
+# neue Formulierung traegt), eine zusaetzliche Zeile auf einem GANZ ANDEREN
+# Level (z. B. ERROR), oder eine zweite Zeile mit voellig anderem Text auf
+# demselben Level. Jede Probe prueft deshalb jetzt:
+#   - ERFOLGSFALL: Es gibt UEBERHAUPT KEINE Zeile >= WARNING vom Logger
+#     `services.config_store` — unabhaengig vom Wortlaut.
+#   - FEHLERFALL: Die MENGE der Rueckweg-Zeilen dieses Loggers (gefiltert auf
+#     Zeilen, die den erwarteten Zielpfad UND das Wort "Schemasprung" oder
+#     "Kennungsvergabe" enthalten — das schliesst die unabhaengige
+#     "Unbrauchbarer Rueckweg wird ersetzt"-Warnung aus, die ihr eigener Test
+#     deckt) hat GENAU EIN Element, mit GENAU DEM ERWARTETEN WORTLAUT (volle
+#     Zeichenkettengleichheit, kein Teilstring) und GENAU DEM ERWARTETEN
+#     LEVEL.
+# Teilstring-Anker wie `str(ziel) in meldung` oder `f"Version {V}" in
+# meldung` wurden durch volle Zeichenkettengleichheit ersetzt: Ersteres liesse
+# `f"{ziel}.tmp"` durch, zweiteres liesse "Version 30" fuer Version 3 durch
+# (Blindpruefer, Nacharbeit 2).
 
 
 def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_path, caplog):
     """Isolierter Schemasprung (die Alben tragen bereits eine Kennung, nur
-    die Schemaversion fehlt) — die Erfolgsmeldung nennt 'Schemasprung', die
-    Zielversion und den Zielpfad; sie kommt genau einmal, auf INFO-Niveau,
-    und es kommt keine Fehler- oder Kennungsvergabe-Meldung dazu."""
+    die Schemaversion fehlt) — die Erfolgsmeldung ist ZEICHENGENAU 'Rueckweg
+    vor Schemasprung auf Version <N>: <Zielpfad>', auf INFO-Niveau, und es
+    gibt ueberhaupt keine Zeile >= WARNING von diesem Logger."""
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     stand = json.loads(path.read_text(encoding="utf-8"))
     stand["managed_albums"][0]["group_id"] = "gruppe-vorhanden"
     path.write_text(json.dumps(stand, indent=2), encoding="utf-8")
     erwarteter_pfad = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    erwartet = f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION}: {erwarteter_pfad}"
 
     with caplog.at_level("INFO"):
         ConfigStore(str(path))
 
-    alle = [r.getMessage() for r in caplog.records]
-    erfolg = [r for r in caplog.records
-              if r.levelname == "INFO" and "Schemasprung" in r.getMessage()]
-    assert len(erfolg) == 1, alle  # genau EINE Erfolgsmeldung, nicht zusaetzlich eine zweite
-    meldung = erfolg[0].getMessage()
-    assert f"Version {ConfigStore.SCHEMA_VERSION}" in meldung, meldung
-    assert str(erwarteter_pfad) in meldung, meldung
-    assert not any("nicht moeglich" in m for m in alle), alle
-    assert not any("Kennungsvergabe" in m for m in alle), alle
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    assert not any(r.levelno >= logging.WARNING for r in eigene), \
+        [(r.levelname, r.getMessage()) for r in eigene]
+    treffer = [r for r in eigene
+               if str(erwarteter_pfad) in r.getMessage()
+               and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert treffer[0].levelname == "INFO", treffer[0].getMessage()
+    assert treffer[0].getMessage() == erwartet, treffer[0].getMessage()
 
 
 def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung(tmp_path, caplog):
     """Isolierte Kennungsvergabe (Schemaversion ist bereits aktuell, ein Album
-    hat noch keine Kennung) — die Erfolgsmeldung nennt 'Kennungsvergabe' und
-    den Zielpfad; sie kommt genau einmal, auf INFO-Niveau, und es kommt keine
-    Fehler- oder Schemasprung-Meldung dazu."""
+    hat noch keine Kennung) — die Erfolgsmeldung ist ZEICHENGENAU 'Rueckweg
+    vor Kennungsvergabe: <Zielpfad>', auf INFO-Niveau, und es gibt ueberhaupt
+    keine Zeile >= WARNING von diesem Logger."""
     path = tmp_path / "accounts.json"
     ohne_kennung = _album("a1", "Testalbum", ["p1"])
     path.write_text(json.dumps({
@@ -1331,26 +1355,30 @@ def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung
         "managed_albums": [ohne_kennung],
     }, indent=2), encoding="utf-8")
     erwarteter_pfad = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+    erwartet = f"Rueckweg vor Kennungsvergabe: {erwarteter_pfad}"
 
     with caplog.at_level("INFO"):
         ConfigStore(str(path))
 
-    alle = [r.getMessage() for r in caplog.records]
-    erfolg = [r for r in caplog.records
-              if r.levelname == "INFO" and "Kennungsvergabe" in r.getMessage()]
-    assert len(erfolg) == 1, alle
-    meldung = erfolg[0].getMessage()
-    assert str(erwarteter_pfad) in meldung, meldung
-    assert not any("nicht moeglich" in m for m in alle), alle
-    assert not any("Schemasprung" in m for m in alle), alle
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    assert not any(r.levelno >= logging.WARNING for r in eigene), \
+        [(r.levelname, r.getMessage()) for r in eigene]
+    treffer = [r for r in eigene
+               if str(erwarteter_pfad) in r.getMessage()
+               and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert treffer[0].levelname == "INFO", treffer[0].getMessage()
+    assert treffer[0].getMessage() == erwartet, treffer[0].getMessage()
 
 
 def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_path, caplog):
     """Isolierter Schemasprung, dessen Rueckweg scheitert (ein Verzeichnis am
     Zielpfad statt eines Rechte-Tricks, der unter Windows nicht haelt) — die
-    Fehlermeldung nennt 'Schemasprung', die Zielversion, 'nicht moeglich' und
-    den Zielpfad; sie kommt genau einmal, auf WARNING-Niveau, und es kommt
-    keine Erfolgs- oder Kennungsvergabe-Meldung dazu."""
+    Fehlermeldung ist ZEICHENGENAU 'Rueckweg vor Schemasprung auf Version <N>
+    nicht moeglich: <Zielpfad>', auf WARNING-Niveau, und es gibt unter den
+    Rueckweg-Zeilen dieses Loggers genau diese eine (die unabhaengige
+    "Unbrauchbarer Rueckweg wird ersetzt"-Warnung zaehlt nicht mit, siehe
+    Filter oben im Modul-Kommentar)."""
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     stand = json.loads(path.read_text(encoding="utf-8"))
@@ -1359,31 +1387,25 @@ def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_
 
     ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
     ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
+    erwartet = f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {ziel}"
 
     with caplog.at_level("INFO"):
         ConfigStore(str(path))  # darf nicht werfen
 
-    alle = [r.getMessage() for r in caplog.records]
-    fehler = [r for r in caplog.records
-              if r.levelname == "WARNING" and "Schemasprung" in r.getMessage()
-              and "nicht moeglich" in r.getMessage()]
-    assert len(fehler) == 1, alle
-    meldung = fehler[0].getMessage()
-    assert f"Version {ConfigStore.SCHEMA_VERSION}" in meldung, meldung
-    assert str(ziel) in meldung, meldung
-    assert not any(
-        r.levelname == "INFO" and "Rueckweg vor Schemasprung" in r.getMessage()
-        for r in caplog.records
-    ), alle
-    assert not any("Kennungsvergabe" in m for m in alle), alle
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    treffer = [r for r in eigene
+               if str(ziel) in r.getMessage()
+               and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert treffer[0].levelname == "WARNING", treffer[0].getMessage()
+    assert treffer[0].getMessage() == erwartet, treffer[0].getMessage()
 
 
 def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemasprung(tmp_path, caplog):
     """Isolierte Kennungsvergabe, deren Rueckweg scheitert — die
-    Fehlermeldung nennt 'Kennungsvergabe', 'nicht moeglich' und den
-    Zielpfad (nicht `self._path`, also NICHT `accounts.json` selbst); sie
-    kommt genau einmal, auf WARNING-Niveau, und es kommt keine Erfolgs- oder
-    Schemasprung-Meldung dazu. Die Kennungsvergabe selbst gelingt trotzdem
+    Fehlermeldung ist ZEICHENGENAU 'Rueckweg vor Kennungsvergabe nicht
+    moeglich: <Zielpfad>' (nicht `self._path`, also NICHT `accounts.json`
+    selbst), auf WARNING-Niveau. Die Kennungsvergabe selbst gelingt trotzdem
     (`_backfill_group_ids` haengt nicht am Erfolg der Sicherung), wie bei den
     bestehenden Schemasprung-Scheitern-Proben."""
     path = tmp_path / "accounts.json"
@@ -1396,20 +1418,33 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
 
     ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
     ziel.mkdir()
+    erwartet = f"Rueckweg vor Kennungsvergabe nicht moeglich: {ziel}"
 
     with caplog.at_level("INFO"):
         store = ConfigStore(str(path))  # darf nicht werfen
 
     assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
-    alle = [r.getMessage() for r in caplog.records]
-    fehler = [r for r in caplog.records
-              if r.levelname == "WARNING" and "Kennungsvergabe" in r.getMessage()
-              and "nicht moeglich" in r.getMessage()]
-    assert len(fehler) == 1, alle
-    meldung = fehler[0].getMessage()
-    assert str(ziel) in meldung, meldung
-    assert not any(
-        r.levelname == "INFO" and "Rueckweg vor Kennungsvergabe" in r.getMessage()
-        for r in caplog.records
-    ), alle
-    assert not any("Schemasprung" in m for m in alle), alle
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    treffer = [r for r in eigene
+               if str(ziel) in r.getMessage()
+               and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert treffer[0].levelname == "WARNING", treffer[0].getMessage()
+    assert treffer[0].getMessage() == erwartet, treffer[0].getMessage()
+
+
+def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
+    """Die Fehlermeldung in `_load` nannte nur `vor-schema-*.bak` und
+    verschwieg `vor-kennungsvergabe.bak` — beide Saetze waren einzeln
+    entfernbar, ohne dass die volle Suite es bemerkte (Blindpruefer,
+    Nacharbeit 2 zu #105). `test_fehlermeldung_nennt_den_versionierten_
+    rueckweg` deckt nur den ersten Satz; dieser Test verlangt beide
+    Dateinamen."""
+    path = tmp_path / "accounts.json"
+    path.write_text("{kaputt", encoding="utf-8")
+
+    with pytest.raises(RuntimeError) as fehler:
+        ConfigStore(str(path))
+
+    assert "vor-schema-" in str(fehler.value)
+    assert "vor-kennungsvergabe.bak" in str(fehler.value)

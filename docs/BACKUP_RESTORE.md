@@ -24,12 +24,17 @@ and they behave differently on purpose:
   migration and never overwritten while it is usable. `<N>` is the schema
   version it is migrating **to**; the file holds the state from _before_ that
   migration.
-- **`accounts.json.vor-kennungsvergabe.bak`** — written before the app assigns
-  album group identifiers **without** a schema change. That happens when an
-  older version created an album without one. **One generation only:** it is
-  replaced on each such run, so it always holds the state from before the
-  _most recent_ one. That is the state you would want back; a months-old copy
-  would throw away everything since.
+- **`accounts.json.vor-kennungsvergabe.bak`** — written before the app
+  assigns any album group identifiers that are still missing. That happens
+  when an older version created an album without one — **independently of
+  whether a schema migration also runs in the same start.** Measured: an
+  old-format file (no `schema_version` key) with such an album writes
+  **both** rollback files and logs **both** lines in a single run (#105);
+  the two cases are not mutually exclusive, only worded and tested
+  separately. **One generation only:** it is replaced on each such run, so
+  it always holds the state from before the _most recent_ one. That is the
+  state you would want back; a months-old copy would throw away everything
+  since.
 
 **This is the file you want after a migration, not `accounts.json.bak`.** The
 ordinary `.bak` is rewritten on every save — including by the account backfill
@@ -43,28 +48,35 @@ Two things follow for you as the operator:
   keep Immich API keys — including keys of accounts you have since deleted
   from the app, and log entries past the 90-day retention window. `PRIVACY.md`
   points here for that reason.
-- If the file is missing after an upgrade, the migration still ran. What the
-  container log says depends on which version wrote it:
-  - **1.9.0 and later:** a failed schema-migration backup logs a line
-    starting `Rueckweg vor Schemasprung auf Version`, with the schema
-    version next and then `nicht moeglich:` followed by the target path
-    (the path comes **after** `nicht moeglich:`, not between the two search
-    terms). A failed identifier-assignment backup logs a different line
-    instead, starting `Rueckweg vor Kennungsvergabe nicht moeglich:`, also
-    followed by its own target path. The two are worded differently on
-    purpose since #105.
-  - **1.8.0 and earlier:** both cases logged the _same_ text regardless of
-    which one actually happened, each followed by the path:
+- If the file is missing after an upgrade, the migration still ran. Every
+  line the app logs is formatted `LEVEL  services.config_store  message`
+  (`backend/main.py`'s log format) — the line does not start with the
+  message text quoted below, that text is what to look for **inside** the
+  line. What it says depends on which version wrote it:
+  - **1.9.0 and later:** a failed schema-migration backup logs a WARNING
+    line containing `Rueckweg vor Schemasprung auf Version`, with the
+    schema version next and then `nicht moeglich:` followed by the target
+    path (the path comes **after** `nicht moeglich:`, not between the two
+    search terms). A failed identifier-assignment backup logs a different
+    WARNING line instead, containing `Rueckweg vor Kennungsvergabe` and
+    `nicht moeglich:`, also followed by its own target path. The two are
+    worded differently on purpose since #105.
+  - **In 1.8.0** — the release that introduced both rollback files; earlier
+    releases do not have this code path at all, see the 1.8.0 and 1.7.0
+    entries in `CHANGELOG.md` — both cases logged the _same_ text regardless
+    of which one actually happened, each followed by the path:
 
     ```
     Sicherung vor Schemasprung nicht moeglich: <path>   (failure)
     Sicherung vor Schemasprung: <path>                  (success)
     ```
 
-    If your log line still reads that way (an installation that has not yet
-    upgraded past 1.8.0, or a line captured before the 1.9.0 upgrade), the
-    word "Schemasprung" there does not by itself tell you which case
-    happened — it could equally have been an identifier assignment.
+    The word "Schemasprung" in that line does not by itself tell you which
+    case happened — it could equally have been an identifier assignment.
+    **The path does, though, in both 1.8.0 and 1.9.0+:** it ends in
+    `vor-schema-<N>.bak` for a schema migration or
+    `vor-kennungsvergabe.bak` for an identifier assignment, regardless of
+    which release logged the line.
 
   A failed backup does not stop the app, by design, in either case.
 

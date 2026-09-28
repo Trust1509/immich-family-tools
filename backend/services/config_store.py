@@ -156,12 +156,23 @@ class ConfigStore:
 
     def _sichere_vor_schemasprung(self, *, einmalig: bool) -> None:
         """Rueckweg vor einer unumkehrbaren Migrations-Arbeit — zwei Faelle,
-        eine Routine: `einmalig=True` vor einem Schemasprung (versioniert,
-        nie ueberschrieben), `einmalig=False` vor einer Kennungsvergabe ohne
-        Schemaaenderung (eine Generation, jedes Mal erneuert). Der Name der
-        Methode nennt nur den ersten Fall (historisch, Umfang dieses Slices
-        deckt keine Umbenennung); welcher Fall vorliegt, entscheidet
-        `einmalig`, und seit #105 auch das Protokoll (siehe unten).
+        eine Routine: `einmalig=True` vor einem Schemasprung (versioniert;
+        ein BRAUCHBARER Rueckweg wird nie ueberschrieben, ein unbrauchbarer
+        schon, siehe unten), `einmalig=False` vor einer Kennungsvergabe (eine
+        Generation, jedes Mal erneuert). Der Name der Methode nennt nur den
+        ersten Fall (historisch, Umfang dieses Slices deckt keine
+        Umbenennung); welcher Fall vorliegt, unterscheidet `einmalig`, und
+        seit #105 auch das Protokoll (siehe unten).
+
+        DIE ZWEI FAELLE SCHLIESSEN EINANDER NICHT AUS: Ein Altbestand ohne
+        `schema_version` UND mit einem Album ohne `group_id` loest in EINEM
+        einzigen `_migrate()`-Lauf BEIDE Zweige aus — erst `einmalig=True`,
+        dann `einmalig=False` — und schreibt entsprechend beide Rueckweg-
+        Dateien und beide Protokollzeilen (gemessen, Nacharbeit 2 zu #105).
+        „Kennungsvergabe ohne Schemaaenderung" beschreibt deshalb nur den
+        AUSLOESER dieses Zweigs (eine fehlende Kennung, unabhaengig von der
+        Schemaversion), nicht eine Garantie, dass kein Schemasprung im
+        selben Lauf mitlaeuft.
 
         Die gewoehnliche `.bak` traegt den Vor-Zustand nur bis zum naechsten
         Schreibvorgang — und in der laufenden Anwendung ist das das
@@ -230,12 +241,14 @@ class ConfigStore:
             # (Blindpruefer 21.09.2026, gemessen).
             #
             # ZWEI FAELLE, ZWEI TEXTE (#105): Bis hierher stand in BEIDEN
-            # Zweigen "Sicherung vor Schemasprung nicht moeglich" — auch dann,
-            # wenn der gescheiterte Rueckweg gar keinen Schemasprung betraf,
-            # sondern eine Kennungsvergabe ohne Schemaaenderung. Beim echten
-            # Rollout von 1.8.0 (Schema 2 -> 3) standen deshalb zwei Zeilen im
-            # Protokoll, die dasselbe Wort trugen, obwohl nur eine ein
-            # Schemasprung war (Beleg: Rollout-Protokoll in Issue #105).
+            # Zweigen "Sicherung vor Schemasprung nicht moeglich" — auch in
+            # DIESEM Zweig (`einmalig=False`), dessen Ausloeser eine fehlende
+            # Kennung ist, NICHT zwingend ein Schemasprung (die beiden
+            # Zweige schliessen einander nicht aus, siehe Docstring oben).
+            # Beim echten Rollout von 1.8.0 (Schema 2 -> 3) standen deshalb
+            # zwei Zeilen im Protokoll, die dasselbe Wort trugen, obwohl nur
+            # eine ein Schemasprung war (Beleg: Rollout-Protokoll in Issue
+            # #105).
             #
             # ASCII "moeglich" bewusst NICHT auf "möglich" umgestellt: Zwei
             # bestehende Proben (`test_gescheiterte_sicherung_verhindert_den_
