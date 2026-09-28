@@ -306,11 +306,20 @@ nicht):\*\*
   und prüft, was git **speichert**, nicht nur, was der Hook sieht.
 - Backend: `sh scripts/zeilenenden.sh` und `sh scripts/zeilenenden-selbstprobe.sh`
   — der Wächter für #104: jede versionierte Datei hat `eol=lf`
-  (`git check-attr`), kein Blob trägt CRLF (`git ls-files --eol`). Er fragt
-  Attribute und Index ab, nicht den Arbeitsbaum, weil der Linux-Läufer
-  ohnehin LF auscheckt und einen Rückbau sonst nie sähe. Die Selbstprobe
-  baut die gemessenen Rückbau-Varianten nach (Regel gelöscht, `*.md -eol`,
-  verschachtelte `.gitattributes` mit `eol=crlf`, CRLF-Blob).
+  (`git check-attr`, einmal mit und einmal ohne `core.ignorecase`, weil
+  Windows die Muster ohne Rücksicht auf Groß-/Kleinschreibung liest), kein
+  Blob trägt CRLF oder gemischte Zeilenenden (`git ls-files --eol`). Er
+  fragt Attribute und Index ab, nicht den Arbeitsbaum, weil der
+  Linux-Läufer ohnehin LF auscheckt und einen Rückbau sonst nie sähe.
+  Absichtlich CRLF tragende Dateien stehen mit Pfad in `AUSNAHMEN` im
+  Skript (heute keine). Die Selbstprobe baut die gemessenen Rückbau-Varianten
+  nach (Regel gelöscht, `*.md -eol`, `*.md !eol`, `*.md eol`, `*.md eol=LF`,
+  `*.MD eol=crlf`, verschachtelte `.gitattributes` mit `eol=crlf`, CRLF- und
+  gemischter Blob, Aufruf aus einem Unterverzeichnis) und die Mutanten des
+  Wächters, die das Panel an einer früheren Fassung vorbeibrachte. Bekannte
+  Grenzen stehen im Kopf des Wächters. Ein Push, der nur `.md`-Dateien
+  ändert, löst wegen `paths-ignore` keinen Lauf aus — ein CRLF-Blob in einer
+  `.md` fällt dann erst beim nächsten Code-Push auf.
 - Backend: `python scripts/faltung-sonde-selbsttest.py` — die Selbstprobe der
   Faltungs-Sonde (#83). Hier aus demselben Grund wie die beiden darüber, nur
   schärfer: Die Sonde trägt eine Owner-Entscheidung über eine **unumkehrbare**
@@ -331,14 +340,19 @@ nicht):\*\*
   ohne Meldung. **Ein Checkout von vor #104 bleibt CRLF**, bis die Dateien
   neu ausgecheckt werden. `git status` zeigt das nicht an (gemessen, auch
   nach `touch`); zu sehen ist es an `git ls-files --eol` (`w/crlf`) und an
-  den Warnungen „CRLF will be replaced by LF" bei `git diff`/`git add`. Wer
-  `core.safecrlf=true` gesetzt hat, kann in einem solchen Checkout nicht
-  mehr committen (`fatal: CRLF would be replaced by LF`, gemessen) — dann
-  zuerst auffrischen. Auffrischen, mit Riegel gegen ungesicherte Änderungen
-  (bricht mit Exit 1 ab, wenn etwas gestaged oder geändert ist; `:/` wirkt
-  vom ganzen Repo aus, egal in welchem Verzeichnis man steht):
+  den Warnungen „CRLF will be replaced by LF", wenn git den Inhalt einer
+  Datei neu liest (`git diff`, `git add`). Wer `core.safecrlf=true` gesetzt
+  hat, kann in einem solchen Checkout CRLF-Dateien nicht mehr hinzufügen
+  (`git add`, `commit -a`: `fatal: CRLF would be replaced by LF`, gemessen)
+  — dann zuerst auffrischen. Auffrischen in Git Bash (PowerShell 5.1 kennt
+  kein `&&`), mit Riegel gegen ungesicherte Änderungen (bricht mit Exit 1
+  ab, wenn etwas gestaged oder geändert ist; `:/` wirkt vom ganzen Repo aus,
+  egal in welchem Verzeichnis man steht):
   `git diff --quiet HEAD -- && git rm -r -q --cached :/ && git reset -q --hard`.
-  Unversionierte und ignorierte Dateien bleiben erhalten. Vorher war der
+  Unversionierte und ignorierte Dateien bleiben erhalten. Was der Riegel
+  nicht sieht: Änderungen an Dateien mit `assume-unchanged` gehen verloren
+  (wie bei jedem `reset --hard`), und ein angefangener Merge ohne
+  Inhaltsänderung wird verworfen (gemessen vom Gegenprüfer). Vorher war der
   lokale Lauf wertlos: Beim Release 1.8.0 meldete er rund zwei Dutzend
   Dateien, die in der CI sauber waren, und zwei echte Funde gingen darin
   unter (`docs/agents/lehren.md` §45).

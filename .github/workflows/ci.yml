@@ -97,7 +97,9 @@ jobs:
       # die Regel in .gitattributes weg ist (gemessen von der blinden
       # Erststimme). Deshalb fragt der Waechter die ATTRIBUTE und den INDEX
       # ab, nicht den Arbeitsbaum; die Selbstprobe baut die gemessenen
-      # Rueckbau-Varianten nach und verlangt je Exit 1.
+      # Rueckbau-Varianten nach (Exit 1), dazu Gegenfaelle (sauber, Binaerdatei,
+      # benannte Ausnahme: Exit 0; kein Repo: Exit 2). Fall 14 (Pfad mit ':')
+      # laeuft nur hier auf Linux — Git fuer Windows lehnt ':' ab.
       - run: sh scripts/zeilenenden.sh
       - run: sh scripts/zeilenenden-selbstprobe.sh
       # Die Selbstprobe der Faltungs-Sonde (#83). Dieselbe Begruendung, und
