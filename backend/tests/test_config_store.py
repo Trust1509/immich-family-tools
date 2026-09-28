@@ -1278,37 +1278,51 @@ def test_gescheitertes_aufraeumen_verhindert_den_start_nicht(tmp_path, monkeypat
 # fuer Erfolg UND Scheitern) — auch dann, wenn der Rueckweg gar keinen
 # Schemasprung betraf. Beim echten Rollout von 1.8.0 (Schema 2 -> 3) standen
 # deshalb zwei Zeilen mit demselben Wort im Protokoll, obwohl nur eine ein
-# Schemasprung war. Vier Proben, isoliert je Fall UND je Ausgang — jede
-# Fixture loest genau EINEN der beiden Zweige in `_migrate()` aus, sonst
-# wuerden beide Meldungen im selben Lauf entstehen und die Unterscheidung
-# nicht pruefbar machen.
+# Schemasprung war (Beleg: Rollout-Protokoll in Issue #105). Vier Proben,
+# isoliert je Fall UND je Ausgang — jede Fixture loest genau EINEN der beiden
+# Zweige in `_migrate()` aus, sonst wuerden beide Meldungen im selben Lauf
+# entstehen und die Unterscheidung nicht pruefbar machen.
+#
+# NACHARBEIT 1 (#105, Fremdpruefer): Die erste Fassung dieser vier Proben
+# schloss nicht aus, dass Erfolgs- UND Fehlermeldung fuer DENSELBEN Fall
+# gleichzeitig geloggt werden — eine `_migrate()`-Fassung, die je Fall beide
+# Zeilen ausgibt, waere an allen vier Proben vorbeigekommen. Jede Probe prueft
+# deshalb jetzt zusaetzlich explizit die ABWESENHEIT der jeweils anderen
+# Meldungsart, nagelt das Log-Level fest (INFO fuer Erfolg, WARNING fuer
+# Scheitern) und sichert den erwarteten Zielpfad in der Meldung zu.
 
 
 def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_path, caplog):
     """Isolierter Schemasprung (die Alben tragen bereits eine Kennung, nur
-    die Schemaversion fehlt) — die Erfolgsmeldung nennt 'Schemasprung' und
-    die Zielversion, nicht 'Kennungsvergabe'."""
+    die Schemaversion fehlt) — die Erfolgsmeldung nennt 'Schemasprung', die
+    Zielversion und den Zielpfad; sie kommt genau einmal, auf INFO-Niveau,
+    und es kommt keine Fehler- oder Kennungsvergabe-Meldung dazu."""
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     stand = json.loads(path.read_text(encoding="utf-8"))
     stand["managed_albums"][0]["group_id"] = "gruppe-vorhanden"
     path.write_text(json.dumps(stand, indent=2), encoding="utf-8")
+    erwarteter_pfad = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
 
     with caplog.at_level("INFO"):
         ConfigStore(str(path))
 
-    meldungen = [e.getMessage() for e in caplog.records]
-    assert any(
-        "Schemasprung" in m and f"Version {ConfigStore.SCHEMA_VERSION}" in m
-        for m in meldungen
-    ), meldungen
-    assert not any("Kennungsvergabe" in m for m in meldungen), meldungen
+    alle = [r.getMessage() for r in caplog.records]
+    erfolg = [r for r in caplog.records
+              if r.levelname == "INFO" and "Schemasprung" in r.getMessage()]
+    assert len(erfolg) == 1, alle  # genau EINE Erfolgsmeldung, nicht zusaetzlich eine zweite
+    meldung = erfolg[0].getMessage()
+    assert f"Version {ConfigStore.SCHEMA_VERSION}" in meldung, meldung
+    assert str(erwarteter_pfad) in meldung, meldung
+    assert not any("nicht moeglich" in m for m in alle), alle
+    assert not any("Kennungsvergabe" in m for m in alle), alle
 
 
 def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung(tmp_path, caplog):
     """Isolierte Kennungsvergabe (Schemaversion ist bereits aktuell, ein Album
-    hat noch keine Kennung) — die Erfolgsmeldung nennt 'Kennungsvergabe',
-    nicht 'Schemasprung'."""
+    hat noch keine Kennung) — die Erfolgsmeldung nennt 'Kennungsvergabe' und
+    den Zielpfad; sie kommt genau einmal, auf INFO-Niveau, und es kommt keine
+    Fehler- oder Schemasprung-Meldung dazu."""
     path = tmp_path / "accounts.json"
     ohne_kennung = _album("a1", "Testalbum", ["p1"])
     path.write_text(json.dumps({
@@ -1316,20 +1330,27 @@ def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung
         "accounts": LEGACY_ACCOUNTS,
         "managed_albums": [ohne_kennung],
     }, indent=2), encoding="utf-8")
+    erwarteter_pfad = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
 
     with caplog.at_level("INFO"):
         ConfigStore(str(path))
 
-    meldungen = [e.getMessage() for e in caplog.records]
-    assert any("Kennungsvergabe" in m for m in meldungen), meldungen
-    assert not any("Schemasprung" in m for m in meldungen), meldungen
+    alle = [r.getMessage() for r in caplog.records]
+    erfolg = [r for r in caplog.records
+              if r.levelname == "INFO" and "Kennungsvergabe" in r.getMessage()]
+    assert len(erfolg) == 1, alle
+    meldung = erfolg[0].getMessage()
+    assert str(erwarteter_pfad) in meldung, meldung
+    assert not any("nicht moeglich" in m for m in alle), alle
+    assert not any("Schemasprung" in m for m in alle), alle
 
 
 def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_path, caplog):
     """Isolierter Schemasprung, dessen Rueckweg scheitert (ein Verzeichnis am
     Zielpfad statt eines Rechte-Tricks, der unter Windows nicht haelt) — die
-    Fehlermeldung nennt 'Schemasprung' und die Zielversion, nicht
-    'Kennungsvergabe'."""
+    Fehlermeldung nennt 'Schemasprung', die Zielversion, 'nicht moeglich' und
+    den Zielpfad; sie kommt genau einmal, auf WARNING-Niveau, und es kommt
+    keine Erfolgs- oder Kennungsvergabe-Meldung dazu."""
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     stand = json.loads(path.read_text(encoding="utf-8"))
@@ -1339,24 +1360,32 @@ def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_
     ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
     ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
 
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("INFO"):
         ConfigStore(str(path))  # darf nicht werfen
 
-    meldungen = [e.getMessage() for e in caplog.records]
-    treffer = [m for m in meldungen if "nicht moeglich" in m]
-    assert any(
-        "Schemasprung" in m and f"Version {ConfigStore.SCHEMA_VERSION}" in m
-        for m in treffer
-    ), meldungen
-    assert not any("Kennungsvergabe" in m for m in treffer), meldungen
+    alle = [r.getMessage() for r in caplog.records]
+    fehler = [r for r in caplog.records
+              if r.levelname == "WARNING" and "Schemasprung" in r.getMessage()
+              and "nicht moeglich" in r.getMessage()]
+    assert len(fehler) == 1, alle
+    meldung = fehler[0].getMessage()
+    assert f"Version {ConfigStore.SCHEMA_VERSION}" in meldung, meldung
+    assert str(ziel) in meldung, meldung
+    assert not any(
+        r.levelname == "INFO" and "Rueckweg vor Schemasprung" in r.getMessage()
+        for r in caplog.records
+    ), alle
+    assert not any("Kennungsvergabe" in m for m in alle), alle
 
 
 def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemasprung(tmp_path, caplog):
     """Isolierte Kennungsvergabe, deren Rueckweg scheitert — die
-    Fehlermeldung nennt 'Kennungsvergabe', nicht 'Schemasprung'. Die
-    Kennungsvergabe selbst gelingt trotzdem (`_backfill_group_ids` haengt
-    nicht am Erfolg der Sicherung), wie bei den bestehenden
-    Schemasprung-Scheitern-Proben."""
+    Fehlermeldung nennt 'Kennungsvergabe', 'nicht moeglich' und den
+    Zielpfad (nicht `self._path`, also NICHT `accounts.json` selbst); sie
+    kommt genau einmal, auf WARNING-Niveau, und es kommt keine Erfolgs- oder
+    Schemasprung-Meldung dazu. Die Kennungsvergabe selbst gelingt trotzdem
+    (`_backfill_group_ids` haengt nicht am Erfolg der Sicherung), wie bei den
+    bestehenden Schemasprung-Scheitern-Proben."""
     path = tmp_path / "accounts.json"
     ohne_kennung = _album("a1", "Testalbum", ["p1"])
     path.write_text(json.dumps({
@@ -1368,11 +1397,19 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
     ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
     ziel.mkdir()
 
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("INFO"):
         store = ConfigStore(str(path))  # darf nicht werfen
 
     assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
-    meldungen = [e.getMessage() for e in caplog.records]
-    treffer = [m for m in meldungen if "nicht moeglich" in m]
-    assert any("Kennungsvergabe" in m for m in treffer), meldungen
-    assert not any("Schemasprung" in m for m in treffer), meldungen
+    alle = [r.getMessage() for r in caplog.records]
+    fehler = [r for r in caplog.records
+              if r.levelname == "WARNING" and "Kennungsvergabe" in r.getMessage()
+              and "nicht moeglich" in r.getMessage()]
+    assert len(fehler) == 1, alle
+    meldung = fehler[0].getMessage()
+    assert str(ziel) in meldung, meldung
+    assert not any(
+        r.levelname == "INFO" and "Rueckweg vor Kennungsvergabe" in r.getMessage()
+        for r in caplog.records
+    ), alle
+    assert not any("Schemasprung" in m for m in alle), alle

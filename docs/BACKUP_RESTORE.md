@@ -43,15 +43,30 @@ Two things follow for you as the operator:
   keep Immich API keys — including keys of accounts you have since deleted
   from the app, and log entries past the 90-day retention window. `PRIVACY.md`
   points here for that reason.
-- If the file is missing after an upgrade, the migration still ran. Check the
-  container log for `Rueckweg vor Schemasprung auf Version` together with
-  `nicht moeglich` on the same line (the message names the exact schema
-  version and target path in between); a failed backup does not stop the
-  app, by design. A failed identifier-assignment backup logs a different
-  line, `Rueckweg vor Kennungsvergabe nicht moeglich` — the two are worded
-  differently on purpose since #105, so a schema-migration failure in the log
-  can no longer be mistaken for an identifier-assignment failure or the other
-  way round.
+- If the file is missing after an upgrade, the migration still ran. What the
+  container log says depends on which version wrote it:
+  - **1.9.0 and later:** a failed schema-migration backup logs a line
+    starting `Rueckweg vor Schemasprung auf Version`, with the schema
+    version next and then `nicht moeglich:` followed by the target path
+    (the path comes **after** `nicht moeglich:`, not between the two search
+    terms). A failed identifier-assignment backup logs a different line
+    instead, starting `Rueckweg vor Kennungsvergabe nicht moeglich:`, also
+    followed by its own target path. The two are worded differently on
+    purpose since #105.
+  - **1.8.0 and earlier:** both cases logged the _same_ text regardless of
+    which one actually happened, each followed by the path:
+
+    ```
+    Sicherung vor Schemasprung nicht moeglich: <path>   (failure)
+    Sicherung vor Schemasprung: <path>                  (success)
+    ```
+
+    If your log line still reads that way (an installation that has not yet
+    upgraded past 1.8.0, or a line captured before the 1.9.0 upgrade), the
+    word "Schemasprung" there does not by itself tell you which case
+    happened — it could equally have been an identifier assignment.
+
+  A failed backup does not stop the app, by design, in either case.
 
 ## Restore
 

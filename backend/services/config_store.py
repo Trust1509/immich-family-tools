@@ -148,12 +148,20 @@ class ConfigStore:
                 raise RuntimeError(
                     f"Configuration {self._path} is invalid and was left untouched. "
                     f"Restore a ZFS snapshot, {self._path}.vor-schema-*.bak "
-                    f"(the state before the last schema migration) or "
+                    f"(the state before the last schema migration), "
+                    f"{self._path}.vor-kennungsvergabe.bak (the state before the last "
+                    f"identifier assignment) or "
                     f"{self._path}.bak (may already carry the migrated state)."
                 ) from exc
 
     def _sichere_vor_schemasprung(self, *, einmalig: bool) -> None:
-        """Einmalige, versionierte Sicherung vor einem Schemasprung.
+        """Rueckweg vor einer unumkehrbaren Migrations-Arbeit — zwei Faelle,
+        eine Routine: `einmalig=True` vor einem Schemasprung (versioniert,
+        nie ueberschrieben), `einmalig=False` vor einer Kennungsvergabe ohne
+        Schemaaenderung (eine Generation, jedes Mal erneuert). Der Name der
+        Methode nennt nur den ersten Fall (historisch, Umfang dieses Slices
+        deckt keine Umbenennung); welcher Fall vorliegt, entscheidet
+        `einmalig`, und seit #105 auch das Protokoll (siehe unten).
 
         Die gewoehnliche `.bak` traegt den Vor-Zustand nur bis zum naechsten
         Schreibvorgang — und in der laufenden Anwendung ist das das
@@ -227,15 +235,15 @@ class ConfigStore:
             # sondern eine Kennungsvergabe ohne Schemaaenderung. Beim echten
             # Rollout von 1.8.0 (Schema 2 -> 3) standen deshalb zwei Zeilen im
             # Protokoll, die dasselbe Wort trugen, obwohl nur eine ein
-            # Schemasprung war.
+            # Schemasprung war (Beleg: Rollout-Protokoll in Issue #105).
             #
             # ASCII "moeglich" bewusst NICHT auf "möglich" umgestellt: Zwei
             # bestehende Proben (`test_gescheiterte_sicherung_verhindert_den_
             # start_nicht`, `test_ein_verzeichnis_an_der_stelle_wird_nicht_
-            # fuer_eine_sicherung_gehalten`) pruefen exakt die Zeichenkette
-            # "nicht moeglich" im ASCII-Schreibweise gegen `caplog` — eine
+            # fuer_eine_sicherung_gehalten`) pruefen die Zeichenkette
+            # "nicht moeglich" in ASCII-Schreibweise gegen `caplog` — eine
             # echte Umlautschreibung waere ein anderer String und haette
-            # beide stumm zerbrochen (Bau-Brief #105, Bloc 9 Punkt 6).
+            # beide Proben LAUT rot gemacht, nicht stumm zerbrochen (Issue #105).
             if einmalig:
                 logger.warning(
                     "Rueckweg vor Schemasprung auf Version %s nicht moeglich: %s",
