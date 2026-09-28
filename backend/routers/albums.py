@@ -1,10 +1,14 @@
 """Sync actions: name sync, album creation, refresh, undo, log."""
+import json
+import uuid
+
 from fastapi import APIRouter, Request
 
 import errors
 from pydantic import BaseModel
 
 from models.match import (
+    ConditionalAlbumRequest,
     ExtendMatchRequest,
     ManagedAlbumOut,
     RenameManagedAlbumRequest,
@@ -39,6 +43,153 @@ def _resolve_match(match_id: str, matches: list):
     return next((m for m in matches if m.id == match_id), None)
 
 
+def _ensure_link_after_name_sync(store, display_name: str, persons) -> None:
+    """Best-effort identity persistence; name synchronization stays successful on conflict."""
+    ensure_linked_person = getattr(store, "ensure_linked_person", None)
+    if not callable(ensure_linked_person):
+        return
+    try:
+        ensure_linked_person(display_name, persons)
+    except ValueError:
+        # A conflicting explicit link is never replaced, but it must not turn
+        # an already-successful Immich rename into an API error.
+        return
+
+
+async def _resolve_conditional_people(body: ConditionalAlbumRequest, request: Request):
+    """Expand logical identities into per-account Immich person refs."""
+    store = request.app.state.store
+    linked_ids = list(dict.fromkeys(body.linked_person_ids))
+    covered: set[tuple[str, str]] = set()
+    expanded: list[tuple[str, str]] = []
+    for linked_id in linked_ids:
+        linked = store.get_linked_person(linked_id)
+        if not linked:
+            raise errors.linked_person_not_found()
+        for ref in linked.person_refs:
+            key = (ref.account_id, ref.person_id)
+            if key not in covered:
+                covered.add(key)
+                expanded.append(key)
+
+    direct = []
+    for entry in body.persons:
+        key = (entry.account_id, entry.person_id)
+        if key not in covered and key not in direct:
+            direct.append(key)
+    logical_count = len(linked_ids) + len(direct)
+
+    person_refs: list[dict] = []
+    for account_id, person_id in expanded + direct:
+        account = store.get_account(account_id)
+        if not account:
+            raise errors.account_id_not_found(account_id)
+        try:
+            person = await request.app.state.client_pool.get_for_account(account).get_person(person_id)
+        except Exception:
+            raise errors.person_validation_failed(account.name)
+        person_refs.append({
+            "account_id": account_id,
+            "person_id": person_id,
+            "person_name": person.get("name"),
+            "account_name": account.name,
+            "account_color": account.color,
+        })
+    return linked_ids, logical_count, person_refs
+
+
+def _default_group_id(store, album_name: str) -> str:
+    """Resolve the stable album group while tolerating lightweight test stores."""
+    resolve_group_id = getattr(store, "resolve_group_id", None)
+    if callable(resolve_group_id):
+        return resolve_group_id(album_name)
+    return str(uuid.uuid4())
+
+
+def _conditional_match_id(
+    owner_id: str, album_name: str, existing_album_id: str | None,
+    minimum_person_count: int, linked_ids: list[str], person_refs: list[dict],
+) -> str:
+    """Identify a conditional request independently of person selection order."""
+    destination = ["existing", existing_album_id] if existing_album_id else ["new", album_name]
+    identity = [
+        owner_id, destination, minimum_person_count, sorted(linked_ids),
+        sorted({(ref["account_id"], ref["person_id"]) for ref in person_refs}),
+    ]
+    return f"conditional_{uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(identity)).hex}"
+
+
+@router.post("/conditional-album", response_model=list[SyncLogEntry])
+async def create_conditional_album(body: ConditionalAlbumRequest, request: Request):
+    """Create an album containing assets with at least N selected people per account."""
+    album_name = (body.album_name or "").strip()
+    if not album_name and not body.existing_album_id:
+        raise errors.conditional_destination_required()
+    if album_name and body.existing_album_id:
+        raise errors.conditional_destination_ambiguous()
+
+    requested_identity_count = len(set(body.linked_person_ids)) + len({
+        (entry.account_id, entry.person_id) for entry in body.persons
+    })
+    if body.minimum_person_count > requested_identity_count:
+        raise errors.invalid_person_threshold()
+
+    store = request.app.state.store
+    owner = store.get_account(body.owner_account_id)
+    if not owner:
+        raise errors.owner_account_not_found()
+    if any(entry.account_id != owner.id for entry in body.persons):
+        # Cross-account profiles must arrive through a linked identity so one
+        # real person can never inflate the N-of-M denominator.
+        raise errors.conditional_people_owner_only()
+
+    linked_ids, logical_count, person_refs = await _resolve_conditional_people(body, request)
+    if logical_count < 2:
+        raise errors.min_two_people()
+    if not 1 <= body.minimum_person_count <= logical_count:
+        raise errors.invalid_person_threshold()
+
+    if body.existing_album_id:
+        try:
+            album = await request.app.state.client_pool.get_for_account(owner).get_album_info(body.existing_album_id)
+        except Exception:
+            raise errors.immich_request_failed()
+        album_name = (album.get("albumName") or "").strip()
+        if not album_name:
+            raise errors.album_name_required()
+
+    match_id = _conditional_match_id(
+        owner.id, album_name, body.existing_album_id,
+        body.minimum_person_count, linked_ids, person_refs,
+    )
+    async with store.treffer_schloss(match_id):
+        existing = next(
+            (album for album in store.get_managed_albums() if album.match_id == match_id),
+            None,
+        )
+        if existing:
+            logs = [sync_service.album_gab_es_schon(existing.album_name)]
+        else:
+            # Match lock first, then name lock, as in the other album routes.
+            async with store.gruppen_schloss(album_name):
+                common = dict(
+                    match_id=match_id, owner_account=owner,
+                    all_accounts=store.list_accounts(), person_refs=person_refs,
+                    album_name=album_name, store=store,
+                    group_id=_default_group_id(store, album_name),
+                    minimum_person_count=body.minimum_person_count,
+                    linked_person_ids=linked_ids, condition_person_count=logical_count,
+                )
+                if body.existing_album_id:
+                    _, logs = await sync_service.link_existing_album(
+                        album_id=body.existing_album_id, **common
+                    )
+                else:
+                    _, logs = await sync_service.create_shared_album(**common)
+        store.append_log(logs)
+        return logs
+
+
 async def _name_des_bestehenden_albums(owner, album_id: str, angegeben: str | None) -> str:
     """Der Anzeigename eines bereits in Immich vorhandenen Albums.
 
@@ -70,7 +221,6 @@ async def _name_des_bestehenden_albums(owner, album_id: str, angegeben: str | No
     return name
 
 
-
 @router.post("/names", response_model=list[SyncLogEntry])
 async def sync_names(body: SyncNamesRequest, request: Request):
     store = request.app.state.store
@@ -93,6 +243,10 @@ async def sync_names(body: SyncNamesRequest, request: Request):
     store.append_log(entries)
     if all(e.status == "success" for e in entries):
         store.mark_names_synced(body.match_id)
+        _ensure_link_after_name_sync(store, body.name, [
+            {"account_id": acc_a.id, "person_id": match.person_a.person_id},
+            {"account_id": acc_b.id, "person_id": match.person_b.person_id},
+        ])
     request.app.state.match_cache.invalidate()
     return entries
 
@@ -279,6 +433,7 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     # Mark all pairwise combinations as names-synced
     if all(e.status == "success" for e in logs):
         store.mark_all_pairs_synced([e.person_id for e in body.persons])
+        _ensure_link_after_name_sync(store, body.canonical_name, body.persons)
 
     wants_album = (body.album_name or body.existing_album_id) and all(e.status == "success" for e in logs)
     if wants_album:
@@ -324,6 +479,8 @@ async def extend_match(body: ExtendMatchRequest, request: Request):
     managed = next((a for a in albums if a.id == body.managed_album_id), None)
     if not managed:
         raise errors.managed_album_not_found()
+    if managed.minimum_person_count > 1 or managed.linked_person_ids:
+        raise errors.conditional_album_not_extendable()
     account = store.get_account(body.account_id)
     if not account:
         raise errors.account_id_not_found(body.account_id)

@@ -93,6 +93,7 @@ vi.mock("../api/client", () => ({
       dismiss: dismissMock,
     },
     accounts: { list: kontenMock, albums: kontoAlbenMock },
+    personLinks: { list: vi.fn().mockResolvedValue([]) },
     sync: {
       albums: albenMock,
       album: albumMock,

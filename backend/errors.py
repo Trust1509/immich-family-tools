@@ -115,6 +115,30 @@ def managed_album_not_found() -> AppError:
     return AppError(404, "err_managed_album_not_found", "Managed Album nicht gefunden")
 
 
+def linked_person_not_found() -> AppError:
+    return AppError(404, "err_linked_person_not_found", "Verknüpfte Person nicht gefunden")
+
+
+def linked_person_min_accounts() -> AppError:
+    return AppError(422, "err_linked_person_min_accounts", "Profile aus mindestens 2 Accounts erforderlich")
+
+
+def linked_person_one_per_account() -> AppError:
+    return AppError(422, "err_linked_person_one_per_account", "Pro Account ist nur ein Profil je verknüpfter Person erlaubt")
+
+
+def linked_person_conflict() -> AppError:
+    return AppError(409, "err_linked_person_conflict", "Ein Profil gehört bereits zu einer inkompatiblen Verknüpfung")
+
+
+def conditional_destination_required() -> AppError:
+    return AppError(422, "err_conditional_destination_required", "album_name oder existing_album_id erforderlich")
+
+
+def conditional_destination_ambiguous() -> AppError:
+    return AppError(422, "err_conditional_destination_ambiguous", "Nur album_name oder existing_album_id darf angegeben werden")
+
+
 def log_entry_not_found() -> AppError:
     return AppError(404, "err_log_entry_not_found", "Log-Eintrag nicht gefunden")
 
@@ -165,6 +189,30 @@ def manual_match_id_collision(album_name: str) -> AppError:
 
 def min_two_people() -> AppError:
     return AppError(422, "err_min_two_people", "Mindestens 2 Personen erforderlich")
+
+
+def invalid_person_threshold() -> AppError:
+    return AppError(
+        422,
+        "err_invalid_person_threshold",
+        "minimum_person_count muss zwischen 1 und der Anzahl Personen liegen",
+    )
+
+
+def conditional_people_owner_only() -> AppError:
+    return AppError(
+        422,
+        "err_conditional_people_owner_only",
+        "Profile aus anderen Accounts müssen über eine verknüpfte Person ausgewählt werden",
+    )
+
+
+def conditional_album_not_extendable() -> AppError:
+    return AppError(
+        422,
+        "err_conditional_album_not_extendable",
+        "Bedingte Alben können nicht über Match erweitern geändert werden",
+    )
 
 
 def not_undoable() -> AppError:

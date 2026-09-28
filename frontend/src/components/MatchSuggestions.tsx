@@ -5,7 +5,7 @@ import {
   RefreshCw,
   Check,
   X,
-  Music,
+  Images,
   GitMerge,
   Zap,
   Search,
@@ -14,8 +14,9 @@ import {
   Disc,
   EyeOff,
   Info,
+  Link2,
 } from "lucide-react";
-import { api, Match, Account, ManagedAlbum } from "../api/client";
+import { api, Match, Account, ManagedAlbum, LinkedPerson } from "../api/client";
 import FaceCompare from "./FaceCompare";
 import { useT, type ServerErrorLike } from "../i18n";
 import { createGroupLookup } from "../lib/albumGroups";
@@ -220,18 +221,29 @@ interface ResultState {
   ok: boolean;
 }
 
+export function isMatchLinked(match: Match, links: LinkedPerson[]): boolean {
+  const first = `${match.person_a.account_id}:${match.person_a.person_id}`;
+  const second = `${match.person_b.account_id}:${match.person_b.person_id}`;
+  return links.some((link) => {
+    const members = new Set(link.person_refs.map((ref) => `${ref.account_id}:${ref.person_id}`));
+    return members.has(first) && members.has(second);
+  });
+}
+
 function MatchCard({
   match,
   accounts,
   onDismiss,
   managedAlbum,
   groupPersonCount,
+  linked,
 }: {
   match: Match;
   accounts: Account[];
   onDismiss: () => void;
   managedAlbum?: ManagedAlbum;
   groupPersonCount: number;
+  linked: boolean;
 }) {
   const { t, errorText } = useT();
   const defaultName = match.person_a.person_name || match.person_b.person_name || "";
@@ -255,6 +267,7 @@ function MatchCard({
       if (ok) {
         qc.invalidateQueries({ queryKey: ["people"] });
         qc.invalidateQueries({ queryKey: ["matches"] });
+        qc.invalidateQueries({ queryKey: ["person-links"] });
         setTimeout(() => setResult(null), 3000);
       }
     },
@@ -306,6 +319,28 @@ function MatchCard({
     onError: (err: Error) => setResult({ text: errorText(err as ServerErrorLike), ok: false }),
   });
 
+  const linkMutation = useMutation({
+    mutationFn: () => {
+      const names = [match.person_a.person_name, match.person_b.person_name].filter(
+        (name): name is string => Boolean(name)
+      );
+      const sameName = names.length === 2 && names[0] === names[1] ? names[0] : undefined;
+      return api.personLinks.create({
+        display_name: sameName,
+        persons: [
+          { account_id: match.person_a.account_id, person_id: match.person_a.person_id },
+          { account_id: match.person_b.account_id, person_id: match.person_b.person_id },
+        ],
+      });
+    },
+    onSuccess: () => {
+      setResult({ text: t("link_people_success"), ok: true });
+      qc.invalidateQueries({ queryKey: ["person-links"] });
+      setTimeout(() => setResult(null), 3000);
+    },
+    onError: (err: Error) => setResult({ text: errorText(err as ServerErrorLike), ok: false }),
+  });
+
   return (
     <div className={`card space-y-3 ${isDismissed ? "opacity-50 border-dashed" : ""}`}>
       {isDismissed && (
@@ -327,7 +362,7 @@ function MatchCard({
         reasons={match.reasons}
       />
 
-      {(match.names_synced || match.has_album) && (
+      {(match.names_synced || match.has_album || linked) && (
         <div className="flex gap-1.5 flex-wrap">
           {match.names_synced && (
             <span className="flex items-center gap-1 text-xs bg-emerald-900/30 border border-emerald-700 text-emerald-400 px-2 py-0.5 rounded-full">
@@ -337,6 +372,11 @@ function MatchCard({
           {match.has_album && (
             <span className="flex items-center gap-1 text-xs bg-blue-900/30 border border-blue-700 text-blue-400 px-2 py-0.5 rounded-full">
               <Disc size={10} /> {t("badge_album_linked")}
+            </span>
+          )}
+          {linked && (
+            <span className="flex items-center gap-1 text-xs bg-violet-900/30 border border-violet-700 text-violet-300 px-2 py-0.5 rounded-full">
+              <Link2 size={10} /> {t("linked_identity_badge")}
             </span>
           )}
         </div>
@@ -435,10 +475,22 @@ function MatchCard({
               className="bg-immich-surface border border-immich-border hover:border-immich-primary text-gray-300 hover:text-white px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors"
               onClick={() => setMode("album")}
             >
-              <Music size={13} />
+              <Images size={13} />
               {t("album_connect_btn")}
             </button>
           ) : null}
+          <button
+            className="btn-ghost text-xs flex items-center gap-1.5 text-violet-300 hover:text-violet-200"
+            onClick={() => linkMutation.mutate()}
+            disabled={linked || linkMutation.isPending}
+          >
+            {linkMutation.isPending ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Link2 size={13} />
+            )}
+            {linked ? t("linked_identity_badge") : t("link_people_action")}
+          </button>
           <button
             className="btn-ghost text-xs flex items-center gap-1.5 text-red-400 hover:text-red-300"
             onClick={onDismiss}
@@ -571,6 +623,12 @@ export default function MatchSuggestions() {
     staleTime: 30_000,
   });
 
+  const { data: personLinks = [] } = useQuery({
+    queryKey: ["person-links"],
+    queryFn: api.personLinks.list,
+    staleTime: 30_000,
+  });
+
   const refreshMutation = useMutation({
     mutationFn: api.matches.refresh,
     onSuccess: (data) => qc.setQueryData(["matches"], data),
@@ -595,6 +653,7 @@ export default function MatchSuggestions() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["matches"] });
       qc.invalidateQueries({ queryKey: ["people"] });
+      qc.invalidateQueries({ queryKey: ["person-links"] });
     },
   });
 
@@ -689,6 +748,7 @@ export default function MatchSuggestions() {
                 accounts={accounts}
                 managedAlbum={managedAlbum}
                 groupPersonCount={groupPersonCount}
+                linked={isMatchLinked(m, personLinks)}
                 onDismiss={() => dismissMutation.mutate(m.id)}
               />
             );

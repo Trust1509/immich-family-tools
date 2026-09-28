@@ -229,7 +229,12 @@ export default function ExtendMatch() {
     staleTime: 30_000,
   });
 
-  const groups = useMemo(() => groupAlbums(rawAlbums), [rawAlbums]);
+  const groups = useMemo(
+    () => groupAlbums(rawAlbums.filter((album) =>
+      (album.minimum_person_count ?? 1) === 1 && (album.linked_person_ids?.length ?? 0) === 0
+    )),
+    [rawAlbums]
+  );
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [newAccountId, setNewAccountId] = useState("");

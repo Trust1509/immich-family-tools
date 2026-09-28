@@ -243,9 +243,10 @@ def _schreibende_store_methoden() -> set:
 # die Laufzeit-Sicht zugleich umgangen (165 Tests gruen bei echtem Verstoss).
 STORE_SCHREIBT = {
     "add_account", "add_managed_album", "append_log", "clear_log",
-    "delete_account", "delete_managed_album", "dismiss_match",
-    "mark_all_pairs_synced", "mark_log_undone", "mark_names_synced",
-    "set_auto_sync_config", "undismiss_match", "update_account",
+    "delete_account", "delete_linked_person", "delete_managed_album",
+    "dismiss_match", "ensure_linked_person", "mark_all_pairs_synced",
+    "mark_log_undone", "mark_names_synced", "set_auto_sync_config",
+    "undismiss_match", "update_account", "update_linked_person",
     "update_managed_album",
 }
 
@@ -1822,7 +1823,10 @@ ALBUM = {
 # POST heisst bei Immich nicht immer "schreiben": Die Suche nimmt ihre
 # Filter im Koerper entgegen. Benannt statt stillschweigend uebergangen —
 # und wenn die Methode verschwindet, faellt die Zusicherung darunter auf.
-IMMICH_LIEST_MIT_POST = {"_search_metadata_all_pages"}
+IMMICH_LIEST_MIT_POST = {
+    "_search_metadata_all_pages",
+    "_search_structured_all_pages",
+}
 
 
 def _immich_schreibsenken() -> set:
@@ -1992,6 +1996,10 @@ ABLEHNUNGEN = [
      "err_match_not_found", "unbekanntes Match"),
     ("POST", "/api/sync/album/gibt-es-nicht/refresh", None,
      "err_managed_album_not_found", "unbekanntes verwaltetes Album"),
+    ("POST", "/api/sync/conditional-album",
+     {"owner_account_id": "konto-1", "persons": [], "linked_person_ids": [],
+      "minimum_person_count": 1},
+     "err_conditional_destination_required", "kein Zielalbum angegeben"),
     ("DELETE", "/api/sync/albums/gibt-es-nicht", None,
      "err_managed_album_not_found", "unbekanntes verwaltetes Album"),
     # Umbenennen (#79, zugeliefert). Der Koerper traegt einen GUELTIGEN Namen:
@@ -2004,6 +2012,11 @@ ABLEHNUNGEN = [
      "err_log_entry_not_found", "unbekannter Protokolleintrag"),
     ("PUT", "/api/sync/autosync-config", {"enabled": True, "time": "25:99"},
      "err_invalid_time_format", "unmoegliche Uhrzeit"),
+    ("POST", "/api/person-links",
+     {"persons": [{"account_id": "konto-1", "person_id": "p1"}]},
+     "err_linked_person_min_accounts", "Profile aus weniger als zwei Konten"),
+    ("DELETE", "/api/person-links/gibt-es-nicht", None,
+     "err_linked_person_not_found", "unbekannte Personenverknuepfung"),
     # Das Feld heisst `token`. Die erste Fassung schickte `secret` und
     # scheiterte an der Koerperpruefung — der echte Ablehnungsweg
     # (Ratenbremse, `invalid_token`) wurde nie erreicht.
