@@ -205,12 +205,20 @@ def _immich_attrappe(monkeypatch, name_draussen, bestand=("x1", "x2")):
             return list(bestand)
 
         async def get_album_assets_with_name(self, _album_id):
-            # Derselbe „aussen" gefuehrte Name wie `update_album` ihn schreibt
-            # (#97) — der Refresh in diesen Tests prueft die Schlossform, nicht
-            # die Namensuebernahme; dieser Wert haelt sie deckungsgleich zum
-            # Bestand, solange niemand zwischendurch umbenannt hat.
+            # ABSICHTLICH kein Name (#97, Nacharbeit 1 — Fund des
+            # Blindpruefers): Wuerde hier `name_draussen["wert"]` stehen,
+            # wuerde die Namensuebernahme jede Diskrepanz zwischen einem
+            # frischen und einem veralteten `managed`-Abbild selbst reparieren
+            # — und genau das ist die Klasse, die `test_frisch` (unten)
+            # beweisen soll. Gemessen: Mit dem Namen aus `name_draussen` blieb
+            # die Mutation `_frisch(managed, store) -> managed` in
+            # `refresh_managed_album` GRUEN, obwohl der Schaden real ist
+            # (ein veraltetes Abbild schreibt auch `person_refs`/`status`
+            # zurueck). Diese Attrappe prueft die Schlossform, nicht die
+            # Namensuebernahme — die hat ihre eigenen Tests in
+            # `test_sync_service.py`.
             await asyncio.sleep(0)
-            return name_draussen["wert"], list(bestand)
+            return None, list(bestand)
 
         async def get_person_assets(self, _person_id):
             await asyncio.sleep(0)

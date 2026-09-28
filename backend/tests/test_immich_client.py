@@ -52,6 +52,36 @@ async def test_album_assets_are_loaded_across_all_search_pages():
 
 
 @pytest.mark.asyncio
+async def test_get_album_assets_with_name_reads_the_album_name_from_the_get_response():
+    """Nachweis 2, Nacharbeit 1 zu #97 (Blindpruefer + Fremdpruefer): Kein
+    Test der ECHTEN `ImmichClient.get_album_assets_with_name` prüfte bisher,
+    dass der Name wirklich aus dem Feld `albumName` der GET-Antwort kommt —
+    `info.get("name")` oder ein hartes `return None, asset_ids` blieben grün.
+    Das hier ist die echte Klasse gegen eine echte HTTP-Antwort, kein
+    handgeschriebenes Testdouble."""
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200, json={"id": "album-1", "albumName": "Echter Name aus Immich"}
+            )
+        return httpx.Response(
+            200,
+            json={"assets": {"items": [{"id": "asset-1"}], "nextPage": None}},
+        )
+
+    client = ImmichClient(
+        "http://immich.test",
+        "api-key",
+        transport=httpx.MockTransport(handle),
+    )
+
+    name, asset_ids = await client.get_album_assets_with_name("album-1")
+
+    assert name == "Echter Name aus Immich"
+    assert asset_ids == ["asset-1"]
+
+
+@pytest.mark.asyncio
 async def test_album_asset_lookup_reports_a_deleted_album():
     def handle(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404)

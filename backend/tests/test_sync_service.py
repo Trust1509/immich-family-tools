@@ -328,8 +328,11 @@ def _immich_client_mit_namen(monkeypatch, name, bestand=("asset-1",)):
 @pytest.mark.asyncio
 async def test_refresh_uebernimmt_den_aktuellen_namen_aus_immich(monkeypatch):
     """Nachweis 1 (#97): Ein abweichender Name aus Immich gewinnt — der BESTAND
-    (echter Store, keine Attrappe) trägt danach den neuen Namen, und das
-    Protokoll enthält genau einen Eintrag mit dem neuen Schlüssel."""
+    (`StoreDoppel`, das echte `update_managed_album`/`get_managed_album`-Verhalten
+    nachbildet, keine Attrappe des Rueckgabewerts) trägt danach den neuen
+    Namen. Das Protokoll trägt ZWEI Einträge: den Namenswechsel UND „keine
+    neuen Assets" — Letzteres ist eine ZUSAETZLICHE Meldung, kein Ersatz dafür
+    (Nacharbeit 1, technisch entschieden)."""
     owner = _konto_eins()
     managed = _album_fuer_namensuebernahme(album_name="Alter Name")
     calls = _immich_client_mit_namen(monkeypatch, "Neu in Immich")
@@ -339,9 +342,10 @@ async def test_refresh_uebernimmt_den_aktuellen_namen_aus_immich(monkeypatch):
 
     assert calls["get_album_info"] == 1, "GET /api/albums/{id} darf nur einmal laufen"
     assert store.get_managed_album("managed-1").album_name == "Neu in Immich"
-    assert len(entries) == 1, entries
+    assert len(entries) == 2, entries
     assert entries[0].message_key == "log_album_name_adopted"
     assert entries[0].message_params == {"old_name": "Alter Name", "new_name": "Neu in Immich"}
+    assert entries[1].message_key == "log_no_new_assets"
 
 
 @pytest.mark.asyncio
@@ -359,9 +363,26 @@ async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkey
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("immich_name", [None, ""])
+@pytest.mark.parametrize(
+    "immich_name",
+    [
+        None,
+        "",
+        "   ",  # nur Leerzeichen
+        "\t",  # nur Tab
+        "\xa0",  # nur geschuetztes Leerzeichen (NBSP) — sichtbar leer, aber truthy
+        " \t\xa0 ",  # Mischung
+    ],
+)
 async def test_refresh_behaelt_den_namen_wenn_immich_keinen_liefert(monkeypatch, immich_name):
-    """Nachweis 3 (#97): Kein oder ein leerer Name aus Immich leert den Bestand nicht."""
+    """Nachweis 3 (#97, erweitert in Nacharbeit 1): Kein, ein leerer oder ein
+    NUR aus Leerraum bestehender Name aus Immich leert den Bestand nicht.
+
+    Gemessen ohne den `.strip()`-Schutz (Fund von Blind- und Fremdpruefer):
+    Ein Name aus reinem Leerraum ist in Python truthy und ungleich dem
+    Bestandsnamen — er wurde uebernommen und hat den sichtbaren Namen
+    geleert, obwohl `not immich_name` allein das nicht faengt. Dieselbe
+    Faltung wie im Umbenennen-Router (`body.album_name.strip()`)."""
     owner = _konto_eins()
     managed = _album_fuer_namensuebernahme(album_name="Alter Name")
     _immich_client_mit_namen(monkeypatch, immich_name)
@@ -398,8 +419,16 @@ async def test_refresh_eines_geloeschten_albums_uebernimmt_keinen_namen(monkeypa
 
 @pytest.mark.asyncio
 async def test_ein_abgleich_ruft_get_album_info_nur_einmal_auf(monkeypatch):
-    """Nachweis 5 (#97): `GET /api/albums/{id}` läuft pro Abgleich genau
-    einmal, nicht zweimal — der Kern der 'kein Doppelaufruf'-Zusage im Befund."""
+    """Nachweis 5 (#97): `GET /api/albums/{id}` läuft für den Namens-/
+    Asset-Abruf pro Abgleich genau einmal, nicht zweimal — der Kern der
+    'kein Doppelaufruf'-Zusage im Befund.
+
+    Die Zusicherung gilt hier für ein Album mit EINEM Konto (`person_refs`
+    enthält nur den Owner) — `_share_album_if_needed` wird dann uebersprungen,
+    weil es niemanden zu teilen gibt. Mit einem weiteren Teilnehmer holt
+    `get_album_user_ids` denselben Endpunkt ein ZWEITES Mal (gemessen: 1 Aufruf
+    ohne, 2 Aufrufe mit einem zu teilenden Konto) — das ist keine Regression
+    dieses Slices, sondern der bereits vorher bestehende Weg des Teilens."""
     owner = _konto_eins()
     managed = _album_fuer_namensuebernahme(album_name="Alter Name")
     calls = _immich_client_mit_namen(

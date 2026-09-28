@@ -454,13 +454,18 @@ def _uebernimm_immich_namen(
     """Der Name in Immich gewinnt (#97, CONTEXT.md „Album Name Source").
 
     Ein leerer oder fehlender Name aus Immich LEERT den Bestand nicht — das
-    wäre ein Datenverlust, den niemand angefragt hat. Bleibt der Name gleich,
-    gibt es keinen Protokolleintrag: Nur eine tatsächliche Änderung ist eine
-    Meldung wert. Mutiert `managed` in-place, wie die Nachbarfunktionen dieses
-    Moduls es mit `total_assets`/`last_synced_at` auch tun — das Schreiben in
-    den Bestand übernimmt weiterhin der Aufrufer.
+    wäre ein Datenverlust, den niemand angefragt hat. Dasselbe gilt fuer einen
+    Namen aus reinem Leerraum (Space, Tab, NBSP): `str.strip()` faltet ihn auf
+    leer, genau wie die Pruefung im Umbenennen-Router (`new_name =
+    body.album_name.strip()`) — ohne diese Faltung haette ein solcher Name den
+    sichtbaren Bestandsnamen geleert, gemessen an der Gruppenvorschau
+    (Nacharbeit 1, Panel). Bleibt der Name gleich, gibt es keinen
+    Protokolleintrag: Nur eine tatsächliche Änderung ist eine Meldung wert.
+    Mutiert `managed` in-place, wie die Nachbarfunktionen dieses Moduls es mit
+    `total_assets`/`last_synced_at` auch tun — das Schreiben in den Bestand
+    übernimmt weiterhin der Aufrufer.
     """
-    if not immich_name or immich_name == managed.album_name:
+    if not immich_name or not immich_name.strip() or immich_name == managed.album_name:
         return None
     previous_name = managed.album_name
     managed.album_name = immich_name
@@ -571,7 +576,12 @@ async def _refresh_managed_album_unlocked(
     managed.status = "partial" if any(entry.status == "error" for entry in logs) else "active"
     store.update_managed_album(managed)
 
-    if not logs:
+    # Der Namens-Eintrag ist eine ZUSAETZLICHE Meldung, kein Ersatz fuer „keine
+    # neuen Assets" (Nacharbeit 1 zu #97, technisch entschieden: beide
+    # Meldungen zeigen). Ohne diesen Ausschluss haette ein Refresh, der NUR
+    # den Namen uebernimmt, die „keine neuen Assets"-Meldung verschluckt, weil
+    # `logs` dann nicht mehr leer war.
+    if not [entry for entry in logs if entry is not name_entry]:
         logs.append(SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
             details=f"Album '{managed.album_name}': Keine neuen Assets gefunden",
@@ -671,11 +681,17 @@ async def _rename_managed_album_unlocked(
     # dieses Speichern scheitert, traegt Immich schon den neuen Namen und wir
     # noch den alten. Ein Fehler-Protokolleintrag hilft dann NICHT — das
     # Protokoll liegt in derselben Datei (`append_log` ruft `_save`), das
-    # Schreiben ist also gerade erst gescheitert. Der Aufrufer bekommt 500,
-    # und der Abgleich in die andere Richtung (Refresh uebernimmt den Namen
-    # aus Immich) fehlt heute ganz. Das ist kein Fall dieses Zweigs, sondern
-    # die allgemeine Form aller Schreibpfade dieser Anwendung; als Issue
-    # gemeldet, nicht hier geheilt.
+    # Schreiben ist also gerade erst gescheitert. Der Aufrufer bekommt 500.
+    #
+    # Seit #97 (Nacharbeit 1, ueberholt die urspruengliche Fassung dieses
+    # Kommentars): Der naechste ERFOLGREICHE Refresh liest den Immich-Namen
+    # ueber `get_album_assets_with_name` und uebernimmt ihn
+    # (`_uebernimm_immich_namen`) — die Diskrepanz bleibt also nicht auf
+    # Dauer stehen, sondern nur bis zum naechsten Abgleich. Ungemessen bleibt,
+    # wie lange dieses Fenster in der Praxis dauert (haengt am Sync-Intervall)
+    # und was passiert, wenn ein Refresh in genau diesem Fenster selbst
+    # scheitert — dafuer gibt es weiterhin keinen eigenen Heilungspfad, nur
+    # den naechsten Versuch.
     managed.album_name = new_name
     store.update_managed_album(managed)
     return [SyncLogEntry(
