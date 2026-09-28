@@ -455,3 +455,53 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
     );
   });
 });
+
+describe("Gewaehltes Album verschwindet bei GLEICHEM Besitzer (#110, Nacharbeit 2, WICHTIG Fund 3d)", () => {
+  it("sperrt den Startknopf, wenn die Albumliste neu laedt und die Kennung nicht mehr enthaelt", async () => {
+    // Blindpruefer, Nacharbeit 2, Probe P7: ANDERS als Fund 5 (Nacharbeit 1)
+    // wechselt hier NICHT der Besitzer — dieselbe Kennung wird bei DEMSELBEN
+    // Konto einfach ungueltig (z.B. Fokus-Refetch der Albumliste, Album in
+    // Immich geloescht). Das prueft, ob der Namens-Schutz in `albumReady`
+    // wirklich an JEDER Quelle greift, die die Liste veraendert — nicht nur
+    // an einem Besitzerwechsel.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <ManualMatch />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(kontenMock).toHaveBeenCalled());
+    const kontoFelder = await screen.findAllByRole("combobox");
+    fireEvent.change(kontoFelder[0], { target: { value: "konto-1" } });
+    fireEvent.change(kontoFelder[1], { target: { value: "konto-2" } });
+    await waitFor(() => expect(leuteMock).toHaveBeenCalled());
+    await waehlePerson(0, "Person A");
+    await waehlePerson(1, "Person A");
+    fireEvent.change(screen.getByPlaceholderText("z. B. Max Mustermann"), {
+      target: { value: "Testalbum" },
+    });
+
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+    await screen.findByText("Testalbum");
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-1" } });
+
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    // Dieselbe Kennung, DASSELBE Konto — die Liste laedt neu und enthaelt
+    // "immich-1" nicht mehr.
+    kontoAlbenMock.mockResolvedValue([]);
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["account-albums"] });
+    });
+    await waitFor(() => expect(screen.queryByText("Testalbum")).toBeNull());
+
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(namesMultiMock).not.toHaveBeenCalled();
+  });
+});

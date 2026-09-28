@@ -70,18 +70,19 @@ const ALBEN = [
   },
 ];
 
-const { albenMock, kontenMock, extendMock, personenMock } = vi.hoisted(() => ({
+const { albenMock, kontenMock, extendMock, personenMock, byAccountMock } = vi.hoisted(() => ({
   albenMock: vi.fn(),
   kontenMock: vi.fn(),
   extendMock: vi.fn(),
   personenMock: vi.fn(),
+  byAccountMock: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
   api: {
     sync: { albums: albenMock, extend: extendMock },
     accounts: { list: kontenMock },
-    people: { list: personenMock, thumbnailUrl: () => "" },
+    people: { list: personenMock, byAccount: byAccountMock, thumbnailUrl: () => "" },
   },
 }));
 
@@ -120,6 +121,7 @@ beforeEach(() => {
     { id: "konto-2", name: "Konto Zwei", color: "#222222" },
   ]);
   personenMock.mockResolvedValue([]);
+  byAccountMock.mockResolvedValue([]);
   extendMock.mockResolvedValue([]);
 });
 
@@ -214,5 +216,48 @@ describe("ExtendMatch: Gruppen gleichen Namens", () => {
       .map((o) => o.textContent)
       .filter((t): t is string => !!t && t.startsWith("Konto"));
     expect(angeboten).toEqual(["Konto Eins"]);
+  });
+});
+
+describe("ExtendMatch: Gruppen-Cache nach dem Erweitern (#110, Nacharbeit 2, Fund 3)", () => {
+  it("invalidiert die Gruppenvorschau, sobald das Erweitern erfolgreich war", async () => {
+    // Blindpruefer, Nacharbeit 2: die Invalidierung in ExtendMatch.tsx war
+    // ungetestet — direkter Nachweis wie bei den anderen vier Aufrufstellen.
+    byAccountMock.mockResolvedValue([
+      { id: "person-neu", name: "Person Neu", account_id: "konto-2", asset_count: 1 },
+    ]);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spion = vi.spyOn(qc, "invalidateQueries");
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <ExtendMatch />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
+
+    fireEvent.click(karteMit("Person A"));
+    const kontoAuswahl = await screen.findByRole("combobox");
+    fireEvent.change(kontoAuswahl, { target: { value: "konto-2" } });
+
+    const personenfeld = await screen.findByPlaceholderText("Person suchen…");
+    fireEvent.focus(personenfeld);
+    fireEvent.mouseDown(await screen.findByText("Person Neu"));
+
+    fireEvent.click(screen.getByText("Zum Match hinzufügen"));
+
+    await waitFor(() => expect(extendMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        spion.mock.calls.some(
+          (call) =>
+            call[0] &&
+            typeof call[0] === "object" &&
+            "queryKey" in call[0] &&
+            (call[0] as { queryKey?: unknown[] }).queryKey?.[0] === "album-group"
+        )
+      ).toBe(true)
+    );
   });
 });

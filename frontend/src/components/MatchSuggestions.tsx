@@ -19,7 +19,12 @@ import { api, Match, Account, ManagedAlbum } from "../api/client";
 import FaceCompare from "./FaceCompare";
 import { useT, type ServerErrorLike } from "../i18n";
 import { createGroupLookup } from "../lib/albumGroups";
-import { GruppenWahl, gruppenBereitschaft, type GruppenAntwort } from "./GruppenWahl";
+import {
+  GruppenWahl,
+  gruppenBereitschaft,
+  bestehendesAlbumGueltig,
+  type GruppenAntwort,
+} from "./GruppenWahl";
 
 // ── Album Dialog ───────────────────────────────────────────────────────────
 
@@ -93,7 +98,15 @@ function AlbumDialog({
     }
   };
 
-  const canSubmit = (mode === "new" ? !!albumName : !!existingAlbumId) && gruppenBereit;
+  // Modus "Verknuepfen": die Kennung ALLEIN reicht nicht — verschwindet das
+  // gewaehlte Album aus der Liste (Neuladen, Konto veraendert, in Immich
+  // geloescht), wird `wirksamerName` leer, obwohl `existingAlbumId` noch
+  // gesetzt ist. `gruppenBereitschaft` haelt einen leeren Namen faelschlich
+  // fuer "nichts zu pruefen" — derselbe Schutz wie in ManualMatch.tsx (#110,
+  // Nacharbeit 2, Fund 1, Blindpruefer Probe P5, gemessen).
+  const canSubmit =
+    (mode === "new" ? !!albumName : bestehendesAlbumGueltig(existingAlbumId, wirksamerName)) &&
+    gruppenBereit;
 
   return (
     <div className="space-y-3 bg-immich-bg border border-immich-border rounded-lg p-3">
@@ -269,13 +282,17 @@ function MatchCard({
       qc.invalidateQueries({ queryKey: ["sync-log"] });
       qc.invalidateQueries({ queryKey: ["matches"] });
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
-      // Anlegen UND Verknuepfen aendern Gruppen — ein zweiter Dialog fuer
-      // denselben Namen darf keine veraltete Vorschau-Antwort mehr sehen
-      // (#110, Nacharbeit 1, BLOCKER Fund 1: eine von sechs Stellen).
-      qc.invalidateQueries({ queryKey: ["album-group"] });
       if (ok) setTimeout(() => setResult(null), 4000);
     },
     onError: (err: Error) => setAlbumError(errorText(err as ServerErrorLike)),
+    // `onSettled` statt nur `onSuccess` (#110, Nacharbeit 2, KLEIN Fund 4):
+    // Anlegen UND Verknuepfen aendern Gruppen — eine von fuenf Aufrufstellen
+    // (Anlegen/Verknuepfen teilen sich diese eine; dazu names-multi,
+    // Umbenennen, Entfernen, Erweitern). Ein Teil-Schreibvorgang kann in
+    // Immich schon eine Gruppe veraendert haben, auch wenn die Anfrage
+    // insgesamt als Fehler zurueckkommt — ein zweiter Dialog fuer denselben
+    // Namen darf dann trotzdem keine veraltete Vorschau-Antwort mehr sehen.
+    onSettled: () => qc.invalidateQueries({ queryKey: ["album-group"] }),
   });
 
   const refreshMutation = useMutation({

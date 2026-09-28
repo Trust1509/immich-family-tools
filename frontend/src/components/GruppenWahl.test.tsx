@@ -6,12 +6,18 @@
 // keiner — der Nutzer bestaetigt dann eine Gruppe, die zu dem Namen, den er
 // gerade tippt, gar nicht passt.
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import React from "react";
-import { GruppenWahl, gruppenBereitschaft, type GruppenAntwort } from "./GruppenWahl";
+import {
+  GruppenWahl,
+  gruppenBereitschaft,
+  bestehendesAlbumGueltig,
+  type GruppenAntwort,
+} from "./GruppenWahl";
 import { LanguageProvider } from "../i18n";
 import { SPEICHER_SCHLUESSEL } from "../test-konstanten";
+import { QUERY_VORGABEN } from "../queryClient";
 
 // Alle Daten erfunden; das Repo ist oeffentlich.
 const GRUPPE = {
@@ -151,6 +157,25 @@ describe("gruppenBereitschaft (reine Funktion, #110 Nacharbeit 1 Fund 3)", () =>
   });
 });
 
+describe("bestehendesAlbumGueltig (reine Funktion, #110 Nacharbeit 2 Fund 1)", () => {
+  // Dieselbe Regel, die MatchSuggestions.tsx UND ManualMatch.tsx im Modus
+  // "Verknuepfen" aufrufen — EINE Quelle statt zweier Kopien.
+  it("ist NICHT gueltig ohne jede Kennung", () => {
+    expect(bestehendesAlbumGueltig("", "Testalbum")).toBe(false);
+  });
+
+  it("ist NICHT gueltig, wenn sich zur Kennung KEIN Name mehr aufloesen laesst", () => {
+    // Genau der Fall, wenn die Albumliste neu laedt und die Kennung nicht
+    // mehr enthaelt: die Kennung selbst steht noch, der Name ist weg.
+    expect(bestehendesAlbumGueltig("immich-1", "")).toBe(false);
+    expect(bestehendesAlbumGueltig("immich-1", "   ")).toBe(false);
+  });
+
+  it("ist gueltig, wenn beides vorliegt", () => {
+    expect(bestehendesAlbumGueltig("immich-1", "Testalbum")).toBe(true);
+  });
+});
+
 describe("GruppenWahl: Antwort-Meldung (#110, Nacharbeit 1)", () => {
   // Der Aufrufer sperrt sein Anlegen auf `gruppenBereitschaft(antwort, ...)`
   // — diese Tests pruefen das ROHE SIGNAL (`onAntwort`), nicht die Sperre
@@ -226,14 +251,24 @@ describe("GruppenWahl: Antwort-Meldung (#110, Nacharbeit 1)", () => {
     await waitFor(() => expect(letzteBereitschaft("Zweiter Name").bereit).toBe(true));
   });
 
-  it("serviert beim Wiedereinhaengen fuer denselben Namen NIE eine gecachte Antwort — zweite Verteidigungslinie unabhaengig von jeder Invalidierung (#110, Nacharbeit 1, Fund 1)", async () => {
+  it("serviert beim Wiedereinhaengen fuer denselben Namen NIE eine gecachte Antwort, auch nicht unter dem PRODUKTIONS-Client (#110, Nacharbeit 1 Fund 1 / Nacharbeit 2 Fund 2)", async () => {
     // Anders als die Invalidierungs-Proben bei den Konsumenten: hier laeuft
-    // KEINE Mutation und KEINE Invalidierung — nur `staleTime: 0` und
-    // `refetchOnMount: "always"` koennen hier ueberhaupt greifen. Ohne sie
-    // waere eine zweite Beobachtung desselben Namens (derselbe QueryClient,
-    // neu gemountet) 10 Sekunden lang auf die alte Antwort angewiesen.
+    // KEINE Mutation und KEINE Invalidierung — nur GruppenWahls eigenes
+    // `staleTime: 0` (je Abfrage) kann hier ueberhaupt greifen.
+    //
+    // Nacharbeit 2, Fund 2 (Blindpruefer, gemessen): Diese Probe lief bisher
+    // mit einem Test-Client OHNE eigene `staleTime` — TanStacks Bibliotheks-
+    // Standard ist dort ebenfalls 0, also bewies ein gruener Lauf nichts
+    // gegen die ECHTEN 30 Sekunden aus `main.tsx`/`queryClient.ts`. Ein
+    // Mutationslauf, der GruppenWahls `staleTime: 0` entfernte, blieb unter
+    // dem alten Test-Client gruen. Jetzt teilt sich dieser Test
+    // `QUERY_VORGABEN` mit `main.tsx` — ein produktionsnaher Client mit
+    // `staleTime: 30_000` als AUSGANGSPUNKT, den GruppenWahls eigene
+    // `staleTime: 0` je Abfrage erst UEBERSCHREIBEN muss.
     vorschauMock.mockResolvedValueOnce(null);
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { ...QUERY_VORGABEN, retry: false } },
+    });
     const antworten: GruppenAntwort[] = [];
     const baum = (mountKey: number) => (
       <QueryClientProvider client={qc}>
@@ -301,6 +336,28 @@ describe("GruppenWahl: Antwort-Meldung (#110, Nacharbeit 1)", () => {
     expect(screen.getByText("Tritt der bestehenden Gruppe bei")).toBeTruthy();
   });
 
+  it("eine haengende Anfrage endet nach der Zeitgrenze als Fehler, nicht auf ewig gesperrt (#110, Nacharbeit 2, WICHTIG Fund 3c)", async () => {
+    // Ungetestet bis Nacharbeit 2 (Blindpruefer Probe P4): Der Mock haengt
+    // NICHT an einer festen Anzahl Millisekunden, sondern am ABBRUCH-SIGNAL
+    // selbst — genau das, was `AbortSignal.timeout(10_000)` in GruppenWahl
+    // uebergibt. Eine Mutation, die die Zeitgrenze entfernt, wuerde hier
+    // niemals abbrechen; diese Probe wartet deshalb wirklich die vollen
+    // ~10 echten Sekunden ab, statt sie zu simulieren.
+    vorschauMock.mockImplementation(
+      (_name: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason));
+        })
+    );
+
+    const { letzteBereitschaft } = zeichne("Testalbum");
+
+    await waitFor(() => expect(screen.getByText(/Prüfung fehlgeschlagen/)).toBeTruthy(), {
+      timeout: 12_000,
+    });
+    expect(letzteBereitschaft("Testalbum").bereit).toBe(false);
+  }, 15_000);
+
   it("zaehlt 'pausiert' (offline) NICHT als Antwort — weder bereit noch Fehlermeldung", async () => {
     // Fund 2, Nacharbeit 1 (Fremdpruefer BLOCKER): Die Erstfassung pruefte
     // nur `isFetching` (bei "paused" false) und meldete offline faelschlich
@@ -319,6 +376,46 @@ describe("GruppenWahl: Antwort-Meldung (#110, Nacharbeit 1)", () => {
 
     await waitFor(() => expect(vorschauMock).toHaveBeenCalled());
     await waitFor(() => expect(letzteBereitschaft("Testalbum").bereit).toBe(true));
+  });
+
+  it("gibt NICHT frei, wenn eine Invalidierung offline auf eine VORHANDENE Erfolgsantwort trifft (#110, Nacharbeit 2, WICHTIG Fund 3b)", async () => {
+    // Schaerfer als der Test oben: hier gibt es schon eine erfolgreiche
+    // Antwort (`status: "success"`), BEVOR die Verbindung wegfaellt. Eine
+    // Mutation, die `fetchStatus !== "idle"` durch `fetchStatus === "fetching"`
+    // ersetzt, uebersieht "paused" und laesst die ALTE Erfolgsantwort stehen —
+    // gemessen vom Blindpruefer (Probe P3): dieser Fall trat im Test oben
+    // NIE auf, weil dort nie zuvor erfolgreich geantwortet wurde.
+    vorschauMock.mockResolvedValue(GRUPPE);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const antworten: GruppenAntwort[] = [];
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <GruppenWahl
+            albumName="Testalbum"
+            eigeneGruppe={false}
+            onEigeneGruppeChange={() => {}}
+            onAntwort={(a) => antworten.push(a)}
+          />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() =>
+      expect(gruppenBereitschaft(antworten[antworten.length - 1] ?? null, "Testalbum").bereit).toBe(
+        true
+      )
+    );
+
+    onlineManager.setOnline(false);
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["album-group"] });
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(qc.getQueryState(["album-group", "Testalbum"])?.fetchStatus).toBe("paused");
+    expect(gruppenBereitschaft(antworten[antworten.length - 1] ?? null, "Testalbum").bereit).toBe(
+      false
+    );
   });
 
   it("zeigt bei einem Fehlschlag NICHT die noch vorhandene ALTE Gruppe — Fehler bleibt Fehler, auch mit Resten (#110, Nacharbeit 1, Fund 4)", async () => {

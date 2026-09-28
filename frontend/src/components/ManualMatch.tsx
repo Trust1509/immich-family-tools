@@ -3,7 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle, Loader2 } from "lucide-react";
 import { api, type Account, type Person, type SyncLogEntry } from "../api/client";
 import { LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
-import { GruppenWahl, gruppenBereitschaft, type GruppenAntwort } from "./GruppenWahl";
+import {
+  GruppenWahl,
+  gruppenBereitschaft,
+  bestehendesAlbumGueltig,
+  type GruppenAntwort,
+} from "./GruppenWahl";
 
 interface PersonSelection {
   account_id: string;
@@ -428,12 +433,14 @@ export default function ManualMatch() {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ["sync-log"] });
       queryClient.invalidateQueries({ queryKey: ["managed-albums"] });
-      // names-multi aendert Gruppen (legt an oder verknuepft) — ein zweiter
-      // Dialog fuer denselben Namen darf keine veraltete Vorschau-Antwort
-      // mehr sehen (#110, Nacharbeit 1, BLOCKER Fund 1: zwei von sechs
-      // Stellen, hier die zweite).
-      queryClient.invalidateQueries({ queryKey: ["album-group"] });
     },
+    // `onSettled` statt nur `onSuccess` (#110, Nacharbeit 2, KLEIN Fund 4):
+    // names-multi aendert Gruppen (legt an oder verknuepft) — eine von fuenf
+    // Aufrufstellen. Ein Teil-Schreibvorgang kann in Immich schon eine Gruppe
+    // veraendert haben, auch wenn die Anfrage insgesamt als Fehler
+    // zurueckkommt — ein zweiter Dialog fuer denselben Namen darf dann
+    // trotzdem keine veraltete Vorschau-Antwort mehr sehen.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["album-group"] }),
   });
 
   const addRow = () => setSelections((prev) => [...prev, { account_id: "", person_id: "" }]);
@@ -445,13 +452,13 @@ export default function ManualMatch() {
     albumMode === "new"
       ? true // album_name falls back to canonicalName
       : // Die Kennung ALLEIN reicht nicht: Wechselt der Besitzer, bevor die
-        // neue Albumliste geladen hat (oder zeigt eine veraltete Kennung ins
-        // Leere), ist `wirksamerName` leer, obwohl `existingAlbumId` noch
-        // gesetzt ist — genau der Zwischenzustand, den Fund 5 (Nacharbeit 1)
-        // gemessen hat. Ohne diese zweite Bedingung waere man in genau
-        // diesem Zwischenzustand "bereit", weil ein leerer Name fuer
-        // `gruppenBereitschaft` nichts zu pruefen bedeutet.
-        !!existingAlbumId && !!wirksamerName.trim();
+        // neue Albumliste geladen hat (oder verschwindet das Album sonstwie
+        // aus der Liste — Neuladen, in Immich geloescht), ist `wirksamerName`
+        // leer, obwohl `existingAlbumId` noch gesetzt ist — genau der
+        // Zwischenzustand, den Fund 5 (Nacharbeit 1) gemessen hat. Dieselbe
+        // Regel wie in MatchSuggestions.tsx (#110, Nacharbeit 2, Fund 1):
+        // `bestehendesAlbumGueltig` statt einer zweiten, hier lokalen Kopie.
+        bestehendesAlbumGueltig(existingAlbumId, wirksamerName);
 
   const isValid =
     canonicalName.trim().length > 0 &&

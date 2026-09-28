@@ -279,12 +279,15 @@ export default function ExtendMatch() {
       setResult(data);
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
       qc.invalidateQueries({ queryKey: ["sync-log"] });
-      // Erweitern aendert die Gruppe (neue Person/neues Konto) — eine
-      // laufende Gruppenvorschau darf danach keine veraltete Antwort mehr
-      // zeigen (#110, Nacharbeit 1, BLOCKER Fund 1).
-      qc.invalidateQueries({ queryKey: ["album-group"] });
       setNewPersonId("");
     },
+    // `onSettled` statt nur `onSuccess` (#110, Nacharbeit 2, KLEIN Fund 4):
+    // Erweitern aendert die Gruppe (neue Person/neues Konto) — eine von fuenf
+    // Aufrufstellen. Ein Teil-Schreibvorgang kann in Immich schon eine Gruppe
+    // veraendert haben, auch wenn die Anfrage insgesamt als Fehler
+    // zurueckkommt — eine laufende Gruppenvorschau darf danach trotzdem keine
+    // veraltete Antwort mehr zeigen.
+    onSettled: () => qc.invalidateQueries({ queryKey: ["album-group"] }),
   });
 
   const isValid = !!selectedGroup && !!newAccountId && !!newPersonId;

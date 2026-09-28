@@ -21,6 +21,7 @@ import React from "react";
 import MatchSuggestions from "./MatchSuggestions";
 import { LanguageProvider } from "../i18n";
 import { SPEICHER_SCHLUESSEL } from "../test-konstanten";
+import { QUERY_VORGABEN } from "../queryClient";
 
 // Alle Daten erfunden; das Repo ist oeffentlich.
 const MATCH = {
@@ -474,13 +475,33 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
     );
   });
 
-  it("zeigt nach dem Anlegen keine veraltete 'keine Gruppe'-Antwort mehr, wenn derselbe Dialog neu geoeffnet wird", async () => {
+  it("zeigt nach dem Anlegen keine veraltete 'keine Gruppe'-Antwort mehr, auch nicht unter dem PRODUKTIONS-Client", async () => {
     // End-zu-Ende-Nachweis des sichtbaren Verhaltens: erst "keine Gruppe",
     // dann angelegt, dann derselbe Name erneut abgefragt — jetzt MIT Gruppe.
+    //
+    // Nacharbeit 2, Fund 2 (Blindpruefer, gemessen): Diese Probe lief bisher
+    // ueber `oeffneDialog()`/`zeichne()`, deren Test-Client KEINE eigene
+    // `staleTime` setzt — TanStacks Bibliotheks-Standard ist dort ebenfalls
+    // 0, also bewies ein gruener Lauf nichts gegen die ECHTEN 30 Sekunden aus
+    // `main.tsx`. Jetzt baut dieser Test seinen EIGENEN Client mit
+    // `QUERY_VORGABEN` (derselben Quelle wie `main.tsx`) — ein Mutationslauf,
+    // der GruppenWahls `staleTime: 0` entfernt, muss HIER rot werden.
     vorschauMock.mockResolvedValueOnce(null);
     vorschauMock.mockResolvedValue(GRUPPE);
 
-    await oeffneDialog();
+    const qc = new QueryClient({
+      defaultOptions: { queries: { ...QUERY_VORGABEN, retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <MatchSuggestions />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    fireEvent.click(await screen.findByText("Album verbinden"));
+    await screen.findByPlaceholderText("Album-Name…");
+
     await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(false)
@@ -493,10 +514,52 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
     fireEvent.click(wiederOeffnen);
     await screen.findByPlaceholderText("Album-Name…");
 
-    // Ohne Invalidierung/`refetchOnMount` wuerde der Cache (`staleTime`) die
-    // alte "keine Gruppe"-Antwort weiter servieren, ohne die Vorschau erneut
-    // zu fragen.
+    // Ohne Invalidierung UND ohne GruppenWahls eigenes `staleTime: 0` wuerde
+    // der Cache (30 Sekunden, `QUERY_VORGABEN`) die alte "keine Gruppe"-
+    // Antwort weiter servieren, ohne die Vorschau erneut zu fragen.
     await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByText("Tritt der bestehenden Gruppe bei")).toBeTruthy());
+  });
+
+  it("sperrt 'Album verknuepfen', wenn das gewaehlte Album aus der Liste verschwindet (#110, Nacharbeit 2, WICHTIG Fund 1)", async () => {
+    // Blindpruefer, Nacharbeit 2, Probe P5: Die Albumliste laedt neu (z.B.
+    // Fokus-Refetch nach `staleTime`) und enthaelt die gewaehlte Kennung nicht
+    // mehr — `wirksamerName` wird leer, `gruppenBereitschaft` haelt das
+    // faelschlich fuer "nichts zu pruefen", der Knopf war frei. Gemessen:
+    // gesendet wurde `{match_id, owner_account_id, existing_album_id}` ohne
+    // Namen und ohne Gruppe.
+    kontoAlbenMock.mockResolvedValue([{ id: "immich-1", name: "Testalbum" }]);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <MatchSuggestions />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    fireEvent.click(await screen.findByText("Album verbinden"));
+    await screen.findByPlaceholderText("Album-Name…");
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+    await screen.findByText("Testalbum");
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-1" } });
+
+    const knopf = () => screen.getByText("Album verknüpfen") as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    // Die Liste laedt neu und enthaelt "immich-1" nicht mehr — die Kennung
+    // im Zustand bleibt trotzdem stehen (niemand hat sie explizit geaendert).
+    kontoAlbenMock.mockResolvedValue([]);
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["account-albums"] });
+    });
+    await waitFor(() => expect(screen.queryByText("Testalbum")).toBeNull());
+
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(albumMock).not.toHaveBeenCalled();
   });
 });

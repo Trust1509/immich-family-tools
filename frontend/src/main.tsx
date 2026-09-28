@@ -1,19 +1,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { applyDocumentLang, LanguageProvider, readStoredLang } from "./i18n";
 import AuthGate from "./components/AuthGate";
+import { erzeugeAppQueryClient } from "./queryClient";
 import "./index.css";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 30_000,
-    },
-  },
-});
+// Die Vorgaben (retry, staleTime) liegen in `queryClient.ts` — die einzige
+// Quelle, die auch produktionsnahe Tests teilen (#110, Nacharbeit 2, Fund 2).
+const queryClient = erzeugeAppQueryClient();
 
 // Set <html lang> from the persisted/browser language before the first
 // render, not after it — `index.html` ships hardcoded `lang="de"`, and

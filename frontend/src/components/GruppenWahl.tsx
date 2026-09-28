@@ -61,6 +61,27 @@ export function gruppenBereitschaft(
 }
 
 /**
+ * Ob eine gewaehlte BESTEHENDE Albumkennung gerade noch gueltig ist — d.h.
+ * ob sich zu ihr JETZT ein Name aufloesen laesst.
+ *
+ * Reine Funktion, aus demselben Grund herausgezogen wie `gruppenBereitschaft`
+ * (#78, `docs/agents/lehren.md` §39): `MatchSuggestions.tsx` (Modus
+ * "Verknuepfen") UND `ManualMatch.tsx` (Modus "Verknuepfen") pruefen dieselbe
+ * Regel. Nacharbeit 1 hatte sie nur in `ManualMatch.tsx` — Nacharbeit 2, Fund
+ * 1 (Blindpruefer, Probe P5): dieselbe Luecke traf `MatchSuggestions.tsx`
+ * genauso, nur ueber einen anderen Ausloeser (die Albumliste laedt neu und
+ * enthaelt die gewaehlte Kennung nicht mehr — z.B. `invalidateQueries(
+ * ["account-albums"])`, nicht nur ein Kontowechsel). Fehlt der Name (Liste
+ * neu geladen, Konto gewechselt, Album in Immich geloescht), ist die Kennung
+ * wertlos, auch wenn sie noch im Zustand steht — ohne diese Pruefung meldet
+ * `gruppenBereitschaft` faelschlich "nichts zu pruefen" fuer einen LEEREN
+ * Namen, und der leere Zustand sieht wie "bereit" aus.
+ */
+export function bestehendesAlbumGueltig(existingAlbumId: string, wirksamerName: string): boolean {
+  return !!existingAlbumId && !!wirksamerName.trim();
+}
+
+/**
  * Zeigt, welcher Gruppe ein neues Album beitreten wuerde — und laesst den
  * Nutzer widersprechen (#81).
  *
@@ -116,14 +137,21 @@ export function GruppenWahl({
     // Cache nie vertrauen (#110, Nacharbeit 1, BLOCKER): Die Vorschau laeuft
     // gegen denselben Server wie das Anlegen — ein zweiter Dialog fuer
     // denselben Namen, Sekunden nach einer Anlage, die genau diesen Namen
-    // gruppiert hat, darf keine 10 Sekunden alte "keine Gruppe"-Antwort
-    // servieren. `staleTime: 0` und `refetchOnMount: "always"` sind die
-    // zweite Verteidigungslinie; die erste ist die Invalidierung nach jeder
-    // gruppen-aendernden Mutation (siehe `docs/agents/lehren.md`, Fund im
-    // Bau-Brief zu #110 Nacharbeit 1 — Anlegen/Verknuepfen, names-multi,
-    // Umbenennen, Entfernen, Erweitern).
+    // gruppiert hat, darf keine mit `staleTime: 30_000` (`queryClient.ts`,
+    // main.tsx) beliebig alte "keine Gruppe"-Antwort servieren. `staleTime: 0`
+    // HIER, je Abfrage, ist die zweite Verteidigungslinie; die erste ist die
+    // Invalidierung nach jeder gruppen-aendernden Mutation (fuenf
+    // Aufrufstellen: Anlegen/Verknuepfen, names-multi, Umbenennen, Entfernen,
+    // Erweitern — #110, Nacharbeit 1, BLOCKER Fund 1).
+    //
+    // BEWUSST OHNE `refetchOnMount: "always"` (stand hier bis Nacharbeit 2):
+    // Gemessen (Blindpruefer, 28.09.2026) und selbst nachvollzogen — die
+    // Option greift nur beim REACT-Mount-Moment der Komponente, und GENAU
+    // DANN ist der Schluessel wegen der Entprellung noch "" und die Abfrage
+    // `enabled: false`. Bis der Schluessel (300ms spaeter) einen echten Namen
+    // traegt, ist es kein neuer Mount mehr aus TanStacks Sicht — die Option
+    // hatte nie etwas zu tun. Entfernt, `npm test` bleibt 158/158 gruen.
     staleTime: 0,
-    refetchOnMount: "always",
   });
 
   const passt = entprellt === gesucht;
