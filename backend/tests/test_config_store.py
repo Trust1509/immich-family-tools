@@ -1268,3 +1268,111 @@ def test_gescheitertes_aufraeumen_verhindert_den_start_nicht(tmp_path, monkeypat
     assert store.get_managed_albums(), "die Konfiguration ist unversehrt"
     meldungen = [e.getMessage() for e in caplog.records]
     assert any("blieb liegen" in m for m in meldungen), meldungen
+
+
+# ----------------------------------------------------------------------
+# Protokolltext unterscheidet Schemasprung und Kennungsvergabe (#105)
+# ----------------------------------------------------------------------
+#
+# Vorher trugen beide Faelle denselben Text ("Sicherung vor Schemasprung...",
+# fuer Erfolg UND Scheitern) — auch dann, wenn der Rueckweg gar keinen
+# Schemasprung betraf. Beim echten Rollout von 1.8.0 (Schema 2 -> 3) standen
+# deshalb zwei Zeilen mit demselben Wort im Protokoll, obwohl nur eine ein
+# Schemasprung war. Vier Proben, isoliert je Fall UND je Ausgang — jede
+# Fixture loest genau EINEN der beiden Zweige in `_migrate()` aus, sonst
+# wuerden beide Meldungen im selben Lauf entstehen und die Unterscheidung
+# nicht pruefbar machen.
+
+
+def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_path, caplog):
+    """Isolierter Schemasprung (die Alben tragen bereits eine Kennung, nur
+    die Schemaversion fehlt) — die Erfolgsmeldung nennt 'Schemasprung' und
+    die Zielversion, nicht 'Kennungsvergabe'."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    stand = json.loads(path.read_text(encoding="utf-8"))
+    stand["managed_albums"][0]["group_id"] = "gruppe-vorhanden"
+    path.write_text(json.dumps(stand, indent=2), encoding="utf-8")
+
+    with caplog.at_level("INFO"):
+        ConfigStore(str(path))
+
+    meldungen = [e.getMessage() for e in caplog.records]
+    assert any(
+        "Schemasprung" in m and f"Version {ConfigStore.SCHEMA_VERSION}" in m
+        for m in meldungen
+    ), meldungen
+    assert not any("Kennungsvergabe" in m for m in meldungen), meldungen
+
+
+def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung(tmp_path, caplog):
+    """Isolierte Kennungsvergabe (Schemaversion ist bereits aktuell, ein Album
+    hat noch keine Kennung) — die Erfolgsmeldung nennt 'Kennungsvergabe',
+    nicht 'Schemasprung'."""
+    path = tmp_path / "accounts.json"
+    ohne_kennung = _album("a1", "Testalbum", ["p1"])
+    path.write_text(json.dumps({
+        "schema_version": ConfigStore.SCHEMA_VERSION,   # KEIN Sprung
+        "accounts": LEGACY_ACCOUNTS,
+        "managed_albums": [ohne_kennung],
+    }, indent=2), encoding="utf-8")
+
+    with caplog.at_level("INFO"):
+        ConfigStore(str(path))
+
+    meldungen = [e.getMessage() for e in caplog.records]
+    assert any("Kennungsvergabe" in m for m in meldungen), meldungen
+    assert not any("Schemasprung" in m for m in meldungen), meldungen
+
+
+def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_path, caplog):
+    """Isolierter Schemasprung, dessen Rueckweg scheitert (ein Verzeichnis am
+    Zielpfad statt eines Rechte-Tricks, der unter Windows nicht haelt) — die
+    Fehlermeldung nennt 'Schemasprung' und die Zielversion, nicht
+    'Kennungsvergabe'."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    stand = json.loads(path.read_text(encoding="utf-8"))
+    stand["managed_albums"][0]["group_id"] = "gruppe-vorhanden"
+    path.write_text(json.dumps(stand, indent=2), encoding="utf-8")
+
+    ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))  # darf nicht werfen
+
+    meldungen = [e.getMessage() for e in caplog.records]
+    treffer = [m for m in meldungen if "nicht moeglich" in m]
+    assert any(
+        "Schemasprung" in m and f"Version {ConfigStore.SCHEMA_VERSION}" in m
+        for m in treffer
+    ), meldungen
+    assert not any("Kennungsvergabe" in m for m in treffer), meldungen
+
+
+def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemasprung(tmp_path, caplog):
+    """Isolierte Kennungsvergabe, deren Rueckweg scheitert — die
+    Fehlermeldung nennt 'Kennungsvergabe', nicht 'Schemasprung'. Die
+    Kennungsvergabe selbst gelingt trotzdem (`_backfill_group_ids` haengt
+    nicht am Erfolg der Sicherung), wie bei den bestehenden
+    Schemasprung-Scheitern-Proben."""
+    path = tmp_path / "accounts.json"
+    ohne_kennung = _album("a1", "Testalbum", ["p1"])
+    path.write_text(json.dumps({
+        "schema_version": ConfigStore.SCHEMA_VERSION,
+        "accounts": LEGACY_ACCOUNTS,
+        "managed_albums": [ohne_kennung],
+    }, indent=2), encoding="utf-8")
+
+    ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+    ziel.mkdir()
+
+    with caplog.at_level("WARNING"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    meldungen = [e.getMessage() for e in caplog.records]
+    treffer = [m for m in meldungen if "nicht moeglich" in m]
+    assert any("Kennungsvergabe" in m for m in treffer), meldungen
+    assert not any("Schemasprung" in m for m in treffer), meldungen

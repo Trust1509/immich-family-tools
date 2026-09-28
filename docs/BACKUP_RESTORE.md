@@ -44,8 +44,14 @@ Two things follow for you as the operator:
   from the app, and log entries past the 90-day retention window. `PRIVACY.md`
   points here for that reason.
 - If the file is missing after an upgrade, the migration still ran. Check the
-  container log for `Sicherung vor Schemasprung nicht moeglich`; a failed
-  backup does not stop the app, by design.
+  container log for `Rueckweg vor Schemasprung auf Version` together with
+  `nicht moeglich` on the same line (the message names the exact schema
+  version and target path in between); a failed backup does not stop the
+  app, by design. A failed identifier-assignment backup logs a different
+  line, `Rueckweg vor Kennungsvergabe nicht moeglich` — the two are worded
+  differently on purpose since #105, so a schema-migration failure in the log
+  can no longer be mistaken for an identifier-assignment failure or the other
+  way round.
 
 ## Restore
 

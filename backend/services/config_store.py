@@ -220,7 +220,31 @@ class ConfigStore:
             # startet die Anwendung gar nicht mehr und behauptet dabei, die
             # Konfiguration sei ungueltig, obwohl sie unversehrt ist
             # (Blindpruefer 21.09.2026, gemessen).
-            logger.warning("Sicherung vor Schemasprung nicht moeglich: %s", ziel)
+            #
+            # ZWEI FAELLE, ZWEI TEXTE (#105): Bis hierher stand in BEIDEN
+            # Zweigen "Sicherung vor Schemasprung nicht moeglich" — auch dann,
+            # wenn der gescheiterte Rueckweg gar keinen Schemasprung betraf,
+            # sondern eine Kennungsvergabe ohne Schemaaenderung. Beim echten
+            # Rollout von 1.8.0 (Schema 2 -> 3) standen deshalb zwei Zeilen im
+            # Protokoll, die dasselbe Wort trugen, obwohl nur eine ein
+            # Schemasprung war.
+            #
+            # ASCII "moeglich" bewusst NICHT auf "möglich" umgestellt: Zwei
+            # bestehende Proben (`test_gescheiterte_sicherung_verhindert_den_
+            # start_nicht`, `test_ein_verzeichnis_an_der_stelle_wird_nicht_
+            # fuer_eine_sicherung_gehalten`) pruefen exakt die Zeichenkette
+            # "nicht moeglich" im ASCII-Schreibweise gegen `caplog` — eine
+            # echte Umlautschreibung waere ein anderer String und haette
+            # beide stumm zerbrochen (Bau-Brief #105, Bloc 9 Punkt 6).
+            if einmalig:
+                logger.warning(
+                    "Rueckweg vor Schemasprung auf Version %s nicht moeglich: %s",
+                    self.SCHEMA_VERSION, ziel,
+                )
+            else:
+                logger.warning(
+                    "Rueckweg vor Kennungsvergabe nicht moeglich: %s", ziel,
+                )
             return
         finally:
             # EIGENER Fang: Ein gescheitertes Aufraeumen lief am Zweig darueber
@@ -235,7 +259,15 @@ class ConfigStore:
                         os.unlink(temp_name)
                 except OSError:
                     logger.warning("Temp-Datei der Sicherung blieb liegen: %s", temp_name)
-        logger.info("Sicherung vor Schemasprung: %s", ziel)
+        # Dieselbe Unterscheidung fuer den Erfolgsfall (#105): "Sicherung vor
+        # Schemasprung" stand vorher auch dann im Protokoll, wenn der Rueckweg
+        # in Wahrheit eine Kennungsvergabe war.
+        if einmalig:
+            logger.info(
+                "Rueckweg vor Schemasprung auf Version %s: %s", self.SCHEMA_VERSION, ziel,
+            )
+        else:
+            logger.info("Rueckweg vor Kennungsvergabe: %s", ziel)
 
     @staticmethod
     def _rueckweg_brauchbar(ziel: Path) -> bool:
