@@ -19,7 +19,7 @@ import { api, Match, Account, ManagedAlbum } from "../api/client";
 import FaceCompare from "./FaceCompare";
 import { useT, type ServerErrorLike } from "../i18n";
 import { createGroupLookup } from "../lib/albumGroups";
-import { GruppenWahl } from "./GruppenWahl";
+import { GruppenWahl, gruppenBereitschaft, type GruppenAntwort } from "./GruppenWahl";
 
 // ── Album Dialog ───────────────────────────────────────────────────────────
 
@@ -51,11 +51,12 @@ function AlbumDialog({
   const [ownerAccountId, setOwnerAccountId] = useState(match.person_a.account_id);
   const [existingAlbumId, setExistingAlbumId] = useState("");
   const [ownGroup, setOwnGroup] = useState(false);
-  const [gruppeId, setGruppeId] = useState<string | null>(null);
-  // Erst frei, wenn die Gruppenvorschau zur AKTUELLEN Eingabe geantwortet hat
-  // (#110) — sonst kann ein Klick eine Anlage anstossen, bevor feststeht, ob
-  // der Name eine Gruppe trifft.
-  const [gruppenBereit, setGruppenBereit] = useState(false);
+  // Die ROHE Antwort der Vorschau, mit dem Namen, zu dem sie gehoert — nicht
+  // eine vorverdaute Buchung. `gruppenBereitschaft` unten vergleicht sie bei
+  // JEDEM Render gegen den AKTUELLEN `wirksamerName`; damit gibt es keinen
+  // Commit mit neuer Eingabe und alter Buchung mehr (#110, Nacharbeit 1,
+  // Fund 3).
+  const [antwort, setAntwort] = useState<GruppenAntwort | null>(null);
 
   const { data: existingAlbums = [], isFetching: loadingAlbums } = useQuery({
     queryKey: ["account-albums", ownerAccountId],
@@ -66,6 +67,7 @@ function AlbumDialog({
 
   const gewaehltesAlbum = existingAlbums.find((a) => a.id === existingAlbumId);
   const wirksamerName = mode === "new" ? albumName : (gewaehltesAlbum?.name ?? "");
+  const { bereit: gruppenBereit, gruppeId } = gruppenBereitschaft(antwort, wirksamerName);
 
   const handleSubmit = () => {
     // GruppenWahl setzt `ownGroup` zurueck, sobald keine Gruppe mehr getroffen
@@ -164,8 +166,7 @@ function AlbumDialog({
         albumName={wirksamerName}
         eigeneGruppe={ownGroup}
         onEigeneGruppeChange={setOwnGroup}
-        onGruppeChange={setGruppeId}
-        onBereitChange={setGruppenBereit}
+        onAntwort={setAntwort}
       />
 
       <p className="text-xs text-gray-600">
@@ -268,6 +269,10 @@ function MatchCard({
       qc.invalidateQueries({ queryKey: ["sync-log"] });
       qc.invalidateQueries({ queryKey: ["matches"] });
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
+      // Anlegen UND Verknuepfen aendern Gruppen — ein zweiter Dialog fuer
+      // denselben Namen darf keine veraltete Vorschau-Antwort mehr sehen
+      // (#110, Nacharbeit 1, BLOCKER Fund 1: eine von sechs Stellen).
+      qc.invalidateQueries({ queryKey: ["album-group"] });
       if (ok) setTimeout(() => setResult(null), 4000);
     },
     onError: (err: Error) => setAlbumError(errorText(err as ServerErrorLike)),

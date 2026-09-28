@@ -139,6 +139,10 @@ function AlbumGroupCard({
     setDeleting(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
+    // Entfernen aendert die Gruppe (weniger/keine Alben mehr) — eine
+    // laufende Gruppenvorschau darf danach keine veraltete Antwort mehr
+    // zeigen (#110, Nacharbeit 1, BLOCKER Fund 1).
+    qc.invalidateQueries({ queryKey: ["album-group"] });
   };
 
   const handleRename = async () => {
@@ -179,6 +183,10 @@ function AlbumGroupCard({
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
       qc.invalidateQueries({ queryKey: ["sync-log"] });
       qc.invalidateQueries({ queryKey: ["matches"] });
+      // Umbenennen aendert den Namen, ueber den die Vorschau spaeter sucht —
+      // eine Vorschau fuer den ALTEN oder den NEUEN Namen darf danach keine
+      // veraltete Antwort mehr zeigen (#110, Nacharbeit 1, BLOCKER Fund 1).
+      qc.invalidateQueries({ queryKey: ["album-group"] });
     }
   };
 

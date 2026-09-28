@@ -9,6 +9,11 @@
 //
 // Und der Zwischenzustand ist ein eigenes Verhalten (§40): Solange die
 // Abfrage laeuft, darf nichts behauptet werden.
+//
+// Nacharbeit 1 zu #110 (28.09.2026, Fremd-/Blindpruefer): Owner-Entscheid
+// aendert die Erstfassung — ein Fehlschlag der Vorschau gibt das Anlegen
+// NICHT mehr frei ("Erneut pruefen"-Knopf statt Fail-open), und mehrere
+// Proben unten pruefen Funde, die die erste Fassung nicht abdeckte.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -55,31 +60,44 @@ const GRUPPE = {
   ],
 };
 
-const { matchesMock, kontenMock, albenMock, albumMock, vorschauMock, thumbMock, kontoAlbenMock } =
-  vi.hoisted(() => ({
-    matchesMock: vi.fn(),
-    kontenMock: vi.fn(),
-    albenMock: vi.fn(),
-    albumMock: vi.fn(),
-    vorschauMock: vi.fn(),
-    thumbMock: vi.fn(),
-    kontoAlbenMock: vi.fn(),
-  }));
+const {
+  matchesMock,
+  kontenMock,
+  albenMock,
+  albumMock,
+  vorschauMock,
+  thumbMock,
+  kontoAlbenMock,
+  dismissMock,
+  namesMock,
+  refreshAlbumMock,
+} = vi.hoisted(() => ({
+  matchesMock: vi.fn(),
+  kontenMock: vi.fn(),
+  albenMock: vi.fn(),
+  albumMock: vi.fn(),
+  vorschauMock: vi.fn(),
+  thumbMock: vi.fn(),
+  kontoAlbenMock: vi.fn(),
+  dismissMock: vi.fn(),
+  namesMock: vi.fn(),
+  refreshAlbumMock: vi.fn(),
+}));
 
 vi.mock("../api/client", () => ({
   api: {
     matches: {
       list: matchesMock,
       refresh: matchesMock,
-      dismiss: vi.fn().mockResolvedValue(undefined),
+      dismiss: dismissMock,
     },
     accounts: { list: kontenMock, albums: kontoAlbenMock },
     sync: {
       albums: albenMock,
       album: albumMock,
       albumGroupPreview: vorschauMock,
-      names: vi.fn().mockResolvedValue([]),
-      refreshAlbum: vi.fn().mockResolvedValue([]),
+      names: namesMock,
+      refreshAlbum: refreshAlbumMock,
     },
     people: { thumbnailUrl: thumbMock },
   },
@@ -105,8 +123,24 @@ async function oeffneDialog() {
   return await screen.findByPlaceholderText("Album-Name…");
 }
 
+/** Laesst alle bereits geplanten Mikro-/Makrotasks (bis 0ms) ablaufen, bevor
+ *  eine Nicht-Aufruf-Zusicherung geprueft wird. Ohne das ist
+ *  `expect(mock).not.toHaveBeenCalled()` direkt nach einem Klick IMMER gruen
+ *  — `mutate()` ruft die Mutationsfunktion asynchron auf, also sagt die
+ *  Zusicherung nichts aus, wenn man nicht erst zu Ende wartet (Blindpruefer,
+ *  Nacharbeit 1, 28.09.2026). */
+async function wartenAufRuhe() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 beforeEach(() => {
-  vi.clearAllMocks();
+  // `resetAllMocks` statt `clearAllMocks`: Ein `mockResolvedValueOnce`/
+  // `mockRejectedValueOnce`, den ein Test nie verbraucht, blieb sonst in der
+  // Warteschlange und beantwortete den ERSTEN Aufruf des NAECHSTEN Tests —
+  // gemessen bei der Rot-Beweis-Probe zu Fund 1/Nacharbeit 1 (28.09.2026).
+  vi.resetAllMocks();
   try {
     localStorage.setItem(SPEICHER_SCHLUESSEL, "de");
   } catch {
@@ -122,6 +156,9 @@ beforeEach(() => {
   thumbMock.mockReturnValue("");
   kontoAlbenMock.mockResolvedValue([]);
   vorschauMock.mockResolvedValue(GRUPPE);
+  dismissMock.mockResolvedValue(undefined);
+  namesMock.mockResolvedValue([]);
+  refreshAlbumMock.mockResolvedValue([]);
 });
 
 describe("Gruppenwahl beim Anlegen", () => {
@@ -230,6 +267,7 @@ describe("Anlegen erst nach Antwort der Gruppenvorschau (#110)", () => {
     // Sofort klicken, bevor die Vorschau geantwortet hat: keine Anlage.
     expect(knopf().disabled).toBe(true);
     fireEvent.click(knopf());
+    await wartenAufRuhe();
     expect(albumMock).not.toHaveBeenCalled();
 
     // Erst warten, bis die Abfrage wirklich LAEUFT — sonst gibt es noch
@@ -246,7 +284,8 @@ describe("Anlegen erst nach Antwort der Gruppenvorschau (#110)", () => {
 
   it("bleibt gesperrt, wenn waehrend einer laufenden Abfrage weitergetippt wird", async () => {
     // Die Antwort, die gerade eintrifft, gehoert dann zu einer AELTEREN
-    // Eingabe — genau der Fall, den `passt` in GruppenWahl abfaengt.
+    // Eingabe — genau der Fall, den `gruppenBereitschaft` per Namensvergleich
+    // abfaengt.
     await oeffneDialog();
     const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
     await waitFor(() => expect(knopf().disabled).toBe(false));
@@ -257,25 +296,78 @@ describe("Anlegen erst nach Antwort der Gruppenvorschau (#110)", () => {
     expect(knopf().disabled).toBe(true);
 
     fireEvent.click(knopf());
+    await wartenAufRuhe();
     expect(albumMock).not.toHaveBeenCalled();
 
     await waitFor(() => expect(knopf().disabled).toBe(false));
   });
 
-  it("erlaubt Anlegen trotz fehlgeschlagener Vorschau, mit Hinweis", async () => {
-    // Nicht dauerhaft blockiert: ein Fehlschlag ist eine Antwort, keine
-    // offene Frage.
+  it("bleibt WAEHREND einer echt laufenden Abfrage gesperrt, wenn dabei weitergetippt wird", async () => {
+    // Schaerfer als der Test oben: hier wird waehrend eine Anfrage noch
+    // UNBEANTWORTET ist weitergetippt, nicht erst NACH ihrer Antwort.
+    let ersteAntwort!: (wert: typeof GRUPPE) => void;
+    vorschauMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          ersteAntwort = resolve;
+        })
+    );
+
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    expect(knopf().disabled).toBe(true);
+
+    fireEvent.change(screen.getByPlaceholderText("Album-Name…"), {
+      target: { value: "Zweiter Name" },
+    });
+    expect(knopf().disabled).toBe(true);
+
+    // Die ERSTE (jetzt veraltete) Anfrage antwortet — darf den Knopf fuer
+    // "Zweiter Name" nicht freigeben.
+    await act(async () => {
+      ersteAntwort(GRUPPE);
+    });
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(albumMock).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+  });
+
+  it("bleibt gesperrt bei fehlgeschlagener Vorschau, mit Hinweis und 'Erneut pruefen'", async () => {
+    // Owner-Entscheid 28.09.2026 (#110, Nacharbeit 1, ersetzt die Erstfassung):
+    // kein Fail-open mehr — die Vorschau laeuft gegen denselben Server wie
+    // das Anlegen.
     vorschauMock.mockRejectedValue(new Error("netzwerk kaputt"));
 
     await oeffneDialog();
     const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
 
     await waitFor(() =>
-      expect(
-        screen.getByText("Prüfung fehlgeschlagen — Anlegen bleibt trotzdem möglich.")
-      ).toBeTruthy()
+      expect(screen.getByText("Prüfung fehlgeschlagen — Anlegen bleibt gesperrt.")).toBeTruthy()
     );
-    expect(knopf().disabled).toBe(false);
+    expect(knopf().disabled).toBe(true);
+
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(albumMock).not.toHaveBeenCalled();
+  });
+
+  it("'Erneut pruefen' gibt nach Erfolg den Knopf frei", async () => {
+    vorschauMock.mockRejectedValueOnce(new Error("netzwerk kaputt"));
+    vorschauMock.mockResolvedValueOnce(GRUPPE);
+
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+    await waitFor(() => expect(screen.getByText("Erneut prüfen")).toBeTruthy());
+    expect(knopf().disabled).toBe(true);
+
+    fireEvent.click(screen.getByText("Erneut prüfen"));
+
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(knopf().disabled).toBe(false));
 
     fireEvent.click(knopf());
     await waitFor(() => expect(albumMock).toHaveBeenCalled());
@@ -305,5 +397,106 @@ describe("Gruppenwahl beim VERKNUEPFEN eines bestehenden Albums", () => {
     await waitFor(() => expect(albumMock).toHaveBeenCalled());
     expect(albumMock.mock.calls[0][0].force_new_group).toBe(true);
     expect(albumMock.mock.calls[0][0].existing_album_id).toBe("immich-1");
+  });
+
+  it("sperrt 'Album verknuepfen' ebenso, bis die Vorschau geantwortet hat (#110, Nacharbeit 1, Fund 7)", async () => {
+    // Blindpruefer, Nacharbeit 1: die Sperre war fuer den Verknuepfen-Zweig
+    // in BEIDEN Aufrufern ungetestet — eine Mutation dort blieb 135/135 gruen.
+    kontoAlbenMock.mockResolvedValue([{ id: "immich-1", name: "Testalbum" }]);
+    let antworten!: (wert: typeof GRUPPE) => void;
+    vorschauMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          antworten = resolve;
+        })
+    );
+
+    await oeffneDialog();
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+    await screen.findByText("Testalbum");
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-1" } });
+
+    const knopf = () => screen.getByText("Album verknüpfen") as HTMLButtonElement;
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalled());
+    expect(knopf().disabled).toBe(true);
+
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(albumMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      antworten(GRUPPE);
+    });
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+    expect(albumMock.mock.calls[0][0].existing_album_id).toBe("immich-1");
+  });
+});
+
+describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", () => {
+  it("invalidiert die Gruppenvorschau, sobald das Anlegen erfolgreich war", async () => {
+    // Direkter Nachweis der Invalidierung (unabhaengig von `refetchOnMount`,
+    // das denselben Fall beim Neu-Oeffnen des Dialogs zusaetzlich abdeckt):
+    // ohne diese Zeile bliebe eine bereits gemountete zweite Beobachtung
+    // derselben Anfrage (z.B. eine zweite offene Karte) auf der alten
+    // Antwort sitzen.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spion = vi.spyOn(qc, "invalidateQueries");
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <MatchSuggestions />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    const knopf = await screen.findByText("Album verbinden");
+    fireEvent.click(knopf);
+    await screen.findByPlaceholderText("Album-Name…");
+    await waitFor(() =>
+      expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    fireEvent.click(screen.getByText("Album erstellen"));
+
+    await waitFor(() =>
+      expect(
+        spion.mock.calls.some(
+          (call) =>
+            call[0] &&
+            typeof call[0] === "object" &&
+            "queryKey" in call[0] &&
+            (call[0] as { queryKey?: unknown[] }).queryKey?.[0] === "album-group"
+        )
+      ).toBe(true)
+    );
+  });
+
+  it("zeigt nach dem Anlegen keine veraltete 'keine Gruppe'-Antwort mehr, wenn derselbe Dialog neu geoeffnet wird", async () => {
+    // End-zu-Ende-Nachweis des sichtbaren Verhaltens: erst "keine Gruppe",
+    // dann angelegt, dann derselbe Name erneut abgefragt — jetzt MIT Gruppe.
+    vorschauMock.mockResolvedValueOnce(null);
+    vorschauMock.mockResolvedValue(GRUPPE);
+
+    await oeffneDialog();
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    fireEvent.click(screen.getByText("Album erstellen"));
+    await waitFor(() => expect(albumMock).toHaveBeenCalledTimes(1));
+
+    const wiederOeffnen = await screen.findByText("Album verbinden");
+    fireEvent.click(wiederOeffnen);
+    await screen.findByPlaceholderText("Album-Name…");
+
+    // Ohne Invalidierung/`refetchOnMount` wuerde der Cache (`staleTime`) die
+    // alte "keine Gruppe"-Antwort weiter servieren, ohne die Vorschau erneut
+    // zu fragen.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText("Tritt der bestehenden Gruppe bei")).toBeTruthy());
   });
 });

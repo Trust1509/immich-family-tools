@@ -237,3 +237,40 @@ describe("managed album rename client", () => {
     );
   });
 });
+
+describe("album group preview client (#110, Nacharbeit 1)", () => {
+  it("reicht ein mitgegebenes AbortSignal an fetch durch", async () => {
+    // Ohne das kann `GruppenWahl` einer haengenden Anfrage keine Zeitgrenze
+    // setzen (Fund 6, Nacharbeit 1) — die Sperre bliebe fuer immer stehen.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => null,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    await api.sync.albumGroupPreview("Testalbum", controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync/album-group?album_name=Testalbum",
+      expect.objectContaining({ signal: controller.signal })
+    );
+  });
+
+  it("funktioniert weiterhin ohne Signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => null,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.sync.albumGroupPreview("Testalbum");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync/album-group?album_name=Testalbum",
+      expect.not.objectContaining({ signal: expect.anything() })
+    );
+  });
+});

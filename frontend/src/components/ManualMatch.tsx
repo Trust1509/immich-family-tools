@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Plus, Trash2, Play, AlertTriangle, Loader2 } from "lucide-react";
 import { api, type Account, type Person, type SyncLogEntry } from "../api/client";
 import { LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
-import { GruppenWahl } from "./GruppenWahl";
+import { GruppenWahl, gruppenBereitschaft, type GruppenAntwort } from "./GruppenWahl";
 
 interface PersonSelection {
   account_id: string;
@@ -204,11 +204,12 @@ function AlbumSection({
   onAlbumNameChange,
   existingAlbumId,
   onExistingAlbumIdChange,
+  existingAlbums,
+  loadingAlbums,
+  wirksamerName,
   eigeneGruppe,
   onEigeneGruppeChange,
-  onGruppeChange,
-  onBereitChange,
-  namensVorgabe,
+  onAntwort,
 }: {
   accounts: Account[];
   ownerAccountId: string;
@@ -219,30 +220,19 @@ function AlbumSection({
   onAlbumNameChange: (v: string) => void;
   existingAlbumId: string;
   onExistingAlbumIdChange: (id: string) => void;
+  /** Vom Elternteil geladen (der auch `wirksamerName` daraus ableitet und
+   *  `gruppenBereitschaft` aufruft — #110, Nacharbeit 1: EINE Quelle statt
+   *  einer zweiten, hier lokalen Ableitung). */
+  existingAlbums: { id: string; name: string }[];
+  loadingAlbums: boolean;
+  /** Der Name, um den es beim Gruppieren geht — vom Elternteil berechnet. */
+  wirksamerName: string;
   eigeneGruppe: boolean;
   onEigeneGruppeChange: (wert: boolean) => void;
-  onGruppeChange: (groupId: string | null) => void;
-  /** Ob die Gruppenvorschau zur AKTUELLEN Eingabe geantwortet hat (#110). */
-  onBereitChange: (bereit: boolean) => void;
-  /** Rueckfall fuer den Albumnamen, wenn das Feld leer bleibt. */
-  namensVorgabe: string;
+  /** Jede Antwort der Vorschau, mit dem Namen, zu dem sie gehoert (#110). */
+  onAntwort: (antwort: GruppenAntwort) => void;
 }) {
   const { t } = useT();
-
-  const { data: existingAlbums = [], isFetching: loadingAlbums } = useQuery({
-    queryKey: ["account-albums", ownerAccountId],
-    queryFn: () => api.accounts.albums(ownerAccountId),
-    enabled: albumMode === "existing" && !!ownerAccountId,
-    staleTime: 30_000,
-  });
-
-  // Der Name, um den es beim Gruppieren geht — hier berechnet, weil hier die
-  // Albumliste liegt. Beim Verknuepfen ist es der Name des gewaehlten Albums,
-  // beim Anlegen das Feld oder ersatzweise der gemeinsame Name.
-  const wirksamerName =
-    albumMode === "new"
-      ? albumName.trim() || namensVorgabe
-      : (existingAlbums.find((a) => a.id === existingAlbumId)?.name ?? "");
 
   return (
     <div className="space-y-3">
@@ -273,10 +263,7 @@ function AlbumSection({
           <select
             className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
             value={ownerAccountId}
-            onChange={(e) => {
-              onOwnerChange(e.target.value);
-              onExistingAlbumIdChange("");
-            }}
+            onChange={(e) => onOwnerChange(e.target.value)}
           >
             <option value="">— {t("account_select_ph")} —</option>
             {accounts.map((a) => (
@@ -327,8 +314,7 @@ function AlbumSection({
           albumName={wirksamerName}
           eigeneGruppe={eigeneGruppe}
           onEigeneGruppeChange={onEigeneGruppeChange}
-          onGruppeChange={onGruppeChange}
-          onBereitChange={onBereitChange}
+          onAntwort={onAntwort}
         />
 
         <p className="text-xs text-gray-600">
@@ -377,11 +363,10 @@ export default function ManualMatch() {
   const [albumMode, setAlbumMode] = useState<"new" | "existing">("new");
   const [albumName, setAlbumName] = useState("");
   const [eigeneGruppe, setEigeneGruppe] = useState(false);
-  const [gruppeId, setGruppeId] = useState<string | null>(null);
-  // Erst frei, wenn die Gruppenvorschau zur AKTUELLEN Eingabe geantwortet hat
-  // (#110) — sonst kann der Startknopf eine Anlage anstossen, bevor feststeht,
-  // ob der Name eine Gruppe trifft.
-  const [gruppenBereit, setGruppenBereit] = useState(false);
+  // Die ROHE Antwort der Vorschau, mit dem Namen, zu dem sie gehoert — nicht
+  // eine vorverdaute Buchung (#110, Nacharbeit 1, Fund 3). `gruppenBereitschaft`
+  // unten vergleicht sie bei JEDEM Render gegen den AKTUELLEN `wirksamerName`.
+  const [antwort, setAntwort] = useState<GruppenAntwort | null>(null);
   const [ownerAccountId, setOwnerAccountId] = useState("");
   const [existingAlbumId, setExistingAlbumId] = useState("");
   const [result, setResult] = useState<SyncLogEntry[] | null>(null);
@@ -389,6 +374,37 @@ export default function ManualMatch() {
   // Default owner to first fully-selected row
   const firstFilledAccountId = selections.find((s) => s.account_id)?.account_id ?? "";
   const effectiveOwner = ownerAccountId || firstFilledAccountId;
+
+  // Wechselt der wirksame Besitzer STILL (z.B. eine Personenzeile auf ein
+  // anderes Konto), gehoert eine schon gewaehlte Albumkennung zu einem
+  // FREMDEN Konto — sie wird ungueltig, ohne dass ein `onChange` das je
+  // meldet (#110, Nacharbeit 1, Fund 5, gemessen). Zurueckgesetzt hier,
+  // zentral, statt an jeder Stelle, die `effectiveOwner` mittelbar aendert.
+  useEffect(() => {
+    setExistingAlbumId("");
+  }, [effectiveOwner]);
+
+  // Diese Liste entscheidet, welchen NAMEN eine gewaehlte `existingAlbumId`
+  // traegt — und damit `wirksamerName` unten. Hier geladen (nicht in
+  // `AlbumSection`), weil HIER auch `gruppenBereitschaft` aufgerufen wird:
+  // eine zweite, lokale Ableitung in einer Kindkomponente war genau die
+  // Bauart, die den urspruenglichen Defekt trug (`docs/agents/lehren.md`
+  // §39) — jetzt gibt es nur noch eine Quelle.
+  const { data: existingAlbums = [], isFetching: loadingAlbums } = useQuery({
+    queryKey: ["account-albums", effectiveOwner],
+    queryFn: () => api.accounts.albums(effectiveOwner),
+    enabled: albumMode === "existing" && !!effectiveOwner,
+    staleTime: 30_000,
+  });
+
+  // Der Name, um den es beim Gruppieren geht. Beim Verknuepfen ist es der
+  // Name des gewaehlten Albums, beim Anlegen das Feld oder ersatzweise der
+  // gemeinsame Name.
+  const wirksamerName =
+    albumMode === "new"
+      ? albumName.trim() || canonicalName.trim()
+      : (existingAlbums.find((a) => a.id === existingAlbumId)?.name ?? "");
+  const { bereit: gruppenBereit, gruppeId } = gruppenBereitschaft(antwort, wirksamerName);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -412,6 +428,11 @@ export default function ManualMatch() {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ["sync-log"] });
       queryClient.invalidateQueries({ queryKey: ["managed-albums"] });
+      // names-multi aendert Gruppen (legt an oder verknuepft) — ein zweiter
+      // Dialog fuer denselben Namen darf keine veraltete Vorschau-Antwort
+      // mehr sehen (#110, Nacharbeit 1, BLOCKER Fund 1: zwei von sechs
+      // Stellen, hier die zweite).
+      queryClient.invalidateQueries({ queryKey: ["album-group"] });
     },
   });
 
@@ -423,7 +444,14 @@ export default function ManualMatch() {
   const albumReady =
     albumMode === "new"
       ? true // album_name falls back to canonicalName
-      : !!existingAlbumId;
+      : // Die Kennung ALLEIN reicht nicht: Wechselt der Besitzer, bevor die
+        // neue Albumliste geladen hat (oder zeigt eine veraltete Kennung ins
+        // Leere), ist `wirksamerName` leer, obwohl `existingAlbumId` noch
+        // gesetzt ist — genau der Zwischenzustand, den Fund 5 (Nacharbeit 1)
+        // gemessen hat. Ohne diese zweite Bedingung waere man in genau
+        // diesem Zwischenzustand "bereit", weil ein leerer Name fuer
+        // `gruppenBereitschaft` nichts zu pruefen bedeutet.
+        !!existingAlbumId && !!wirksamerName.trim();
 
   const isValid =
     canonicalName.trim().length > 0 &&
@@ -500,11 +528,12 @@ export default function ManualMatch() {
         onAlbumNameChange={setAlbumName}
         existingAlbumId={existingAlbumId}
         onExistingAlbumIdChange={setExistingAlbumId}
+        existingAlbums={existingAlbums}
+        loadingAlbums={loadingAlbums}
+        wirksamerName={wirksamerName}
         eigeneGruppe={eigeneGruppe}
         onEigeneGruppeChange={setEigeneGruppe}
-        onGruppeChange={setGruppeId}
-        onBereitChange={setGruppenBereit}
-        namensVorgabe={canonicalName.trim()}
+        onAntwort={setAntwort}
       />
 
       {/* Submit */}

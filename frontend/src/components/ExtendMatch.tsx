@@ -279,6 +279,10 @@ export default function ExtendMatch() {
       setResult(data);
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
       qc.invalidateQueries({ queryKey: ["sync-log"] });
+      // Erweitern aendert die Gruppe (neue Person/neues Konto) — eine
+      // laufende Gruppenvorschau darf danach keine veraltete Antwort mehr
+      // zeigen (#110, Nacharbeit 1, BLOCKER Fund 1).
+      qc.invalidateQueries({ queryKey: ["album-group"] });
       setNewPersonId("");
     },
   });

@@ -446,10 +446,16 @@ export const translations = {
     "pt-BR": "Verificando …",
   },
   group_check_failed: {
-    de: "Prüfung fehlgeschlagen — Anlegen bleibt trotzdem möglich.",
-    en: "Check failed — you can still create it.",
-    "es-ES": "La comprobación falló — de todos modos puedes crearlo.",
-    "pt-BR": "A verificação falhou — ainda é possível criar.",
+    de: "Prüfung fehlgeschlagen — Anlegen bleibt gesperrt.",
+    en: "Check failed — creating stays locked.",
+    "es-ES": "La comprobación falló — crear sigue bloqueado.",
+    "pt-BR": "A verificação falhou — criar continua bloqueado.",
+  },
+  group_check_retry: {
+    de: "Erneut prüfen",
+    en: "Retry",
+    "es-ES": "Reintentar",
+    "pt-BR": "Tentar novamente",
   },
   album_new_desc: {
     de: "Neues Album wird erstellt, mit den beteiligten Accounts geteilt und Fotos automatisch hinzugefügt.",

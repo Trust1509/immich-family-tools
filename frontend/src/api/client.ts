@@ -265,10 +265,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    /** Welcher Gruppe wuerde ein Album mit diesem Namen beitreten? null = keiner. */
-    albumGroupPreview: (albumName: string) =>
+    /** Welcher Gruppe wuerde ein Album mit diesem Namen beitreten? null = keiner.
+     *  `signal` optional (#110, Nacharbeit 1): der Aufrufer haengt hier eine
+     *  Zeitgrenze ein, damit eine haengende Anfrage nicht fuer immer sperrt. */
+    albumGroupPreview: (albumName: string, signal?: AbortSignal) =>
       request<AlbumGroupPreview | null>(
-        `/sync/album-group?album_name=${encodeURIComponent(albumName)}`
+        `/sync/album-group?album_name=${encodeURIComponent(albumName)}`,
+        signal ? { signal } : undefined
       ),
     refreshAlbum: (managedAlbumId: string) =>
       request<SyncLogEntry[]>(`/sync/album/${managedAlbumId}/refresh`, { method: "POST" }),

@@ -71,7 +71,7 @@ The label shown for an Album Group. It is a label, not an identity: **two differ
 _Avoid_: Group key, group identifier
 
 **Group Suggestion**:
-When the user types a name for a new album, the tool suggests the Album Group that name belongs to — compared the way a person reads names (case, surrounding blanks and Unicode encoding do not count, #83). If a name belongs to more than one group, **no group is suggested**; the user chooses explicitly, including "new group" (#81). A suggestion is a proposal the user sees and can overrule, never a silent assignment (#110 tracks the one case where a quick click can still beat it).
+When the user types a name for a new album, the tool suggests the Album Group that name belongs to — compared the way a person reads names (case, surrounding blanks and Unicode encoding do not count, #83). If a name belongs to more than one group, **no group is suggested**; the user chooses explicitly, including "new group" (#81). A suggestion is a proposal the user sees and can overrule, never a silent assignment. Creating is blocked until the preview has answered for the **current** input (#110). **If the preview fails, creating stays blocked too** — a "retry" control re-asks, no fail-open — because the preview runs against the same server as creating itself, and a stale or wrong grouping slipping through unseen is worse than a moment's wait (owner decision 2026-09-28, #110, Nacharbeit 1).
 _Avoid_: Auto-grouping, group match
 
 **Album Name Source**:
