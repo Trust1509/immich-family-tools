@@ -1168,7 +1168,7 @@ type TranslationValue<K extends TranslationKey> = (typeof translations)[K];
 // which falls back to `entry.details` (German) for unknown/missing keys —
 // e.g. log entries persisted before message_key existed.
 // Ebenfalls seit Nacharbeit 1 exportiert, aus demselben Grund wie
-// `logMessages` oben.
+// `logMessages` unten.
 export type LogMessageParams = Record<string, string | number>;
 export type LogMessageFn = (p: LogMessageParams) => string;
 
