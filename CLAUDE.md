@@ -317,15 +317,17 @@ nicht):\*\*
   die kein lokales Tor gesehen hat. Der Husky-Hook prüft nur die **gestageten**
   Dateien; wer mit `--no-verify` committet oder eine Datei nach dem Formatieren
   noch anfasst, kommt daran vorbei.
-  **Und der lokale Lauf ist auf diesem Rechner NICHT verwertbar:**
-  `git config core.autocrlf` ist `true`, der Arbeitsbaum trägt also CRLF, und
-  Prettier erwartet LF (`endOfLine` steht nicht in `.prettierrc`, der
-  Vorgabewert ist `lf`). `npx prettier --check .` meldet hier deshalb ~22
-  Dateien, die in der CI sauber sind — das echte Signal geht darin unter.
-  Verwertbar ist nur der **gezielte** Aufruf auf die eigenen Dateien:
-  `npx prettier --check <datei> …`. Offen als Issue: entweder
-  `* text=auto eol=lf` in `.gitattributes`, oder ein lokales Tor, das denselben
-  Aufruf wie die CI auf die geänderten Dateien fährt.
+  **Seit #104 ist der lokale Lauf auch hier verwertbar:** `.gitattributes`
+  setzt `* text=auto eol=lf`, der Arbeitsbaum trägt also LF wie der
+  CI-Läufer, auch bei `core.autocrlf=true`. Gemessen in einem frischen Klon
+  mit `autocrlf=true`: alle Textdateien `w/lf`, `npx prettier --check .`
+  ohne Meldung. **Ein Checkout von vor #104 bleibt CRLF**, bis die Dateien
+  neu ausgecheckt werden — `git status` zeigt dabei nichts an (gemessen),
+  man sieht es nur an `git ls-files --eol` (`w/crlf`). Auffrischen auf einem
+  SAUBEREN Baum (verwirft ungesicherte Änderungen!):
+  `git rm -r -q --cached . && git reset -q --hard`. Vorher war der lokale
+  Lauf wertlos: rund zwei Dutzend Falschmeldungen, hinter denen beim Release
+  1.8.0 zwei echte Funde verschwanden (`docs/agents/lehren.md` §45).
 - Frontend (in `frontend/`): `npm test` — seit #72 unter einem **echten DOM**
   (`happy-dom`, gewählt gegen `jsdom`: gemessen +9 statt +37 Pakete im Baum —
   wobei die Paketzahl die Lieferkette misst, nicht die DOM-Treue; die
