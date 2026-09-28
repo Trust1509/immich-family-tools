@@ -169,6 +169,10 @@ export interface ManagedAlbum {
   created_at: string;
   last_synced_at?: string;
   total_assets: number;
+  /** Beim Lesen berechnet (#99, #112) — nicht gespeichert. Besitzerkonto fehlt. */
+  owner_account_missing?: boolean;
+  /** Beim Lesen berechnet (#99, #112) — nicht gespeichert. Weniger als zwei Personen. */
+  too_few_people?: boolean;
 }
 
 export interface SyncLogEntry {

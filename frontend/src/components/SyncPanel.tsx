@@ -3,7 +3,16 @@ import { Loader2, ScrollText, CheckCircle, XCircle, RotateCcw, Trash2 } from "lu
 import { api, SyncLogEntry } from "../api/client";
 import { formatDate, LANG_LOCALES, useT } from "../i18n";
 
-function LogRow({ entry }: { entry: SyncLogEntry }) {
+function LogRow({
+  entry,
+  lebendeKonten,
+}: {
+  entry: SyncLogEntry;
+  // Kontenkennungen, die es noch gibt — fuer die Sperre unten. `undefined`
+  // solange die Kontenliste noch laedt: dann wird NICHT vorschnell gesperrt
+  // (siehe Aufrufer).
+  lebendeKonten: Set<string> | undefined;
+}) {
   const { t, lang, logMessage } = useT();
   const qc = useQueryClient();
   const undoMutation = useMutation({
@@ -16,6 +25,14 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
     entry.status === "success" &&
     !!entry.undo_data &&
     !entry.undone_at;
+  // Owner-Entscheid 28.09.2026 (#99, #112): Der Server lehnt "Rueckgaengig"
+  // schon ab, wenn `undo_data.account_id` kein lebendes Konto mehr ist
+  // (`errors.account_gone`) — die Oberflaeche bietet den Knopf dann gar
+  // nicht erst an, mit dem Grund als Hinweis statt eines Fehlers aus Immich.
+  const kontoTot =
+    !!lebendeKonten &&
+    !!entry.undo_data &&
+    !lebendeKonten.has(entry.undo_data.account_id as string);
   const ts = formatDate(entry.timestamp, LANG_LOCALES[lang]);
 
   const actionLabel: Record<string, string> = {
@@ -49,7 +66,12 @@ function LogRow({ entry }: { entry: SyncLogEntry }) {
         )}
       </td>
       <td className="py-3 px-4">
-        {canUndo && (
+        {canUndo && kontoTot && (
+          <span className="text-xs text-gray-600" title={t("undo_locked_account_gone_hint")}>
+            {t("undo_locked_account_gone_hint")}
+          </span>
+        )}
+        {canUndo && !kontoTot && (
           <button
             onClick={() => undoMutation.mutate()}
             disabled={undoMutation.isPending}
@@ -77,6 +99,14 @@ export default function SyncPanel() {
     staleTime: 10_000,
     refetchInterval: 30_000,
   });
+  // Fuer die Rueckgaengig-Sperre (#99, #112): welche Konten es noch gibt.
+  // `undefined`, solange diese Anfrage noch laeuft — siehe `LogRow`.
+  const { data: accounts } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: api.accounts.list,
+    staleTime: 10_000,
+  });
+  const lebendeKonten = accounts ? new Set(accounts.map((a) => a.id)) : undefined;
 
   const sorted = [...log].reverse();
   const qc = useQueryClient();
@@ -125,7 +155,7 @@ export default function SyncPanel() {
             </thead>
             <tbody>
               {sorted.map((entry) => (
-                <LogRow key={entry.id} entry={entry} />
+                <LogRow key={entry.id} entry={entry} lebendeKonten={lebendeKonten} />
               ))}
             </tbody>
           </table>

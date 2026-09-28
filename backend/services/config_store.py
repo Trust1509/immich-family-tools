@@ -801,27 +801,52 @@ class ConfigStore:
         return Account(**raw)
 
     def delete_account(self, account_id: str) -> bool:
+        """Entfernt ein Konto und seine Personen-Referenzen — sonst NICHTS.
+
+        Owner-Entscheid 28.09.2026 (#99, #112): Nichts verschwindet still.
+        Diese Methode raeumte frueher weit mehr auf, als das Konto selbst
+        betraf — jedes Album mit weniger als zwei verbliebenen Personen fiel
+        still weg, `dismissed_match_ids` und `synced_name_match_ids` wurden
+        GANZ geleert, und ein Protokolleintrag verschwand schon, wenn der
+        Kontoname als Teilwort in seinem `details`-Text vorkam (gemessen am
+        echten Store, #112: „Name 'Carlas Mama' abgeglichen" verschwand beim
+        Loeschen von „Carla").
+
+        Jetzt bleibt bestehen, was nicht am Konto selbst haengt:
+
+        - Jedes Album, unabhaengig davon, wie viele Personen danach noch
+          darin stehen (auch null). Ein Album ohne lebenden Besitzer gilt als
+          verwaist — berechnet beim Lesen (`routers/albums.py`), nicht hier
+          gespeichert (keine Schema-Aenderung dieser Datei).
+        - `owner_account_id` bleibt UNVERAENDERT, auch wenn es auf das
+          geloeschte Konto zeigt (Owner: markieren, nicht umschreiben — genau
+          das erzeugt den verwaisten Zustand).
+        - `dismissed_match_ids` und `synced_name_match_ids` bleiben
+          vollstaendig: Eine Match-Kennung ist `md5(sortierte Personen-IDs)`
+          (`face_matcher._match_id`, `pair_match_id`) und traegt kein Konto —
+          ein gezieltes Entfernen ginge nur ueber die Personen-IDs des
+          Kontos, die hier nicht vorliegen. Wird das Konto neu angelegt,
+          tragen seine Immich-Personen dieselben IDs; eine alte Ablehnung
+          gilt dann unveraendert weiter (`CONTEXT.md`, „Dismissed Match").
+        - `sync_log` bleibt vollstaendig, auch Eintraege, deren `details`
+          den Kontonamen erwaehnen oder deren `undo_data.account_id` auf das
+          geloeschte Konto zeigt. Ein Rueckgaengig-Versuch auf einen solchen
+          Eintrag lehnt der Server bereits ab (`errors.account_gone`); die
+          Oberflaeche sperrt den Knopf zusaetzlich vorab.
+
+        Einzig die `person_refs` des geloeschten Kontos verschwinden aus
+        jedem Album, und `linked_match_ids` wird danach neu berechnet — beide
+        haengen direkt am Konto, nicht am Datenbestand insgesamt.
+        """
         if account_id not in self._data["accounts"]:
             return False
-        account_name = self._data["accounts"][account_id].get("name", "")
         del self._data["accounts"][account_id]
-        cleaned_albums = []
         for album in self._data.get("managed_albums", []):
             album["person_refs"] = [
                 ref for ref in album.get("person_refs", [])
                 if ref.get("account_id") != account_id
             ]
-            if len(album["person_refs"]) >= 2:
-                album["linked_match_ids"] = self.compute_linked_match_ids(album["person_refs"])
-                cleaned_albums.append(album)
-        self._data["managed_albums"] = cleaned_albums
-        self._data["dismissed_match_ids"] = []
-        self._data["synced_name_match_ids"] = []
-        self._data["sync_log"] = [
-            entry for entry in self._data.get("sync_log", [])
-            if (entry.get("undo_data") or {}).get("account_id") != account_id
-            and (not account_name or account_name not in entry.get("details", ""))
-        ]
+            album["linked_match_ids"] = self.compute_linked_match_ids(album["person_refs"])
         self._save()
         return True
 

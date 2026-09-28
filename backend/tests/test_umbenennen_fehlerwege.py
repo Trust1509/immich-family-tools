@@ -174,10 +174,11 @@ def test_ein_unbekanntes_album_wird_abgelehnt(client):
 def test_ein_verschwundenes_besitzerkonto_wird_abgelehnt(client):
     """Kein AttributeError, sondern eine Meldung mit Schluessel.
 
-    Der Zustand ist nicht konstruiert: `delete_account` behaelt Alben mit
-    mindestens zwei restlichen Personen und raeumt `owner_account_id` NICHT
-    auf (gemessen vom Gegenpruefer). Ein gewoehnliches Loeschen eines Kontos
-    erzeugt ihn also.
+    Der Zustand ist nicht konstruiert: `delete_account` behaelt seit #99/#112
+    JEDES Album, unabhaengig von der Zahl verbliebener Personen, und raeumt
+    `owner_account_id` NICHT auf (Owner-Entscheid 28.09.2026: markieren,
+    nicht umschreiben). Ein gewoehnliches Loeschen des Besitzerkontos erzeugt
+    diesen Zustand also immer.
     """
     antwort = client.patch("/api/sync/albums/a2", json={"album_name": "Herbstfest"})
     assert antwort.status_code == 404, antwort.text

@@ -95,11 +95,31 @@ async def auth_middleware(request: Request, call_next):
 # ------------------------------------------------------------------
 
 async def _run_auto_sync(app_state) -> None:
-    """Refresh all managed albums — called by the auto-sync background task."""
+    """Refresh all managed albums — called by the auto-sync background task.
+
+    Alben ohne lebenden Besitzer werden UEBERSPRUNGEN statt abgeglichen
+    (Owner-Entscheid 28.09.2026, #99): Ohne Besitzerkonto liefert der
+    Abgleich ohnehin nur `log_owner_account_missing` — jede Nacht, fuer
+    dasselbe Album, bis das Konto neu angelegt oder das Album entfernt wird.
+    Ein wiederkehrendes, bekanntes Fehlersignal verdeckt echte Funde
+    (`docs/agents/lehren.md` §45); die Oberflaeche markiert diese Alben
+    bereits (`GET /api/sync/albums`). Der MANUELLE Abgleich (Knopf in der
+    Albumuebersicht, `POST /api/sync/album/{id}/refresh`) laeuft weiterhin
+    unveraendert ueber `sync_service.refresh_managed_album` und meldet den
+    Grund — dieser Skip betrifft ausschliesslich den naechtlichen Auto-Sync.
+    """
     from services.sync_service import refresh_managed_album
     store = app_state.store
     albums = store.get_managed_albums()
     all_accounts = store.list_accounts()
+    lebende_konten = {a.id for a in all_accounts}
+    uebersprungen = [a for a in albums if a.owner_account_id not in lebende_konten]
+    albums = [a for a in albums if a.owner_account_id in lebende_konten]
+    if uebersprungen:
+        logger.info(
+            "Auto-sync: %d Album/Alben ohne lebendes Besitzerkonto uebersprungen: %s",
+            len(uebersprungen), ", ".join(a.id for a in uebersprungen),
+        )
     logger.info("Auto-sync: refreshing %d managed albums", len(albums))
     for album in albums:
         try:

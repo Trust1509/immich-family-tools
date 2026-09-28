@@ -79,7 +79,7 @@ _Avoid_: Auto-grouping, group match
 _Avoid_: Master name, canonical album name
 
 **Orphaned Managed Album**:
-A Managed Album whose owner Account has been removed from the tool. The album still exists in Immich, but the tool no longer holds the key that may change it. It stays visible, marked as orphaned; renaming and syncing are refused with a message that says why; removing it from the tool is allowed (owner decision 2026-09-28, #99). Nothing about it disappears silently.
+A Managed Album whose owner Account has been removed from the tool. The album still exists in Immich, but the tool no longer holds the key that may change it. It stays visible, marked as orphaned; renaming and syncing are refused with a message that says why; removing it from the tool is allowed (owner decision 2026-09-28, #99). Nothing about it disappears silently. The same holds for a Managed Album left with only one Person after an Account was removed — it stays in management, marked "only one person left", and keeps syncing for the remaining Person (owner decision 2026-09-28, #112); it is not orphaned unless its own owner Account is the one that was removed. Deleting an Account never touches the sync log or the dismissed/synced-names markers — they stay exactly as they were, including entries that mention the deleted Account by name (owner decision 2026-09-28, #112).
 _Avoid_: Dangling album, ownerless album
 
 **Manual Match Identity**:

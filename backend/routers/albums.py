@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from models.match import (
     ExtendMatchRequest,
-    ManagedAlbum,
+    ManagedAlbumOut,
     RenameManagedAlbumRequest,
     SyncAlbumRequest,
     SyncLogEntry,
@@ -537,13 +537,30 @@ async def rename_managed_album(
     return logs
 
 
-@router.get("/albums", response_model=list[ManagedAlbum])
+@router.get("/albums", response_model=list[ManagedAlbumOut])
 async def list_managed_albums(request: Request):
+    """Die Albumliste, mit zwei beim Lesen berechneten Markierungen (#99, #112).
+
+    `owner_account_missing` und `too_few_people` werden aus dem AKTUELLEN
+    Kontenbestand berechnet, bei jedem Aufruf neu — nicht gespeichert, keine
+    Schema-Aenderung von `accounts.json` (siehe `ManagedAlbumOut`). Diese
+    Funktion liest ausschliesslich: `store.get_managed_albums()` und
+    `store.list_accounts()` schreiben nicht, `_mit_lebenden_kontodaten`
+    aendert nur die im Speicher gehaltenen Objekte, die hier ohnehin frisch
+    gebaut und nach der Antwort verworfen werden.
+    """
     store = request.app.state.store
     albums = store.get_managed_albums()
+    lebende_konten = {a.id for a in store.list_accounts()}
+    ergebnis = []
     for album in albums:
         _mit_lebenden_kontodaten(store, album.person_refs)
-    return albums
+        ergebnis.append(ManagedAlbumOut(
+            **album.model_dump(),
+            owner_account_missing=album.owner_account_id not in lebende_konten,
+            too_few_people=len(album.person_refs) < 2,
+        ))
+    return ergebnis
 
 
 @router.delete("/albums/{managed_album_id}", status_code=204)

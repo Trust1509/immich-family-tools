@@ -64,6 +64,29 @@ class ManagedAlbum(BaseModel):
     status: str = "active"  # pending | active | partial
 
 
+class ManagedAlbumOut(ManagedAlbum):
+    """`ManagedAlbum` plus zwei beim LESEN berechnete Markierungen (#99, #112).
+
+    Eigenes Antwortmodell statt neuer Felder auf `ManagedAlbum` selbst: Die
+    Basisklasse ist auch das Speicherformat — `ConfigStore.add_managed_album`
+    und `.update_managed_album` schreiben sie ueber `album.model_dump()`
+    direkt in `accounts.json`. Ein Feld dort wuerde mit jedem Speichern
+    mitgeschrieben, auch wenn es nie vom Nutzer gesetzt wird — genau die
+    Schema-Aenderung, die dieser Slice ausdruecklich NICHT vornehmen soll.
+    Nur `routers/albums.py::list_managed_albums` baut dieses Modell, aus dem
+    aktuellen Kontenbestand, bei jedem Aufruf neu.
+
+    `owner_account_missing`: das Besitzerkonto (`owner_account_id`) existiert
+    nicht mehr im Kontenbestand — das verwaiste Album aus `CONTEXT.md`.
+    `too_few_people`: weniger als zwei Personen stehen noch in
+    `person_refs` — kann unabhaengig vom Besitzerkonto eintreten (ein
+    Teilnehmer, nicht der Besitzer, wurde geloescht) und blockiert fuer sich
+    allein weder Umbenennen noch Abgleichen.
+    """
+    owner_account_missing: bool = False
+    too_few_people: bool = False
+
+
 class SyncNamesRequest(BaseModel):
     match_id: str
     name: str  # The canonical name to set on both persons

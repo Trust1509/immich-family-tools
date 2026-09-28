@@ -27,6 +27,12 @@ interface AlbumGroup {
   last_synced_at: string | undefined;
   owner_name: string;
   person_refs: ManagedAlbum["person_refs"];
+  // Markierungen aus GET /api/sync/albums (#99, #112) — beim Lesen berechnet,
+  // nicht gespeichert. Betrifft IRGENDEIN Album der Gruppe: Eine Gruppe
+  // buendelt je ein Album pro Konto, und schon ein einziges verwaistes Album
+  // darin sperrt die Gruppen-Aktionen (Owner-Entscheid 28.09.2026).
+  ownerMissing: boolean;
+  tooFewPeople: boolean;
 }
 
 function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
@@ -49,6 +55,8 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
       last_synced_at: lastSync,
       owner_name: ownerRef?.account_name ?? first.owner_account_id,
       person_refs: personRefs,
+      ownerMissing: group.some((a) => a.owner_account_missing),
+      tooFewPeople: group.some((a) => a.too_few_people),
     };
   });
 }
@@ -191,6 +199,12 @@ function AlbumGroupCard({
   };
 
   const isDeleted = displayLogs?.some((e) => e.error_message === "ALBUM_DELETED");
+  // Owner-Entscheid 28.09.2026 (#99, #112): Ein Album ohne lebenden
+  // Besitzer sperrt Umbenennen und Abgleichen der GANZEN Gruppe, mit dem
+  // Grund als Hinweis — Entfernen bleibt moeglich. "Nur noch eine Person"
+  // sperrt fuer sich allein nichts, wird aber ebenfalls sichtbar (Text,
+  // nicht nur Farbe).
+  const locked = group.ownerMissing;
 
   return (
     <div className={`card space-y-4 ${isDeleted ? "border-red-800" : ""}`}>
@@ -266,6 +280,17 @@ function AlbumGroupCard({
         <span>{t("last_sync", formatDate(group.last_synced_at, LANG_LOCALES[lang]))}</span>
       </div>
 
+      {(group.ownerMissing || group.tooFewPeople) && (
+        <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
+          <AlertTriangle size={13} />
+          <span>
+            {group.ownerMissing && t("album_owner_missing_badge")}
+            {group.ownerMissing && group.tooFewPeople && " · "}
+            {group.tooFewPeople && t("album_too_few_people_badge")}
+          </span>
+        </div>
+      )}
+
       <SyncLogDisplay logs={displayLogs} syncing={syncing} />
       {renameError && <p className="text-xs text-red-400">{renameError}</p>}
 
@@ -284,7 +309,8 @@ function AlbumGroupCard({
             setRenameError(null);
             setRenaming(true);
           }}
-          disabled={syncing || deleting || renaming}
+          disabled={syncing || deleting || renaming || locked}
+          title={locked ? t("album_locked_owner_missing_hint") : undefined}
         >
           <Pencil size={13} />
           {t("album_rename_action")}
@@ -292,7 +318,8 @@ function AlbumGroupCard({
         <button
           className="btn-primary text-xs flex items-center gap-1.5"
           onClick={handleRefresh}
-          disabled={syncing}
+          disabled={syncing || locked}
+          title={locked ? t("album_locked_owner_missing_hint") : undefined}
         >
           {localSyncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           {t("sync_now")}

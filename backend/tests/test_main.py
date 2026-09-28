@@ -34,7 +34,10 @@ async def test_scheduled_sync_refreshes_each_managed_album(monkeypatch):
             return albums
 
         def list_accounts(self):
-            return []
+            # Seit #99/#112 UEBERSPRINGT der Auto-Sync ein Album ohne
+            # lebenden Besitzer — dieses Album braucht also ein lebendes
+            # Konto, um ueberhaupt in den Refresh-Pfad zu kommen.
+            return [SimpleNamespace(id="owner")]
 
         def append_log(self, _logs):
             pass
@@ -44,6 +47,54 @@ async def test_scheduled_sync_refreshes_each_managed_album(monkeypatch):
     await main._run_auto_sync(SimpleNamespace(store=Store()))
 
     assert refreshed == ["managed-1"]
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_ueberspringt_album_ohne_lebenden_besitzer(monkeypatch):
+    """Owner-Entscheid 28.09.2026 (#99, #112): kein taeglicher Fehlereintrag
+    fuer ein Album, dessen Besitzerkonto geloescht wurde. Die Oberflaeche
+    markiert das Album bereits (`GET /api/sync/albums`); ein wiederkehrendes,
+    bekanntes Fehlersignal verdeckt sonst echte Funde
+    (`docs/agents/lehren.md` §45). Der MANUELLE Refresh ist davon nicht
+    betroffen — siehe `test_umbenennen_fehlerwege.py` und die Tuer-Probe.
+    """
+    gesund = ManagedAlbum(
+        id="gesund", match_id="m-gesund", album_id="immich-gesund",
+        album_name="Gesund", group_id="gruppe-gesund",
+        owner_account_id="lebt", person_refs=[],
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+    verwaist = ManagedAlbum(
+        id="verwaist", match_id="m-verwaist", album_id="immich-verwaist",
+        album_name="Verwaist", group_id="gruppe-verwaist",
+        owner_account_id="tot", person_refs=[],
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+    refreshed: list[str] = []
+    geloggt: list[list] = []
+
+    async def refresh(album, _accounts, _store):
+        refreshed.append(album.id)
+        return []
+
+    class Store:
+        def get_managed_albums(self):
+            return [verwaist, gesund]
+
+        def list_accounts(self):
+            return [SimpleNamespace(id="lebt")]
+
+        def append_log(self, logs):
+            geloggt.append(logs)
+
+    monkeypatch.setattr(sync_service, "refresh_managed_album", refresh)
+
+    await main._run_auto_sync(SimpleNamespace(store=Store()))
+
+    assert refreshed == ["gesund"], refreshed
+    # Fuer das verwaiste Album entsteht KEIN Protokolleintrag — es wurde nie
+    # an refresh_managed_album uebergeben.
+    assert geloggt == [[]], geloggt
 
 
 @pytest.mark.asyncio

@@ -728,6 +728,27 @@ export const translations = {
     "pt-BR": "Renomear álbum",
     "es-ES": "Cambiar nombre del álbum",
   },
+  // Markierungen und Sperr-Hinweise fuer verwaiste/knappe Alben (#99, #112,
+  // Owner-Entscheid 28.09.2026). Text statt nur Farbe — CONTEXT.md,
+  // "Orphaned Managed Album".
+  album_owner_missing_badge: {
+    de: "Besitzerkonto gelöscht",
+    en: "Owner account deleted",
+    "pt-BR": "Conta proprietária excluída",
+    "es-ES": "Cuenta propietaria eliminada",
+  },
+  album_too_few_people_badge: {
+    de: "Nur noch eine Person",
+    en: "Only one person left",
+    "pt-BR": "Apenas uma pessoa restante",
+    "es-ES": "Solo queda una persona",
+  },
+  album_locked_owner_missing_hint: {
+    de: "Umbenennen und Abgleichen sind gesperrt: Besitzerkonto gelöscht.",
+    en: "Renaming and syncing are locked: owner account deleted.",
+    "pt-BR": "Renomear e sincronizar estão bloqueados: conta proprietária excluída.",
+    "es-ES": "Cambiar el nombre y sincronizar están bloqueados: cuenta propietaria eliminada.",
+  },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────
   log_subtitle: {
@@ -747,6 +768,16 @@ export const translations = {
     en: "Undo action",
     "pt-BR": "Desfazer ação",
     "es-ES": "Deshacer acción",
+  },
+  // Sperr-Hinweis, wenn das Konto aus `undo_data.account_id` nicht mehr lebt
+  // (#99, #112, Owner-Entscheid 28.09.2026). Der Server lehnt das schon ab
+  // (`errors.account_gone`); die Oberflaeche bietet den Knopf dann gar nicht
+  // erst an.
+  undo_locked_account_gone_hint: {
+    de: "Rückgängig gesperrt: Konto wurde gelöscht.",
+    en: "Undo locked: account was deleted.",
+    "pt-BR": "Desfazer bloqueado: a conta foi excluída.",
+    "es-ES": "Deshacer bloqueado: la cuenta fue eliminada.",
   },
   log_clear: {
     de: "Log löschen",
