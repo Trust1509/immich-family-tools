@@ -57,3 +57,31 @@ _Avoid_: Tracked album, linked album
 **Sync Log**:
 An append-only audit trail of every Name Sync and album operation performed by the tool. Entries support undo for Name Sync actions.
 _Avoid_: History, activity log, changelog
+
+### Album Groups
+
+_Decisions of the owner recorded here are dated and link their issue. They are requirements, not acceptance criteria — a build still has to think them through against the existing data (question 10 in `docs/agents/bau-brief.md`)._
+
+**Album Group**:
+A set of Managed Albums — usually one per Account — that count as one family album. An Album Group is identified by its own **group id** (since 1.7.0). Membership hangs on the group id, never on a name; renaming an album, in the tool or in Immich, cannot move it to another group.
+_Avoid_: Album set, album cluster, name group
+
+**Group Name**:
+The label shown for an Album Group. It is a label, not an identity: **two different Album Groups may carry the same name** (owner decision 2026-09-28, #98). The tool never refuses a rename or a creation because another group already uses the name.
+_Avoid_: Group key, group identifier
+
+**Group Suggestion**:
+When the user types a name for a new album, the tool suggests the Album Group that name belongs to — compared the way a person reads names (case, surrounding blanks and Unicode encoding do not count, #83). If a name belongs to more than one group, **no group is suggested**; the user chooses explicitly, including "new group" (#81). A suggestion is a proposal the user sees and can overrule, never a silent assignment (#110 tracks the one case where a quick click can still beat it).
+_Avoid_: Auto-grouping, group match
+
+**Album Name Source**:
+**The name in Immich wins.** When the tool refreshes a Managed Album, it adopts the album's current name from Immich; a rename done directly in Immich shows up in the tool (owner decision 2026-09-28, #97). Because every Account holds its own album, the albums of one Album Group may carry different names afterwards — that is allowed, the group stays one group.
+_Avoid_: Master name, canonical album name
+
+**Orphaned Managed Album**:
+A Managed Album whose owner Account has been removed from the tool. The album still exists in Immich, but the tool no longer holds the key that may change it. It stays visible, marked as orphaned; renaming and syncing are refused with a message that says why; removing it from the tool is allowed (owner decision 2026-09-28, #99). Nothing about it disappears silently.
+_Avoid_: Dangling album, ownerless album
+
+**Manual Match Identity**:
+A Manual Match is identified by its name and its owner Account. Two Manual Matches with the same name and owner but different Persons are **refused** with a message that says so — whoever wants two such groups gives one of them another name (owner decision 2026-09-28, #96). This is the one place where a name still has to be unique, and only within one owner and only for Manual Matches.
+_Avoid_: Manual group key
