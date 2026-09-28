@@ -42,9 +42,16 @@ stays silent for both: typing that name offers you no group. The one operation
 that fixes this — changing one of them to a spelling that only _looks_ the same,
 like "Strassenfest" against "Straßenfest" — is now allowed.
 
-A rename is refused only when it would make things worse: when a name would lose
-its group, or when it would quietly point at a _different_ group than before. In
-that case you get a message naming the album.
+A rename is refused only when it would make things worse: when a name that is
+still in use afterwards would lose its group, or would point at a _different_
+group than before. In that case you get a message naming the album.
+
+The name you rename _away from_ is not protected this way. If another group
+carries a spelling that counts as the same name — "Straße" against "Strasse" —
+typing that name offers the other group from then on. Your albums stay in their
+groups; only the suggestion for that spelling changes, and you see it before
+anything joins. _(Added 2026-09-28: the first version of these notes promised
+more than the release does.)_
 
 ### You choose which group an album joins (#81)
 

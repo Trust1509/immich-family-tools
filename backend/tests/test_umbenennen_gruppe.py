@@ -3,8 +3,9 @@
 Die Fälle hier sind Funde aus drei Prüfrunden, und alle haben eine gemeinsame
 Wurzel: **Die Kollisionsprüfung urteilte über einen Namen, der Schaden lebt aber
 in einem Zustand.** Drei Fassungen lang wurde gefragt „gehört dieser Name schon
-einer anderen Gruppe?"; gemessen wurde damit 0 Schaden zu wenig und 4084
-harmlose Vorgänge zu viel — darunter der eine, der aus dem Schaden herausführt.
+einer anderen Gruppe?", und damit wurde Harmloses abgelehnt — darunter der
+eine Vorgang, der aus dem Schaden herausführt. Zahlen dazu stehen mit Quelle in
+#108; hier nicht, weil ihre Sonde nicht im Repo liegt.
 
 Seit der dritten Runde fragt die Prüfung an der Wirkung: Welcher Name antwortet
 nach dem Vorgang anders als vorher (`ConfigStore.namen_mit_anderer_antwort`)?
@@ -20,8 +21,12 @@ Die Tests unten sind die Fälle, an denen sich das entscheidet:
    von #78 heraus, den alle drei Vorfassungen gesperrt haben.
 5. **Eine Antwort, die still zu einer anderen Gruppe wandert** — abgelehnt,
    obwohl keine Antwort verschwindet.
-6. **Der alte Name** — dass er niemandem mehr gehört, ist der Zweck des
-   Vorgangs, nicht sein Schaden.
+6. **Der alte Name** — er wird nicht geprüft. Gehört er danach niemandem,
+   ist das der Zweck des Vorgangs. Trägt eine andere Gruppe eine
+   gleichwertige Schreibweise, geht er an sie über: Wer einen Namen
+   VERDRÄNGT, wird abgelehnt (Fall 5), wer einen FREI GEWORDENEN übernimmt,
+   nicht. Ob diese Regel gilt, ist offen in #98; die Probe dafür steht
+   unten und ist die, die kippt, wenn #98 anders entscheidet.
 
 Die Attrappe hier **schreibt wirklich**. Eine zählende Attrappe wie in
 `test_umbenennen_kollision.py` kann diese Fälle nicht messen: Die zweite Anfrage
@@ -146,7 +151,7 @@ def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand)
     Alle drei Vorfassungen der Kollisionsprüfung haben genau diesen Vorgang mit
     409 abgelehnt — mit einer Auskunft, die nicht stimmte: Die andere Gruppe
     trägt diesen Namen nicht, sie trägt eine andere Schreibweise. Gemessen vom
-    Blindprüfer, 4084 solche Ablehnungen bei 0 schädlichen Durchlässen.
+    Blindprüfer an Nacharbeit 2; Zahlen und ihre Grenze stehen in #108.
 
     Gemessen wird hier nicht der Statuscode allein, sondern die WIRKUNG an der
     Tür, um die es geht: Die Vorschau muss danach für beide Schreibweisen
@@ -196,7 +201,10 @@ def test_ein_name_darf_nicht_still_zu_einer_anderen_gruppe_wandern(mit_bestand):
 
 
 def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
-    """Dass der alte Name danach niemandem gehört, ist der ZWECK des Vorgangs.
+    """Im Bestand mit EINEM Album gehört der alte Name danach niemandem.
+
+    Das ist der Zweck des Vorgangs. Trägt eine ANDERE Gruppe eine gleichwertige
+    Schreibweise, gehört er danach ihr — das misst die Probe darunter.
 
     Ohne diese Unterscheidung wäre jedes Umbenennen abgelehnt: Der alte Name
     verliert immer seine Gruppe. Das Prädikat zählt deshalb nur Namen, die es
@@ -212,6 +220,34 @@ def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
     assert c.get("/api/sync/album-group",
                  params={"album_name": "Sommerfest"}).json() is None
 
+
+
+def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(mit_bestand):
+    """Die Regel, die bis #108 nirgends stand — festgenagelt als HEUTIGES Verhalten.
+
+    `gruppe-1` heisst „Strasse", `gruppe-2` „Straße"; seit #83 derselbe Name,
+    auseinandergehalten nur vom Stufe-2-Rückgriff. Benennt man `gruppe-1` weg,
+    zeigt „Strasse" danach auf `gruppe-2` — die Klasse ist frei geworden, und
+    `gruppe-2` ist ihre einzige Trägerin. Das Prädikat prüft den Namen, von dem
+    weg umbenannt wird, bewusst nicht; täte es das, liesse sich eine Gruppe
+    nie von ihrem Namen weg umbenennen, solange eine andere eine gleichwertige
+    Schreibweise trägt (gemessen am 28.09.2026: die Mutation bricht zwei
+    gewöhnliche Umbenenn-Proben).
+
+    OB DAS SO BLEIBEN SOLL, IST OFFEN (#98). Diese Probe ist die, die kippt,
+    wenn dort anders entschieden wird — sie misst heutiges Verhalten, keine
+    beschlossene Regel.
+    """
+    c = mit_bestand([_album("a1", "Strasse", "gruppe-1"),
+                     _album("a2", "Straße", "gruppe-2")])
+    vorher = c.get("/api/sync/album-group", params={"album_name": "Strasse"}).json()
+    assert vorher and vorher["group_id"] == "gruppe-1", vorher
+
+    antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Herbstfest"})
+    assert antwort.status_code == 200, antwort.text
+
+    nachher = c.get("/api/sync/album-group", params={"album_name": "Strasse"}).json()
+    assert nachher and nachher["group_id"] == "gruppe-2", nachher
 
 def test_eine_fremde_gruppe_bleibt_auch_hier_gesperrt(mit_bestand):
     """Die Gegenprobe zu allen drei Fällen darüber."""

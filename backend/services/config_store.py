@@ -564,16 +564,21 @@ class ConfigStore:
         Das ist die Frage, um die es bei einer Namenskollision wirklich geht —
         und die drei Vorgaenger dieses Praedikats haben sie nur angenaehert.
         Sie fragten „gehoert der Zielname schon einer anderen Gruppe?" und
-        fingen damit 0 schaedliche Faelle zu wenig, aber 4084 harmlose zu viel
-        (gemessen ueber 120 750 Bestaende). Darunter war der eine Vorgang, der
-        den Schaden aus #78 BEHEBT: zwei versehentlich gleichnamige Gruppen
-        ueber eine ß/ss-Schreibweise wieder auseinanderhalten.
+        lehnten damit Harmloses ab — darunter den einen Vorgang, der den
+        Schaden aus #78 BEHEBT: zwei versehentlich gleichnamige Gruppen ueber
+        eine ß/ss-Schreibweise wieder auseinanderhalten. Das ist hier als
+        Probe festgehalten
+        (`test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden`).
+        Zahlen ueber grosse Bestandsmengen stehen in #108, mit Quelle — hier
+        nicht, weil die Sonde, die sie gemessen hat, nicht im Repo liegt und
+        eine nicht nachpruefbare Zahl in einem Docstring genau so entsteht,
+        wie „943 Paare" entstanden ist.
 
         Gefragt wird deshalb direkt an der Wirkung. Gemessen wird `Name ->
         Gruppe` (also `_gruppe_fuer_namen`, beide Stufen) fuer jeden Namen, den
         es NACH der Umbenennung noch gibt, vorher und nachher. Gemeldet wird
-        jeder Name, der vorher eine Gruppe hatte und danach eine andere oder
-        keine.
+        jeder solche Name, der vorher eine Gruppe hatte und danach eine andere
+        oder keine.
 
         Die drei Faelle, die dadurch auseinandergehalten werden:
 
@@ -583,34 +588,57 @@ class ConfigStore:
         * `None -> g2` — ein Name GEWINNT eine Antwort. Die Mehrdeutigkeit war
           schon da und wird kleiner. **Erlaubt** — das ist der Weg aus dem
           Schaden heraus, und die alte Pruefung hat ihn gesperrt.
-        * `g1 -> g2` — die Antwort wandert zu einer anderen Gruppe. Ein
-          kuenftiges Album mit diesem Namen traete danach still einer anderen
-          Gruppe bei als bisher. **Abgelehnt**, weil niemand es merkt.
+        * `g1 -> g2` — die Antwort wandert zu einer anderen Gruppe, obwohl die
+          alte sie weiter traegt. Ein kuenftiges Album mit diesem Namen traete
+          danach einer anderen Gruppe bei als bisher: Die alte Gruppe wird
+          VERDRAENGT. **Abgelehnt.**
 
-        Der alte Name des Albums steht bewusst NICHT zur Debatte: Dass er nach
-        dem Umbenennen niemandem mehr gehoert, ist der Zweck des Vorgangs,
-        nicht sein Schaden. Deshalb zaehlen nur Namen, die es nachher noch
-        gibt.
+        DER NAME, VON DEM WEG UMBENANNT WIRD, WIRD NICHT GEPRUEFT — und das
+        ist eine Regel, keine Nebensache. Stand hier bis #108 mit der
+        Begruendung, er „gehoere danach niemandem mehr". Das war falsch
+        (Blindpruefung, am echten Router reproduziert): Traegt eine andere
+        Gruppe eine gleichwertige Schreibweise, geht die Klasse des alten
+        Namens an sie ueber.
 
-        DIE SCHLEIFE UEBER ALLE NAMEN IST NACHWEISLICH REDUNDANT, und das steht
-        hier, weil es gemessen wurde: Eine Mutation, die nur den Zielnamen
-        prueft (`for name in {neuer_name}`), UEBERLEBT alle 247 Proben. Der
-        Grund ist kein Loch in den Proben, sondern ein Beweis:
+            Bestand: a1 "Strasse" -> gruppe-1 ; a2 "Straße" -> gruppe-2
+            PATCH a1 -> "Herbstfest"            -> 200
+            vorher 'Strasse' -> gruppe-1 ; nachher 'Strasse' -> gruppe-2
 
-        Verlieren kann nur ein Name, dessen Stufe-1-Eimer durch diese
-        Umbenennung waechst — alle anderen Eimer wachsen nicht, und der des
-        alten Namens schrumpft. Ein solcher Name M mit `k1(M) == k1(N)` faellt
-        danach auf Stufe 2 zurueck und verliert nur, wenn sein Stufe-2-Eimer
-        mehrdeutig ist. Dann waere aber auch sein Stufe-1-Eimer schon vorher
-        mehrdeutig gewesen (Stufe 1 ist gruober als Stufe 2, gesichert durch
-        `tests/test_namensfaltung.py::test_keine_kollision_gehoert_allein_der_zweiten_stufe`)
-        — und dann hatte M vorher keine Antwort, kann also keine verlieren.
+        Die Regel dahinter: **Wer einen Namen verdraengt, wird abgelehnt; wer
+        einen frei gewordenen uebernimmt, nicht.** `gruppe-1` hat die Klasse
+        „strasse" verlassen, `gruppe-2` ist ihre einzige Traegerin — seit #83
+        sind die beiden Schreibweisen derselbe Name. Ebenso koennen
+        Schreibweisen, die bis dahin nur der Stufe-2-Rueckgriff auseinander-
+        hielt, ihre Antwort verlieren (gemessen: nach „Strasse" -> „Straſse"
+        zeigt „STRASSE" auf keine Gruppe mehr). Kein Datenschaden: Die
+        Zugehoerigkeit bestehender Alben haengt an der Kennung, betroffen ist
+        nur, was die Vorschau fuer eine Schreibweise ANBIETET, und die
+        Vorschau steht vor dem Beitritt auf dem Bildschirm (#81).
 
-        Die Schleife bleibt trotzdem, weil sie die FRAGE stellt statt ihre
-        Antwort vorwegzunehmen: Sie haengt nicht an der Faltungsrichtung. Fiele
-        jene Zusicherung, waere diese Stelle richtig und die verkuerzte falsch.
-        Der Preis ist die ueberlebende Mutation, und sie ist hier benannt statt
-        als Abdeckung ausgegeben.
+        Den alten Namen mitzupruefen waere die falsche Antwort: Dann liesse
+        sich eine Gruppe nicht mehr von ihrem Namen WEG umbenennen, solange
+        irgendeine andere Gruppe eine gleichwertige Schreibweise traegt —
+        gemessen, die entsprechende Mutation bricht schon das Umbenennen eines
+        einzelnen Albums. **Ob die Regel gilt, ist eine Owner-Entscheidung und
+        steht offen in #98.** Festgenagelt ist sie als heutiges Verhalten in
+        `tests/test_umbenennen_gruppe.py::test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin`
+        — das ist der Test, der kippt, wenn #98 anders entscheidet.
+
+        DIE SCHLEIFE UEBER ALLE NAMEN IST NACH MESSUNG GLEICHWERTIG zu einer,
+        die nur den Zielnamen prueft: Diese Mutation (`for name in
+        {neuer_name}`) ueberlebt alle Proben, und die Blindpruefung zu #108 hat
+        die beiden Urteile ueber eine grosse Bestandsmenge verglichen, ohne
+        einen Unterschied zu finden (Zahl und Raum dort). Hier stand
+        bis #108 ein BEWEIS dafuer, und der war falsch — er stuetzte sich auf
+        „Stufe 1 ist groeber als Stufe 2", und das gilt fuer einzelne Zeichen,
+        nicht fuer Namen (drei Gegenbeispiele, festgehalten in
+        `tests/test_namensfaltung.py::test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`).
+        Ausserdem sprach er nur von Verlusten, nicht von Wanderungen. Die
+        Gleichwertigkeit ist also gemessen, nicht bewiesen.
+
+        Die Schleife bleibt, weil sie die FRAGE stellt, statt ihre Antwort
+        vorwegzunehmen. Der Preis ist die ueberlebende Mutation — hier benannt,
+        nicht als Abdeckung ausgegeben.
         """
         vorher = [dict(a) for a in self._data.get("managed_albums", [])]
         nachher = [dict(a) for a in vorher]

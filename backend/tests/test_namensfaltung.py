@@ -408,10 +408,20 @@ def test_backfill_haengt_an_der_fehlenden_kennung_nicht_an_der_schemaversion(tmp
 # im Kommentar stand.
 #
 # Tragend ist die RICHTUNG: Das Namensschloss (`gruppen_schloss`) schlüsselt auf
-# Stufe 1, die Zuordnung (`_gruppe_fuer_namen`) benutzt beide Stufen. Solange
-# nichts ausschliesslich in Stufe 2 kollidiert, ist der Schlüssel des Schlosses
-# stets gröber als die Zuordnung — zwei Umbenennungen, die sich in der Zuordnung
-# begegnen können, nehmen also immer dasselbe Schloss. Genau das steht hier fest.
+# Stufe 1, die Zuordnung (`_gruppe_fuer_namen`) benutzt beide Stufen. Ist Stufe 1
+# stets gröber, begegnen sich zwei Namen in der Zuordnung nur, wenn sie auch
+# dasselbe Schloss nehmen.
+#
+# DAS GILT FÜR ZEICHEN, NICHT FÜR NAMEN. Hier stand bis #108 „nehmen also immer
+# dasselbe Schloss" — gemessen war es nur über Einzelzeichen. Die Blindprüfung
+# zu #108 hat drei NAMEN gefunden, die ausschliesslich in Stufe 2 kollidieren
+# (polytones Griechisch: Buchstabe mit Iota subscriptum plus kombinierende
+# Perispomeni); nachgemessen am 28.09.2026 über alle Buchstaben der beiden
+# griechischen Blöcke und des lateinischen Grundalphabets, allein und mit je
+# einem kombinierenden Zeichen: genau diese drei. Längere Namen und andere
+# Schriften sind damit NICHT abgesucht.
+# Die erste Probe unten hält die Richtung für Zeichen fest, die dritte die
+# Ausnahme für Namen. Die Antwort auf die Schlosslücke gehört zu #95.
 # ---------------------------------------------------------------------------
 
 
@@ -439,12 +449,13 @@ def _paare_je_stufe():
 
 
 def test_keine_kollision_gehoert_allein_der_zweiten_stufe():
-    """Stufe 1 ist gröber als Stufe 2 — in JEDEM Zeichenpaar.
+    """Stufe 1 ist gröber als Stufe 2 — in JEDEM Paar EINZELNER ZEICHEN.
 
-    Das ist die Zusicherung, auf der die Kollisionsprüfung beim Umbenennen
-    ruht, und auf der das Namensschloss ruht (sein Schlüssel ist Stufe 1).
-    Fiele sie, gäbe es Namen, die die Prüfung durchlässt und die Zuordnung
-    danach nicht mehr auseinanderhält.
+    Das Namensschloss ruht darauf (sein Schlüssel ist Stufe 1). Für Namen aus
+    mehreren Zeichen gilt es nicht vollständig — siehe
+    `test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`. Die
+    Kollisionsprüfung beim Umbenennen ruht seit Nacharbeit 3 an #79 nicht mehr
+    darauf: Sie fragt die Zuordnung selbst, vorher und nachher.
     """
     stufe1, stufe2 = _paare_je_stufe()
     nur_stufe2 = stufe2 - stufe1
@@ -463,3 +474,34 @@ def test_die_erste_stufe_ist_wirklich_groeber():
     stufe1, stufe2 = _paare_je_stufe()
     nur_stufe1 = stufe1 - stufe2
     assert len(nur_stufe1) > 100, len(nur_stufe1)
+
+
+# Die drei Paare, gefunden von der Blindprüfung zu #108 und nachgemessen.
+# Codepunkte statt Glyphen: Die beiden Hälften sehen gleich aus, und genau
+# daran ist der erste Nachbau gescheitert (die vorkomponierte Form kollidiert
+# nicht).
+NUR_IN_STUFE_ZWEI = [
+    ("\u1fb3\u0342", "\u1fbc\u0342"),   # Alpha mit Iota subscriptum + Perispomeni
+    ("\u1fc3\u0342", "\u1fcc\u0342"),   # Eta, ebenso
+    ("\u1ff3\u0342", "\u1ffc\u0342"),   # Omega, ebenso
+]
+
+
+@pytest.mark.parametrize("klein, gross", NUR_IN_STUFE_ZWEI)
+def test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen(klein, gross):
+    """Eine BEKANNTE GRENZE als Probe, nicht als Satz.
+
+    Diese Probe hält fest, dass es Namen gibt, die nur in Stufe 2 kollidieren.
+    Sie ist grün, solange die Grenze besteht — und das ist der Zweck: Wird sie
+    rot, hat eine Änderung an der Faltung (oder eine neue Unicode-Fassung) die
+    Grenze geschlossen, und die Kommentare am Namensschloss und am Prädikat
+    beschreiben dann einen Zustand, den es nicht mehr gibt.
+
+    Grund der Kollision: `casefold` macht aus dem kleinen und dem grossen
+    Buchstaben mit Iota dasselbe Paar „Grundbuchstabe + Iota"; die
+    anschliessende Normalform hängt die Perispomeni danach verschieden an —
+    einmal an den Grundbuchstaben, einmal an das Iota.
+    """
+    stufe1, stufe2 = ConfigStore._name_key, ConfigStore._name_key_vor_83
+    assert stufe1(klein) != stufe1(gross), "Stufe 1 trennt die beiden nicht mehr"
+    assert stufe2(klein) == stufe2(gross), "Stufe 2 legt die beiden nicht mehr zusammen"

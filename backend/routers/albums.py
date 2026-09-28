@@ -518,11 +518,12 @@ async def rename_managed_album(
         raise errors.owner_account_not_found()
     # KOLLISION, und zwar VOR dem ersten Schreibvorgang (Auflage aus dem
     # Review zu #79). Gefragt wird an der WIRKUNG: Welcher Name antwortet nach
-    # dieser Umbenennung anders als vorher? Abgelehnt wird nur, wenn ein Name
-    # seine Gruppe verliert oder still eine andere bekommt — nicht, wenn eine
-    # Mehrdeutigkeit kleiner wird. Begruendung, Messung und die drei
-    # unterschiedenen Faelle stehen bei
-    # `ConfigStore.namen_mit_anderer_antwort`.
+    # dieser Umbenennung anders als vorher? Abgelehnt wird nur, wenn ein Name,
+    # den es nachher noch gibt, seine Gruppe verliert oder eine andere bekommt
+    # — nicht, wenn eine Mehrdeutigkeit kleiner wird, und nicht fuer den Namen,
+    # von dem weg umbenannt wird (der geht an eine Gruppe mit gleichwertiger
+    # Schreibweise ueber; Regel offen in #98). Begruendung, Messung und die
+    # unterschiedenen Faelle stehen bei `ConfigStore.namen_mit_anderer_antwort`.
     #
     # Die drei Vorgaenger dieser Zeile (`gruppen_mit_namen`, Abzug der eigenen
     # Gruppe, `gruppe_traegt_namen`) sind damit weg. Sie haben in drei Runden
@@ -537,6 +538,13 @@ async def rename_managed_album(
     # dasselbe Schloss, das die Anlage nimmt (`create_album`,
     # `create_manual_album`); nur so hilft es auch gegen Umbenennen gegen
     # Anlegen.
+    #
+    # GRENZE DES NAMENSSCHLOSSES, gemessen (#108): Es schluesselt auf Stufe 1
+    # der Namensfaltung. Drei griechische Namenspaare (Iota subscriptum plus
+    # kombinierende Perispomeni) kollidieren NUR in Stufe 2 — sie begegnen
+    # sich in der Zuordnung, nehmen aber verschiedene Schloesser. Festgehalten
+    # in `test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`; die Antwort
+    # darauf gehoert zu #95.
     #
     # REIHENFOLGE DER SCHLOESSER in dieser Datei: Treffer -> Gruppe -> Album
     # (das Albumschloss nimmt `sync_service.rename_managed_album` innen).
