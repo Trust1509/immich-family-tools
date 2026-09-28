@@ -1733,3 +1733,73 @@ Beteiligten. Solange es defekt ist, wird es nicht gelesen, sondern **gezielt**
 gefahren: auf die eigenen geänderten Dateien, wo das Ergebnis eindeutig ist
 (`npx prettier --check <datei> …`). Und: Wer eine Liste führt, die „alle" sagt,
 prüft sie gegen die Quelle, statt sie zu glauben — hier `.github/workflows/`.
+
+## 46. Eine Zahl im Code, die man nicht selbst gemessen hat, ist eine Behauptung — auch wenn sie aus einer Prüfung stammt
+
+**Anlass:** In #79 und #108 ist dieselbe Klasse dreimal in verschiedener Gestalt
+aufgetreten, jedes Mal vom Orchestrator und jedes Mal erst von einer späteren
+Prüfstimme gefunden:
+
+1. **Die übernommene Zahl.** „943 Paare" stand in einem Docstring, abgeschrieben
+   aus einem Prüfbericht. Sie liess sich in keiner Deutung reproduzieren
+   (gemessen: 1203). Ein Slice später wäre es beinahe wieder passiert — mit
+   „251 100 Bestände / 15 966 Ablehnungen", deren Sonde nicht im Repo liegt.
+2. **Die Auswahl, die sich als Messung ausgibt.** „Die Mutation bricht zwei
+   gewöhnliche Proben" — die Sonde hatte genau zwei Proben laufen lassen. Über
+   die ganze Suite waren es 14. Die Zwei war die Grösse der Auswahl, keine
+   Eigenschaft der Mutation.
+3. **Das Orakel mit demselben blinden Fleck.** „0 schädliche Durchlässe" war
+   gegen ein Orakel gemessen, das den alten Namen ausschloss — genau den Namen,
+   den auch das Prädikat nicht prüft. Orakel und Code stammten aus derselben
+   Annahme; für jede Fassung kam deshalb dieselbe Null heraus.
+
+**Die Klasse.** Eine Zahl im Code wirkt wie ein Beleg. Die nächste Prüfstimme
+liest sie als Behauptung, die sie widerlegen muss — und kann es, weil niemand
+sie gemessen hat, der sie hinschrieb. Jede dieser drei hat eine Prüfrunde
+gekostet und im öffentlichen Repo als falsche Aussage gestanden.
+
+**Regel:**
+
+- In Code, Kommentare und Release-Notizen kommt nur, was der Schreibende
+  **selbst** gemessen hat. Zahlen einer Prüfstimme stehen mit Quelle im Issue
+  — oder werden vorher nachgemessen.
+- Eine Mutation wird über die **ganze** Suite gemessen, nie über eine Auswahl;
+  die Angabe nennt die Suite mit („14 von 255").
+- Ein Orakel, das „schädlich" definiert, darf nicht aus derselben Annahme
+  stammen wie der geprüfte Code. Mindestens ein breiteres daneben.
+- Eine Zahl nennt ihren Suchraum („genau drei — im Raum X"). Ohne Raum ist sie
+  falsch, sobald jemand weiter sucht: Mit zwei kombinierenden Zeichen waren es
+  4530 statt drei.
+
+## 47. Ein Verhalten, das am ganzen Bestand hängt, lässt sich nicht als Regel in Prosa beschreiben
+
+**Anlass:** #108 sollte vier falsche Aussagen über ein Prädikat richtigstellen.
+Jede Runde ersetzte eine widerlegte Regel durch eine genauere — und jede
+genauere wurde wieder widerlegt:
+
+- „Der alte Name gehört danach niemandem mehr" — er ging an eine andere Gruppe.
+- „Er geht an die eine Trägerin einer gleichwertigen Schreibweise über" — bei
+  genau einer Trägerin zeigte er trotzdem auf keine Gruppe.
+- „Genau eine Trägerin → geht über, mehrere → keine" — bei mehreren blieb er
+  bei der eigenen Gruppe.
+
+Dasselbe mit „die Schleife ist gleichwertig zu einer Prüfung nur des
+Zielnamens": erst als Beweis geschrieben, dann als Messung — beides falsch.
+
+**Die Klasse.** Hängt ein Verhalten am ganzen Datenbestand und an mehreren
+Stufen einer Regel (hier: zwei Faltungsstufen, Gruppeneimer, wer welchen Namen
+trägt), dann ist jede allgemeine Beschreibung eine Verallgemeinerung über einen
+Raum, den niemand abgesucht hat. Die Prüfstimme findet das Gegenbeispiel, weil
+sie genau diesen Raum absucht. Eine präzisere Formulierung verschiebt das
+Problem, sie löst es nicht — sie klingt nur sicherer.
+
+**Regel:** In den Docstring gehört bei solchem Verhalten nur:
+
+1. **was der Mechanismus tut** (Schritt für Schritt, ohne Aussage über die
+   Wirkung im Allgemeinen),
+2. **gemessene Beispiele**, je mit Bestand und Ergebnis,
+3. **ein Verweis** auf die Proben, die sie festhalten.
+
+Regel-ALTERNATIVEN — „so könnte es auch sein" — gehören ins Issue, wo der Owner
+entscheidet, nicht in den Code. Und: Wer merkt, dass er dieselbe Stelle zum
+dritten Mal umformuliert, hört auf zu formulieren.
