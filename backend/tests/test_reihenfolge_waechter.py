@@ -1126,6 +1126,54 @@ ERLAUBT = {
         "Wie oben, mit `store.delete_managed_album`; geprueft von Teil B "
         "(DELETE /api/sync/albums/gibt-es-nicht).",
     ),
+    # Die folgenden drei Eintraege gehoeren zu #101 (Nacharbeit 1): `_frisch`
+    # liefert seither `None`, wenn ein Album zwischen dem Lesen des Aufrufers
+    # und dem Schloss verschwunden ist, und `refresh_managed_album` /
+    # `rename_managed_album` / `extend_match` werfen dann
+    # `errors.managed_album_not_found()` VOR jedem Immich-Aufruf. Keiner der
+    # drei Funde unten ist die von diesem Waechter gesuchte Klasse — ein
+    # Aufrufer, der einen Erfolg sieht, nachdem fuer IHN schon geschrieben
+    # wurde. In allen drei Faellen ist es ein SELBSTFUND ueber die
+    # Zwei-Runden-Regel des Waechters (#89-Klasse), ausgeloest von einer
+    # ANDEREN, vorangegangenen Runde bzw. einem ANDEREN Hintergrund-Vorgang —
+    # nie derselben Ausfuehrung, fuer die geschrieben wurde.
+    ("main.py", "_run_auto_sync"): (
+        {("refresh_managed_album() lehnt ab", "refresh_managed_album() schreibt"): 1},
+        "Die Schleife verarbeitet Alben UNABHAENGIG voneinander, jedes mit "
+        "eigenem `try`/`except` (Zeile 105-112). Der Fund ist die Zwei-Runden-"
+        "Regel dieses Waechters (siehe Kopf der Datei, #89): Round 1 schreibt "
+        "fuer Album A erfolgreich (Zeile 106), Round 2 sieht diesen Schreib-"
+        "vorgang VOR dem Schleifenkopf und meldet die Ablehnung fuer Album B "
+        "(dasselbe Statement, Zeile 106, weil beide Ereignisse an derselben "
+        "Aufrufstelle haengen) als dahinterliegend. Fuer EIN UND DASSELBE "
+        "Album bleibt die Reihenfolge Ablehnung-vor-Schreiben gewahrt (siehe "
+        "`refresh_managed_album` selbst, kein eigener Fund dort) — nur das "
+        "faengt dieser Waechter an dieser Stelle ab. Nichts propagiert nach "
+        "aussen: `except Exception` faengt jeden Fall inklusive AppError und "
+        "schreibt nur eine `logger.error`-Zeile.",
+    ),
+    ("main.py", "_auto_sync_loop"): (
+        {("_run_auto_sync() lehnt ab", "_run_auto_sync() schreibt"): 1},
+        "Dieselbe Zwei-Runden-Klasse eine Ebene hoeher: `_run_auto_sync` gilt "
+        "als Ganzes als 'lehnt ab UND schreibt' (siehe dortiger Eintrag), die "
+        "While-Schleife hier laeuft real mehrfach (alle 30 s), und Runde 2 "
+        "sieht den Schreibvorgang aus Runde 1 vor dem eigenen Aufruf. Der "
+        "eigene `try`/`except Exception` (Zeile 121-133) faengt jede "
+        "Ausnahme aus `_run_auto_sync` ab und schreibt nur eine Logzeile — "
+        "kein Aufrufer wartet auf eine Antwort, die dadurch falsch aussehen "
+        "koennte.",
+    ),
+    ("main.py", "startup"): (
+        {("_auto_sync_loop() lehnt ab", "_backfill_user_ids() schreibt"): 1},
+        "`startup` stoesst zwei Hintergrund-Tasks per `asyncio.create_task` "
+        "an (Zeile 166-167) und wartet auf keinen von beiden. Dass "
+        "`_auto_sync_loop` (transitiv ueber `_run_auto_sync` und "
+        "`refresh_managed_album`) irgendwann ablehnen KANN, aendert nichts "
+        "an `startup` selbst: Die Ablehnung passiert Minuten oder Stunden "
+        "spaeter, in einem eigenen Task mit eigenem `try`/`except`, lange "
+        "nachdem `startup` zurueckgekehrt ist. Es gibt keine Anfrage, die "
+        "dadurch einen falschen Erfolg saehe.",
+    ),
 }
 
 

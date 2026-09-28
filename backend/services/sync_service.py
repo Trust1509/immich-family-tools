@@ -4,6 +4,7 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 
+import errors
 from services.immich_client import ImmichClient, AlbumNotFoundError
 from services.config_store import ConfigStore
 from typing import Optional
@@ -604,7 +605,7 @@ async def _refresh_managed_album_unlocked(
     return logs
 
 
-def _frisch(managed: ManagedAlbum, store: ConfigStore) -> ManagedAlbum:
+def _frisch(managed: ManagedAlbum, store: ConfigStore) -> Optional[ManagedAlbum]:
     """Denselben Datensatz noch einmal lesen — INNERHALB des Schlosses.
 
     Das Schloss allein reicht nicht, und genau das hat die erste Nacharbeit an
@@ -621,11 +622,17 @@ def _frisch(managed: ManagedAlbum, store: ConfigStore) -> ManagedAlbum:
     melden. Es gibt keinen Fehler an keiner Stelle, den ein Nutzer sehen
     koennte.
 
-    Faellt das Album zwischendurch weg, bleibt die uebergebene Kopie die
-    Grundlage: Der Aufrufer bekommt dann den Weg fuer „gibt es nicht mehr“,
-    statt an einem `None` zu scheitern.
+    Faellt das Album zwischen dem Lesen des Aufrufers und dem Schloss weg,
+    liefert diese Funktion `None` (#101, Nacharbeit 1 — die vorherige Fassung
+    fiel hier auf die uebergebene, veraltete Kopie zurueck und BEHAUPTETE einen
+    „gibt es nicht mehr"-Weg, den es nicht gab: Alle drei Aufrufer arbeiteten
+    anschliessend klaglos mit der alten Kopie weiter, veraenderten Immich und
+    schrieben einen Erfolgseintrag, waehrend `store.update_managed_album`
+    mangels passender Zeile still nichts speicherte — gemessen vom
+    Blindpruefer, `test_P2_album_vor_dem_schloss_geloescht`). Jeder Aufrufer
+    prueft jetzt selbst auf `None` und bricht VOR jedem Immich-Aufruf ab.
     """
-    return store.get_managed_album(managed.id) or managed
+    return store.get_managed_album(managed.id)
 
 
 def _album_schloss(album_id: str) -> asyncio.Lock:
@@ -654,10 +661,21 @@ async def refresh_managed_album(
     all_accounts: list[Account],
     store: ConfigStore,
 ) -> list[SyncLogEntry]:
-    """Serialize refreshes per album across manual and automatic sync."""
+    """Serialize refreshes per album across manual and automatic sync.
+
+    Bricht mit `errors.managed_album_not_found()` ab, wenn das Album zwischen
+    dem Lesen des Aufrufers und dem Schloss verschwunden ist (`_frisch`
+    liefert dann `None`) — VOR jedem Immich-Aufruf, siehe `_frisch` (#101,
+    Nacharbeit 1). Der Auto-Sync faengt das je Album ab
+    (`main._run_auto_sync`, `except Exception`); ein Router-Aufruf sieht ein
+    404 wie beim schon vorher unbekannten Album.
+    """
     async with _album_schloss(managed.id):
+        frisches = _frisch(managed, store)
+        if frisches is None:
+            raise errors.managed_album_not_found()
         return await _refresh_managed_album_unlocked(
-            _frisch(managed, store), all_accounts, store
+            frisches, all_accounts, store
         )
 
 
@@ -735,10 +753,17 @@ async def rename_managed_album(
     derselbe Neu-Einlesevorgang: siehe `_frisch`. Die Zusicherung dieses
     Docstrings war bis zur ZWEITEN Nacharbeit an #79 falsch, und beim ersten
     Anlauf nur zur Haelfte richtig.
+
+    Bricht mit `errors.managed_album_not_found()` ab, wenn `_frisch` `None`
+    liefert (Album zwischen Lesen und Schloss geloescht) — VOR dem
+    `update_album`-Aufruf gegen Immich (#101, Nacharbeit 1).
     """
     async with _album_schloss(managed.id):
+        frisches = _frisch(managed, store)
+        if frisches is None:
+            raise errors.managed_album_not_found()
         return await _rename_managed_album_unlocked(
-            _frisch(managed, store), owner_account, new_name, store
+            frisches, owner_account, new_name, store
         )
 
 
@@ -756,8 +781,16 @@ async def _extend_match_unlocked(
     Die Pruefung „Person schon im Album" laeuft auf `managed` — dem
     Datensatz, den der Aufrufer (`extend_match`) unter dem Schloss frisch
     gelesen hat (`_frisch`). Auf einer aelteren Kopie liefe sie ins Leere:
-    Zwei gleichzeitige Aufrufe fuer dieselbe Person saehen beide die alte
-    Liste ohne die jeweils andere und fuegten die Person zweimal an (#101).
+    Gemessen (Nacharbeit 1 zu #101, Blindpruefer,
+    `test_zwei_gleichzeitige_erweiterungen_derselben_person_haengen_sie_nur_einmal_an`):
+    Der Bestand selbst zeigt dabei KEINE doppelte Zeile in `person_refs` —
+    `ConfigStore.update_managed_album` ersetzt den Datensatz ganz, die letzte
+    Schreibung gewinnt vollstaendig. Der Schaden liegt woanders: Zwei
+    gleichzeitige Aufrufe, die beide die alte Liste ohne die jeweils andere
+    Person sehen, rufen `add_assets_to_album` bei Immich je EINMAL auf (zwei
+    echte API-Schreibvorgaenge) und erzeugen je einen erfolgreichen
+    `log_assets_linked`-Eintrag — keiner meldet
+    `log_person_already_in_album`. Die frische Pruefung verhindert genau das.
     """
     logs: list[SyncLogEntry] = []
     account_map = {a.id: a for a in all_accounts}
@@ -912,17 +945,35 @@ async def extend_match(
     """Serialize extensions with refreshes and renames under dasselbe Schloss.
 
     Dieselbe Schlossform wie Refresh und Umbenennen — siehe `_album_schloss`
-    — und derselbe Neu-Einlesevorgang: siehe `_frisch`. Ohne das Schloss
-    schreibt eine Erweiterung mit einem Abbild von vor einem Umbenennen den
-    alten Namen zurueck (#101, derselbe Mechanismus wie bei #79). Ohne
-    `_frisch` ueberschreiben zwei gleichzeitige Erweiterungen auf dasselbe
-    Album einander: Beide lesen `person_refs` von vorher, jede haengt ihre
-    Person an ihre eigene Kopie, und `update_managed_album` ersetzt den
-    Datensatz GANZ — die zweite Schreibung wirft die erste weg.
+    — und derselbe Neu-Einlesevorgang: siehe `_frisch`. Bricht mit
+    `errors.managed_album_not_found()` ab, wenn `_frisch` `None` liefert
+    (Album zwischen Lesen und Schloss geloescht) — VOR jedem Immich-Aufruf
+    (#101, Nacharbeit 1).
+
+    Gemessen (Mutationslauf #101 Nacharbeit 1, ganze Suite, je einzeln
+    zurueckgesetzt): Der sequenzielle Fall — Umbenennen auf einen neuen
+    Namen, danach eine Erweiterung mit dem Abbild von VORHER — braucht
+    dafuer allein `_frisch`; ohne Schloss allein bleibt er gruen (nichts
+    laeuft hier gleichzeitig). Zwei GLEICHZEITIGE Erweiterungen brauchen
+    dagegen BEIDES, ob mit derselben oder mit verschiedenen Personen: Schloss
+    allein entfernt ODER `_frisch` allein entfernt macht beide Faelle je fuer
+    sich schon rot (bei verschiedenen Personen wirft die zweite Schreibung
+    die erste weg, weil `update_managed_album` den Datensatz GANZ ersetzt;
+    bei derselben Person sehen beide Aufrufe die "schon enthalten"-Pruefung
+    mit `false` und sprechen Immich zweimal an — Einzelheiten und die
+    gemessenen Immich-/Protokoll-Werte stehen an `_extend_match_unlocked`
+    und im Test selbst). Dasselbe gilt fuer das eigene Schloss dieser
+    Funktion: Ein Schloss, das NICHT `_album_schloss` waere (eigene Ablage
+    oder ein anderer Schluessel als `managed.id`), schliesst sich mit
+    Refresh und Umbenennen nicht aus — beide Proben dazu stehen in
+    `test_erweitern_schloss.py`.
     """
     async with _album_schloss(managed.id):
+        frisches = _frisch(managed, store)
+        if frisches is None:
+            raise errors.managed_album_not_found()
         return await _extend_match_unlocked(
-            _frisch(managed, store), new_account, person_id, person_name,
+            frisches, new_account, person_id, person_name,
             canonical_name, all_accounts, store,
         )
 
