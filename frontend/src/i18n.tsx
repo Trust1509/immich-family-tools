@@ -1167,10 +1167,16 @@ type TranslationValue<K extends TranslationKey> = (typeof translations)[K];
 // and isn't known statically. Rendered via `logMessage()` from useT(),
 // which falls back to `entry.details` (German) for unknown/missing keys —
 // e.g. log entries persisted before message_key existed.
-type LogMessageParams = Record<string, string | number>;
-type LogMessageFn = (p: LogMessageParams) => string;
+// Ebenfalls seit Nacharbeit 1 exportiert, aus demselben Grund wie
+// `logMessages` oben.
+export type LogMessageParams = Record<string, string | number>;
+export type LogMessageFn = (p: LogMessageParams) => string;
 
-const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
+// `export` seit Nacharbeit 1 zu #94: `logMessages.contract.test.ts` ruft
+// jede Vorlage per Proxy auf, um zur Laufzeit zu pruefen, welche
+// Eigenschaften sie liest — dafuer muss die Tabelle importierbar sein. Keine
+// Verhaltensaenderung, nur Sichtbarkeit fuer den Test.
+export const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
   log_album_members_fetch_failed: {
     de: () => "Album-Mitglieder konnten nicht abgerufen werden",
     en: () => "Could not fetch album members",
