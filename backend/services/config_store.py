@@ -419,8 +419,19 @@ class ConfigStore:
         und nur wo sie KEINE eindeutige Antwort liefert, diese hier. Das ist
         nicht nur der mehrdeutige Fall — gemessen (#111): Stufe 2 antwortet
         auch dann, wenn Stufe 1 LEER bleibt, also keinen einzigen Kandidaten
-        findet. Damit ist die Antwort nirgends schlechter als vor #83 und
-        dort besser, wo sie eindeutig ist.
+        findet.
+
+        KEINE ALLGEMEINE BESSER-REGEL: Hier stand bis zur zweiten Nacharbeit
+        an #98, die Antwort sei „nirgends schlechter als vor #83" — eine
+        unbemessene Verallgemeinerung, vom Fremdpruefer widerlegt. Codepunkte
+        statt Glyphen, aus demselben Grund wie in `test_namensfaltung.py`: Die
+        Haelften sehen gleich aus. Gegenbeispiel (gemessen): `gA` traegt
+        `U+1FB7` (kleines Alpha mit Iota subscriptum plus Perispomeni,
+        VORKOMPONIERT), `gB` traegt `U+1FBC U+0342` (Grossbuchstabe, PLUS
+        Perispomeni als eigenes Zeichen). Eine Anfrage mit `U+1FB3 U+0342`
+        (dieselbe Glyphe wie `gA`s Name, aber ZERLEGT) antwortet heute mit
+        `gA` — mit Stufe 2 allein (also „vor #83") waere die Antwort `gB`
+        gewesen.
         """
         if album_name is None:
             return ""
@@ -438,7 +449,12 @@ class ConfigStore:
 
         * MEHRDEUTIG (mehr als ein Kandidat): zwei Schreibweisen, die Stufe 2
           noch trennte, fallen unter der groeberen Stufe 1 zusammen (Beispiel
-          „Strassenfest"/„Straßenfest").
+          „Strassenfest"/„Straßenfest" in zwei Gruppen — dort loest Stufe 2
+          auf). Seit #98 ist der HAEUFIGERE Fall ein BYTEGLEICHER Name in
+          zwei Gruppen (absichtlich erlaubt, kein Tippfehler) — dort hilft
+          Stufe 2 NICHT: Beide Stufen sehen dieselben zwei Kandidaten, die
+          Antwort bleibt `None` (gemessen: „Herbstfest" in `gruppe-1` UND
+          `gruppe-2`).
         * LEER (kein Kandidat, gemessen #111): Stufe 1 ist fuer bestimmte
           Zeichenkombinationen FEINER als Stufe 2, nicht groeber — die
           griechischen Iota-subscriptum-Paare aus `test_namensfaltung.py`

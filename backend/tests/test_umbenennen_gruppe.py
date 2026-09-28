@@ -16,22 +16,31 @@ die Prüfung gelingen müssen:
    einzeln umbenennt. Hatte drei Fassungen lang keine Backend-Probe.
 2. **Wiederholung nach einem Teilausfall** — die Gruppe trägt den neuen Namen
    schon über ihr erstes Album, das zurückgebliebene noch den alten.
-3. **Eine zweite Schreibweise in der eigenen Gruppe** — keine andere Gruppe ist
-   beteiligt, also ändert sich keine Antwort.
+3. **Eine zweite Schreibweise in der eigenen Gruppe** — das Umbenennen gelingt
+   wie jedes andere; diese Probe hält zusätzlich fest, dass sich an der
+   Gruppenzuordnung nichts verschiebt.
 4. **Zwei gleichnamige Gruppen wieder unterscheiden** — der Weg AUS dem Schaden
    von #78 heraus, den alle drei Vorfassungen gesperrt haben.
-5. **Der alte Name** — er wird nicht geprüft. Was aus ihm wird, hängt am
-   ganzen Bestand: Er kann danach auf eine andere Gruppe zeigen, auf keine
-   oder auf die eigene (alle drei gemessen, #108). Festgehalten ist der
-   erste Ausgang.
+5. **Der alte Name** — es gibt seit #98 keine Prüfung mehr, die über ihn
+   entscheiden könnte. Was aus ihm wird, hängt am ganzen Bestand: Er kann
+   danach auf eine andere Gruppe zeigen, auf keine oder auf die eigene (alle
+   drei gemessen, #108). Festgehalten ist der erste Ausgang.
 
 Die Fälle, in denen die entfernte Prüfung mit 409 abgelehnt hätte (eine fremde
 Gruppe, eine still verdrängte Antwort), stehen nicht mehr hier — die neue Probe
 für #98 in `test_umbenennen_doppelte_namen.py` hält stattdessen fest, dass sie
 heute gelingen.
 
-Die Attrappe hier **schreibt wirklich**. Eine zählende Attrappe kann diese
-Fälle nicht messen: Die zweite Anfrage sieht dann nie, was die erste
+Die Attrappe hier war ursprünglich eine schreibende Ersetzung des GANZEN
+Sync-Dienstes — bis Nacharbeit 2 zu #98: Der Blindprüfer hat gemessen, dass
+diese Form zwei ganze Fallklassen blind macht (eine Schreibvariante wie
+„HERBSTFEST" gegen „Herbstfest", und der normale Weg der Oberfläche mit MEHR
+ALS EINEM Album in der eigenen Gruppe): Eine Ablehnung, die der echte Dienst
+dafür wirft, würde diese Datei nie erreichen, weil `sync_service.
+rename_managed_album` komplett ersetzt war. Jetzt läuft der echte Dienst und
+der echte `ConfigStore`; nur `ImmichClient` ist eine Attrappe (kein HTTP-
+Aufruf gegen eine echte Immich-Instanz). Eine zählende Attrappe wäre ohnehin
+zu wenig gewesen: Die zweite Anfrage muss sehen, was die erste im Bestand
 angerichtet hat.
 """
 import json
@@ -52,9 +61,28 @@ def _album(album_id, name, gruppe):
             "created_at": "2026-01-01T00:00:00+00:00"}
 
 
+class _ImmichAttrappe:
+    """Ersetzt nur den Netzwerk-Rand: kein HTTP, sonst nichts Eigenes.
+
+    Fuer `_rename_managed_album_unlocked` reicht `update_album` — die Funktion
+    ruft weder `get_album_assets` noch `add_assets_to_album` noch teilt sie
+    ein Album. Dieselbe Form wie in `test_umbenennen_doppelte_namen.py`,
+    bewusst nicht geteilt, damit diese Datei ohne Blick in die andere lesbar
+    bleibt.
+    """
+
+    def __init__(self, *_a, **_k):
+        pass
+
+    async def update_album(self, album_id, payload):
+        return {"id": album_id, **payload}
+
+
 @pytest.fixture
 def mit_bestand(tmp_path, monkeypatch):
-    """Baut eine Anwendung mit dem übergebenen Bestand und schreibendem Immich."""
+    """Baut eine Anwendung mit dem übergebenen Bestand, echtem Sync-Dienst und
+    echtem ConfigStore — nur `ImmichClient` ist eine Attrappe.
+    """
     def bauen(alben):
         import main
         from services import sync_service
@@ -65,13 +93,8 @@ def mit_bestand(tmp_path, monkeypatch):
                         encoding="utf-8")
         monkeypatch.setattr(main.settings, "secret", "nur-fuer-den-test", raising=False)
         monkeypatch.setattr(main.settings, "config_path", pfad, raising=False)
+        monkeypatch.setattr(sync_service, "ImmichClient", _ImmichAttrappe)
 
-        async def umbenennen(managed, _owner, neuer_name, store):
-            managed.album_name = neuer_name
-            store.update_managed_album(managed)
-            return []
-
-        monkeypatch.setattr(sync_service, "rename_managed_album", umbenennen)
         c = TestClient(main.app)
         c.__enter__()
         c.post("/api/auth/login", json={"token": "nur-fuer-den-test"})
@@ -87,13 +110,12 @@ def _namen(client):
 def test_beide_alben_einer_gruppe_lassen_sich_umbenennen(mit_bestand):
     """Der normale Weg der Oberfläche — und er hatte keine Backend-Probe.
 
-    Das zweite Album sieht den neuen Namen des ersten schon im Bestand. Ein
-    Prädikat, das dabei „der Name ist vergeben" sagt, schafft die Funktion ab,
-    die es schützen soll: Eine Gruppe mit zwei Alben liesse sich nie umbenennen.
-
-    Getragen wird dieser Fall davon, dass sich die ANTWORT nicht ändert — beide
-    Alben gehören derselben Gruppe, „Herbstfest" zeigt vorher und nachher auf
-    `gruppe-1`.
+    `AlbumsOverview.tsx` benennt jedes Album einer Gruppe EINZELN um: Das
+    zweite Album sieht den neuen Namen des ersten schon im Bestand, trägt also
+    vorübergehend einen anderen Namen als sein Geschwister. Eine Ablehnung, die
+    daran etwas findet, schafft die Funktion ab, die sie schützen soll — eine
+    Gruppe mit zwei oder mehr Alben liesse sich nie mehr umbenennen. Genau
+    dieser Fall hatte drei Fassungen lang keine Backend-Probe.
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
@@ -108,12 +130,13 @@ def test_die_wiederholung_nach_einem_teilausfall_kommt_durch(mit_bestand):
     """Der Stand nach einem Teilausfall, mit einer fremden Schreibweise daneben.
 
     `gruppe-1` trägt „Herbstfest" schon über a1; a2 blieb zurück. `gruppe-2`
-    hält „HERBSTFEST" — dieselbe Stufe-1-Faltung, andere Stufe 2, also ein
-    Bestand, in dem der Zielname schon vor dieser Anfrage doppelt vorkommt.
-    Seit #98 gelingt das Umbenennen ohnehin immer; diese Probe hält zusätzlich
-    fest, dass a2 dabei wirklich ankommt (nicht für immer beim alten Namen
-    zurückbleibt), obwohl im Bestand schon zwei Gruppen mit passender
-    Stufe-1-Faltung existieren.
+    hält „HERBSTFEST" — gemessen dieselbe Faltung auf BEIDEN Stufen wie
+    „Herbstfest" (reine Gross-/Kleinschreibung faltet `casefold` und `lower()`
+    gleich), also ein Bestand, in dem der Zielname schon vor dieser Anfrage
+    doppelt vorkommt. Seit #98 lehnt das Umbenennen nie mehr WEGEN EINES NAMENS
+    ab; diese Probe hält zusätzlich fest, dass a2 dabei wirklich ankommt (nicht
+    für immer beim alten Namen zurückbleibt), obwohl im Bestand schon zwei
+    Gruppen mit passender Faltung existieren.
     """
     c = mit_bestand([_album("a1", "Herbstfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1"),
@@ -127,10 +150,11 @@ def test_die_eigene_gruppe_darf_eine_zweite_schreibweise_bekommen(mit_bestand):
     """Eine zweite Schreibweise innerhalb der EIGENEN Gruppe.
 
     `gruppe-1` hält „Strassenfest" und „Sommerfest". Das Umbenennen von
-    „Sommerfest" in „Straßenfest" gelingt (seit #98 ohnehin immer); diese
-    Probe hält zusätzlich fest, dass sich an der Gruppenzuordnung nichts
-    verschiebt: Vor und nach dem Vorgang zeigt „Strassenfest" auf `gruppe-1`,
-    und „Straßenfest" jetzt ebenfalls — beide Schreibweisen bleiben bei
+    „Sommerfest" in „Straßenfest" gelingt (seit #98 nie mehr wegen eines
+    Namens abgelehnt); diese Probe hält zusätzlich fest, dass sich an der
+    Gruppenzuordnung nichts verschiebt: Vor und nach dem Vorgang zeigt
+    „Strassenfest" auf `gruppe-1`, und „Straßenfest" jetzt ebenfalls — beide
+    Schreibweisen bleiben bei
     derselben Gruppe.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),

@@ -18,11 +18,15 @@ voneinander dieselbe Luecke gefunden: Eine Ablehnung, die NICHT im Router
 steht, sondern eine Ebene tiefer im echten Dienst (etwa in
 `_rename_managed_album_unlocked`), waere durch diese Attrappe nie gelaufen —
 die Datei waere gruen geblieben, und mit ihr die ganze Suite (242 von 242,
-nachgemessen). Jetzt laeuft der ganze echte Weg: Router ->
-`sync_service.rename_managed_album` -> `_rename_managed_album_unlocked` ->
-`ImmichClient.update_album` (Attrappe) -> `ConfigStore.update_managed_album`
-(echt, schreibt in die Wegwerf-`accounts.json`). Eine Ablehnung an JEDER
-dieser Stellen wird jetzt rot, nicht nur eine im Router.
+nachgemessen). Jetzt laeuft der echte Weg bis zum Netzwerk-Rand: Router ->
+`sync_service.rename_managed_album` -> `_rename_managed_album_unlocked`.
+NUR `ImmichClient.update_album` ist Attrappe, danach schreibt der echte
+`ConfigStore.update_managed_album` in die Wegwerf-`accounts.json` — ein
+`raise` im ECHTEN `ImmichClient.update_album` selbst wuerde diese Datei NICHT
+erreichen, das ist der bewusste Rand der Attrappe, kein Versehen. Eine
+Ablehnung an jeder Stelle VOR diesem Rand (Router, `rename_managed_album`,
+`_rename_managed_album_unlocked`) wird jetzt rot, nicht nur eine im Router —
+gemessen mit zwei Rot-Beweisen in Nacharbeit 1.
 """
 import json
 
