@@ -522,7 +522,8 @@ async def rename_managed_album(
     # den es nachher noch gibt, seine Gruppe verliert oder eine andere bekommt
     # — nicht, wenn eine Mehrdeutigkeit kleiner wird, und nicht fuer den Namen,
     # von dem weg umbenannt wird (der geht an eine Gruppe mit gleichwertiger
-    # Schreibweise ueber; Regel offen in #98). Begruendung, Messung und die
+    # Schreibweise ueber, wenn es genau eine gibt; Regel offen in #98).
+    # Begruendung, Messung und die
     # unterschiedenen Faelle stehen bei `ConfigStore.namen_mit_anderer_antwort`.
     #
     # Die drei Vorgaenger dieser Zeile (`gruppen_mit_namen`, Abzug der eigenen
@@ -540,11 +541,15 @@ async def rename_managed_album(
     # Anlegen.
     #
     # GRENZE DES NAMENSSCHLOSSES, gemessen (#108): Es schluesselt auf Stufe 1
-    # der Namensfaltung. Drei griechische Namenspaare (Iota subscriptum plus
-    # kombinierende Perispomeni) kollidieren NUR in Stufe 2 — sie begegnen
-    # sich in der Zuordnung, nehmen aber verschiedene Schloesser. Festgehalten
-    # in `test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`; die Antwort
-    # darauf gehoert zu #95.
+    # der Namensfaltung, die Zuordnung benutzt beide Stufen. Es gibt Namen,
+    # die NUR in Stufe 2 kollidieren — sie begegnen sich in der Zuordnung,
+    # nehmen aber verschiedene Schloesser. Aus einem Buchstaben plus hoechstens
+    # einem kombinierenden Zeichen sind es genau drei Paare (Griechisch, Iota
+    # subscriptum plus Perispomeni); mit zwei kombinierenden Zeichen sind es
+    # Tausende, mit weiteren Zeichen davor oder dahinter beliebig viele.
+    # Die Proben in `test_namensfaltung.py` halten die EIGENSCHAFT der
+    # Faltung fest — das Schloss selbst prueft keine Probe (eine Mutation, die
+    # es auf Stufe 2 schluesselt, bleibt gruen). Die Antwort gehoert zu #95.
     #
     # REIHENFOLGE DER SCHLOESSER in dieser Datei: Treffer -> Gruppe -> Album
     # (das Albumschloss nimmt `sync_service.rename_managed_album` innen).

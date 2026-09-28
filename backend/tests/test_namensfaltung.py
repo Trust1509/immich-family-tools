@@ -414,12 +414,22 @@ def test_backfill_haengt_an_der_fehlenden_kennung_nicht_an_der_schemaversion(tmp
 #
 # DAS GILT FÜR ZEICHEN, NICHT FÜR NAMEN. Hier stand bis #108 „nehmen also immer
 # dasselbe Schloss" — gemessen war es nur über Einzelzeichen. Die Blindprüfung
-# zu #108 hat drei NAMEN gefunden, die ausschliesslich in Stufe 2 kollidieren
-# (polytones Griechisch: Buchstabe mit Iota subscriptum plus kombinierende
-# Perispomeni); nachgemessen am 28.09.2026 über alle Buchstaben der beiden
-# griechischen Blöcke und des lateinischen Grundalphabets, allein und mit je
-# einem kombinierenden Zeichen: genau diese drei. Längere Namen und andere
-# Schriften sind damit NICHT abgesucht.
+# zu #108 hat NAMEN gefunden, die ausschliesslich in Stufe 2 kollidieren.
+# Wie viele, hängt am Suchraum, und deshalb steht der Raum dabei:
+#
+#   ein Buchstabe, allein oder mit EINEM kombinierenden Zeichen
+#       -> genau drei Paare (polytones Griechisch: Buchstabe mit Iota
+#          subscriptum plus Perispomeni). Die Suche läuft als Probe mit
+#          (`test_im_kleinen_raum_sind_es_genau_drei_paare`), über die beiden
+#          griechischen Blöcke und das lateinische Grundalphabet; die
+#          Blindprüfung zu #108 hat denselben Befund über alle kombinierenden
+#          Zeichen aus ganz Unicode bestätigt.
+#   ein Buchstabe mit ZWEI kombinierenden Zeichen
+#       -> 4530 Paare bei griechischen Buchstaben und beiden Zeichen aus
+#          U+0300–U+036F (Blindprüfung zu #108, nachgemessen am 28.09.2026;
+#          nicht als Probe im Repo, sie läuft einige Sekunden).
+#   mit weiteren Zeichen davor oder dahinter
+#       -> beliebig viele.
 # Die erste Probe unten hält die Richtung für Zeichen fest, die dritte die
 # Ausnahme für Namen. Die Antwort auf die Schlosslücke gehört zu #95.
 # ---------------------------------------------------------------------------
@@ -497,11 +507,53 @@ def test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen(klein, gross):
     Grenze geschlossen, und die Kommentare am Namensschloss und am Prädikat
     beschreiben dann einen Zustand, den es nicht mehr gibt.
 
-    Grund der Kollision: `casefold` macht aus dem kleinen und dem grossen
-    Buchstaben mit Iota dasselbe Paar „Grundbuchstabe + Iota"; die
-    anschliessende Normalform hängt die Perispomeni danach verschieden an —
-    einmal an den Grundbuchstaben, einmal an das Iota.
+    Grund der Kollision — sie entsteht in der ERSTEN Normalform, nicht in
+    `casefold` (hier stand bis zur Nacharbeit an #108 das Gegenteil; die
+    Blindprüfung hat es widerlegt): Der kleine Buchstabe mit Iota subscriptum
+    plus Perispomeni hat eine vorkomponierte Form (`U+1FB7`), der grosse
+    nicht. Nach der ersten Normalform liegen also zwei verschiedene Folgen
+    vor, und `casefold` reiht Perispomeni und Iota darin verschieden. Ohne die
+    erste Normalform fielen beide zusammen — die Mutation macht alle drei
+    Fälle rot. Stufe 2 normalisiert nicht und legt beide über `lower()`
+    zusammen.
     """
     stufe1, stufe2 = ConfigStore._name_key, ConfigStore._name_key_vor_83
     assert stufe1(klein) != stufe1(gross), "Stufe 1 trennt die beiden nicht mehr"
     assert stufe2(klein) == stufe2(gross), "Stufe 2 legt die beiden nicht mehr zusammen"
+
+
+def test_im_kleinen_raum_sind_es_genau_drei_paare():
+    """Die Zahl „drei" als Messung, nicht als Satz — samt ihrem Raum.
+
+    Raum: jeder Buchstabe der beiden griechischen Blöcke und des lateinischen
+    Grundalphabets, allein oder mit genau einem kombinierenden Zeichen aus
+    `U+0300`–`U+036F`. Gesucht sind Namen, die in Stufe 2 zusammenfallen und
+    die Stufe 1 trennt.
+
+    Sie hält zugleich die Liste darüber lebendig: Leert jemand
+    `NUR_IN_STUFE_ZWEI`, überspringt pytest die parametrisierte Probe nur —
+    und kein Gate zählt übersprungene Proben (gemessen von der Blindprüfung
+    zu #108). Diese Probe wird dann rot.
+    """
+    import unicodedata as ud
+    from collections import defaultdict
+
+    buchstaben = [chr(c) for von, bis in ((0x0370, 0x0400), (0x1F00, 0x2000), (0x0041, 0x007B))
+                  for c in range(von, bis) if ud.category(chr(c)).startswith("L")]
+    zeichen = [chr(c) for c in range(0x0300, 0x0370)]
+    namen = set(buchstaben) | {b + z for b in buchstaben for z in zeichen}
+
+    je_stufe2 = defaultdict(set)
+    for name in namen:
+        schluessel = ConfigStore._name_key_vor_83(name)
+        if schluessel:
+            je_stufe2[schluessel].add(name)
+
+    gefunden = set()
+    for gruppe in je_stufe2.values():
+        if len({ConfigStore._name_key(n) for n in gruppe}) > 1:
+            gefunden.add(frozenset(gruppe))
+
+    erwartet = {frozenset(paar) for paar in NUR_IN_STUFE_ZWEI}
+    assert len(NUR_IN_STUFE_ZWEI) == 3, NUR_IN_STUFE_ZWEI
+    assert gefunden == erwartet, sorted(tuple(sorted(g)) for g in gefunden)

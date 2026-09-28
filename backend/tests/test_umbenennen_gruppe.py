@@ -23,9 +23,9 @@ Die Tests unten sind die Fälle, an denen sich das entscheidet:
    obwohl keine Antwort verschwindet.
 6. **Der alte Name** — er wird nicht geprüft. Gehört er danach niemandem,
    ist das der Zweck des Vorgangs. Trägt eine andere Gruppe eine
-   gleichwertige Schreibweise, geht er an sie über: Wer einen Namen
-   VERDRÄNGT, wird abgelehnt (Fall 5), wer einen FREI GEWORDENEN übernimmt,
-   nicht. Ob diese Regel gilt, ist offen in #98; die Probe dafür steht
+   gleichwertige Schreibweise, geht er an sie über (bei mehreren an keine):
+   Wer einen Namen VERDRÄNGT, wird abgelehnt (Fall 5), wer einen FREI
+   GEWORDENEN übernimmt, nicht. Ob diese Regel gilt, ist offen in #98; die Probe dafür steht
    unten und ist die, die kippt, wenn #98 anders entscheidet.
 
 Die Attrappe hier **schreibt wirklich**. Eine zählende Attrappe wie in
@@ -203,8 +203,9 @@ def test_ein_name_darf_nicht_still_zu_einer_anderen_gruppe_wandern(mit_bestand):
 def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
     """Im Bestand mit EINEM Album gehört der alte Name danach niemandem.
 
-    Das ist der Zweck des Vorgangs. Trägt eine ANDERE Gruppe eine gleichwertige
-    Schreibweise, gehört er danach ihr — das misst die Probe darunter.
+    Das ist der Zweck des Vorgangs. Trägt genau EINE andere Gruppe eine
+    gleichwertige Schreibweise, gehört er danach ihr — das misst die Probe
+    darunter.
 
     Ohne diese Unterscheidung wäre jedes Umbenennen abgelehnt: Der alte Name
     verliert immer seine Gruppe. Das Prädikat zählt deshalb nur Namen, die es
@@ -222,35 +223,79 @@ def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
 
 
 
-def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(mit_bestand):
+@pytest.mark.parametrize("alter_name, fremde_schreibweise", [
+    ("Strasse", "Straße"),               # Übergabe über Stufe 1
+    ("\u1fb3\u0342", "\u1fbc\u0342"),  # Übergabe nur über Stufe 2
+])
+def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(
+    mit_bestand, alter_name, fremde_schreibweise
+):
     """Die Regel, die bis #108 nirgends stand — festgenagelt als HEUTIGES Verhalten.
 
     `gruppe-1` heisst „Strasse", `gruppe-2` „Straße"; seit #83 derselbe Name,
     auseinandergehalten nur vom Stufe-2-Rückgriff. Benennt man `gruppe-1` weg,
     zeigt „Strasse" danach auf `gruppe-2` — die Klasse ist frei geworden, und
     `gruppe-2` ist ihre einzige Trägerin. Das Prädikat prüft den Namen, von dem
-    weg umbenannt wird, bewusst nicht; täte es das, liesse sich eine Gruppe
-    nie von ihrem Namen weg umbenennen, solange eine andere eine gleichwertige
-    Schreibweise trägt (gemessen am 28.09.2026: die Mutation bricht zwei
-    gewöhnliche Umbenenn-Proben).
+    weg umbenannt wird, nicht. Die stimmige Alternative — die Wanderung des
+    alten Namens ablehnen, sein Freiwerden erlauben — wäre eine zweite Regel,
+    keine Reparatur; sie bricht nur diese Probe. Beide stehen am Prädikat.
+
+    ZWEI Bestände, weil die Übergabe über BEIDE Stufen laufen kann: bei „ss"
+    und „ß" über Stufe 1, beim griechischen Paar nur über Stufe 2. Mit nur dem
+    ersten blieb eine Mutation grün, die die Übergabe allein über Stufe 2
+    sperrt (Blindprüfung zu #108).
 
     OB DAS SO BLEIBEN SOLL, IST OFFEN (#98). Diese Probe ist die, die kippt,
     wenn dort anders entschieden wird — sie misst heutiges Verhalten, keine
     beschlossene Regel.
     """
-    c = mit_bestand([_album("a1", "Strasse", "gruppe-1"),
-                     _album("a2", "Straße", "gruppe-2")])
-    vorher = c.get("/api/sync/album-group", params={"album_name": "Strasse"}).json()
+    c = mit_bestand([_album("a1", alter_name, "gruppe-1"),
+                     _album("a2", fremde_schreibweise, "gruppe-2")])
+    vorher = c.get("/api/sync/album-group", params={"album_name": alter_name}).json()
     assert vorher and vorher["group_id"] == "gruppe-1", vorher
 
     antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Herbstfest"})
     assert antwort.status_code == 200, antwort.text
 
-    nachher = c.get("/api/sync/album-group", params={"album_name": "Strasse"}).json()
+    nachher = c.get("/api/sync/album-group", params={"album_name": alter_name}).json()
     assert nachher and nachher["group_id"] == "gruppe-2", nachher
 
+
+def test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen(mit_bestand):
+    """Der Beleg, dass die Schleife über ALLE Namen Last trägt.
+
+    Zwei Fassungen des Prädikats-Docstrings haben behauptet, eine Prüfung nur
+    des Zielnamens wäre gleichwertig — erst bewiesen, dann gemessen. Beide
+    Male falsch. Das Gegenbeispiel des Fremdprüfers zu #108 kreuzt ein Paar,
+    das nur in Stufe 2 kollidiert, mit „ss"/„ß":
+
+        A  = P + "|Strasse" -> gruppe-1   (antwortet über Stufe 2)
+        B  = Q + "|Straße"  -> gruppe-2   wird umbenannt in  Q + "|Strasse"
+        C  = P + "|Straße"  -> gruppe-2
+
+    Der ZIELNAME zeigt vorher und nachher auf `gruppe-2` — eine Prüfung nur
+    des Zielnamens sieht nichts. Aber A verliert seine Antwort: `gruppe-1`
+    wird verdrängt. Die volle Schleife lehnt ab.
+
+    Diese Probe ist die einzige, die eine Verkürzung der Schleife auf
+    `{neuer_name}` rot macht. Vorher überlebte die Mutation alle Proben.
+    """
+    p, q = "\u1fb3\u0342", "\u1fbc\u0342"
+    c = mit_bestand([_album("a", p + "|Strasse", "gruppe-1"),
+                     _album("b", q + "|Straße", "gruppe-2"),
+                     _album("c", p + "|Straße", "gruppe-2")])
+
+    antwort = c.patch("/api/sync/albums/b", json={"album_name": q + "|Strasse"})
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_album_name_in_use"
+
+    # Und nichts ist passiert: A antwortet weiter mit seiner Gruppe.
+    a = c.get("/api/sync/album-group", params={"album_name": p + "|Strasse"}).json()
+    assert a and a["group_id"] == "gruppe-1", a
+    assert _namen(c)["b"] == q + "|Straße"
+
 def test_eine_fremde_gruppe_bleibt_auch_hier_gesperrt(mit_bestand):
-    """Die Gegenprobe zu allen drei Fällen darüber."""
+    """Die Gegenprobe zu den Fällen darüber: eine fremde Gruppe bleibt gesperrt."""
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
                      _album("a2", "Herbstfest", "gruppe-2")])
     antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Herbstfest"})

@@ -46,12 +46,14 @@ A rename is refused only when it would make things worse: when a name that is
 still in use afterwards would lose its group, or would point at a _different_
 group than before. In that case you get a message naming the album.
 
-The name you rename _away from_ is not protected this way. If another group
-carries a spelling that counts as the same name — "Straße" against "Strasse" —
-typing that name offers the other group from then on. Your albums stay in their
-groups; only the suggestion for that spelling changes, and you see it before
-anything joins. _(Added 2026-09-28: the first version of these notes promised
-more than the release does.)_
+The name you rename _away from_ is not protected this way. If exactly one other
+group carries a spelling that counts as the same name — "Straße" against
+"Strasse" — typing that name offers that group from then on; if several do, it
+offers none. Your albums stay in their groups; only the suggestion for that
+spelling changes. The suggestion appears a moment after you stop typing — a
+very quick click can currently create the album before it is shown (#110).
+_(Added 2026-09-28: the first version of these notes promised more than the
+release does.)_
 
 ### You choose which group an album joins (#81)
 

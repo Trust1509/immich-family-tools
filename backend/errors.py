@@ -157,8 +157,9 @@ def album_name_in_use(album_name: str) -> AppError:
     NACHHER NOCH GIBT, seine Gruppe verliert oder eine andere bekommt.
     Gewinnt ein Name eine Antwort, wird die Mehrdeutigkeit kleiner — dann
     kommt sie nicht. Der Name, von dem WEG umbenannt wird, ist ausgenommen;
-    traegt eine andere Gruppe eine gleichwertige Schreibweise, geht er an sie
-    ueber. Regel und offene Entscheidung: #98, Beleg: #108.
+    traegt genau eine andere Gruppe eine gleichwertige Schreibweise, geht er
+    an sie ueber, tragen mehrere, zeigt er danach auf keine. Regel und offene
+    Entscheidung: #98, Beleg: #108.
 
     Drei Fassungen dieser Pruefung haben vorher ueber ein ALBUM geurteilt, wo
     es um einen Zustand geht; jede hat harmlose Vorgaenge abgelehnt, und die
@@ -166,7 +167,13 @@ def album_name_in_use(album_name: str) -> AppError:
     „0 schaedliche Durchlaesse" — gemessen gegen ein Orakel, das genau die
     Klasse ausschloss, die das Praedikat nicht prueft (den alten Namen). Die
     Zahlen der Blindpruefung stehen mit Quelle in #108, nicht hier: Ihre Sonde
-    liegt nicht im Repo. Der Text dieser Meldung ist deshalb genauer zu lesen als
+    liegt nicht im Repo.
+
+    DIE MELDUNG NENNT DEN ZIELNAMEN — der Name, dessen Antwort sich aendern
+    wuerde, kann aber ein ANDERER sein (Gegenbeispiel in
+    `test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen`). Die
+    Auskunft ist dann ungenau; das ist Verhalten und steht in #108. Der Text
+    dieser Meldung ist deshalb genauer zu lesen als
     frueher: „gehoert bereits zu einer anderen Gruppe" heisst jetzt „dieser
     Name wuerde danach auf eine andere oder auf keine Gruppe zeigen".
     """
