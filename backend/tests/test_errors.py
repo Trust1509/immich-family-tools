@@ -179,7 +179,6 @@ STATUSCODES = {
     "err_account_gone": 404,
     "err_account_id_not_found": 404,
     "err_account_not_found": 404,
-    "err_album_name_in_use": 409,
     "err_album_name_required": 422,
     "err_group_choice_conflict": 422,
     "err_group_not_found": 404,

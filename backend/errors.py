@@ -141,50 +141,6 @@ def manual_match_id_collision(album_name: str) -> AppError:
     )
 
 
-def album_name_in_use(album_name: str) -> AppError:
-    """Der Zielname gehoert schon einer ANDEREN Gruppe.
-
-    Auflage aus dem Review zu #79: Ohne diese Pruefung verschmilzt ein
-    Umbenennen zwei Gruppen dem Auge nach, ohne sie zu verschmelzen — beide
-    tragen dann denselben Namen, und `existing_group_for_name` antwortet
-    danach fuer BEIDE mit "keine Gruppe" (#78). Der Nutzer sieht zwei Karten
-    mit gleichem Namen und bekommt beim naechsten Anlegen keine
-    Gruppenvorschau mehr.
-
-    Entschieden wird das an der WIRKUNG, nicht am Namen:
-    `ConfigStore.namen_mit_anderer_antwort` vergleicht `Name -> Gruppe` vor und
-    nach der Umbenennung. Diese Meldung kommt, wenn dabei ein Name, den es
-    NACHHER NOCH GIBT, seine Gruppe verliert oder eine andere bekommt.
-    Gewinnt ein Name eine Antwort, wird die Mehrdeutigkeit kleiner — dann
-    kommt sie nicht. Der Name, von dem WEG umbenannt wird, ist ausgenommen;
-    was aus ihm wird, haengt am Bestand (Beispiele in #108), und ob er
-    geprueft werden soll, entscheidet #98.
-
-    Drei Fassungen dieser Pruefung haben vorher ueber ein ALBUM geurteilt, wo
-    es um einen Zustand geht; jede hat harmlose Vorgaenge abgelehnt, und die
-    dritte hat den Weg aus dem Schaden heraus gesperrt. Hier stand bis #108
-    „0 schaedliche Durchlaesse" — gemessen gegen ein Orakel, das genau die
-    Klasse ausschloss, die das Praedikat nicht prueft (den alten Namen). Die
-    Zahlen der Blindpruefung stehen mit Quelle in #108, nicht hier: Ihre Sonde
-    liegt nicht im Repo.
-
-    DIE MELDUNG NENNT DEN ZIELNAMEN — der Name, dessen Antwort sich aendern
-    wuerde, kann aber ein ANDERER sein (Gegenbeispiel in
-    `test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen`). Die
-    Auskunft ist dann ungenau; das ist Verhalten und steht in #108. Der Text
-    dieser Meldung ist deshalb genauer zu lesen als
-    frueher: „gehoert bereits zu einer anderen Gruppe" heisst jetzt „dieser
-    Name wuerde danach auf eine andere oder auf keine Gruppe zeigen".
-    """
-    return AppError(
-        409,
-        "err_album_name_in_use",
-        f"Der Name '{album_name}' gehört bereits zu einer anderen Gruppe. "
-        f"Wähle einen anderen Namen.",
-        {"album": str(album_name)},
-    )
-
-
 def min_two_people() -> AppError:
     return AppError(422, "err_min_two_people", "Mindestens 2 Personen erforderlich")
 

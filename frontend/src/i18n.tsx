@@ -1080,15 +1080,6 @@ export const translations = {
     "es-ES": "Se necesita un nombre de álbum",
     "pt-BR": "É necessário um nome de álbum",
   },
-  err_album_name_in_use: {
-    de: (album: string) =>
-      `Der Name „${album}“ gehört bereits zu einer anderen Gruppe. Wähle einen anderen Namen.`,
-    en: (album: string) =>
-      `The name “${album}” already belongs to a different group. Pick another name.`,
-    "es-ES": (album: string) =>
-      `El nombre «${album}» ya pertenece a otro grupo. Elige otro nombre.`,
-    "pt-BR": (album: string) => `O nome “${album}” já pertence a outro grupo. Escolha outro nome.`,
-  },
   err_manual_match_id_collision: {
     de: (album: string) =>
       `Unter diesem Namen gibt es bereits das Album „${album}“, und es gehört zu einer anderen Personenauswahl. Erweitere dieses Album, oder wähle einen anderen Namen.`,
@@ -1428,7 +1419,6 @@ export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_owner_account_id_not_found: ["id"],
   err_person_validation_failed: ["account"],
   err_manual_match_id_collision: ["album"],
-  err_album_name_in_use: ["album"],
   err_unsupported_immich_version: ["major", "minor"],
 };
 

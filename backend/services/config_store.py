@@ -416,8 +416,11 @@ class ConfigStore:
         unabhaengig voneinander).
 
         Deshalb fragt `_gruppe_fuer_namen` zweistufig: erst die neue Faltung,
-        und nur wo sie MEHRDEUTIG wird, diese hier. Damit ist die Antwort
-        nirgends schlechter als vor #83 und dort besser, wo sie eindeutig ist.
+        und nur wo sie KEINE eindeutige Antwort liefert, diese hier. Das ist
+        nicht nur der mehrdeutige Fall — gemessen (#111): Stufe 2 antwortet
+        auch dann, wenn Stufe 1 LEER bleibt, also keinen einzigen Kandidaten
+        findet. Damit ist die Antwort nirgends schlechter als vor #83 und
+        dort besser, wo sie eindeutig ist.
         """
         if album_name is None:
             return ""
@@ -429,10 +432,11 @@ class ConfigStore:
         Stufe 1 ist die heutige Faltung (`_name_key`, unicode-fest). Ist sie
         eindeutig, gilt sie.
 
-        Stufe 2 ist die Faltung von vor #83. Sie kommt NUR zum Zug, wenn
-        Stufe 1 mehrdeutig ist — also genau dann, wenn die Vergroeberung eine
-        Antwort zerstoert haette, die es vorher gab. Die Begruendung steht bei
-        `_name_key_vor_83`.
+        Stufe 2 ist die Faltung von vor #83. Sie kommt zum Zug, wenn Stufe 1
+        KEINE eindeutige Antwort liefert — mehrdeutig (mehr als ein Kandidat)
+        ODER leer (kein Kandidat, gemessen #111). Beides sind Faelle, in
+        denen die Vergroeberung eine Antwort zerstoert haben koennte, die es
+        vorher gab. Die Begruendung steht bei `_name_key_vor_83`.
 
         Beide Stufen halten die zwei Ausnahmen aus #78: ein leerer Name sagt
         nichts, ein mehrdeutiger auch nicht.
@@ -557,66 +561,6 @@ class ConfigStore:
         — wer zwei Schreibweisen in zwei Gruppen hat, verlor beide Antworten.
         """
         return self._gruppe_fuer_namen(album_name)
-
-    def namen_mit_anderer_antwort(self, album_id, neuer_name) -> dict:
-        """Welche Namen antworten nach dieser Umbenennung ANDERS als vorher?
-
-        WAS ES TUT — und dieser Docstring behauptet bewusst nichts darueber
-        hinaus: Es spielt die Umbenennung auf einer Kopie des Bestands nach.
-        Fuer jeden Albumnamen, den es NACHHER gibt, vergleicht es die Antwort
-        von `_gruppe_fuer_namen` (beide Faltungsstufen) vorher und nachher.
-        Gemeldet wird jeder solche Name, der vorher eine Gruppe hatte und
-        danach eine andere oder keine. Eine Antwort, die erst entsteht, wird
-        nicht gemeldet.
-
-        Die drei Faelle, je mit einer Probe in `tests/test_umbenennen_gruppe.py`
-        oder `tests/test_umbenennen_kollision.py`:
-
-        * `g -> None` — abgelehnt. Der Schaden aus #78: Die Vorschau verstummt.
-        * `None -> g` — erlaubt. Die Mehrdeutigkeit wird kleiner; das ist der
-          Weg aus dem #78-Schaden heraus, den die drei Vorgaenger dieses
-          Praedikats gesperrt haben.
-        * `g1 -> g2` — abgelehnt. Ein kuenftiges Album mit diesem Namen traete
-          einer anderen Gruppe bei als bisher.
-
-        DIE SCHLEIFE UEBER ALLE NACHHER VORHANDENEN NAMEN TRAEGT LAST. Es gibt
-        Bestaende, in denen der Zielname seine Antwort behaelt und ein ANDERER
-        Name sie verliert; nur die volle Schleife lehnt dort ab
-        (`test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen`). Die
-        Meldung nennt in diesem Fall trotzdem den Zielnamen (#108). Bis zur
-        zweiten Nacharbeit an #108 stand hier, eine Pruefung nur des Zielnamens
-        sei gleichwertig — erst als Beweis, dann als Messung. Beides war falsch.
-
-        WAS ES NICHT PRUEFT: den Namen, von dem weg umbenannt wird — es gibt
-        ihn nachher nicht mehr. Was aus ihm wird, haengt am ganzen Bestand und
-        an beiden Faltungsstufen. Gemessen (#108) sind alle drei Ausgaenge: Er
-        kann danach auf eine ANDERE Gruppe zeigen („Strasse" weg umbenannt,
-        eine andere Gruppe traegt „Straße"), auf KEINE (dieselbe Lage, aber die
-        eigene Gruppe traegt noch „Straſse"), oder auf die EIGENE (sie traegt
-        noch „STRASSE"). Festgehalten als heutiges Verhalten ist der erste
-        Ausgang, ueber beide Faltungsstufen:
-        `test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin`.
-
-        Allgemeine Regeln fuer diesen Namen standen hier in drei Fassungen, und
-        jede wurde von einer Pruefstimme widerlegt. Deshalb steht hier keine
-        mehr. Ob und wie er geprueft werden soll, ist eine offene
-        Owner-Entscheidung; die gemessenen Varianten stehen in #98.
-
-        In keinem dieser Faelle entsteht ein Datenschaden: Die Zugehoerigkeit
-        bestehender Alben haengt an der Gruppenkennung. Betroffen ist, welche
-        Gruppe die Vorschau fuer eine Schreibweise ANBIETET.
-        """
-        vorher = [dict(a) for a in self._data.get("managed_albums", [])]
-        nachher = [dict(a) for a in vorher]
-        for a in nachher:
-            if a.get("id") == album_id:
-                a["album_name"] = neuer_name
-        anders = {}
-        for name in {a.get("album_name") for a in nachher}:
-            alt = self._gruppe_fuer_namen(name, vorher)
-            if alt is not None and self._gruppe_fuer_namen(name, nachher) != alt:
-                anders[name] = alt
-        return anders
 
     def group_details(self, group_id: str) -> dict:
         """Wem tritt man bei — die Personen und Albumnamen einer Gruppe.

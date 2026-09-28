@@ -461,11 +461,11 @@ def _paare_je_stufe():
 def test_keine_kollision_gehoert_allein_der_zweiten_stufe():
     """Stufe 1 ist gröber als Stufe 2 — in JEDEM Paar EINZELNER ZEICHEN.
 
-    Das Namensschloss ruht darauf (sein Schlüssel ist Stufe 1). Für Namen aus
-    mehreren Zeichen gilt es nicht vollständig — siehe
-    `test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`. Die
-    Kollisionsprüfung beim Umbenennen ruht seit Nacharbeit 3 an #79 nicht mehr
-    darauf: Sie fragt die Zuordnung selbst, vorher und nachher.
+    Das Namensschloss ruht darauf (sein Schlüssel ist Stufe 1) — seit #98 nur
+    noch beim ANLEGEN, das Umbenennen nimmt seit dort kein Namensschloss mehr
+    (die Kollisionsprüfung, die es dort hielt, ist mit #98 entfernt). Für
+    Namen aus mehreren Zeichen gilt die Gröber-Richtung nicht vollständig —
+    siehe `test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`.
     """
     stufe1, stufe2 = _paare_je_stufe()
     nur_stufe2 = stufe2 - stufe1

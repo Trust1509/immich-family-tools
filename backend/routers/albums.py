@@ -516,48 +516,22 @@ async def rename_managed_album(
     owner = store.get_account(managed.owner_account_id)
     if not owner:
         raise errors.owner_account_not_found()
-    # KOLLISION, und zwar VOR dem ersten Schreibvorgang (Auflage aus dem
-    # Review zu #79). Gefragt wird an der WIRKUNG: Welcher Name antwortet nach
-    # dieser Umbenennung anders als vorher? Abgelehnt wird nur, wenn ein Name,
-    # den es nachher noch gibt, seine Gruppe verliert oder eine andere bekommt
-    # — nicht, wenn eine Mehrdeutigkeit kleiner wird, und nicht fuer den Namen,
-    # von dem weg umbenannt wird (was aus ihm wird, haengt am Bestand; offen
-    # in #98). Die Faelle und ihre Proben stehen bei
-    # `ConfigStore.namen_mit_anderer_antwort`.
+    # KEINE NAMENSPRUEFUNG MEHR (Owner-Entscheid 28.09.2026, #98): Zwei
+    # verschiedene Albumgruppen duerfen denselben Namen tragen. Die
+    # Kollisionspruefung, die hier bis #98 stand (`ConfigStore.
+    # namen_mit_anderer_antwort`, Meldung `errors.album_name_in_use`), ist
+    # entfernt — samt dem NAMENSSCHLOSS (`store.gruppen_schloss`), das sie
+    # ueber Pruefung und Schreibvorgang hielt. Ohne die Pruefung gibt es hier
+    # nichts mehr zu schuetzen; das Schloss stand nur FUER sie.
     #
-    # Die drei Vorgaenger dieser Zeile (`gruppen_mit_namen`, Abzug der eigenen
-    # Gruppe, `gruppe_traegt_namen`) sind damit weg. Sie haben in drei Runden
-    # dreimal denselben Fehler gemacht: ueber ein Album geurteilt, wo es um
-    # einen Zustand geht.
-    #
-    # UNTER DEM NAMENSSCHLOSS, ueber Pruefung UND Schreibvorgang (Fund des
-    # Fremdpruefers an #79): Ohne es war das ein Pruefen-dann-Handeln mit
-    # einem Fenster dazwischen — zwei gleichzeitige Umbenennungen auf
-    # denselben Namen kamen BEIDE durch und erzeugten genau die zwei
-    # gleichnamigen Gruppen, die die Pruefung verhindern soll. Es ist
-    # dasselbe Schloss, das die Anlage nimmt (`create_album`,
-    # `create_manual_album`); nur so hilft es auch gegen Umbenennen gegen
-    # Anlegen.
-    #
-    # GRENZE DES NAMENSSCHLOSSES, gemessen (#108): Es schluesselt auf Stufe 1
-    # der Namensfaltung, die Zuordnung benutzt beide Stufen. Es gibt Namen,
-    # die NUR in Stufe 2 kollidieren — sie begegnen sich in der Zuordnung,
-    # nehmen aber verschiedene Schloesser. Aus einem Buchstaben plus hoechstens
-    # einem kombinierenden Zeichen sind es genau drei Paare (Griechisch, Iota
-    # subscriptum plus Perispomeni); mit zwei kombinierenden Zeichen sind es
-    # Tausende, mit weiteren Zeichen davor oder dahinter beliebig viele.
-    # Die Proben in `test_namensfaltung.py` halten die EIGENSCHAFT der
-    # Faltung fest. Dass das Schloss normalisiert und je Name schluesselt,
-    # pruefen Proben; AUF WELCHER STUFE es schluesselt, prueft keine (eine
-    # Mutation auf Stufe 2 bleibt gruen). Die Antwort gehoert zu #95.
-    #
-    # REIHENFOLGE DER SCHLOESSER in dieser Datei: Treffer -> Gruppe -> Album
-    # (das Albumschloss nimmt `sync_service.rename_managed_album` innen).
-    # Wer sie dreht, baut eine Verklemmung.
-    async with store.gruppen_schloss(new_name):
-        if store.namen_mit_anderer_antwort(managed.id, new_name):
-            raise errors.album_name_in_use(new_name)
-        logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
+    # Das Gruppenschloss bleibt bei den beiden ANLEGE-Wegen weiter oben in
+    # dieser Datei (`create_album`, `create_manual_album`) — dort verhindert
+    # es weiterhin, dass zwei gleichzeitige Anlagen mit demselben Namen in
+    # zwei Gruppen zerfallen. Das ALBUMSCHLOSS (Umbenennen gegen Auffrischen)
+    # bleibt ebenfalls unveraendert: Es liegt in
+    # `sync_service.rename_managed_album` und ist von dieser Aenderung nicht
+    # beruehrt.
+    logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
     store.append_log(logs)
     return logs
 

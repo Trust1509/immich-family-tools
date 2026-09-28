@@ -1,15 +1,16 @@
 """Umbenennen über eine ganze Gruppe — die Wege, die die Oberfläche geht (#79).
 
-Die Fälle hier sind Funde aus drei Prüfrunden, und alle haben eine gemeinsame
-Wurzel: **Die Kollisionsprüfung urteilte über einen Namen, der Schaden lebt aber
-in einem Zustand.** Drei Fassungen lang wurde gefragt „gehört dieser Name schon
-einer anderen Gruppe?", und damit wurde Harmloses abgelehnt — darunter der
+Die Fälle hier sind Funde aus drei Prüfrunden gegen eine Kollisionsprüfung, die
+es seit #98 nicht mehr gibt: Zwei verschiedene Albumgruppen dürfen seither
+denselben Namen tragen, ein Umbenennen lehnt deshalb nie mehr wegen eines
+Namens ab. Damals urteilte die Prüfung über einen Namen, der Schaden lebt aber
+in einem Zustand — drei Fassungen lang wurde „gehört dieser Name schon einer
+anderen Gruppe?" gefragt, und damit wurde Harmloses abgelehnt, darunter der
 eine Vorgang, der aus dem Schaden herausführt. Zahlen dazu stehen mit Quelle in
 #108; hier nicht, weil ihre Sonde nicht im Repo liegt.
 
-Seit der dritten Runde fragt die Prüfung an der Wirkung: Welcher Name antwortet
-nach dem Vorgang anders als vorher (`ConfigStore.namen_mit_anderer_antwort`)?
-Die Tests unten sind die Fälle, an denen sich das entscheidet:
+Die Fälle unten sind die, an denen sich das damals entschied und die auch ohne
+die Prüfung gelingen müssen:
 
 1. **Zwei Alben einer Gruppe** — der normale Weg der Oberfläche, die jedes Album
    einzeln umbenennt. Hatte drei Fassungen lang keine Backend-Probe.
@@ -19,16 +20,19 @@ Die Tests unten sind die Fälle, an denen sich das entscheidet:
    beteiligt, also ändert sich keine Antwort.
 4. **Zwei gleichnamige Gruppen wieder unterscheiden** — der Weg AUS dem Schaden
    von #78 heraus, den alle drei Vorfassungen gesperrt haben.
-5. **Eine Antwort, die still zu einer anderen Gruppe wandert** — abgelehnt,
-   obwohl keine Antwort verschwindet.
-6. **Der alte Name** — er wird nicht geprüft. Was aus ihm wird, hängt am
+5. **Der alte Name** — er wird nicht geprüft. Was aus ihm wird, hängt am
    ganzen Bestand: Er kann danach auf eine andere Gruppe zeigen, auf keine
    oder auf die eigene (alle drei gemessen, #108). Festgehalten ist der
-   erste Ausgang; ob die heutige Behandlung bleibt, ist offen in #98.
+   erste Ausgang.
 
-Die Attrappe hier **schreibt wirklich**. Eine zählende Attrappe wie in
-`test_umbenennen_kollision.py` kann diese Fälle nicht messen: Die zweite Anfrage
-sieht dann nie, was die erste angerichtet hat.
+Die Fälle, in denen die entfernte Prüfung mit 409 abgelehnt hätte (eine fremde
+Gruppe, eine still verdrängte Antwort), stehen nicht mehr hier — die neue Probe
+für #98 in `test_umbenennen_doppelte_namen.py` hält stattdessen fest, dass sie
+heute gelingen.
+
+Die Attrappe hier **schreibt wirklich**. Eine zählende Attrappe kann diese
+Fälle nicht messen: Die zweite Anfrage sieht dann nie, was die erste
+angerichtet hat.
 """
 import json
 
@@ -175,29 +179,6 @@ def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand)
     assert mit_doppel_s and mit_doppel_s["group_id"] == "gruppe-2", mit_doppel_s
 
 
-def test_ein_name_darf_nicht_still_zu_einer_anderen_gruppe_wandern(mit_bestand):
-    """Der dritte Fall des Prädikats: die Antwort wandert, statt zu verschwinden.
-
-    `gruppe-1` heisst „Straßenfest", sonst niemand — „Strassenfest" zeigt
-    deshalb heute auf `gruppe-1` (Stufe 1 ist eindeutig). Wer `gruppe-2` genau
-    so nennt, dreht diese Antwort auf `gruppe-2` um: Ein künftiges Album mit
-    dieser Schreibweise träte still einer anderen Gruppe bei als bisher.
-
-    Niemand merkt das, und deshalb wird es abgelehnt — obwohl kein Name seine
-    Antwort VERLIERT. Ohne diesen Fall wäre „nur ablehnen, wenn eine Antwort
-    verschwindet" die halbe Regel.
-    """
-    c = mit_bestand([_album("a1", "Straßenfest", "gruppe-1"),
-                     _album("a2", "Sommerfest", "gruppe-2")])
-    vorher = c.get("/api/sync/album-group",
-                   params={"album_name": "Strassenfest"}).json()
-    assert vorher and vorher["group_id"] == "gruppe-1", vorher
-
-    antwort = c.patch("/api/sync/albums/a2", json={"album_name": "Strassenfest"})
-    assert antwort.status_code == 409, antwort.text
-    assert _namen(c)["a2"] == "Sommerfest"
-
-
 def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
     """Im Bestand mit EINEM Album gehört der alte Name danach niemandem.
 
@@ -276,58 +257,3 @@ def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(
     nachher = c.get("/api/sync/album-group", params={"album_name": alter_name}).json()
     assert nachher and nachher["group_id"] == "gruppe-2", nachher
 
-
-def test_die_schleife_faengt_eine_verdraengung_ohne_den_zielnamen(mit_bestand):
-    """Der Beleg, dass die Schleife über ALLE Namen Last trägt.
-
-    Zwei Fassungen des Prädikats-Docstrings haben behauptet, eine Prüfung nur
-    des Zielnamens wäre gleichwertig — erst bewiesen, dann gemessen. Beide
-    Male falsch. Das Gegenbeispiel des Fremdprüfers zu #108 kreuzt ein Paar,
-    das nur in Stufe 2 kollidiert, mit „ss"/„ß":
-
-        A  = P + "|Strasse" -> gruppe-1   (antwortet über Stufe 2)
-        B  = Q + "|Straße"  -> gruppe-2   wird umbenannt in  Q + "|Strasse"
-        C  = P + "|Straße"  -> gruppe-2
-
-    Der ZIELNAME zeigt vorher und nachher auf `gruppe-2` — eine Prüfung nur
-    des Zielnamens sieht nichts. Aber A verliert seine Antwort: `gruppe-1`
-    wird verdrängt. Die volle Schleife lehnt ab.
-
-    Diese Probe ist die einzige, die eine Verkürzung der Schleife auf
-    `{neuer_name}` rot macht. Vorher überlebte die Mutation alle Proben.
-    """
-    p, q = "\u1fb3\u0342", "\u1fbc\u0342"
-    # VORBEDINGUNGEN, und sie sind Teil der Probe: Ein einziger geänderter
-    # Buchstabe (`q = p`) liess sie sonst grün — auch zusammen mit der
-    # Verkürzung der Schleife, gegen die sie steht (Blindprüfung zu #108).
-    from services.config_store import ConfigStore
-    assert ConfigStore._name_key(p) != ConfigStore._name_key(q), "Stufe 1 trennt p und q nicht"
-    assert ConfigStore._name_key_vor_83(p) == ConfigStore._name_key_vor_83(q), (
-        "Stufe 2 legt p und q nicht zusammen")
-
-    c = mit_bestand([_album("a", p + "|Strasse", "gruppe-1"),
-                     _album("b", q + "|Straße", "gruppe-2"),
-                     _album("c", p + "|Straße", "gruppe-2")])
-
-    ziel = c.get("/api/sync/album-group", params={"album_name": q + "|Strasse"}).json()
-    assert ziel and ziel["group_id"] == "gruppe-2", ("der Zielname muss vorher schon "
-                                                     "antworten, sonst misst das nichts", ziel)
-
-    antwort = c.patch("/api/sync/albums/b", json={"album_name": q + "|Strasse"})
-    assert antwort.status_code == 409, antwort.text
-    assert antwort.json().get("error_key") == "err_album_name_in_use"
-
-    # Und nichts ist passiert: A antwortet weiter mit seiner Gruppe.
-    a = c.get("/api/sync/album-group", params={"album_name": p + "|Strasse"}).json()
-    assert a and a["group_id"] == "gruppe-1", a
-    assert _namen(c)["b"] == q + "|Straße"
-
-
-def test_eine_fremde_gruppe_bleibt_auch_hier_gesperrt(mit_bestand):
-    """Die Gegenprobe zu den Fällen darüber: eine fremde Gruppe bleibt gesperrt."""
-    c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
-                     _album("a2", "Herbstfest", "gruppe-2")])
-    antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Herbstfest"})
-    assert antwort.status_code == 409, antwort.text
-    assert antwort.json().get("error_key") == "err_album_name_in_use"
-    assert _namen(c)["a1"] == "Sommerfest"

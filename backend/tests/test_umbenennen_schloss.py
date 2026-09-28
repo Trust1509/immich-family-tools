@@ -1,23 +1,26 @@
 """Umbenennen muss sich gegen Refresh und gegen sich selbst ausschliessen (#79).
 
-Beides sind Funde des Fremdpruefers am zugelieferten Zweig, und beide waren
-beim Rebase textlich unsichtbar:
-
-1. **Die Schlossform.** Der Zweig nahm `_album_locks.setdefault(managed.id,
-   ...)`, der Refresh daneben `(id(loop), managed.id)`. Zwei verschieden
-   geformte Schluessel in derselben Ablage schliessen sich nicht aus. Der
-   Docstring des Umbenennens sagte woertlich das Gegenteil — er war die
-   einzige Zusicherung, und er war falsch.
-2. **Das Fenster in der Kollisionspruefung.** Die Pruefung „gehoert der Name
-   schon einer anderen Gruppe?“ stand VOR dem Schreibvorgang, aber unter
-   keinem Schloss. Zwei gleichzeitige Umbenennungen auf denselben Namen kamen
-   beide durch und erzeugten genau die zwei gleichnamigen Gruppen, die die
-   Pruefung verhindern soll.
+Fund des Fremdpruefers am zugelieferten Zweig, textlich beim Rebase
+unsichtbar: **Die Schlossform.** Der Zweig nahm `_album_locks.setdefault(
+managed.id, ...)`, der Refresh daneben `(id(loop), managed.id)`. Zwei
+verschieden geformte Schluessel in derselben Ablage schliessen sich nicht aus.
+Der Docstring des Umbenennens sagte woertlich das Gegenteil — er war die
+einzige Zusicherung, und er war falsch.
 
 Gemessen wird hier die Ausschliessung selbst, nicht das Innenleben von
 Refresh oder Umbenennen: Die beiden inneren Funktionen sind Attrappen, die
 ihren Eintritt protokollieren. Damit sagt ein rotes Ergebnis, dass die
 Schloesser nicht greifen — und nichts anderes.
+
+BIS #98 STAND HIER EIN ZWEITER FUND: ein Fenster in der Kollisionspruefung
+beim Umbenennen, das zwei gleichzeitige Umbenennungen auf denselben Namen
+beide durchliess und genau die zwei gleichnamigen Gruppen erzeugte, die die
+Pruefung verhindern sollte. Die Pruefung samt ihrem Namensschloss ist seit
+#98 entfernt — zwei Albumgruppen duerfen denselben Namen tragen, es gibt
+nichts mehr, das dieses Fenster noch schuetzen muesste. Die drei Proben dazu
+(`test_zwei_gleichzeitige_umbenennungen_auf_denselben_namen`,
+`test_das_umbenennen_haelt_dasselbe_namensschloss_wie_die_anlage`,
+`test_ein_anderer_name_wartet_nicht`) sind mit ihm entfernt.
 """
 import asyncio
 import json
@@ -315,124 +318,3 @@ async def test_ein_umbenennen_mit_altem_abbild_wirft_den_refresh_nicht_weg(
     assert danach.album_name == "Neu"
     assert danach.total_assets == 2, "Ergebnis des Abgleichs weggeworfen"
     assert danach.last_synced_at == nach_refresh.last_synced_at
-
-
-# --------------------------------------- 2) Umbenennen gegen Umbenennen
-
-@pytest.mark.asyncio
-async def test_zwei_gleichzeitige_umbenennungen_auf_denselben_namen(tmp_path, monkeypatch):
-    """Der Kern von BLOCKER 2: genau eine der beiden darf durchkommen.
-
-    Die Attrappe schreibt WIRKLICH in den Store und laesst vorher ein Fenster
-    (`sleep(0)`) — ohne beides gaebe es nichts zu gewinnen: Ohne Schreiben
-    sieht die zweite Anfrage nie, dass der Name vergeben ist, und ohne Fenster
-    kaeme sie nie dazwischen.
-    """
-    from models.match import RenameManagedAlbumRequest
-    from routers import albums as albums_router
-    from services import sync_service
-
-    store = _store(tmp_path, [_album("a1", "Straßenfest", "g1"),
-                              _album("a2", "Sommerfest", "g2")])
-
-    async def umbenennen(managed, _owner, neuer_name, store_):
-        await asyncio.sleep(0)
-        managed.album_name = neuer_name
-        store_.update_managed_album(managed)
-        return []
-
-    monkeypatch.setattr(sync_service, "rename_managed_album", umbenennen)
-    anfrage = _anfrage(store)
-
-    ergebnisse = await asyncio.gather(
-        albums_router.rename_managed_album(
-            "a1", RenameManagedAlbumRequest(album_name="Herbstfest"), anfrage),
-        albums_router.rename_managed_album(
-            "a2", RenameManagedAlbumRequest(album_name="Herbstfest"), anfrage),
-        return_exceptions=True,
-    )
-
-    fehler = [e for e in ergebnisse if isinstance(e, BaseException)]
-    assert len(fehler) == 1, ergebnisse
-    assert getattr(fehler[0], "key", None) == "err_album_name_in_use", fehler[0]
-
-    namen = sorted(a.album_name for a in store.get_managed_albums())
-    assert namen.count("Herbstfest") == 1, namen
-
-
-@pytest.mark.asyncio
-async def test_das_umbenennen_haelt_dasselbe_namensschloss_wie_die_anlage(
-    tmp_path, monkeypatch
-):
-    """Es muss DAS Schloss des Stores sein, nicht ein eigenes.
-
-    Sonst waere der Fall „Umbenennen gegen Anlegen“ offen: Die Anlage nimmt
-    `store.gruppen_schloss(name)`. Gemessen wird deshalb nicht der Endstand,
-    sondern ob jemand mit demselben Namen an genau dieses Schloss kommt,
-    waehrend das Umbenennen laeuft.
-    """
-    from models.match import RenameManagedAlbumRequest
-    from routers import albums as albums_router
-    from services import sync_service
-
-    store = _store(tmp_path, [_album("a1", "Straßenfest", "g1")])
-    erreicht: list[str] = []
-    tor = asyncio.Event()
-
-    async def umbenennen(*_a, **_k):
-        erreicht.append("umbenennen an")
-        await tor.wait()
-        return []
-
-    monkeypatch.setattr(sync_service, "rename_managed_album", umbenennen)
-
-    async def anlage_versucht_denselben_namen():
-        async with store.gruppen_schloss("Herbstfest"):
-            erreicht.append("anlage am schloss")
-
-    u = asyncio.create_task(albums_router.rename_managed_album(
-        "a1", RenameManagedAlbumRequest(album_name="Herbstfest"), _anfrage(store)))
-    await asyncio.sleep(0)
-    a = asyncio.create_task(anlage_versucht_denselben_namen())
-    for _ in range(5):
-        await asyncio.sleep(0)
-
-    assert erreicht == ["umbenennen an"], erreicht
-
-    tor.set()
-    await asyncio.gather(u, a)
-    assert erreicht == ["umbenennen an", "anlage am schloss"], erreicht
-
-
-@pytest.mark.asyncio
-async def test_ein_anderer_name_wartet_nicht(tmp_path, monkeypatch):
-    """Gegenprobe zum Namensschloss: gesperrt wird nur gegen DENSELBEN Namen."""
-    from models.match import RenameManagedAlbumRequest
-    from routers import albums as albums_router
-    from services import sync_service
-
-    store = _store(tmp_path, [_album("a1", "Straßenfest", "g1")])
-    erreicht: list[str] = []
-    tor = asyncio.Event()
-
-    async def umbenennen(*_a, **_k):
-        erreicht.append("umbenennen an")
-        await tor.wait()
-        return []
-
-    monkeypatch.setattr(sync_service, "rename_managed_album", umbenennen)
-
-    async def anlage_mit_anderem_namen():
-        async with store.gruppen_schloss("Ganz anders"):
-            erreicht.append("anlage am schloss")
-
-    u = asyncio.create_task(albums_router.rename_managed_album(
-        "a1", RenameManagedAlbumRequest(album_name="Herbstfest"), _anfrage(store)))
-    await asyncio.sleep(0)
-    a = asyncio.create_task(anlage_mit_anderem_namen())
-    for _ in range(5):
-        await asyncio.sleep(0)
-
-    assert erreicht == ["umbenennen an", "anlage am schloss"], erreicht
-    tor.set()
-    await asyncio.gather(u, a)
