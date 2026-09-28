@@ -557,9 +557,10 @@ async def test_extend_match_adds_only_assets_missing_from_the_album(monkeypatch)
     )
 
     assert add_calls == [["asset-2"]]
-    # Gemessen am BESTAND: Der Dienst arbeitet seit der zweiten Nacharbeit an
-    # #79 auf einem im Schloss frisch gelesenen Datensatz, die Kopie des
-    # Aufrufers wandert also nicht mehr mit — und das ist der Sinn der Sache.
+    # Gemessen am BESTAND: Der Dienst arbeitet seit #101 auf einem im Schloss
+    # frisch gelesenen Datensatz, die Kopie des Aufrufers wandert also nicht
+    # mehr mit — und das ist der Sinn der Sache. (Anders als bei Refresh und
+    # Umbenennen: Dort kam der Umbau schon mit #79, hier erst mit #101.)
     assert store.get_managed_album("managed-1").total_assets == 2
 
 

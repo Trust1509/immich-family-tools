@@ -742,7 +742,7 @@ async def rename_managed_album(
         )
 
 
-async def extend_match(
+async def _extend_match_unlocked(
     managed: ManagedAlbum,
     new_account: Account,
     person_id: str,
@@ -751,7 +751,14 @@ async def extend_match(
     all_accounts: list[Account],
     store: ConfigStore,
 ) -> list[SyncLogEntry]:
-    """Add a new account/person to an existing managed album."""
+    """Add a new account/person to an existing managed album.
+
+    Die Pruefung „Person schon im Album" laeuft auf `managed` — dem
+    Datensatz, den der Aufrufer (`extend_match`) unter dem Schloss frisch
+    gelesen hat (`_frisch`). Auf einer aelteren Kopie liefe sie ins Leere:
+    Zwei gleichzeitige Aufrufe fuer dieselbe Person saehen beide die alte
+    Liste ohne die jeweils andere und fuegten die Person zweimal an (#101).
+    """
     logs: list[SyncLogEntry] = []
     account_map = {a.id: a for a in all_accounts}
 
@@ -891,6 +898,33 @@ async def extend_match(
     store.update_managed_album(managed)
 
     return logs
+
+
+async def extend_match(
+    managed: ManagedAlbum,
+    new_account: Account,
+    person_id: str,
+    person_name: Optional[str],
+    canonical_name: Optional[str],
+    all_accounts: list[Account],
+    store: ConfigStore,
+) -> list[SyncLogEntry]:
+    """Serialize extensions with refreshes and renames under dasselbe Schloss.
+
+    Dieselbe Schlossform wie Refresh und Umbenennen — siehe `_album_schloss`
+    — und derselbe Neu-Einlesevorgang: siehe `_frisch`. Ohne das Schloss
+    schreibt eine Erweiterung mit einem Abbild von vor einem Umbenennen den
+    alten Namen zurueck (#101, derselbe Mechanismus wie bei #79). Ohne
+    `_frisch` ueberschreiben zwei gleichzeitige Erweiterungen auf dasselbe
+    Album einander: Beide lesen `person_refs` von vorher, jede haengt ihre
+    Person an ihre eigene Kopie, und `update_managed_album` ersetzt den
+    Datensatz GANZ — die zweite Schreibung wirft die erste weg.
+    """
+    async with _album_schloss(managed.id):
+        return await _extend_match_unlocked(
+            _frisch(managed, store), new_account, person_id, person_name,
+            canonical_name, all_accounts, store,
+        )
 
 
 async def undo_sync_name(account: Account, person_id: str, previous_name: str) -> SyncLogEntry:
