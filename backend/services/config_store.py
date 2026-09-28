@@ -823,11 +823,18 @@ class ConfigStore:
           das erzeugt den verwaisten Zustand).
         - `dismissed_match_ids` und `synced_name_match_ids` bleiben
           vollstaendig: Eine Match-Kennung ist `md5(sortierte Personen-IDs)`
-          (`face_matcher._match_id`, `pair_match_id`) und traegt kein Konto —
-          ein gezieltes Entfernen ginge nur ueber die Personen-IDs des
-          Kontos, die hier nicht vorliegen. Wird das Konto neu angelegt,
-          tragen seine Immich-Personen dieselben IDs; eine alte Ablehnung
-          gilt dann unveraendert weiter (`CONTEXT.md`, „Dismissed Match").
+          (`face_matcher._match_id`, `pair_match_id`) und traegt kein Konto.
+          Fuer Personen, die in einem Album stehen, LIEGEN die Personen-IDs
+          hier durchaus vor (`person_refs`, bevor sie oben entfernt werden);
+          ein gezieltes Entfernen waere fuer DIESE Paare technisch moeglich.
+          Vollstaendig fehlen sie nur fuer Personen des Kontos, die nie in
+          einem Album auftauchten. Behalten ist trotzdem die richtige Wahl,
+          unabhaengig davon (Owner-Entscheid #112, technisch begruendet vom
+          Agenten): Wird das Konto neu angelegt, tragen seine Immich-Personen
+          dieselben IDs; eine alte Ablehnung gilt dann unveraendert weiter
+          (`CONTEXT.md`, „Dismissed Match"). Ein gezieltes Raeumen wuerde das
+          zerstoeren, ohne einen Nutzen, den „einfach behalten" nicht schon
+          haette.
         - `sync_log` bleibt vollstaendig, auch Eintraege, deren `details`
           den Kontonamen erwaehnen oder deren `undo_data.account_id` auf das
           geloeschte Konto zeigt. Ein Rueckgaengig-Versuch auf einen solchen

@@ -189,3 +189,63 @@ def test_protokoll_bleibt_vollstaendig_auch_bei_undo_data_auf_das_konto(tmp_path
 
     verlauf = [e.id for e in store.get_log()]
     assert "log-undo" in verlauf, "Eintrag mit undo_data auf das geloeschte Konto ist verschwunden"
+
+
+def test_protokoll_bleibt_vollstaendig_im_echten_produktionsformat(tmp_path):
+    """Nacharbeit 1 (Blindpruefer): deckt eine SCHWAECHERE Wiederkehr des
+    Teilwort-Filters ab, die die vorige Probe nicht faengt.
+
+    `test_protokoll_bleibt_vollstaendig_auch_mit_kontoname_als_teilwort` waehlt
+    absichtlich einen Namen ("Carla"), der als GANZES Wort NICHT in seinem
+    Text vorkommt ("Carlas" hat danach kein Wortende) — ein kuenftiger Filter,
+    der auf Wortgrenzen umgestellt wuerde (`\\bName\\b` statt Teilwort), bliebe
+    an dieser Probe unentdeckt gruen. Hier steht deshalb das ECHTE Format aus
+    `sync_service.sync_names` (`f"Account '{account.name}' – person ..."`),
+    in dem der Kontoname klar von Anfuehrungszeichen umgeben und damit ein
+    vollstaendiges Wort ist — ein Wortgrenzen-Filter wuerde IHN treffen.
+    """
+    store = ConfigStore(str(tmp_path / "accounts.json"))
+    besitzer = _konto(store, "Carla Huber")
+    store.append_log([SyncLogEntry(
+        id="log-produktionsformat", timestamp=datetime.now(timezone.utc).isoformat(),
+        action="sync_names",
+        details=f"Account '{besitzer.name}' – person p-x → 'Neuer Name'",
+        status="success",
+    )])
+
+    assert store.delete_account(besitzer.id)
+
+    verlauf = [e.id for e in store.get_log()]
+    assert "log-produktionsformat" in verlauf, (
+        "Eintrag im echten Produktionsformat ist verschwunden"
+    )
+
+
+def test_ablehnungen_und_merker_mit_echten_paar_ids_bleiben(tmp_path):
+    """Nacharbeit 1 (Blindpruefer): deckt eine GEZIELTERE Wiederkehr des alten
+    Leerens ab.
+
+    `test_ablehnungen_und_namensmerker_bleiben_unveraendert` prueft mit
+    frei erfundenen Kennungen ("md5-irgendein-paar") — die traefen ein
+    kuenftiges GEZIELTES Entfernen (nur die Paare des geloeschten Kontos,
+    ueber dessen echte Personen-IDs aus `person_refs` und
+    `ConfigStore.pair_match_id` berechnet) gar nicht und bliebe daran
+    unentdeckt gruen. Hier steht deshalb eine ECHTE Paar-Kennung fuer eine
+    Person des geloeschten Kontos. Der Owner-Entscheid zu #112 verbietet ein
+    gezieltes Entfernen ausdruecklich (technisch begruendet: Ablehnungen und
+    Merker schaden nicht, und ein neu angelegtes Konto bekaeme ohnehin
+    dieselben Immich-Personen-IDs).
+    """
+    store = ConfigStore(str(tmp_path / "accounts.json"))
+    besitzer = _konto(store, "Besitzer")
+    teilnehmer = _konto(store, "Teilnehmer")
+    _album(store, album_id="a1", owner_id=besitzer.id,
+           person_refs=[_ref(besitzer), _ref(teilnehmer)])
+    echte_paar_id = ConfigStore.pair_match_id(f"person-{besitzer.id}", f"person-{teilnehmer.id}")
+    store.dismiss_match(echte_paar_id)
+    store.mark_names_synced(echte_paar_id)
+
+    assert store.delete_account(besitzer.id)
+
+    assert echte_paar_id in store.get_dismissed_ids(), "echte Paar-Ablehnung verschwunden"
+    assert echte_paar_id in store.get_synced_name_ids(), "echter Paar-Merker verschwunden"

@@ -314,7 +314,17 @@ export default function AccountManager() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.accounts.remove(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["accounts"] }),
+    // Nacharbeit 1 (Fremd- und Gegenpruefer, #99/#112): Ein geloeschtes
+    // Konto veraendert, was die Albumliste ueber Besitzer und Personenzahl
+    // zeigt (Markierung, gesperrtes Umbenennen) UND das Sync-Log (gesperrtes
+    // Rueckgaengig) — beide bleiben ohne diese Invalidierung bis zu ihrer
+    // eigenen `staleTime` auf dem alten Stand, mit freien Knoepfen auf einem
+    // Bestand, der gerade sein Besitzerkonto verloren hat.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["managed-albums"] });
+      qc.invalidateQueries({ queryKey: ["sync-log"] });
+    },
   });
 
   return (

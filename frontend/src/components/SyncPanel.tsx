@@ -29,8 +29,18 @@ function LogRow({
   // schon ab, wenn `undo_data.account_id` kein lebendes Konto mehr ist
   // (`errors.account_gone`) — die Oberflaeche bietet den Knopf dann gar
   // nicht erst an, mit dem Grund als Hinweis statt eines Fehlers aus Immich.
+  //
+  // FAIL-CLOSED (Nacharbeit 1, Fremdpruefer-Fund): `lebendeKonten` ist
+  // `undefined`, solange die Kontenliste noch laedt ODER ihre Anfrage
+  // gescheitert ist. Die erste Fassung deutete das als "nicht tot" und bot
+  // den Knopf frei an — genau dann, wenn die Antwort am unsichersten ist.
+  // `kontoUnbekannt` haelt den Knopf in beiden Faellen zurueck, ohne die
+  // (moeglicherweise falsche) Behauptung "Konto geloescht" zu zeigen; nur
+  // eine ERFOLGREICH geladene Liste, in der das Konto wirklich fehlt, zeigt
+  // die Sperre mit Grund.
+  const kontoUnbekannt = !lebendeKonten;
   const kontoTot =
-    !!lebendeKonten &&
+    !kontoUnbekannt &&
     !!entry.undo_data &&
     !lebendeKonten.has(entry.undo_data.account_id as string);
   const ts = formatDate(entry.timestamp, LANG_LOCALES[lang]);
@@ -71,7 +81,10 @@ function LogRow({
             {t("undo_locked_account_gone_hint")}
           </span>
         )}
-        {canUndo && !kontoTot && (
+        {/* kontoUnbekannt (laedt oder gescheitert): bewusst STILL — kein
+            Knopf, aber auch keine Behauptung "Konto geloescht", die noch
+            gar nicht feststeht. */}
+        {canUndo && !kontoTot && !kontoUnbekannt && (
           <button
             onClick={() => undoMutation.mutate()}
             disabled={undoMutation.isPending}

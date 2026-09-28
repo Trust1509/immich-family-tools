@@ -56,7 +56,8 @@ async def test_auto_sync_ueberspringt_album_ohne_lebenden_besitzer(monkeypatch):
     markiert das Album bereits (`GET /api/sync/albums`); ein wiederkehrendes,
     bekanntes Fehlersignal verdeckt sonst echte Funde
     (`docs/agents/lehren.md` §45). Der MANUELLE Refresh ist davon nicht
-    betroffen — siehe `test_umbenennen_fehlerwege.py` und die Tuer-Probe.
+    betroffen — siehe `test_tuer_probe_konto_loeschen.py` (Schritt 4: Refresh
+    meldet weiterhin `log_owner_account_missing`).
     """
     gesund = ManagedAlbum(
         id="gesund", match_id="m-gesund", album_id="immich-gesund",

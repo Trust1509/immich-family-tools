@@ -98,3 +98,58 @@ def test_die_markierung_landet_nicht_in_accounts_json(client):
     for album in roh["managed_albums"]:
         assert "owner_account_missing" not in album, album
         assert "too_few_people" not in album, album
+
+
+def test_lebender_besitzer_ohne_eigenen_personenbezug_wird_nicht_markiert(tmp_path, monkeypatch):
+    """Nacharbeit 1 (Gegenpruefer, ueber `names-multi` erreichbar): die
+    Markierung muss aus dem KONTENBESTAND kommen, nicht aus `person_refs`.
+
+    Ein Album hat immer genau EIN Besitzerkonto (`owner_account_id`), das
+    Immich-seitig teilt — es muss aber nicht selbst unter den `person_refs`
+    auftauchen (etwa: es teilt ein Album fuer zwei andere Konten, ohne
+    selbst eine verknuepfte Person zu haben). Das ist ein gueltiger, gemessen
+    ueber `POST /api/sync/names-multi` mit einem abweichenden
+    `owner_account_id` erreichbarer Zustand — kein Konstrukt. Eine Markierung,
+    die stattdessen prueft, ob der Besitzer UNTER den `person_refs` steht,
+    wuerde dieses Album faelschlich als verwaist melden, obwohl das Konto lebt.
+    """
+    import main
+
+    besitzer = {"id": "besitzer-teilt-nur", "name": "Teilt Nur",
+                "immich_url": "http://teilt.invalid", "api_key": "platzhalter",
+                "color": "#444444", "user_id": "u-teilt"}
+    teilnehmer = {"id": "teilnehmer-x", "name": "Teilnehmer X",
+                  "immich_url": "http://x.invalid", "api_key": "platzhalter",
+                  "color": "#555555", "user_id": "u-x"}
+    album = {
+        "id": "album-owner-ohne-ref", "match_id": "m-owner-ohne-ref",
+        "album_id": "immich-owner-ohne-ref", "album_name": "Nur Teilnehmer",
+        "group_id": "gruppe-owner-ohne-ref", "owner_account_id": "besitzer-teilt-nur",
+        "person_refs": [
+            {"account_id": "teilnehmer-x", "person_id": "p-x",
+             "person_name": "P X", "account_name": "Teilnehmer X",
+             "account_color": "#555555"},
+            {"account_id": "teilnehmer-y", "person_id": "p-y",
+             "person_name": "P Y", "account_name": "Teilnehmer Y",
+             "account_color": "#666666"},
+        ],
+        "linked_match_ids": [], "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({
+        "accounts": {"besitzer-teilt-nur": besitzer, "teilnehmer-x": teilnehmer},
+        "schema_version": 3,
+        "managed_albums": [album],
+    }), encoding="utf-8")
+    monkeypatch.setattr(main.settings, "secret", "nur-fuer-den-test", raising=False)
+    monkeypatch.setattr(main.settings, "config_path", pfad, raising=False)
+
+    with TestClient(main.app) as c:
+        c.post("/api/auth/login", json={"token": "nur-fuer-den-test"})
+        alben = c.get("/api/sync/albums").json()
+        antwort = next(a for a in alben if a["id"] == "album-owner-ohne-ref")
+        assert antwort["owner_account_missing"] is False, (
+            "Ein lebender Besitzer ohne eigenen Personenbezug im Album "
+            "wurde faelschlich als verwaist markiert"
+        )
+        assert antwort["too_few_people"] is False, antwort

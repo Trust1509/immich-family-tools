@@ -100,13 +100,17 @@ async def _run_auto_sync(app_state) -> None:
     Alben ohne lebenden Besitzer werden UEBERSPRUNGEN statt abgeglichen
     (Owner-Entscheid 28.09.2026, #99): Ohne Besitzerkonto liefert der
     Abgleich ohnehin nur `log_owner_account_missing` — jede Nacht, fuer
-    dasselbe Album, bis das Konto neu angelegt oder das Album entfernt wird.
-    Ein wiederkehrendes, bekanntes Fehlersignal verdeckt echte Funde
-    (`docs/agents/lehren.md` §45); die Oberflaeche markiert diese Alben
-    bereits (`GET /api/sync/albums`). Der MANUELLE Abgleich (Knopf in der
-    Albumuebersicht, `POST /api/sync/album/{id}/refresh`) laeuft weiterhin
-    unveraendert ueber `sync_service.refresh_managed_album` und meldet den
-    Grund — dieser Skip betrifft ausschliesslich den naechtlichen Auto-Sync.
+    dasselbe Album, bis das Album aus der Verwaltung entfernt wird. EIN NEU
+    ANGELEGTES KONTO HEILT DAS NICHT: `Account.from_create` vergibt jedem
+    Konto eine frische, zufaellige Kennung (`uuid.uuid4()`), auch fuer
+    dieselbe Immich-Instanz mit denselben Zugangsdaten — sie trifft nie
+    wieder auf das `owner_account_id` des alten Albums. Ein wiederkehrendes,
+    bekanntes Fehlersignal verdeckt echte Funde (`docs/agents/lehren.md`
+    §45); die Oberflaeche markiert diese Alben bereits (`GET
+    /api/sync/albums`). Der MANUELLE Abgleich (Knopf in der Albumuebersicht,
+    `POST /api/sync/album/{id}/refresh`) laeuft weiterhin unveraendert ueber
+    `sync_service.refresh_managed_album` und meldet den Grund — dieser Skip
+    betrifft ausschliesslich den naechtlichen Auto-Sync.
     """
     from services.sync_service import refresh_managed_album
     store = app_state.store

@@ -729,8 +729,10 @@ export const translations = {
     "es-ES": "Cambiar nombre del álbum",
   },
   // Markierungen und Sperr-Hinweise fuer verwaiste/knappe Alben (#99, #112,
-  // Owner-Entscheid 28.09.2026). Text statt nur Farbe — CONTEXT.md,
-  // "Orphaned Managed Album".
+  // Owner-Entscheid 28.09.2026 fuer die Markierung selbst; die Aufteilung
+  // Umbenennen-gesperrt/Abgleich-uebersprungen ist eine technische
+  // Entscheidung des Hauptagenten, Nacharbeit 1). Text statt nur Farbe —
+  // CONTEXT.md, "Orphaned Managed Album".
   album_owner_missing_badge: {
     de: "Besitzerkonto gelöscht",
     en: "Owner account deleted",
@@ -743,11 +745,27 @@ export const translations = {
     "pt-BR": "Apenas uma pessoa restante",
     "es-ES": "Solo queda una persona",
   },
+  // Eigener Text fuer NULL verbleibende Personen (Nacharbeit 1, kleiner
+  // Fund): "Nur noch eine Person" waere hier schlicht falsch.
+  album_no_people_badge: {
+    de: "Keine Person mehr verknüpft",
+    en: "No person linked anymore",
+    "pt-BR": "Nenhuma pessoa mais vinculada",
+    "es-ES": "Ya no hay ninguna persona vinculada",
+  },
+  // Nur noch das UMBENENNEN wird gesperrt (Nacharbeit 1) — der Abgleich
+  // ueberspringt verwaiste Alben nur noch, siehe `album_sync_skips_orphaned_hint`.
   album_locked_owner_missing_hint: {
-    de: "Umbenennen und Abgleichen sind gesperrt: Besitzerkonto gelöscht.",
-    en: "Renaming and syncing are locked: owner account deleted.",
-    "pt-BR": "Renomear e sincronizar estão bloqueados: conta proprietária excluída.",
-    "es-ES": "Cambiar el nombre y sincronizar están bloqueados: cuenta propietaria eliminada.",
+    de: "Umbenennen ist gesperrt: Besitzerkonto gelöscht.",
+    en: "Renaming is locked: owner account deleted.",
+    "pt-BR": "Renomear está bloqueado: conta proprietária excluída.",
+    "es-ES": "Cambiar el nombre está bloqueado: cuenta propietaria eliminada.",
+  },
+  album_sync_skips_orphaned_hint: {
+    de: "Verwaiste Alben werden beim Abgleich übersprungen.",
+    en: "Orphaned albums are skipped during sync.",
+    "pt-BR": "Álbuns órfãos são ignorados durante a sincronização.",
+    "es-ES": "Los álbumes huérfanos se omiten durante la sincronización.",
   },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────

@@ -27,10 +27,12 @@ interface AlbumGroup {
   last_synced_at: string | undefined;
   owner_name: string;
   person_refs: ManagedAlbum["person_refs"];
-  // Markierungen aus GET /api/sync/albums (#99, #112) — beim Lesen berechnet,
-  // nicht gespeichert. Betrifft IRGENDEIN Album der Gruppe: Eine Gruppe
-  // buendelt je ein Album pro Konto, und schon ein einziges verwaistes Album
-  // darin sperrt die Gruppen-Aktionen (Owner-Entscheid 28.09.2026).
+  // Markierungen aus GET /api/sync/albums — beim Lesen berechnet, nicht
+  // gespeichert (Owner-Entscheid 28.09.2026, #99/#112). Betrifft IRGENDEIN
+  // Album der Gruppe: Eine Gruppe buendelt je ein Album pro Konto, und schon
+  // ein einziges verwaistes Album darin sperrt das Umbenennen der Gruppe —
+  // WAS genau gesperrt wird, ist eine technische Entscheidung des
+  // Hauptagenten (Nacharbeit 1), siehe `renameLocked` unten.
   ownerMissing: boolean;
   tooFewPeople: boolean;
 }
@@ -120,11 +122,21 @@ function AlbumGroupCard({
   const displayLogs = !lokalZuletzt && externalLogs !== undefined ? externalLogs : localLogs;
   const syncing = externalSyncing || localSyncing;
 
+  // Nacharbeit 1 (Hauptagent, technisch entschieden — KEIN Owner-Entscheid,
+  // siehe `renameLocked` unten): Der Abgleich sperrt NICHT die ganze Gruppe.
+  // Er laeuft wie der Auto-Sync nur fuer Alben mit lebendem Besitzer und
+  // UEBERSPRINGT verwaiste — sonst erzeugte jeder Klick auf "Jetzt
+  // synchronisieren" denselben `log_owner_account_missing`-Fehlereintrag,
+  // den der Auto-Sync (`main._run_auto_sync`) genau deshalb nicht mehr
+  // schreibt (`docs/agents/lehren.md` §45). Die Markierung weiter oben
+  // bleibt der sichtbare Hinweis, warum ein Teil der Gruppe fehlt.
+  const gesundeAlben = group.albums.filter((album) => !album.owner_account_missing);
+
   const handleRefresh = async () => {
     setLocalSyncing(true);
     setLocalLogs(null);
     const allLogs: SyncLogEntry[] = [];
-    for (const album of group.albums) {
+    for (const album of gesundeAlben) {
       try {
         allLogs.push(...(await api.sync.refreshAlbum(album.id)));
       } catch (_) {}
@@ -154,6 +166,19 @@ function AlbumGroupCard({
   };
 
   const handleRename = async () => {
+    // Nacharbeit 1 (Gegenpruefer, gemessen): Ohne diese Pruefung HIER blieb
+    // ein bereits GEOEFFNETES Eingabefeld offen, wenn die Sperre erst
+    // WAEHREND des Bearbeitens eintrat (Konto in einem anderen Tab
+    // geloescht, Liste neu geladen) — Enter benannte dann nur das gesunde
+    // Album um, die Gruppe trug danach zwei Namen. Der Effekt unten schliesst
+    // das Feld zusaetzlich von sich aus, sobald die Sperre eintritt; diese
+    // Pruefung faengt das Fenster dazwischen (Klick/Enter, bevor der Effekt
+    // gelaufen ist).
+    if (renameLocked) {
+      setRenaming(false);
+      setRenameValue(group.album_name);
+      return;
+    }
     const nextName = renameValue.trim();
     // KEIN Abbruch bei „Name gleich dem Gruppennamen“: Der Gruppenname ist vom
     // ERSTEN Album abgeleitet (`groupAlbums`). Nach einem Teilfehler traegt das
@@ -199,12 +224,27 @@ function AlbumGroupCard({
   };
 
   const isDeleted = displayLogs?.some((e) => e.error_message === "ALBUM_DELETED");
-  // Owner-Entscheid 28.09.2026 (#99, #112): Ein Album ohne lebenden
-  // Besitzer sperrt Umbenennen und Abgleichen der GANZEN Gruppe, mit dem
-  // Grund als Hinweis — Entfernen bleibt moeglich. "Nur noch eine Person"
-  // sperrt fuer sich allein nichts, wird aber ebenfalls sichtbar (Text,
-  // nicht nur Farbe).
-  const locked = group.ownerMissing;
+  // NICHT Owner-Entscheid — technisch vom Hauptagenten entschieden
+  // (Nacharbeit 1, #99/#112): Ein Album ohne lebenden Besitzer sperrt
+  // UMBENENNEN der ganzen Gruppe (sonst eine halb umbenannte Gruppe mit
+  // zwei Namen — jedes Album traegt seinen Namen einzeln, Umbenennen laeuft
+  // in einer Schleife ueber `group.albums`). Der ABGLEICH sperrt NICHT:
+  // er laeuft fuer die gesunden Alben weiter und ueberspringt die
+  // verwaisten, siehe `gesundeAlben` oben. Entfernen bleibt in jedem Fall
+  // moeglich. "Nur noch eine Person"/"keine Person mehr" sperrt fuer sich
+  // allein nichts, wird aber ebenfalls sichtbar (Text, nicht nur Farbe).
+  const renameLocked = group.ownerMissing;
+
+  // Schliesst ein offenes Umbenennen-Feld, sobald die Sperre eintritt —
+  // siehe die Pruefung am Kopf von `handleRename` fuer das Fenster davor.
+  React.useEffect(() => {
+    if (renameLocked) {
+      setRenaming(false);
+      setRenameValue(group.album_name);
+      setRenameError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renameLocked]);
 
   return (
     <div className={`card space-y-4 ${isDeleted ? "border-red-800" : ""}`}>
@@ -253,7 +293,7 @@ function AlbumGroupCard({
               <h3 className="font-semibold">{group.album_name}</h3>
             )}
             <p className="text-xs text-gray-500">
-              {t("owner")}: {group.owner_name}
+              {t("owner")}: {group.ownerMissing ? t("album_owner_missing_badge") : group.owner_name}
             </p>
           </div>
         </div>
@@ -286,7 +326,23 @@ function AlbumGroupCard({
           <span>
             {group.ownerMissing && t("album_owner_missing_badge")}
             {group.ownerMissing && group.tooFewPeople && " · "}
-            {group.tooFewPeople && t("album_too_few_people_badge")}
+            {/* 0 und 1 verbleibende Person(en) sind unterschiedliche Texte
+                (Nacharbeit 1, kleiner Fund): "Nur noch eine Person" waere bei
+                null Personen falsch. */}
+            {group.tooFewPeople &&
+              (group.person_refs.length === 0
+                ? t("album_no_people_badge")
+                : t("album_too_few_people_badge"))}
+            {/* Sichtbarer Hinweis, dass der Abgleich verwaiste Alben
+                UEBERSPRINGT statt sie zu sperren (Nacharbeit 1) — nur wenn
+                noch mindestens ein gesundes Album da ist; sind alle
+                verwaist, sagt schon der Markierungstext oben alles. */}
+            {group.ownerMissing && gesundeAlben.length > 0 && (
+              <>
+                {" · "}
+                {t("album_sync_skips_orphaned_hint")}
+              </>
+            )}
           </span>
         </div>
       )}
@@ -309,8 +365,8 @@ function AlbumGroupCard({
             setRenameError(null);
             setRenaming(true);
           }}
-          disabled={syncing || deleting || renaming || locked}
-          title={locked ? t("album_locked_owner_missing_hint") : undefined}
+          disabled={syncing || deleting || renaming || renameLocked}
+          title={renameLocked ? t("album_locked_owner_missing_hint") : undefined}
         >
           <Pencil size={13} />
           {t("album_rename_action")}
@@ -318,8 +374,12 @@ function AlbumGroupCard({
         <button
           className="btn-primary text-xs flex items-center gap-1.5"
           onClick={handleRefresh}
-          disabled={syncing || locked}
-          title={locked ? t("album_locked_owner_missing_hint") : undefined}
+          disabled={syncing || gesundeAlben.length === 0}
+          title={
+            group.ownerMissing && gesundeAlben.length > 0
+              ? t("album_sync_skips_orphaned_hint")
+              : undefined
+          }
         >
           {localSyncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           {t("sync_now")}
@@ -433,7 +493,12 @@ export default function AlbumsOverview() {
 
     for (const group of groups) {
       const groupLogs: SyncLogEntry[] = [];
-      for (const album of group.albums) {
+      // Nacharbeit 1: wie der einzelne "Jetzt synchronisieren"-Knopf und wie
+      // der Auto-Sync — verwaiste Alben werden UEBERSPRUNGEN, nicht mit
+      // demselben Fehlereintrag pro Klick bedacht (siehe `gesundeAlben` in
+      // `AlbumGroupCard`).
+      const gesunde = group.albums.filter((album) => !album.owner_account_missing);
+      for (const album of gesunde) {
         try {
           groupLogs.push(...(await api.sync.refreshAlbum(album.id)));
         } catch (_) {}

@@ -77,4 +77,44 @@ describe("SyncPanel: Rueckgaengig-Sperre bei totem Konto", () => {
     expect(screen.getByRole("button", { name: /Rückgängig/i })).toBeTruthy();
     expect(screen.queryByText(/Rückgängig gesperrt/i)).toBeNull();
   });
+
+  // Nacharbeit 1 (Fremdpruefer, gemessen): FAIL-CLOSED. Die erste Fassung
+  // deutete eine noch ladende oder gescheiterte Kontenliste als "Konto lebt"
+  // (`lebendeKonten` blieb `undefined`, `kontoTot` blieb `false`) und bot den
+  // Knopf frei an — genau dann, wenn die Antwort am unsichersten ist.
+  it("bietet Rueckgaengig NICHT an, solange die Kontenliste noch laedt", async () => {
+    logMock.mockResolvedValue([eintrag("log-3", "konto-tot")]);
+    let freigeben: (() => void) | undefined;
+    accountsMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          freigeben = () => resolve([{ id: "konto-lebt", name: "Lebt", color: "#111" }]);
+        })
+    );
+
+    await rendern();
+
+    // Die Kontenliste haengt noch — weder der Knopf noch die "gesperrt"-
+    // Behauptung duerfen schon stehen, die noch gar nicht feststeht.
+    expect(screen.queryByRole("button", { name: /Rückgängig/i })).toBeNull();
+    expect(screen.queryByText(/Rückgängig gesperrt/i)).toBeNull();
+
+    freigeben?.();
+    await waitFor(() => expect(screen.getByText(/Rückgängig gesperrt/i)).toBeTruthy());
+  });
+
+  it("bietet Rueckgaengig NICHT an, wenn die Kontenliste nicht geladen werden konnte", async () => {
+    logMock.mockResolvedValue([eintrag("log-4", "konto-tot")]);
+    accountsMock.mockRejectedValue(new Error("netzwerk kaputt"));
+
+    await rendern();
+
+    await waitFor(() => expect(accountsMock).toHaveBeenCalled());
+    // `retry: false` (Test-QueryClient) heisst: nach einem Tick ist der
+    // Fehlerzustand da, nicht mehr "laedt noch".
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(screen.queryByRole("button", { name: /Rückgängig/i })).toBeNull();
+    expect(screen.queryByText(/Rückgängig gesperrt/i)).toBeNull();
+  });
 });
