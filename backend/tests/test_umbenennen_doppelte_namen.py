@@ -4,7 +4,7 @@ Zwei verschiedene Albumgruppen duerfen seither denselben Namen tragen. Die
 Kollisionspruefung, die das bis hierher verhindert hat
 (`ConfigStore.namen_mit_anderer_antwort`, Meldung `errors.album_name_in_use`,
 Namensschloss `store.gruppen_schloss` in der Umbenenn-Route), ist entfernt —
-samt ihren Proben in `test_umbenennen_kollision.py` (Datei geloescht) und den
+samt ihren eigenen Proben (Testdatei geloescht, siehe CHANGELOG 1.9.0) und den
 Faellen in `test_umbenennen_gruppe.py` und `test_umbenennen_schloss.py`, die
 eine Ablehnung erwarteten. Diese Datei haelt das neue, gewollte Verhalten fest:
 ein Umbenennen auf den Namen einer FREMDEN Gruppe gelingt.

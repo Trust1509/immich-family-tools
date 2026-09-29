@@ -96,6 +96,8 @@ album count no longer includes them.
   `owner_account_missing` and `too_few_people`; `err_album_name_in_use` is no
   longer returned. `DELETE /api/sync/albums/{id}` may wait until an operation
   already running on the same album has finished.
+- `backend/tests/test_umbenennen_kollision.py` is removed together with the
+  collision check it tested (#98).
 
 ## [1.8.0] – 2026-09-27
 
