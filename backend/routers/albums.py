@@ -511,9 +511,16 @@ async def rename_managed_album(
     managed = next((album for album in alle_alben if album.id == managed_album_id), None)
     if not managed:
         raise errors.managed_album_not_found()
-    owner = store.get_account(managed.owner_account_id)
-    if not owner:
-        raise errors.owner_account_not_found()
+    # KEINE BESITZERPRUEFUNG MEHR HIER (Owner-Entscheid/Befund #117 Nachtrag,
+    # 29.09.2026): Sie stand bis hierher VOR `sync_service._album_schloss` —
+    # wartete der Aufruf hinter einem laufenden Refresh am Schloss und wurde
+    # WAEHREND dieses Wartens das Besitzerkonto geloescht, arbeitete er
+    # danach mit dem laengst veralteten Konto weiter (PATCH 200, Immich-
+    # Aufruf mit dem Schluessel eines geloeschten Kontos — gemessen mit
+    # erzwungenem Fenster). `sync_service.rename_managed_album` liest den
+    # Besitzer jetzt SELBST, UNTER dem Schloss, aus dem aktuellen Store und
+    # wirft `errors.owner_account_not_found()`, wenn er fehlt — siehe dort.
+    #
     # KEINE GRUPPENWEITE SPERRE MEHR (Owner-Entscheid 29.09.2026, #123): Die
     # Sperre aus Nacharbeit 2 zu #99/#112 (`err_group_member_owner_missing`)
     # ist entfernt. Sie war eine Agenten-Entscheidung, schuetzte eine Regel,
@@ -522,9 +529,11 @@ async def rename_managed_album(
     # angleicht. Umbenennen einer gemischten Gruppe benennt jetzt die Alben
     # MIT lebendem Besitzer um und ueberspringt die verwaisten — wie beim
     # Abgleichen (`AlbumsOverview.tsx`, `gesundeAlben`). Der Server lehnt nur
-    # noch das VERWAISTE Album SELBST ab, ueber die Pruefung direkt oben
-    # (`errors.owner_account_not_found()`); ein Geschwister-Album mit
-    # lebendem Besitzer wird davon nicht mehr beruehrt.
+    # noch das VERWAISTE Album SELBST ab, ueber die Besitzerpruefung UNTER
+    # dem Schloss in `sync_service.rename_managed_album`
+    # (`errors.owner_account_not_found()`, seit #117 Nachtrag dort und nicht
+    # mehr hier); ein Geschwister-Album mit lebendem Besitzer wird davon
+    # nicht mehr beruehrt.
     #
     # KEINE NAMENSPRUEFUNG MEHR (Owner-Entscheid 28.09.2026, #98): Zwei
     # verschiedene Albumgruppen duerfen denselben Namen tragen. Die
@@ -542,7 +551,7 @@ async def rename_managed_album(
     # (Umbenennen gegen Auffrischen) bleibt ebenfalls unveraendert: Es liegt
     # in `sync_service.rename_managed_album` und ist von dieser Aenderung
     # nicht beruehrt.
-    logs = await sync_service.rename_managed_album(managed, owner, new_name, store)
+    logs = await sync_service.rename_managed_album(managed, new_name, store)
     store.append_log(logs)
     return logs
 
@@ -587,8 +596,22 @@ async def delete_managed_album(managed_album_id: str, request: Request):
     gegen alle drei Wrapper). Unter demselben Schloss wartet das Loeschen,
     bis die laufende Operation fertig ist, und entfernt danach den (dann
     aktuellen) Datensatz.
+
+    EXISTENZPRUEFUNG VOR DEM SCHLOSS (#121 Punkt 3): `_album_locks` waechst
+    mit jeder Kennung, fuer die je ein `_album_schloss` genommen wurde, und
+    wird nie geleert (siehe dessen Docstring) — ein Schloss wurde bisher
+    auch fuer eine voellig unbekannte Kennung angelegt, bevor ueberhaupt
+    geprueft war, ob es das Album gibt (gemessen: viele DELETE auf unbekannte
+    Kennungen liessen die Ablage entsprechend wachsen). Die Pruefung unten
+    lehnt eine unbekannte Kennung ab, OHNE ein Schloss anzulegen. Ein Album,
+    das GENAU zwischen dieser Pruefung und dem Schloss verschwindet (z. B.
+    durch ein gleichzeitiges zweites Loeschen), faengt die Pruefung unter dem
+    Schloss (`store.delete_managed_album`) weiterhin ab — diese Zeile ist
+    eine zusaetzliche fruehe Ablehnung, keine Verkuerzung der eigentlichen.
     """
     store = request.app.state.store
+    if store.get_managed_album(managed_album_id) is None:
+        raise errors.managed_album_not_found()
     async with sync_service._album_schloss(managed_album_id):
         ok = store.delete_managed_album(managed_album_id)
     if not ok:

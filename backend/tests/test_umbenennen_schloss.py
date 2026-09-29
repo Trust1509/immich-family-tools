@@ -88,7 +88,7 @@ async def test_ein_refresh_wartet_auf_ein_laufendes_umbenennen(tmp_path, monkeyp
     monkeypatch.setattr(sync_service, "_refresh_managed_album_unlocked", refresh_innen)
 
     u = asyncio.create_task(
-        sync_service.rename_managed_album(verwaltet, konto, "Herbstfest", store))
+        sync_service.rename_managed_album(verwaltet, "Herbstfest", store))
     await asyncio.sleep(0)
     assert protokoll == ["umbenennen an"], protokoll
 
@@ -142,8 +142,8 @@ def test_das_albumschloss_ueberlebt_einen_schleifenwechsel(tmp_path, monkeypatch
 
     async def umkaempft():
         await asyncio.gather(
-            sync_service.rename_managed_album(frisches_album(), konto, "X", store),
-            sync_service.rename_managed_album(frisches_album(), konto, "X", store),
+            sync_service.rename_managed_album(frisches_album(), "X", store),
+            sync_service.rename_managed_album(frisches_album(), "X", store),
         )
         return True
 
@@ -175,8 +175,8 @@ async def test_zwei_alben_blockieren_sich_nicht_gegenseitig(tmp_path, monkeypatc
 
     monkeypatch.setattr(sync_service, "_rename_managed_album_unlocked", umbenennen_innen)
 
-    a = asyncio.create_task(sync_service.rename_managed_album(eins, konto, "X", store))
-    b = asyncio.create_task(sync_service.rename_managed_album(zwei, konto, "Y", store))
+    a = asyncio.create_task(sync_service.rename_managed_album(eins, "X", store))
+    b = asyncio.create_task(sync_service.rename_managed_album(zwei, "Y", store))
     for _ in range(5):
         await asyncio.sleep(0)
 
@@ -273,8 +273,7 @@ async def test_ein_refresh_mit_altem_abbild_holt_den_alten_namen_nicht_zurueck(
     # So liest der Auto-Sync: EINMAL, vor der Schleife.
     abbild_des_autosync = store.get_managed_albums()[0]
 
-    await sync_service.rename_managed_album(
-        store.get_managed_albums()[0], konto, "Neu", store)
+    await sync_service.rename_managed_album(store.get_managed_albums()[0], "Neu", store)
     assert draussen["wert"] == "Neu"
 
     # Und jetzt kommt er an diesem Album an.
@@ -312,7 +311,7 @@ async def test_ein_umbenennen_mit_altem_abbild_wirft_den_refresh_nicht_weg(
     assert nach_refresh.total_assets == 2, "Attrappe liefert zwei Assets"
     assert nach_refresh.last_synced_at
 
-    await sync_service.rename_managed_album(altes_abbild, konto, "Neu", store)
+    await sync_service.rename_managed_album(altes_abbild, "Neu", store)
 
     danach = store.get_managed_album("a1")
     assert danach.album_name == "Neu"
@@ -372,7 +371,7 @@ async def test_umbenennen_gleichzeitig_mit_refresh_behaelt_refresh_ergebnis(
     abbild = store.get_managed_albums()[0]
     r = asyncio.create_task(sync_service.refresh_managed_album(abbild, [konto], store))
     await asyncio.sleep(0)
-    n = asyncio.create_task(sync_service.rename_managed_album(abbild, konto, "Neu", store))
+    n = asyncio.create_task(sync_service.rename_managed_album(abbild, "Neu", store))
     for _ in range(5):
         await asyncio.sleep(0)
     tor.set()
@@ -413,7 +412,7 @@ async def test_refresh_gleichzeitig_mit_umbenennen_behaelt_den_neuen_namen(
 
     abbild = store.get_managed_albums()[0]
     n = asyncio.create_task(
-        sync_service.rename_managed_album(abbild, konto, "Neu", store))
+        sync_service.rename_managed_album(abbild, "Neu", store))
     await asyncio.sleep(0)
     r = asyncio.create_task(sync_service.refresh_managed_album(abbild, [konto], store))
     for _ in range(5):

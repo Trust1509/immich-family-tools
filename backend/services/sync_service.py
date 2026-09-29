@@ -505,7 +505,16 @@ async def _refresh_managed_album_unlocked(
     new_total = 0
 
     # Get current asset IDs in album (using owner's key)
-    owner = account_map.get(managed.owner_account_id)
+    #
+    # FRISCH AUS DEM STORE, NICHT AUS `account_map` (#117 Nachtrag): `all_accounts`
+    # ist ein Schnappschuss, den der Aufrufer VOR dem Albumschloss gebaut hat
+    # (`routers/albums.py`, `main._run_auto_sync`). Wird der Besitzer
+    # GENAU WAEHREND dieser Funktion auf ihr Schloss wartet geloescht, traegt
+    # `account_map` ihn trotzdem noch — mit seinem jetzt ungueltigen API-
+    # Schluessel. Gemessen (erzwungenes Fenster): Immich bekam einen
+    # Aufruf mit dem Schluessel eines Kontos, das zu diesem Zeitpunkt schon
+    # geloescht war. `store.get_account` liest dagegen den AKTUELLEN Bestand.
+    owner = store.get_account(managed.owner_account_id)
     if not owner:
         return [SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
@@ -675,8 +684,11 @@ async def refresh_managed_album(
     dem Lesen des Aufrufers und dem Schloss verschwunden ist (`_frisch`
     liefert dann `None`) — VOR jedem Immich-Aufruf, siehe `_frisch` (#101,
     Nacharbeit 1). Der Auto-Sync faengt das je Album ab
-    (`main._run_auto_sync`, `except Exception`); ein Router-Aufruf sieht ein
-    404 wie beim schon vorher unbekannten Album.
+    (`main._run_auto_sync`, eigene `except errors.AppError`-Zeile, die an der
+    FEHLERART haengt — `exc.key == "err_managed_album_not_found"`, nicht am
+    Statuscode; #121/#103 Punkt 4/3, dort stand vorher `except Exception`,
+    was nie zutraf); ein Router-Aufruf sieht ein 404 wie beim schon vorher
+    unbekannten Album.
     """
     async with _album_schloss(managed.id):
         frisches = _frisch(managed, store)
@@ -751,7 +763,6 @@ async def _rename_managed_album_unlocked(
 
 async def rename_managed_album(
     managed: ManagedAlbum,
-    owner_account: Account,
     new_name: str,
     store: ConfigStore,
 ) -> list[SyncLogEntry]:
@@ -765,11 +776,33 @@ async def rename_managed_album(
     Bricht mit `errors.managed_album_not_found()` ab, wenn `_frisch` `None`
     liefert (Album zwischen Lesen und Schloss geloescht) — VOR dem
     `update_album`-Aufruf gegen Immich (#101, Nacharbeit 1).
+
+    DER BESITZER WIRD SEIT #117 NACHTRAG NICHT MEHR VOM AUFRUFER UEBERGEBEN,
+    SONDERN HIER, UNTER DEM SCHLOSS, AUS DEM AKTUELLEN STORE GELESEN — vorher
+    loeste `routers/albums.py::rename_managed_album` den Besitzer VOR diesem
+    Schloss auf und reichte ihn als `owner_account` herein. Wartete der
+    Aufruf hinter einem laufenden Refresh am Schloss und wurde WAEHREND
+    dieses Wartens das Besitzerkonto geloescht, lief er danach mit dem
+    veralteten Konto weiter: `PATCH` antwortete 200, Immich bekam
+    `update_album` mit dem API-Schluessel eines zu diesem Zeitpunkt bereits
+    geloeschten Kontos, und ein inzwischen verwaistes Album trug den neuen
+    Namen — obwohl `CONTEXT.md` „Orphaned Managed Album" fuer das Umbenennen
+    eines verwaisten Albums das Gegenteil verspricht. Gemessen mit
+    erzwungenem Fenster (Refresh haelt das Schloss, PATCH wartet, dann
+    Konto-Loeschung, dann Freigabe) — unabhaengig von #123, nicht dadurch
+    eingefuehrt.
+
+    Bricht mit `errors.owner_account_not_found()` ab, wenn der Besitzer unter
+    dem Schloss fehlt — bevor `update_album` gegen Immich laeuft, aus
+    demselben Grund wie der `_frisch`-Abbruch oben.
     """
     async with _album_schloss(managed.id):
         frisches = _frisch(managed, store)
         if frisches is None:
             raise errors.managed_album_not_found()
+        owner_account = store.get_account(frisches.owner_account_id)
+        if not owner_account:
+            raise errors.owner_account_not_found()
         return await _rename_managed_album_unlocked(
             frisches, owner_account, new_name, store
         )
@@ -818,7 +851,12 @@ async def _extend_match_unlocked(
         ))
         return logs
 
-    owner = account_map.get(managed.owner_account_id)
+    # FRISCH AUS DEM STORE, NICHT AUS `account_map` — dieselbe Begruendung
+    # wie in `_refresh_managed_album_unlocked` (#117 Nachtrag): `account_map`
+    # stammt aus einer `all_accounts`-Liste, die der Aufrufer VOR dem
+    # Albumschloss gebaut hat und die einen zwischenzeitlich geloeschten
+    # Besitzer noch enthalten kann.
+    owner = store.get_account(managed.owner_account_id)
     if not owner:
         logs.append(SyncLogEntry(
             id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",

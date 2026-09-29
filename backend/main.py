@@ -141,7 +141,13 @@ async def _run_auto_sync(app_state) -> None:
             # sein — die Liste wurde EINMAL vor der Schleife gelesen.
             logger.info("Auto-sync: album %s done (%d log entries)", album.id, len(logs))
         except errors.AppError as exc:
-            if exc.status_code == 404:
+            # #121/#103 Punkt 3/4: Vorher `exc.status_code == 404` — das trifft
+            # zufaellig auch auf ANDERE Fehlerarten zu, die denselben
+            # Statuscode tragen (z. B. `err_owner_account_not_found`), auch
+            # wenn `refresh_managed_album` diesen konkreten Weg heute nicht
+            # geht. Die Fehlerart entscheidet, nicht der Statuscode: Nur ein
+            # zwischendurch entferntes Album ist kein Fehler des Auto-Syncs.
+            if exc.key == "err_managed_album_not_found":
                 # #101, Nacharbeit 2: Ein Album, das zwischen dem Lesen der
                 # Liste und dieser Runde entfernt wurde (`refresh_managed_
                 # album` wirft dann `errors.managed_album_not_found()`), ist
@@ -150,9 +156,13 @@ async def _run_auto_sync(app_state) -> None:
                 # KENNUNG loggen, nicht `album.album_name`.
                 logger.info("Auto-sync: album %s removed, skipped", album.id)
             else:
-                logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
+                # Die Kennung, nicht der (womoeglich veraltete) Name aus der
+                # Kopie von vor der Schleife — dieselbe Begruendung wie oben,
+                # bisher aber nur fuer die Erfolgszeile umgesetzt (#121 Punkt
+                # 3, #103 Punkt 4).
+                logger.error("Auto-sync: album '%s' failed: %s", album.id, exc)
         except Exception as exc:
-            logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
+            logger.error("Auto-sync: album '%s' failed: %s", album.id, exc)
 
 
 async def _auto_sync_loop(app_state) -> None:

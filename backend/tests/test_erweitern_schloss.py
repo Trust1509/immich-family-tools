@@ -165,7 +165,7 @@ async def test_erweitern_wartet_auf_ein_laufendes_umbenennen(tmp_path, monkeypat
 
     managed = store.get_managed_albums()[0]
     u = asyncio.create_task(
-        sync_service.rename_managed_album(managed, owner, "Neu", store))
+        sync_service.rename_managed_album(managed, "Neu", store))
     await asyncio.sleep(0)
     assert protokoll == ["umbenennen an"], protokoll
 
@@ -253,8 +253,7 @@ async def test_erweitern_mit_altem_abbild_holt_das_umbenennen_nicht_zurueck(
     # So liest der Router: EINMAL, vor dem Aufruf.
     abbild_vor_dem_umbenennen = store.get_managed_albums()[0]
 
-    await sync_service.rename_managed_album(
-        store.get_managed_albums()[0], owner, "Neu", store)
+    await sync_service.rename_managed_album(store.get_managed_albums()[0], "Neu", store)
     assert draussen["wert"] == "Neu"
 
     logs = await sync_service.extend_match(

@@ -85,7 +85,11 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
 
 @router.delete("/{account_id}", status_code=204)
 async def delete_account(account_id: str, request: Request):
-    ok = request.app.state.store.delete_account(account_id)
+    # `ConfigStore.delete_account` ist seit #117 async: Es nimmt je
+    # betroffenem Album dessen `_album_schloss`, damit ein laufender
+    # Refresh/Umbenennen/Erweitern diese Loeschung nicht mit einer alten
+    # Kopie zurueckdrehen kann (siehe Docstring dort).
+    ok = await request.app.state.store.delete_account(account_id)
     if not ok:
         raise errors.account_not_found()
     request.app.state.thumbnail_cache.clear_account(account_id)

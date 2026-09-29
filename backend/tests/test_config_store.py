@@ -30,13 +30,35 @@ def test_invalid_config_fails_closed(tmp_path):
         ConfigStore(str(path))
 
 
-def test_delete_account_removes_local_references(tmp_path):
+@pytest.mark.asyncio
+async def test_delete_account_removes_local_references(tmp_path):
+    # `delete_account` ist seit #117 async: Es nimmt je betroffenem Album
+    # dessen `_album_schloss`, damit ein laufender Refresh/Umbenennen/
+    # Erweitern die Loeschung nicht mit einer alten Kopie zurueckdrehen kann.
     store = ConfigStore(str(tmp_path / "accounts.json"))
     account = store.add_account(
         AccountCreate(name="A", immich_url="http://192.168.1.2", api_key="secret")
     )
-    assert store.delete_account(account.id)
+    assert await store.delete_account(account.id)
     assert store.list_accounts() == []
+
+
+def test_update_managed_album_wirft_bei_unbekannter_kennung(tmp_path):
+    """#103 Punkt 1: still nichts tun ist keine Zusicherung. Vorher kehrte
+    `update_managed_album` fuer eine Kennung, die es nicht (mehr) gibt,
+    erfolgreich zurueck, OHNE etwas zu speichern — der Aufrufer erfuhr nie
+    davon. Jetzt wirft es, weil jeder heutige Aufrufer den Datensatz unter
+    demselben Albumschloss frisch gelesen hat (siehe Docstring dort)."""
+    from models.match import ManagedAlbum
+
+    store = ConfigStore(str(tmp_path / "accounts.json"))
+    phantom = ManagedAlbum(
+        id="steht-nicht-im-bestand", match_id="m", album_id="ia",
+        album_name="Phantom", group_id="g", owner_account_id="konto-1",
+        person_refs=[], created_at="2026-01-01T00:00:00+00:00",
+    )
+    with pytest.raises(LookupError):
+        store.update_managed_album(phantom)
 
 
 # ----------------------------------------------------------------------

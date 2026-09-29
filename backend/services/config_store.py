@@ -65,7 +65,29 @@ _gruppen_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 # Es gibt zwei WEITERE Schloesser im Backend, und sie gehoeren hierher, auch
 # wenn sie sich mit diesen beiden nicht kreuzen (nachgemessen):
 #   `sync_service._album_locks`  je verwaltetem Album, im Abgleich. Wird
-#                                nirgends unter einem der beiden genommen.
+#                                nirgends unter einem der beiden HIER
+#                                genommen — ABER seit #117 nimmt
+#                                `ConfigStore.delete_account` es ebenfalls,
+#                                EIN Album nach dem anderen, nie zwei
+#                                gleichzeitig: Es entfernt Referenzen des
+#                                geloeschten Kontos aus jedem betroffenen
+#                                Album, unter GENAU dem Schloss, das auch
+#                                Refresh/Umbenennen/Erweitern halten, damit
+#                                keiner der drei Schreiber eine Loeschung
+#                                zurueckdrehen kann, waehrend er selbst auf
+#                                Immich wartet (Befund, Issue #117). Verklemmt
+#                                sich das nicht mit sich selbst? Nein: Jede
+#                                Schleifenrunde haelt hoechstens EIN
+#                                `_album_schloss`, nimmt es, schreibt, gibt es
+#                                wieder frei, bevor die naechste Runde ein
+#                                zweites nimmt — zu keinem Zeitpunkt haelt
+#                                `delete_account` zwei Albumschloesser
+#                                gleichzeitig, also gibt es auch keine
+#                                Reihenfolge zwischen zwei Albumschloessern,
+#                                die kippen koennte. Import von
+#                                `sync_service` NUR lokal in der Methode
+#                                (Kreislauf: `sync_service` importiert
+#                                bereits `config_store` auf Modulebene).
 #   `MatchCache.lock`            im Treffer-Zwischenspeicher. `get_matches`
 #                                laeuft in `create_album` VOR dem
 #                                Trefferschloss und gibt es vorher frei.
@@ -800,8 +822,36 @@ class ConfigStore:
         self._save()
         return Account(**raw)
 
-    def delete_account(self, account_id: str) -> bool:
+    async def delete_account(self, account_id: str) -> bool:
         """Entfernt ein Konto und seine Personen-Referenzen — sonst NICHTS.
+
+        SEIT #117 ASYNC UND SCHLOSSPFLICHTIG: `delete_account` schrieb bisher
+        OHNE jedes Albumschloss in `managed_albums`, direkt auf `self._data`.
+        Die drei Schreiber eines Albums (Refresh/Umbenennen/Erweitern) lesen
+        ihren Datensatz dagegen UNTER `sync_service._album_schloss` frisch
+        (`_frisch`), warten auf Immich und schreiben am Ende den GANZEN
+        Datensatz zurueck. Lief `delete_account` in diesem Wartefenster,
+        gewann der spaeter fertige Schreiber mit seiner ALTEN Kopie und nahm
+        die Loeschung wieder zurueck — gemessen (Panel zu #101, erzwungenes
+        Fenster): `konto-3` stand nach `delete_account("konto-3")` parallel
+        zu einer Erweiterung wieder in `person_refs`.
+
+        Die Richtung: Nicht die drei Schreiber vor JEDER fremden Aenderung
+        schuetzen (das waere generisch und teuer), sondern `delete_account`
+        selbst unter dasselbe Schloss stellen, das die drei Schreiber schon
+        halten — je BETROFFENEM Album, auf einem dort frisch gelesenen
+        Datensatz. Damit kann `delete_account` eine laufende Operation nicht
+        mehr ueberholen: Es wartet, bis sie ihr Schloss verlaesst (inklusive
+        ihres eigenen abschliessenden Schreibens), und arbeitet danach auf
+        dem Ergebnis dieser Operation weiter — nie umgekehrt.
+
+        Das Konto selbst (die `accounts`-Zeile) wird VOR der Album-Schleife
+        entfernt und sofort gespeichert: Diese Zeile haengt an keinem
+        Albumschloss, und je frueher sie verschwindet, desto frueher sehen
+        die Besitzerpruefungen der drei Schreiber (#117 Nachtrag,
+        `sync_service.rename_managed_album` u. a.), die den Besitzer JETZT
+        ebenfalls frisch aus dem Store lesen, ein geloeschtes Konto als
+        geloescht.
 
         Owner-Entscheid 28.09.2026 (#99, #112): Nichts verschwindet still.
         Diese Methode raeumte frueher weit mehr auf, als das Konto selbst
@@ -843,18 +893,44 @@ class ConfigStore:
 
         Einzig die `person_refs` des geloeschten Kontos verschwinden aus
         jedem Album, und `linked_match_ids` wird danach neu berechnet — beide
-        haengen direkt am Konto, nicht am Datenbestand insgesamt.
+        haengen direkt am Konto, nicht am Datenbestand insgesamt. Seit #117
+        passiert das je Album UNTER dessen `_album_schloss`, auf einem dort
+        frisch gelesenen Datensatz — siehe den Absatz oben.
         """
         if account_id not in self._data["accounts"]:
             return False
         del self._data["accounts"][account_id]
-        for album in self._data.get("managed_albums", []):
-            album["person_refs"] = [
-                ref for ref in album.get("person_refs", [])
-                if ref.get("account_id") != account_id
-            ]
-            album["linked_match_ids"] = self.compute_linked_match_ids(album["person_refs"])
         self._save()
+
+        # Lokaler Import: `sync_service` importiert `config_store` bereits
+        # auf Modulebene (fuer `ConfigStore`) — ein Import auf Modulebene
+        # HIER waere ein Kreislauf. Siehe die Begruendung beim Schlossregister
+        # oben.
+        from services import sync_service
+
+        betroffene_alben = [
+            a["id"] for a in self._data.get("managed_albums", [])
+            if any(ref.get("account_id") == account_id
+                   for ref in a.get("person_refs", []))
+        ]
+        for album_id in betroffene_alben:
+            async with sync_service._album_schloss(album_id):
+                frisches = self.get_managed_album(album_id)
+                if frisches is None:
+                    # Zwischen der Kandidatenliste oben (aus einem
+                    # Schnappschuss VOR jedem Schloss) und diesem Schloss
+                    # kann das Album verschwunden sein — etwa durch ein
+                    # gleichzeitiges `DELETE /api/sync/albums/{id}`, das
+                    # dasselbe Schloss haelt. Dann gibt es nichts mehr zu
+                    # bereinigen; kein Fehler.
+                    continue
+                frisches.person_refs = [
+                    ref for ref in frisches.person_refs
+                    if ref.get("account_id") != account_id
+                ]
+                # `update_managed_album` berechnet `linked_match_ids` selbst
+                # neu (siehe dort) — hier nicht doppelt tun.
+                self.update_managed_album(frisches)
         return True
 
     # ------------------------------------------------------------------
@@ -1064,6 +1140,27 @@ class ConfigStore:
         self._save()
 
     def update_managed_album(self, album: ManagedAlbum) -> None:
+        """Ersetzt den gespeicherten Datensatz GANZ — wirft, wenn er fehlt.
+
+        Warf frueher NICHTS: Eine unbekannte `album.id` liess die Schleife
+        unten ohne Treffer durchlaufen, die Methode kehrte erfolgreich zurueck
+        und speicherte STILL NICHTS (#103 Punkt 1, gemessen: Datensatz vorher
+        geloescht, Aufrufer meldete trotzdem Erfolg im Protokoll). Niemand
+        erfuhr davon — genau die Klasse „stille Fehlgrenze", die dieses
+        Projekt schon anderswo getroffen hat (`docs/agents/lehren.md` §17).
+
+        Jetzt WIRFT ein Aufruf mit unbekannter Kennung. Das ist sicher, weil
+        JEDER heutige Aufrufer (`_refresh_managed_album_unlocked`,
+        `_rename_managed_album_unlocked`, `_extend_match_unlocked` in
+        `sync_service.py`, sowie diese Klasse selbst in `delete_account`)
+        den Datensatz UNTER DEMSELBEN Albumschloss frisch gelesen hat
+        (`_frisch`/`get_managed_album`), bevor er hierher schreibt — ein
+        Verschwinden zwischen jenem Lesen und diesem Schreiben ist unter dem
+        Schloss ausgeschlossen (kein `await` dazwischen). Trifft die Ausnahme
+        trotzdem, ist das ein Fehler in genau dieser Verdrahtung — ein neuer
+        Aufrufer, der die Schlossregel nicht einhaelt — und kein normaler
+        Betriebsfall, den ein Aufrufer abfangen muesste.
+        """
         # Always recompute linked_match_ids before saving
         album.linked_match_ids = self.compute_linked_match_ids(album.person_refs)
         albums = self._data.get("managed_albums", [])
@@ -1072,6 +1169,11 @@ class ConfigStore:
                 albums[i] = album.model_dump()
                 self._save()
                 return
+        raise LookupError(
+            f"update_managed_album: Album {album.id!r} steht nicht (mehr) im "
+            "Bestand. Aufrufer muessen den Datensatz unter demselben "
+            "Albumschloss frisch gelesen haben (siehe sync_service._frisch)."
+        )
 
     def delete_managed_album(self, album_id: str) -> bool:
         albums = self._data.get("managed_albums", [])

@@ -1,8 +1,10 @@
 import pytest
 
+import errors
 from models.account import Account
 from models.match import ManagedAlbum
 from services import sync_service
+from services.config_store import ConfigStore
 from services.immich_client import AlbumNotFoundError
 
 
@@ -29,11 +31,31 @@ class StoreDoppel:
 
     Wer ein Album nicht mitgibt, doppelt damit den Fall „steht nicht im
     Bestand": Dann greift der Rueckfall auf die uebergebene Kopie.
+
+    TREU BEIM SCHREIBEN, NICHT NUR BEIM LESEN (#103 Punkt 3): Der echte Store
+    friert per `model_dump()`/Wiederaufbau ein — eine nachtraegliche Aenderung
+    am Objekt des Aufrufers erreicht den Bestand danach NICHT mehr — und
+    berechnet `linked_match_ids` immer neu. Diese Klasse legte das Objekt
+    bisher per REFERENZ ab (eine Aenderung danach erreichte den Bestand sehr
+    wohl) und liess `linked_match_ids` unangetastet, wie der Aufrufer es
+    hineinschrieb. Keine heutige Probe fiel darauf herein, aber der
+    Klassen-Docstring versprach „wie der echte Store" — jetzt stimmt das auch
+    fuers Schreiben.
     """
 
-    def __init__(self, *alben):
+    def __init__(self, *alben, geloeschte_konten=()):
         self.alben = {a.id: a for a in alben}
         self.geschrieben = []
+        # #117 Nachtrag: Die drei Locked-Wrapper lesen den BESITZER jetzt
+        # frisch aus dem Store (`store.get_account`), nicht mehr aus der
+        # `all_accounts`-Liste, die ein Aufrufer VOR dem Schloss gebaut hat.
+        # Dieses Doppel fuehrt keine eigene Kontenverwaltung; jede Kennung
+        # gilt als vorhanden (deterministisch ueber `account(id)` oben
+        # nachgebaut — Felder wie Name/URL sind fuer die Existenzpruefung
+        # ohne Belang, echte ImmichClient-Aufrufe sind in diesen Tests
+        # durchweg Attrappen), AUSSER ein Test meldet sie hier gezielt als
+        # geloescht an.
+        self._geloeschte_konten = set(geloeschte_konten)
 
     def get_managed_album(self, album_id):
         # Eine KOPIE, wie der echte Store: `get_managed_albums` baut bei jedem
@@ -44,14 +66,28 @@ class StoreDoppel:
         return album.model_copy(deep=True) if album else None
 
     def update_managed_album(self, album):
-        self.alben[album.id] = album
-        self.geschrieben.append(album)
+        # `model_copy(deep=True)`, nicht die Instanz des Aufrufers: Wie der
+        # echte Store (`ConfigStore.update_managed_album` via
+        # `album.model_dump()`) friert das den Bestand EIN — eine Aenderung,
+        # die der Aufrufer NACH diesem Aufruf am selben Objekt macht, darf
+        # den gespeicherten Stand nicht mehr erreichen.
+        eingefroren = album.model_copy(deep=True)
+        eingefroren.linked_match_ids = ConfigStore.compute_linked_match_ids(
+            eingefroren.person_refs
+        )
+        self.alben[eingefroren.id] = eingefroren
+        self.geschrieben.append(eingefroren)
 
     def add_managed_album(self, album):
         self.alben[album.id] = album
 
     def group_id_for_name(self, _name):
         return "gruppe-testdoppel"
+
+    def get_account(self, account_id):
+        if account_id in self._geloeschte_konten:
+            return None
+        return account(account_id)
 
 
 @pytest.mark.asyncio
@@ -843,7 +879,7 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
 
     store = StoreDoppel(managed)
     logs = await sync_service.rename_managed_album(
-        managed, owner, "New family name", store
+        managed, "New family name", store
     )
 
     assert updates == [("album-1", {"albumName": "New family name"})]
@@ -855,3 +891,78 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
     assert [a.album_name for a in store.geschrieben] == ["New family name"]
     assert logs[0].status == "success"
     assert logs[0].message_key == "log_album_renamed"
+
+
+# --------------------------- #117 Nachtrag: Besitzer wird UNTER dem Schloss
+# frisch aus dem Store gelesen, nicht aus einer Kontenliste, die der
+# Aufrufer VOR dem Schloss gebaut hat.
+
+
+@pytest.mark.asyncio
+async def test_rename_lehnt_ab_wenn_der_besitzer_unter_dem_schloss_fehlt():
+    """Rot-Beweis fuer #117 Nachtrag: Der Besitzer wird NICHT mehr vom
+    Aufrufer uebergeben (die alte Signatur nahm ein `owner_account`-Argument
+    entgegen, das der Router VOR dem Schloss aufgeloest hatte), sondern hier
+    unter dem Schloss aus dem Store gelesen. Ein Store, der das Konto als
+    geloescht fuehrt, muss also ablehnen — unabhaengig davon, was `managed`
+    (die Kopie des Aufrufers) noch ueber den Besitzer zu wissen glaubt.
+    """
+    owner = account("owner")
+    managed = ManagedAlbum(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Alt", group_id="gruppe-1", owner_account_id=owner.id,
+        person_refs=[], created_at="2026-09-10T00:00:00+00:00",
+    )
+    store = StoreDoppel(managed, geloeschte_konten={owner.id})
+
+    with pytest.raises(errors.AppError) as exc_info:
+        await sync_service.rename_managed_album(managed, "Neu", store)
+
+    assert exc_info.value.key == "err_owner_account_not_found"
+
+
+@pytest.mark.asyncio
+async def test_refresh_prueft_den_besitzer_frisch_und_nicht_aus_der_uebergebenen_liste():
+    """Rot-Beweis fuer #117 Nachtrag (Abgleich): `all_accounts` ist ein
+    Schnappschuss, den der Aufrufer VOR dem Albumschloss gebaut hat
+    (`routers/albums.py`, `main._run_auto_sync`) — hier absichtlich mit dem
+    Besitzer DRIN, obwohl der Store ihn schon als geloescht fuehrt. Vor der
+    Nacharbeit fand `_refresh_managed_album_unlocked` den Besitzer trotzdem
+    (ueber `account_map`, aus genau dieser Liste) und haette einen
+    Immich-Aufruf mit dem Schluessel eines geloeschten Kontos gemacht — hier
+    darf gar kein `ImmichClient` gebaut werden, die Attrappe bleibt deshalb
+    absichtlich weg (ein falscher Konstruktoraufruf wuerde mit `NameError`
+    auffallen)."""
+    managed = ManagedAlbum(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Family", group_id="gruppe-family",
+        owner_account_id="owner", person_refs=[],
+        created_at="2026-09-10T00:00:00+00:00",
+    )
+    store = StoreDoppel(managed, geloeschte_konten={"owner"})
+
+    logs = await sync_service.refresh_managed_album(managed, [account("owner")], store)
+
+    assert [e.message_key for e in logs] == ["log_owner_account_missing"]
+
+
+@pytest.mark.asyncio
+async def test_extend_prueft_den_besitzer_frisch_und_nicht_aus_der_uebergebenen_liste():
+    """Dieselbe Probe wie beim Refresh, fuer `extend_match` (#117 Nachtrag,
+    „Erweitern ebenso pruefen")."""
+    owner = account("owner")
+    participant = account("participant")
+    managed = ManagedAlbum(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Family", group_id="gruppe-family",
+        owner_account_id=owner.id,
+        person_refs=[{"account_id": owner.id, "person_id": "person-1"}],
+        created_at="2026-09-10T00:00:00+00:00",
+    )
+    store = StoreDoppel(managed, geloeschte_konten={owner.id})
+
+    logs = await sync_service.extend_match(
+        managed, participant, "person-2", "Zwei", None, [owner, participant], store,
+    )
+
+    assert [e.message_key for e in logs] == ["log_owner_account_missing"]
