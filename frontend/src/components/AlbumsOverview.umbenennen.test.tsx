@@ -191,12 +191,24 @@ describe("Umbenennen einer Gruppe mit mehreren Alben", () => {
 // ---------------------------------------------------------------------------
 
 describe("Nach einem Teilausfall", () => {
-  it("erreicht der zweite Versuch das zurueckgebliebene Album", async () => {
+  it("bleibt bei unveraendertem Enter ein Nullvorgang, auch wenn ein Geschwister-Album noch den alten Namen traegt (#124, Fund B11 — ersetzt die fruehere Fassung dieses Tests)", async () => {
     // DER STAND NACH EINEM TEILAUSFALL: Album eins traegt den neuen Namen,
     // Album zwei noch den alten. Der Gruppenname wird vom ERSTEN Album
-    // abgeleitet — mit dem alten Vergleich `nextName === group.album_name`
-    // war der zweite Versuch deshalb ein Nullvorgang, und das
-    // fehlgeschlagene Album liess sich NIE mehr nachziehen.
+    // abgeleitet und ist der vorbelegte Feldwert.
+    //
+    // #124 Fund B11 (Owner-Entscheid, Nachlese #123 Punkt 11): Die FRUEHERE
+    // Fassung dieses Tests erwartete, dass ein unveraendertes Enter genau
+    // deshalb (weil B von A abweicht) DOCH einen Rename-Versuch fuer ALLE
+    // gesunden Alben ausloest — inklusive B, das damit "mitgezogen" wurde.
+    // Das ist derselbe Mechanismus, der in der GEGENRICHTUNG den Fehler aus
+    // Fund B11 erzeugt: Ist stattdessen das ERSTE (angezeigte) Album das
+    // gescheiterte, benennt ein unveraendertes Enter die schon erfolgreich
+    // umbenannten Geschwister lautlos ZURUECK. Die neue Regel behandelt
+    // beide Richtungen gleich: Nullvorgang bedeutet "Feldwert == Wert beim
+    // Oeffnen" — unabhaengig davon, was ein Geschwister-Album gerade traegt.
+    // Ein zurueckgebliebenes Album muss jetzt aktiv (mit einer echten
+    // Aenderung am Feldwert) nachgezogen werden, nicht durch blosses
+    // Bestaetigen.
     albenMock.mockResolvedValue([{ ...GRUPPE[0], album_name: "Neuer Name" }, GRUPPE[1]]);
     renameMock.mockResolvedValue([]);
 
@@ -211,12 +223,15 @@ describe("Nach einem Teilausfall", () => {
     );
     await waitFor(() => expect(screen.getByText("Neuer Name")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/ }));
-    // Der Nutzer bestaetigt denselben Namen noch einmal — die Wiederholung.
+    // Der Nutzer bestaetigt denselben (vorbelegten) Namen ohne Aenderung.
     const feld = await screen.findByDisplayValue("Neuer Name");
     fireEvent.keyDown(feld, { key: "Enter" });
 
-    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
-    expect(renameMock.mock.calls.map((aufruf) => aufruf[0])).toContain("album-zwei");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(renameMock).not.toHaveBeenCalled();
+    // Das Feld schliesst sich trotzdem — der Nullvorgang ist "erledigt",
+    // nicht "abgelehnt".
+    expect(screen.queryByDisplayValue("Neuer Name")).toBeNull();
   });
 
   it("bricht ab, wenn ALLE Alben den Namen schon tragen", async () => {

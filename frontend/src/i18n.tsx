@@ -812,22 +812,121 @@ export const translations = {
   // Nutzer nichts ausser wie viele Kommas es gab. Jetzt eine Anzahl: wie
   // viele von den in diesem Durchlauf angefahrenen (gesunden) Alben
   // uebersprungen wurden.
+  // Nacharbeit zu #124 (Fund A4): "das Besitzerkonto" im SINGULAR war auch
+  // dann fest im Text, wenn MEHRERE Alben uebersprungen wurden — jedes
+  // uebersprungene Album einer Gruppe hat aber sein EIGENES Konto (die
+  // Alben einer Gruppe gehoeren verschiedenen Konten, #78). "das
+  // Besitzerkonto" bei n>1 suggeriert faelschlich ein einziges gemeinsames
+  // Konto. Die Grammatik haengt jetzt an `uebersprungen` (wie viele Alben
+  // DIESES Ergebnis betrifft), nicht an `gesamt` (wie viele insgesamt
+  // angefahren wurden) — PT/ES aendern zusaetzlich das Partizip
+  // ("Ignorado"/"Ignorados", "Omitido"/"Omitidos"), das bis hierher fest im
+  // Singular stand.
   album_rename_skipped_hint: {
     de: (uebersprungen: number, gesamt: number) => {
       const wort = gesamt === 1 ? "Album" : "Alben";
-      return `Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: ${uebersprungen} von ${gesamt} ${wort}.`;
+      const grund =
+        uebersprungen === 1
+          ? "weil das Besitzerkonto inzwischen gelöscht ist"
+          : "weil die zugehörigen Besitzerkonten inzwischen gelöscht sind";
+      return `Übersprungen, ${grund}: ${uebersprungen} von ${gesamt} ${wort}.`;
     },
     en: (uebersprungen: number, gesamt: number) => {
       const noun = gesamt === 1 ? "album" : "albums";
-      return `Skipped because the owner account has since been deleted: ${uebersprungen} of ${gesamt} ${noun}.`;
+      const reason =
+        uebersprungen === 1
+          ? "because its owner account has since been deleted"
+          : "because their owner accounts have since been deleted";
+      return `Skipped ${reason}: ${uebersprungen} of ${gesamt} ${noun}.`;
     },
     "pt-BR": (uebersprungen: number, gesamt: number) => {
       const noun = gesamt === 1 ? "álbum" : "álbuns";
-      return `Ignorado porque a conta proprietária foi excluída nesse meio tempo: ${uebersprungen} de ${gesamt} ${noun}.`;
+      const participio = uebersprungen === 1 ? "Ignorado" : "Ignorados";
+      const motivo =
+        uebersprungen === 1
+          ? "porque a conta proprietária foi excluída nesse meio tempo"
+          : "porque as respectivas contas proprietárias foram excluídas nesse meio tempo";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
     },
     "es-ES": (uebersprungen: number, gesamt: number) => {
       const noun = gesamt === 1 ? "álbum" : "álbumes";
-      return `Omitido porque la cuenta propietaria se eliminó mientras tanto: ${uebersprungen} de ${gesamt} ${noun}.`;
+      const participio = uebersprungen === 1 ? "Omitido" : "Omitidos";
+      const motivo =
+        uebersprungen === 1
+          ? "porque la cuenta propietaria se eliminó mientras tanto"
+          : "porque las respectivas cuentas propietarias se eliminaron mientras tanto";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+  },
+  // #124 Fund A7: Ein Album kann waehrend des Umbenennens auch verschwinden,
+  // weil ein ANDERER Tab es (oder die ganze Gruppe) bereits entfernt hat —
+  // der Server lehnt das mit `err_managed_album_not_found` (404) ab, nicht
+  // mit `err_owner_account_not_found`. Beides ist ein Ueberspringen statt
+  // eines Abbruchs, aber mit VERSCHIEDENEM Grund — dieser Text bekommt
+  // deshalb einen eigenen Schluessel statt denselben Satz mit dem falschen
+  // Grund zu zeigen.
+  album_rename_skipped_removed_hint: {
+    de: (uebersprungen: number, gesamt: number) => {
+      const wort = gesamt === 1 ? "Album" : "Alben";
+      const grund =
+        uebersprungen === 1
+          ? "weil es inzwischen entfernt wurde"
+          : "weil sie inzwischen entfernt wurden";
+      return `Übersprungen, ${grund}: ${uebersprungen} von ${gesamt} ${wort}.`;
+    },
+    en: (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "album" : "albums";
+      const reason =
+        uebersprungen === 1
+          ? "because it has since been removed"
+          : "because they have since been removed";
+      return `Skipped ${reason}: ${uebersprungen} of ${gesamt} ${noun}.`;
+    },
+    "pt-BR": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbuns";
+      const participio = uebersprungen === 1 ? "Ignorado" : "Ignorados";
+      const motivo =
+        uebersprungen === 1
+          ? "porque foi removido nesse meio tempo"
+          : "porque foram removidos nesse meio tempo";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+    "es-ES": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbumes";
+      const participio = uebersprungen === 1 ? "Omitido" : "Omitidos";
+      const motivo =
+        uebersprungen === 1
+          ? "porque se eliminó mientras tanto"
+          : "porque se eliminaron mientras tanto";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+  },
+  // #102: Ein Abgleich (Einzel- oder Sammellauf), der fuer eine Gruppe TEIL-
+  // oder VOLLSTAENDIG scheitert, bekommt eine EIGENE Zeile auf der Karte,
+  // getrennt vom Protokoll (`SyncLogDisplay`) — das Protokoll ist der
+  // Verlauf des SERVERS, ein Client-seitig geschluckter Fehlschlag gehoert
+  // nicht hinein. Grammatik wie `album_remove_partial_failed`: das VERB haengt
+  // an `fehlgeschlagen`, das NOMEN an `gesamt`.
+  album_refresh_failed_hint: {
+    de: (fehlgeschlagen: number, gesamt: number) => {
+      const wort = gesamt === 1 ? "Album" : "Alben";
+      const verb = fehlgeschlagen === 1 ? "konnte" : "konnten";
+      return `${fehlgeschlagen} von ${gesamt} ${wort} ${verb} nicht abgeglichen werden.`;
+    },
+    en: (fehlgeschlagen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "album" : "albums";
+      return `${fehlgeschlagen} of ${gesamt} ${noun} could not be synced.`;
+    },
+    "pt-BR": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "álbum" : "álbuns";
+      const verbo = fehlgeschlagen === 1 ? "não pôde" : "não puderam";
+      const particip = fehlgeschlagen === 1 ? "sincronizado" : "sincronizados";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} ser ${particip}.`;
+    },
+    "es-ES": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "álbum" : "álbumes";
+      const verbo = fehlgeschlagen === 1 ? "no se pudo" : "no se pudieron";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} sincronizar.`;
     },
   },
   // Nacharbeit 1 (#123, alle drei Stimmen): `handleDelete`/`handleDeleteSingle`

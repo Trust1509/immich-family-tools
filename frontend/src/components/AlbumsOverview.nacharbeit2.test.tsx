@@ -551,6 +551,18 @@ describe("Fund 3: deleteError und renameSkipped werden bei jeder neuen Aktion zu
 // ---------------------------------------------------------------------------
 // Fund 4: Sind ALLE Alben uebersprungen, bleibt das Eingabefeld offen (Blind
 // K2) — `logs.length &&` in `handleRename` darf nicht entfernt werden.
+//
+// #124 Fund A1-Folge: Dieser Test gilt nur fuer eine LISTE, die sich
+// zwischen dem Durchlauf und dem Neuzeichnen NICHT aendert (hier: die
+// Attrappe `albenMock` bleibt unveraendert, der Server-Refetch im `finally`
+// von `handleRename` kommt in diesem Test nie tatsaechlich mit neuen Daten
+// zurueck). Der REALISTISCHERE Ablauf, wenn wirklich ALLE Konten der Gruppe
+// inzwischen geloescht wurden, ist ein anderer: Der Refetch liefert die
+// Gruppe komplett verwaist zurueck, `renameLocked` (in `AlbumGroupCard`)
+// wird `true`, und dessen eigener Effekt schliesst das Feld VON SICH AUS —
+// unabhaengig vom `logs.length &&`-Zweig hier. Das "Feld bleibt offen"
+// dieses Tests ist also der Sonderfall einer (noch) unveraenderten Liste,
+// nicht der Regelfall.
 // ---------------------------------------------------------------------------
 
 describe("Fund 4: Umbenennen bleibt sichtbar unerledigt, wenn ALLE Alben uebersprungen wurden", () => {
@@ -574,9 +586,12 @@ describe("Fund 4: Umbenennen bleibt sichtbar unerledigt, wenn ALLE Alben uebersp
     // KEIN Log-Eintrag entstand (jedes Album wurde uebersprungen, keins
     // umbenannt) — das Feld darf deshalb nicht verschwinden.
     expect(screen.getByDisplayValue("Neuer Name")).toBeTruthy();
+    // #124 Fund A4: PLURAL-Form ("die zugehoerigen Besitzerkonten ... sind"),
+    // weil hier ZWEI Alben uebersprungen wurden (`uebersprungen` = 2) — bis
+    // hierher stand "das Besitzerkonto" im Singular fest, auch bei n>1.
     expect(
       await screen.findByText(
-        "Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: 2 von 2 Alben."
+        "Übersprungen, weil die zugehörigen Besitzerkonten inzwischen gelöscht sind: 2 von 2 Alben."
       )
     ).toBeTruthy();
   });

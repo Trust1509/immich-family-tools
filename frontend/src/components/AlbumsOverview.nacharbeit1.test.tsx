@@ -191,7 +191,7 @@ describe("AlbumsOverview: Umbenennen ueberspringt ein ZWISCHENZEITLICH verwaiste
     ];
   }
 
-  it("benennt A und C um, ueberspringt B (404 err_owner_account_not_found) und nennt B im Hinweis", async () => {
+  it("benennt A und C um, ueberspringt B (404 err_owner_account_not_found) und nennt die Anzahl im Hinweis (#124, Fund A6: Titel/Tippfehler korrigiert, die Probe selbst prueft schon seit Nacharbeit 2 eine Anzahl, keine Namen)", async () => {
     albenMock.mockResolvedValue(dreiAlben());
     renameMock.mockImplementation(async (id: string) => {
       if (id === "b") {
@@ -230,18 +230,58 @@ describe("AlbumsOverview: Umbenennen ueberspringt ein ZWISCHENZEITLICH verwaiste
     await waitFor(() => expect(screen.queryByDisplayValue("Neuer Name")).toBeNull());
   });
 
-  it("bricht bei einem ANDEREN Fehler weiterhin ab (kein Ueberspringen)", async () => {
+  it("bricht bei einem ANDEREN 404-Schluessel weiterhin ab (kein Ueberspringen)", async () => {
     // Nacharbeit 2 (#123, Blindpruefer K1, Gegenpruefer K4): Die vorige
     // Fassung nutzte hier `err_album_name_in_use` (409) — einen Schluessel,
     // den der Server seit #98 nicht mehr erzeugt (`rename_managed_album`
     // prueft die Namenskollision nicht mehr). Ein REAL erzeugter Schluessel
-    // gehoert hierher, und zwar bewusst einer, der ebenfalls ein 404 ist:
-    // `err_managed_album_not_found` — damit die Probe eine Mutation faengt,
-    // die faelschlich JEDEN 404 uebersprringt (etwa `error.status === 404`
-    // statt des Schluesselvergleichs `error.key ===
-    // "err_owner_account_not_found"`). Ohne diesen Test waere so eine
-    // Mutation unsichtbar, weil beide Schluessel denselben HTTP-Status
-    // tragen.
+    // gehoert hierher, und zwar bewusst einer, der ebenfalls ein 404 ist.
+    //
+    // #124 Fund A7 (NEUE Lage): `err_managed_album_not_found` stand bis
+    // hierher als der "andere" 404-Schluessel in diesem Test — Fund A7
+    // macht ihn zu einer ZWEITEN, legitimen Ueberspringen-Ursache (eigener
+    // Test unten), er kann diesen Guard also nicht mehr tragen. Der Guard
+    // braucht einen 404-Schluessel, der WEDER
+    // `err_owner_account_not_found` NOCH `err_managed_album_not_found`
+    // ist — `err_match_not_found` (`backend/errors.py`) ist real erzeugbar
+    // und fuer diesen Test nur als GENERISCHER dritter 404-Schluessel
+    // gewaehlt, nicht weil der Server ihn hier tatsaechlich sendet. Ohne
+    // diesen Test waere eine Mutation unsichtbar, die faelschlich JEDEN 404
+    // uebersprringt (etwa `error.status === 404` statt des
+    // Schluesselvergleichs).
+    albenMock.mockResolvedValue(dreiAlben());
+    renameMock.mockImplementation(async (id: string) => {
+      if (id === "b") {
+        throw new ApiError("Match nicht gefunden", 404, "err_match_not_found");
+      }
+      return [
+        { id: `log-${id}`, timestamp: "", action: "rename_album", details: "", status: "success" },
+      ];
+    });
+
+    await rendern("Album A");
+    fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/i }));
+    const feld = await screen.findByDisplayValue("Album A");
+    fireEvent.change(feld, { target: { value: "Neuer Name" } });
+    fireEvent.keyDown(feld, { key: "Enter" });
+
+    // A gelingt, B wirft einen 404 mit einem ANDEREN Schluessel als den
+    // beiden bekannten Ueberspringen-Gruenden — die Schleife bricht ab, C
+    // wird gar nicht mehr angefahren.
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+    expect(renameMock).not.toHaveBeenCalledWith("c", expect.anything());
+    expect(screen.getByText(/Match nicht gefunden/)).toBeTruthy();
+  });
+
+  it("ueberspringt B AUCH, wenn es inzwischen ENTFERNT wurde (404 err_managed_album_not_found), mit einem EIGENEN Grund im Hinweis (#124, Fund A7)", async () => {
+    // #124 Fund A7: Bis hierher riss `err_managed_album_not_found` die
+    // GANZE Schleife ab (sichtbar nur als "Verwaltetes Album nicht
+    // gefunden") — obwohl der Fall demselben Muster folgt wie
+    // `err_owner_account_not_found`: ein anderer Tab hat waehrend dieses
+    // Umbenennens etwas veraendert (hier: das Album selbst entfernt statt
+    // nur sein Besitzerkonto geloescht). Jetzt gilt auch das als
+    // UEBERSPRUNGEN, mit einem EIGENEN Hinweistext (nicht "Besitzerkonto
+    // geloescht" — das waere hier schlicht falsch).
     albenMock.mockResolvedValue(dreiAlben());
     renameMock.mockImplementation(async (id: string) => {
       if (id === "b") {
@@ -258,12 +298,23 @@ describe("AlbumsOverview: Umbenennen ueberspringt ein ZWISCHENZEITLICH verwaiste
     fireEvent.change(feld, { target: { value: "Neuer Name" } });
     fireEvent.keyDown(feld, { key: "Enter" });
 
-    // A gelingt, B wirft einen ANDEREN Fehler als
-    // `err_owner_account_not_found` (auch wenn es ebenfalls ein 404 ist) —
-    // die Schleife bricht ab, C wird gar nicht mehr angefahren.
-    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
-    expect(renameMock).not.toHaveBeenCalledWith("c", expect.anything());
-    expect(screen.getByText(/Verwaltetes Album nicht gefunden/)).toBeTruthy();
+    // Die Schleife laeuft trotz B bis zum Ende: ALLE DREI Alben werden
+    // angefahren, nicht nur A.
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(3));
+    expect(renameMock).toHaveBeenCalledWith("a", "Neuer Name");
+    expect(renameMock).toHaveBeenCalledWith("c", "Neuer Name");
+
+    // Der EIGENE Hinweistext fuer "inzwischen entfernt" — NICHT der Text
+    // fuer ein geloeschtes Besitzerkonto.
+    await waitFor(() =>
+      expect(
+        screen.getByText("Übersprungen, weil es inzwischen entfernt wurde: 1 von 3 Alben.")
+      ).toBeTruthy()
+    );
+    expect(screen.queryByText(/Besitzerkonto inzwischen gelöscht/)).toBeNull();
+
+    // A und C sind erfolgreich, das Feld schliesst sich.
+    await waitFor(() => expect(screen.queryByDisplayValue("Neuer Name")).toBeNull());
   });
 });
 

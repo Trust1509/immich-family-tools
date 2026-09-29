@@ -669,6 +669,105 @@ describe("translations shape", () => {
   });
 });
 
+// #124 Fund A4: "das Besitzerkonto" (DE, Singular) und das feste Partizip
+// "Ignorado"/"Omitido" (PT/ES) standen bis hierher fest, auch wenn MEHRERE
+// Alben uebersprungen wurden — jedes uebersprungene Album einer Gruppe hat
+// aber sein EIGENES Konto (#78). Je Sprache mindestens ein Fall fuer 1 UND
+// fuer n (Bau-Brief, Block 5), direkt gegen die Uebersetzungsfunktion, ohne
+// die volle Karte zu rendern.
+describe("album_rename_skipped_hint (#124, Fund A4: Grammatik haengt an `uebersprungen`, nicht an `gesamt`)", () => {
+  const faelle: [Lang, number, number, string][] = [
+    ["de", 1, 1, "Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: 1 von 1 Album."],
+    ["de", 1, 3, "Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: 1 von 3 Alben."],
+    [
+      "de",
+      2,
+      2,
+      "Übersprungen, weil die zugehörigen Besitzerkonten inzwischen gelöscht sind: 2 von 2 Alben.",
+    ],
+    ["en", 1, 3, "Skipped because its owner account has since been deleted: 1 of 3 albums."],
+    ["en", 2, 2, "Skipped because their owner accounts have since been deleted: 2 of 2 albums."],
+    [
+      "pt-BR",
+      1,
+      3,
+      "Ignorado porque a conta proprietária foi excluída nesse meio tempo: 1 de 3 álbuns.",
+    ],
+    [
+      "pt-BR",
+      2,
+      2,
+      "Ignorados porque as respectivas contas proprietárias foram excluídas nesse meio tempo: 2 de 2 álbuns.",
+    ],
+    [
+      "es-ES",
+      1,
+      3,
+      "Omitido porque la cuenta propietaria se eliminó mientras tanto: 1 de 3 álbumes.",
+    ],
+    [
+      "es-ES",
+      2,
+      2,
+      "Omitidos porque las respectivas cuentas propietarias se eliminaron mientras tanto: 2 de 2 álbumes.",
+    ],
+  ];
+
+  for (const [lang, uebersprungen, gesamt, erwartet] of faelle) {
+    it(`${lang}, ${uebersprungen} von ${gesamt}`, () => {
+      const fn = translations.album_rename_skipped_hint[lang] as (a: number, b: number) => string;
+      expect(fn(uebersprungen, gesamt)).toBe(erwartet);
+    });
+  }
+});
+
+// #124 Fund A7: eigener Hinweis fuer ein inzwischen ENTFERNTES Album, nicht
+// derselbe Satz wie fuer ein geloeschtes Besitzerkonto.
+describe("album_rename_skipped_removed_hint (#124, Fund A7)", () => {
+  const faelle: [Lang, number, number, string][] = [
+    ["de", 1, 3, "Übersprungen, weil es inzwischen entfernt wurde: 1 von 3 Alben."],
+    ["de", 2, 2, "Übersprungen, weil sie inzwischen entfernt wurden: 2 von 2 Alben."],
+    ["en", 1, 3, "Skipped because it has since been removed: 1 of 3 albums."],
+    ["en", 2, 2, "Skipped because they have since been removed: 2 of 2 albums."],
+    ["pt-BR", 1, 3, "Ignorado porque foi removido nesse meio tempo: 1 de 3 álbuns."],
+    ["pt-BR", 2, 2, "Ignorados porque foram removidos nesse meio tempo: 2 de 2 álbuns."],
+    ["es-ES", 1, 3, "Omitido porque se eliminó mientras tanto: 1 de 3 álbumes."],
+    ["es-ES", 2, 2, "Omitidos porque se eliminaron mientras tanto: 2 de 2 álbumes."],
+  ];
+
+  for (const [lang, uebersprungen, gesamt, erwartet] of faelle) {
+    it(`${lang}, ${uebersprungen} von ${gesamt}`, () => {
+      const fn = translations.album_rename_skipped_removed_hint[lang] as (
+        a: number,
+        b: number
+      ) => string;
+      expect(fn(uebersprungen, gesamt)).toBe(erwartet);
+    });
+  }
+});
+
+// #102: eigene Fehlerzeile fuer einen (teilweise) gescheiterten Abgleich.
+describe("album_refresh_failed_hint (#102)", () => {
+  const faelle: [Lang, number, number, string][] = [
+    ["de", 1, 1, "1 von 1 Album konnte nicht abgeglichen werden."],
+    ["de", 1, 3, "1 von 3 Alben konnte nicht abgeglichen werden."],
+    ["de", 2, 3, "2 von 3 Alben konnten nicht abgeglichen werden."],
+    ["en", 1, 3, "1 of 3 albums could not be synced."],
+    ["en", 2, 3, "2 of 3 albums could not be synced."],
+    ["pt-BR", 1, 3, "1 de 3 álbuns não pôde ser sincronizado."],
+    ["pt-BR", 2, 3, "2 de 3 álbuns não puderam ser sincronizados."],
+    ["es-ES", 1, 3, "1 de 3 álbumes no se pudo sincronizar."],
+    ["es-ES", 2, 3, "2 de 3 álbumes no se pudieron sincronizar."],
+  ];
+
+  for (const [lang, fehlgeschlagen, gesamt, erwartet] of faelle) {
+    it(`${lang}, ${fehlgeschlagen} von ${gesamt}`, () => {
+      const fn = translations.album_refresh_failed_hint[lang] as (a: number, b: number) => string;
+      expect(fn(fehlgeschlagen, gesamt)).toBe(erwartet);
+    });
+  }
+});
+
 describe("errorText", () => {
   // Der Server schickt Schluessel UND deutschen Klartext. Diese Gruppe
   // prueft vor allem den RUECKFALL — den Fall, in dem das Frontend den

@@ -124,7 +124,9 @@ describe("AlbumsOverview: Gruppen-Cache nach Entfernen", () => {
     const spion = zeichne();
     await waitFor(() => expect(screen.getByText("Testalbum")).toBeTruthy());
 
-    fireEvent.click(screen.getByTitle("Verknüpfung entfernen"));
+    // #124 Fund B12: `getByTitle` statt `getByRole`/`name` wie die neueren
+    // Testdateien (Teststil-Angleichung, keine Verhaltensaenderung).
+    fireEvent.click(screen.getByRole("button", { name: /Verknüpfung entfernen/i }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalled());
     await waitFor(() => expect(hatAlbumGroupInvalidiert(spion)).toBe(true));
