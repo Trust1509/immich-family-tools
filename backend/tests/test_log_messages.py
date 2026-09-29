@@ -57,21 +57,80 @@ NACHARBEIT 2 — DREI LUECKEN, DIE DER BLINDPRUEFER AN NACHARBEIT 1 GEMESSEN HAT
    `backend/models/match.py` selbst und war damit fuer diese Runde
    ausgeschlossen.
 
+NACHARBEIT 3 (#115) — RICHTUNG STATT BLANKO-VERBOT, PLUS RESTFORMEN
+-------------------------------------------------------------------------------
+Der Blindpruefer der Nachlese zu #94 hat gemessen: Nacharbeit 2 verbot JEDEN
+Attribut-Zugriff und JEDES Literal, auch berechtigtes LESEN (nach Schluessel
+filtern, `@field_validator("message_key")`, `model_dump(exclude={"message_params"})`)
+— heute null-mal noetig, aber eine einzige Zeile Zusatzcode haette den
+Waechter rot gemacht, ohne einen erlaubten Weg zu nennen. Das laedt dazu ein,
+die Regel pauschal zu entfernen statt sie einzuhalten.
+
+Die Richtung ab jetzt: **Lesen erlauben, Schreiben verbieten.**
+  - `ast.Attribute`-Zugriff auf `.message_key`/`.message_params` ist nur noch
+    ein Verstoss, wenn der Knoten SCHREIBEND ist (`ctx` ist `Store` oder
+    `Del`: direkte Zuweisung, `+=`, `del`). Ein LESENDER Zugriff (`ctx` ist
+    `Load`, z. B. `eintrag.message_key == schluessel`) ist erlaubt.
+  - Eine Subskript-Zuweisung auf die Basis `.message_params[...] = ...` bleibt
+    verboten, obwohl die Attribut-Basis selbst `Load` traegt (`visit_Subscript`
+    prueft die Basis separat).
+  - Eine Mutationsmethode auf `.message_params` (`.pop()`, `.update()`,
+    `.clear()`, `.popitem()`, `.setdefault()`, `.__setitem__()`,
+    `.__delitem__()`) bleibt verboten, obwohl der Attribut-Zugriff, der das
+    Dict holt, selbst `Load` traegt (`visit_Call` prueft den Aufruf separat).
+  - Ein literales Vorkommen von `"message_key"`/`"message_params"` ist nur
+    noch erlaubt in vier namentlich erkannten Lese-Formen: `getattr(x, ...)`,
+    `hasattr(x, ...)`, `@field_validator(...)`/`field_validator(...)` und
+    `model_dump(exclude=...)`/`model_dump(exclude={...})`/
+    `model_dump_json(include=...)` (und die umgekehrte Kombination). JEDES
+    andere Vorkommen bleibt fail-closed verboten — insbesondere `setattr(...)`,
+    `entry.setdefault(...)` und ein dict-Literal wie
+    `model_copy(update={"message_key": ...})`, weil diese drei Formen selbst
+    bei erlaubtem Lesen weiterhin SCHREIBEN. Jede Fehlermeldung nennt jetzt
+    den erlaubten Weg, statt nur "verboten" zu sagen.
+
+Restformen (gemessen, gefangen ohne Fehlalarm, weil die Form strukturell
+unterscheidbar von legitimem Code ist):
+  - Konstruktion ueber eine schlichte Zuweisungs-Alias (`_Eintrag =
+    SyncLogEntry; _Eintrag(**roh)`) — `_sammle_lokale_aliase` sammelt jetzt
+    auch `Name = Name`-Zuweisungen, deren rechte Seite ein bekannter Name ist.
+  - `SyncLogEntry.model_construct(**roh)` — dieselbe kategorische Sperre wie
+    `model_validate`/`model_validate_json`, um dieselbe Begruendung erweitert
+    (baut ein Modell OHNE Validierung aus beliebigen Rohdaten).
+  - `TypeAdapter(SyncLogEntry).validate_python(roh)`/`.validate_json(roh)` —
+    eine eigene, strukturell enge Erkennung dieser konkreten Zwei-Aufruf-Form.
+  - `functools.partial` unter einem Importalias (`from functools import
+    partial as _p; _p(SyncLogEntry, ...)`) — eine eigene, per Datei
+    gesammelte Alias-Menge fuer `partial`, analog zu den SyncLogEntry-Aliasen.
+
+Restform, die BEWUSST NICHT gefangen wird (im Docstring benannt statt
+stillschweigend uebersehen — siehe "WAS ER NICHT ERFASST" unten):
+  - `type(vorlage)(**roh)` — welche Klasse `type(vorlage)` zur Laufzeit
+    liefert, haengt vom LAUFZEITWERT von `vorlage` ab, nicht von seiner
+    Textform; ein statischer Scan kann das nicht entscheiden, ohne entweder
+    jeden `type(...)`-Aufruf im Baum zu verbieten (Fehlalarm-Garantie bei
+    jeder unbeteiligten Nutzung von `type()`) oder Datenfluss zu verfolgen
+    (ausserhalb dessen, was dieser Datei-fuer-Datei-Scan leistet).
+
 WAS DIESER WAECHTER ERFASST (gemessen, Stand dieser Runde):
   - jede Konstruktion von `SyncLogEntry` oder einer (transitiven)
-    Unterklasse, ob als nackter Name, ueber einen Modulnamen oder ueber
-    einen lokalen Importalias;
+    Unterklasse, ob als nackter Name, ueber einen Modulnamen, einen lokalen
+    Importalias oder eine schlichte Zuweisungs-Alias;
   - fehlendes, nicht-woertliches oder falsch geformtes `message_key`/
     `message_params` an einer solchen Konstruktion;
-  - jeden Attribut-Zugriff auf `.message_key`/`.message_params` ausserhalb
-    einer Konstruktion (Lesen, Schreiben, `+=`, `.pop()`, `.update()`,
-    Subskript);
+  - jeden SCHREIBENDEN Attribut-Zugriff auf `.message_key`/`.message_params`
+    (direkte Zuweisung, `+=`, `del`), eine Subskript-Zuweisung auf
+    `.message_params[...]` sowie jede Mutationsmethode
+    (`.pop()`/`.update()`/`.clear()`/`.popitem()`/`.setdefault()`/
+    `.__setitem__()`/`.__delitem__()`) auf `.message_params`;
   - jedes literale Vorkommen der Zeichenketten `"message_key"`/
-    `"message_params"` irgendwo im Baum, ausserhalb der einen benannten
-    Ausnahme;
-  - `functools.partial(SyncLogEntry, ...)` und
-    `SyncLogEntry.model_validate(...)`/`.model_validate_json(...)`
-    (kategorisch, unabhaengig vom Inhalt).
+    `"message_params"` ausserhalb der vier erkannten Lese-Formen (`getattr`,
+    `hasattr`, `field_validator(...)`, `model_dump(exclude=/include=...)`)
+    und ausserhalb der einen benannten `**`-Ausnahme;
+  - `functools.partial(SyncLogEntry, ...)` (auch unter Importalias),
+    `SyncLogEntry.model_validate(...)`/`.model_validate_json(...)`/
+    `.model_construct(...)` (kategorisch, unabhaengig vom Inhalt);
+  - `TypeAdapter(SyncLogEntry).validate_python(...)`/`.validate_json(...)`.
 
 WAS ER NICHT ERFASST (bekannte Restformen, keine Vollstaendigkeit behauptet):
   - `getattr(x, "message_" + "key")` oder eine andere zur Laufzeit erst
@@ -79,7 +138,15 @@ WAS ER NICHT ERFASST (bekannte Restformen, keine Vollstaendigkeit behauptet):
   - Reflection ueber `__dict__`/`vars(x)` ohne den Namen als Zeichenkette;
   - ein zweites, semantisch anderes Attribut, das zufaellig auch
     `message_key` heisst, an einer voellig anderen Klasse (der Scan ist
-    NAMENSBASIERT auf dem ganzen Baum, nicht typgebunden).
+    NAMENSBASIERT auf dem ganzen Baum, nicht typgebunden);
+  - `type(vorlage)(**roh)` — Begruendung siehe "NACHARBEIT 3" oben;
+  - eine erlaubte Lese-Form (`getattr`/`hasattr`/`field_validator`/
+    `model_dump`), deren Funktions- oder Methodenname selbst unter einem
+    Importalias auftritt (z. B. `from pydantic import field_validator as
+    fv`) — der Scan erkennt hier nur den unveraenderten Namen, nicht jeden
+    denkbaren Alias; ein solcher Aufruf bleibt dann fail-closed VERBOTEN
+    (ein zu enges Lese-Fenster ist die sicherere Fehlrichtung als ein zu
+    weites).
 """
 
 from __future__ import annotations
@@ -120,6 +187,21 @@ _BENANNTE_AUSNAHMEN: dict[tuple[str, Optional[str], str], str] = {
 
 _LITERALE_NAMEN = ("message_key", "message_params")
 
+# Methoden, die ein Dict-Attribut IN-PLACE veraendern, obwohl der Zugriff auf
+# das Attribut selbst (um die Methode zu finden) syntaktisch ein Lesen ist
+# (`ctx=Load`). `visit_Call` prueft diese separat von `visit_Attribute`.
+_MUTIERENDE_DICT_METHODEN = frozenset(
+    {"pop", "update", "clear", "popitem", "setdefault", "__setitem__", "__delitem__"}
+)
+
+# Funktions-/Methodennamen, unter denen ein literales `"message_key"`/
+# `"message_params"` eine erkannte LESE-Form ist (siehe Docstring,
+# "NACHARBEIT 3"). Bewusst nur der unveraenderte Name — ein Importalias
+# dieser Namen bleibt fail-closed verboten (siehe "WAS ER NICHT ERFASST").
+_LESE_FUNKTIONEN_2ARG = frozenset({"getattr", "hasattr"})
+_LESE_METHODEN_MODEL_DUMP = frozenset({"model_dump", "model_dump_json"})
+_LESE_KWARGS_MODEL_DUMP = frozenset({"exclude", "include"})
+
 
 def lade_vertrag() -> dict[str, list[str]]:
     return json.loads(VERTRAG_PFAD.read_text("utf-8"))
@@ -158,16 +240,52 @@ def _sammle_sync_log_entry_namen(baeume: dict[Path, ast.Module]) -> set[str]:
 
 
 def _sammle_lokale_aliase(baum: ast.Module, bekannte_namen: set[str]) -> set[str]:
-    """Lokale Namen aus `from ... import X as Y`, wenn `X` ein bekannter
-    SyncLogEntry-Name ist. Ein Modul-Alias (`import models.match as mm`)
-    braucht das NICHT: `mm.SyncLogEntry(...)` wird bereits ueber
-    `_rechter_bezeichner` (den Attributnamen) erkannt."""
+    """Lokale Namen, die auf einen bekannten SyncLogEntry-Namen zeigen:
+    `from ... import X as Y` UND schlichte Zuweisungs-Aliase (`Y = X`). Ein
+    Modul-Alias (`import models.match as mm`) braucht keins von beidem:
+    `mm.SyncLogEntry(...)` wird bereits ueber `_rechter_bezeichner` (den
+    Attributnamen) erkannt.
+
+    Fixpunkt-Iteration: eine Zuweisungs-Alias kann ihrerseits Ziel einer
+    weiteren Zuweisung sein (`B = A; A = SyncLogEntry`, in welcher Reihenfolge
+    auch immer im Baum)."""
     aliase: set[str] = set()
     for knoten in ast.walk(baum):
         if isinstance(knoten, ast.ImportFrom):
             for alias in knoten.names:
                 if alias.name in bekannte_namen:
                     aliase.add(alias.asname or alias.name)
+
+    geaendert = True
+    while geaendert:
+        geaendert = False
+        gueltig = bekannte_namen | aliase
+        for knoten in ast.walk(baum):
+            if (
+                isinstance(knoten, ast.Assign)
+                and len(knoten.targets) == 1
+                and isinstance(knoten.targets[0], ast.Name)
+                and isinstance(knoten.value, ast.Name)
+                and knoten.value.id in gueltig
+                and knoten.targets[0].id not in aliase
+            ):
+                aliase.add(knoten.targets[0].id)
+                geaendert = True
+    return aliase
+
+
+def _sammle_partial_aliase(baum: ast.Module) -> set[str]:
+    """Lokale Namen aus `from functools import partial as X`. Der
+    unveraenderte Name `partial` und der modul-qualifizierte Aufruf
+    `functools.partial(...)` werden bereits ueber `_rechter_bezeichner`
+    (den nackten bzw. den Attributnamen) erkannt und brauchen keinen Eintrag
+    hier."""
+    aliase: set[str] = set()
+    for knoten in ast.walk(baum):
+        if isinstance(knoten, ast.ImportFrom) and knoten.module == "functools":
+            for alias in knoten.names:
+                if alias.name == "partial" and alias.asname:
+                    aliase.add(alias.asname)
     return aliase
 
 
@@ -176,14 +294,21 @@ class _SyncLogPruefer(ast.NodeVisitor):
     vollstaendige Liste der erfassten und der bekannten NICHT erfassten
     Formen."""
 
-    def __init__(self, relativer_pfad: str, gueltige_namen: set[str]):
+    def __init__(self, relativer_pfad: str, gueltige_namen: set[str], partial_aliase: set[str]):
         self.relativer_pfad = relativer_pfad
         self.gueltige_namen = gueltige_namen
+        self.partial_aliase = partial_aliase
         self._funktionsstapel: list[str] = ["<Modul>"]
         self._klassenstapel: list[Optional[str]] = [None]
         self.gefunden: dict[str, set[frozenset[str]]] = {}
         self.verstoesse: list[str] = []
         self.ausnahme_treffer: dict[tuple[str, Optional[str], str], int] = {}
+        # Identitaet (nicht Wert!) der `ast.Constant`-Knoten, die `visit_Call`
+        # VOR seinem `generic_visit` als erkannte Lese-Form markiert hat.
+        # `visit_Constant` ueberspringt genau diese Knoten. Zwei Konstanten
+        # mit demselben Textwert an verschiedenen Stellen sind zwei
+        # verschiedene Objekte und damit unabhaengig markiert.
+        self._erlaubte_konstanten: set[ast.Constant] = set()
 
     def _ort(self, zeile: int) -> str:
         return f"{self.relativer_pfad}:{zeile}"
@@ -207,17 +332,42 @@ class _SyncLogPruefer(ast.NodeVisitor):
         self._funktionsstapel.pop()
 
     def visit_Attribute(self, knoten: ast.Attribute) -> None:  # noqa: N802
-        """JEDER Zugriff auf `.message_key`/`.message_params` ist ein
-        Verstoss — Lesen, Schreiben, `+=` (dessen Ziel ebenfalls ein
-        `Attribute`-Knoten ist), `.pop()`/`.update()` (deren Basis
-        `eintrag.message_params` derselbe innere `Attribute`-Knoten ist) und
-        eine Subskript-Zuweisung (deren Basis ebenso). Keine Ausnahme: die
-        eine erlaubte Konstruktion tauscht `message_key` nie als Attribut
-        aus, sondern nur als `**`-entpacktes Schluesselwort."""
-        if knoten.attr in _LITERALE_NAMEN:
+        """Nur ein SCHREIBENDER Zugriff auf `.message_key`/`.message_params`
+        ist ein Verstoss: `ctx` ist `Store` (direkte Zuweisung, und — Python
+        setzt dort ebenfalls `Store` — das Ziel eines `+=`) oder `Del`
+        (`del eintrag.message_key`). Ein LESENDER Zugriff (`ctx` ist `Load`,
+        z. B. `eintrag.message_key == schluessel`) ist seit Nacharbeit 3
+        erlaubt.
+
+        Zwei Schreib-Formen tragen an DIESEM Knoten trotzdem `Load`, weil das
+        Schreiben eine Ebene hoeher passiert — die werden bewusst NICHT hier,
+        sondern in `visit_Subscript` (Subskript-Zuweisung) bzw. `visit_Call`
+        (Mutationsmethode) gefangen, damit die Meldung den richtigen Namen
+        traegt."""
+        if knoten.attr in _LITERALE_NAMEN and isinstance(knoten.ctx, (ast.Store, ast.Del)):
             self.verstoesse.append(
-                f"{self._ort(knoten.lineno)} Zugriff auf .{knoten.attr} ausserhalb einer Konstruktion "
-                "ist fail-closed verboten"
+                f"{self._ort(knoten.lineno)} schreibender Zugriff auf .{knoten.attr} ist fail-closed "
+                "verboten (erlaubt ist nur Lesen; Schreiben ausschliesslich ueber eine woertliche "
+                "SyncLogEntry-Konstruktion mit message_key=... / message_params=...)"
+            )
+        self.generic_visit(knoten)
+
+    def visit_Subscript(self, knoten: ast.Subscript) -> None:  # noqa: N802
+        """Subskript-Zuweisung auf die Basis `.message_params[...] = ...`
+        bzw. `del .message_params[...]`. Der `Attribute`-Knoten der Basis
+        traegt hier `Load` (er wird gelesen, um das Dict zu bekommen), daher
+        greift `visit_Attribute` nicht — die Basis wird deshalb separat
+        geprueft."""
+        basis = knoten.value
+        if (
+            isinstance(basis, ast.Attribute)
+            and basis.attr in _LITERALE_NAMEN
+            and isinstance(knoten.ctx, (ast.Store, ast.Del))
+        ):
+            self.verstoesse.append(
+                f"{self._ort(knoten.lineno)} Subskript-Zuweisung auf .{basis.attr}[...] ist fail-closed "
+                "verboten (erlaubt ist nur Lesen; Schreiben ausschliesslich ueber eine woertliche "
+                "SyncLogEntry-Konstruktion mit message_key=... / message_params=...)"
             )
         self.generic_visit(knoten)
 
@@ -225,23 +375,52 @@ class _SyncLogPruefer(ast.NodeVisitor):
         """Jedes literale Vorkommen von genau `"message_key"` oder
         `"message_params"` als STRING-WERT — nie als Teil eines laengeren
         Satzes (ein Docstring, der das Wort erwaehnt, hat einen anderen,
-        laengeren `Constant`-Wert und trifft hier nicht). Deckt `setattr`,
-        `getattr`, `hasattr`, `entry.setdefault("message_key", ...)` und ein
-        dict-Literal wie `model_copy(update={"message_key": ...})` ab, ohne
-        diese Formen einzeln zu benennen."""
+        laengeren `Constant`-Wert und trifft hier nicht). Ausserhalb der vier
+        erkannten Lese-Formen (siehe Docstring, "NACHARBEIT 3") bleibt jedes
+        Vorkommen ein Verstoss — deckt weiterhin `setattr(...)`,
+        `entry.setdefault("message_key", ...)` und ein dict-Literal wie
+        `model_copy(update={"message_key": ...})` ab, weil diese drei Formen
+        selbst bei erlaubtem Lesen SCHREIBEN."""
         if isinstance(knoten.value, str) and knoten.value in _LITERALE_NAMEN:
+            if knoten in self._erlaubte_konstanten:
+                return
             self.verstoesse.append(
-                f"{self._ort(knoten.lineno)} literale Zeichenkette '{knoten.value}' ausserhalb der "
-                "erlaubten Schluesselwort-Form ist fail-closed verboten"
+                f"{self._ort(knoten.lineno)} literale Zeichenkette '{knoten.value}' ausserhalb einer "
+                "erkannten Lese-Form ist fail-closed verboten (erlaubt: getattr(x, ...) / "
+                "hasattr(x, ...) / @field_validator(...) / model_dump(exclude=... oder include=...); "
+                "Schreiben — auch setattr(...), .setdefault(...) oder ein Dict-Literal wie "
+                "model_copy(update={...}) — bleibt ausschliesslich ueber eine woertliche "
+                "SyncLogEntry-Konstruktion erlaubt)"
             )
+
+    def _markiere_erlaubte_lese_form(self, knoten: Optional[ast.expr]) -> None:
+        """Markiert `knoten` (falls er selbst das Literal ist) ODER die
+        Literale in einem Container (`Set`/`List`/`Tuple`/`Dict`-Schluessel,
+        fuer `model_dump(exclude={...})`) als erkannte Lese-Form, BEVOR
+        `visit_Call` an `self.generic_visit(knoten)` weiterreicht. Reihenfolge
+        ist entscheidend: `visit_Constant` muss die Markierung schon sehen,
+        wenn es denselben Knoten spaeter im selben Durchlauf besucht."""
+        if knoten is None:
+            return
+        if isinstance(knoten, ast.Constant) and isinstance(knoten.value, str) and knoten.value in _LITERALE_NAMEN:
+            self._erlaubte_konstanten.add(knoten)
+            return
+        if isinstance(knoten, (ast.Set, ast.List, ast.Tuple)):
+            for element in knoten.elts:
+                self._markiere_erlaubte_lese_form(element)
+        elif isinstance(knoten, ast.Dict):
+            for schluessel in knoten.keys:
+                self._markiere_erlaubte_lese_form(schluessel)
 
     def visit_Call(self, knoten: ast.Call) -> None:  # noqa: N802
         rechter_name = _rechter_bezeichner(knoten.func)
 
         # Kategorische Verbote, unabhaengig von etwaigen Schluesselwoertern:
         # Die spaetere Bindung eines `partial` und beliebige Rohdaten an
-        # `model_validate*` sind statisch nicht pruefbar.
-        if rechter_name == "partial" and knoten.args:
+        # `model_validate*`/`model_construct` sind statisch nicht pruefbar.
+        # `partial` UND sein per-Datei gesammelter Importalias treffen hier
+        # gleichermassen (siehe `_sammle_partial_aliase`).
+        if (rechter_name == "partial" or rechter_name in self.partial_aliase) and knoten.args:
             if _rechter_bezeichner(knoten.args[0]) in self.gueltige_namen:
                 self.verstoesse.append(
                     f"{self._ort(knoten.lineno)} functools.partial auf SyncLogEntry/Unterklasse ist "
@@ -249,7 +428,11 @@ class _SyncLogPruefer(ast.NodeVisitor):
                 )
                 self.generic_visit(knoten)
                 return
-        if isinstance(knoten.func, ast.Attribute) and knoten.func.attr in ("model_validate", "model_validate_json"):
+        if isinstance(knoten.func, ast.Attribute) and knoten.func.attr in (
+            "model_validate",
+            "model_validate_json",
+            "model_construct",
+        ):
             if _rechter_bezeichner(knoten.func.value) in self.gueltige_namen:
                 self.verstoesse.append(
                     f"{self._ort(knoten.lineno)} {knoten.func.attr}(...) auf SyncLogEntry/Unterklasse ist "
@@ -257,6 +440,55 @@ class _SyncLogPruefer(ast.NodeVisitor):
                 )
                 self.generic_visit(knoten)
                 return
+
+        # TypeAdapter(SyncLogEntry).validate_python(roh) / .validate_json(roh):
+        # eine eng gefasste Zwei-Aufruf-Form. `knoten.func.value` ist hier der
+        # INNERE Call `TypeAdapter(SyncLogEntry)`, nicht ein Name/Attribute —
+        # deshalb ausserhalb von `_rechter_bezeichner` (der nur Name/Attribute
+        # kennt) eigens geprueft.
+        if isinstance(knoten.func, ast.Attribute) and knoten.func.attr in ("validate_python", "validate_json"):
+            innerer_aufruf = knoten.func.value
+            if (
+                isinstance(innerer_aufruf, ast.Call)
+                and _rechter_bezeichner(innerer_aufruf.func) == "TypeAdapter"
+                and any(_rechter_bezeichner(arg) in self.gueltige_namen for arg in innerer_aufruf.args)
+            ):
+                self.verstoesse.append(
+                    f"{self._ort(knoten.lineno)} TypeAdapter(...).{knoten.func.attr}(...) auf "
+                    "SyncLogEntry/Unterklasse ist fail-closed verboten (keine pruefbare "
+                    "Schluesselwort-Form, beliebige Rohdaten)"
+                )
+                self.generic_visit(knoten)
+                return
+
+        # Mutationsmethode auf `.message_params` (`.pop()`, `.update()`, ...):
+        # Der Attribut-Zugriff, der das Dict holt, traegt `Load` und wird von
+        # `visit_Attribute` NICHT gefangen — deshalb hier, am Aufruf selbst.
+        if (
+            isinstance(knoten.func, ast.Attribute)
+            and knoten.func.attr in _MUTIERENDE_DICT_METHODEN
+            and isinstance(knoten.func.value, ast.Attribute)
+            and knoten.func.value.attr in _LITERALE_NAMEN
+        ):
+            self.verstoesse.append(
+                f"{self._ort(knoten.lineno)} Mutationsmethode .{knoten.func.attr}() auf "
+                f".{knoten.func.value.attr} ist fail-closed verboten (erlaubt ist nur Lesen; Schreiben "
+                "ausschliesslich ueber eine woertliche SyncLogEntry-Konstruktion)"
+            )
+            self.generic_visit(knoten)
+            return
+
+        # Erkannte Lese-Formen: Literale HIER markieren, VOR dem
+        # `generic_visit` unten, das `visit_Constant` erst ausloest.
+        if rechter_name in _LESE_FUNKTIONEN_2ARG and len(knoten.args) >= 2:
+            self._markiere_erlaubte_lese_form(knoten.args[1])
+        elif rechter_name == "field_validator":
+            for arg in knoten.args:
+                self._markiere_erlaubte_lese_form(arg)
+        elif rechter_name in _LESE_METHODEN_MODEL_DUMP:
+            for schluesselwort in knoten.keywords:
+                if schluesselwort.arg in _LESE_KWARGS_MODEL_DUMP:
+                    self._markiere_erlaubte_lese_form(schluesselwort.value)
 
         ist_konstruktion = rechter_name in self.gueltige_namen
         msg_key_kw = next((kw for kw in knoten.keywords if kw.arg == "message_key"), None)
@@ -347,7 +579,8 @@ def backend_sendestellen(wurzel: Path = BACKEND_DIR) -> tuple[dict[str, frozense
         else:
             relativer_pfad = str(datei.relative_to(WURZEL)).replace("\\", "/")
         gueltige_namen = gueltige_namen_global | _sammle_lokale_aliase(baum, gueltige_namen_global)
-        pruefer = _SyncLogPruefer(relativer_pfad, gueltige_namen)
+        partial_aliase = _sammle_partial_aliase(baum)
+        pruefer = _SyncLogPruefer(relativer_pfad, gueltige_namen, partial_aliase)
         pruefer.visit(baum)
         verstoesse.extend(pruefer.verstoesse)
         for schluessel, anzahl in pruefer.ausnahme_treffer.items():
@@ -558,9 +791,11 @@ def test_rotbeweis_message_key_versteckt_in_model_copy_update_wird_erfasst(tmp_p
 
     Seit Nacharbeit 2 greift hier der allgemeine Literal-Scan
     (`visit_Constant`), nicht mehr eine eigens dafuer gebaute
-    dict-Erkennung — die literale Zeichenkette `"message_key"` ist ausserhalb
-    der einen erlaubten `**`-Konstruktion IMMER ein Verstoss, unabhaengig
-    davon, in welchem Container sie steht.
+    dict-Erkennung. Seit Nacharbeit 3 (#115) kennt dieser Scan vier erkannte
+    LESE-Formen (`getattr`/`hasattr`/`field_validator`/`model_dump`) — aber
+    `model_copy` gehoert bewusst NICHT dazu, weil es SCHREIBT: die literale
+    Zeichenkette `"message_key"` in `update={...}` bleibt deshalb IMMER ein
+    Verstoss, unabhaengig davon, in welchem Container sie steht.
     """
     backend_kopie = _kopiere_backend_mit_mutation(
         tmp_path,
@@ -622,7 +857,12 @@ def test_rotbeweis_h1_pop_auf_message_params_ist_fail_closed(tmp_path):
             "    return eintrag\n",
         ),
     )
-    with pytest.raises(AssertionError, match=r"Zugriff auf \.message_params"):
+    # Seit Nacharbeit 3 (#115) faengt eine Mutationsmethode auf
+    # `.message_params` nicht mehr `visit_Attribute` (der Attribut-Zugriff,
+    # der das Dict holt, traegt `Load`), sondern eine eigene Pruefung in
+    # `visit_Call` — daher eine eigene Meldung ("Mutationsmethode", nicht
+    # "Zugriff").
+    with pytest.raises(AssertionError, match=r"Mutationsmethode \.pop\(\) auf \.message_params"):
         pruefe_vertrag(backend_kopie)
 
 
@@ -763,4 +1003,174 @@ def test_rotbeweis_h8_model_validate_ist_fail_closed(tmp_path):
         ),
     )
     with pytest.raises(AssertionError, match="model_validate"):
+        pruefe_vertrag(backend_kopie)
+
+
+# ── Nacharbeit 3 (#115): Lesen erlauben, Schreiben verbieten ───────────────
+#
+# Vier Sonden fuer je eine erlaubte LESE-Form (GRUEN, darf NICHT werfen) und
+# fuenf Rot-Beweise fuer neue Restformen bzw. die Subskript-Zuweisung (RED,
+# muss werfen und den Weg/die Form nennen).
+
+
+def test_sonde_lesender_attributzugriff_ist_erlaubt(tmp_path):
+    """Sonde (GRUEN): nach Schluessel filtern -- ein lesender Attributzugriff
+    auf `.message_key` -- ist seit Nacharbeit 3 erlaubt (Befund #115, Punkt 1,
+    erstes Beispiel: `e.message_key == schluessel`)."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _sonde_lesender_zugriff(eintraege, schluessel):\n"
+            "    return [e for e in eintraege if e.message_key == schluessel]\n",
+        ),
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+def test_sonde_field_validator_dekorator_ist_erlaubt(tmp_path):
+    """Sonde (GRUEN): `@field_validator("message_key")` (Befund #115, Punkt 1,
+    zweites Beispiel) ist eine erkannte Lese-Form -- keine Pydantic-Aenderung
+    an `backend/models/match.py` selbst, nur eine Sonde in einer beliebigen
+    Kopie, die dieselbe Form zeigt."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "from pydantic import field_validator\n"
+            "\n"
+            "\n"
+            "class _SondeValidator:\n"
+            "    @field_validator('message_key')\n"
+            "    @classmethod\n"
+            "    def _pruefe(cls, wert):\n"
+            "        return wert\n",
+        ),
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+def test_sonde_model_dump_exclude_ist_erlaubt(tmp_path):
+    """Sonde (GRUEN): `model_dump(exclude={"message_params"})` (Befund #115,
+    Punkt 1, drittes Beispiel)."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _sonde_model_dump(eintrag):\n"
+            "    return eintrag.model_dump(exclude={'message_params'})\n",
+        ),
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+def test_sonde_getattr_hasattr_sind_erlaubt(tmp_path):
+    """Sonde (GRUEN): `getattr`/`hasattr` sind ebenfalls reines Lesen und
+    damit erlaubt -- nicht aus dem Befund zitiert, aber dieselbe Richtung wie
+    das gegenteilige `setattr` (H2, weiterhin verboten)."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _sonde_getattr_hasattr(eintrag):\n"
+            "    if hasattr(eintrag, 'message_key'):\n"
+            "        return getattr(eintrag, 'message_key')\n"
+            "    return None\n",
+        ),
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+def test_rotbeweis_h9_zuweisungs_alias_ist_fail_closed(tmp_path):
+    """H9 (#115): `_Eintrag = SyncLogEntry; _Eintrag(**roh)` wird als
+    Konstruktion erkannt -- die Restform "Alias der Klasse mit `**roh`" aus
+    der Nachlese."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "_Eintrag = SyncLogEntry\n"
+            "\n"
+            "\n"
+            "def _rotbeweis_h9_zuweisungs_alias(roh):\n"
+            "    return _Eintrag(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="ohne message_key"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_h10_model_construct_ist_fail_closed(tmp_path):
+    """H10 (#115): `SyncLogEntry.model_construct(**roh)` umgeht jede
+    Validierung -- dieselbe kategorische Sperre wie `model_validate`."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _rotbeweis_h10_model_construct(roh):\n"
+            "    return SyncLogEntry.model_construct(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="model_construct"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_h11_type_adapter_ist_fail_closed(tmp_path):
+    """H11 (#115): `TypeAdapter(SyncLogEntry).validate_python(roh)` -- die
+    Zwei-Aufruf-Form aus der Nachlese."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "from pydantic import TypeAdapter\n"
+            "\n"
+            "\n"
+            "def _rotbeweis_h11_type_adapter(roh):\n"
+            "    return TypeAdapter(SyncLogEntry).validate_python(roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="TypeAdapter"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_h12_partial_alias_ist_fail_closed(tmp_path):
+    """H12 (#115): `functools.partial` unter einem Importalias
+    (`from functools import partial as _p`) bleibt erfasst -- H6 deckte nur
+    den unveraenderten bzw. modul-qualifizierten Namen ab."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "from functools import partial as _p\n"
+            "\n"
+            "\n"
+            "_ROTBEWEIS_PARTIAL_ALIAS = _p(\n"
+            "    SyncLogEntry, message_key='log_album_shared', message_params={'album': 'x', 'names': 'y'}\n"
+            ")\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="functools.partial auf SyncLogEntry"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_h13_subskript_zuweisung_ist_fail_closed(tmp_path):
+    """H13 (#115): `eintrag.message_params["album"] = "anders"` nach der
+    Konstruktion -- die Attribut-Basis traegt `Load` (sie wird nur gelesen,
+    um das Dict zu bekommen), `visit_Subscript` prueft die Basis separat."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _rotbeweis_h13_subskript():\n"
+            "    eintrag = SyncLogEntry(\n"
+            "        id='sonde', timestamp='sonde', action='sonde', details='sonde',\n"
+            "        status='error',\n"
+            "        message_key='log_album_shared',\n"
+            "        message_params={'album': 'x', 'names': 'y'},\n"
+            "    )\n"
+            "    eintrag.message_params['album'] = 'anders'\n"
+            "    return eintrag\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match=r"Subskript-Zuweisung auf \.message_params"):
         pruefe_vertrag(backend_kopie)

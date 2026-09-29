@@ -32,12 +32,36 @@ import type { Lang, LogMessageParams } from "./i18n";
  * ab) plus ein `has`-Trap, der VORHANDEN und ABWESEND je einmal durchspielt.
  * Die gelesenen Eigenschaften werden ueber alle Laeufe vereinigt.
  *
+ * NACHARBEIT 3 (#115) — ZWEI WEITERE RESTFORMEN, VOM BLINDPRUEFER DER
+ * NACHLESE ZU #94 GEMESSEN (beide blieben mit den Sondenwerten aus
+ * Nacharbeit 2 gruen):
+ *   1. Eine Schwelle AUSSERHALB der Sondenwerte, z. B.
+ *      `Number(p.count) > 5 ? `...${p.acount}...` : `...${p.account}...`` —
+ *      keiner der Werte 0, 1, 2, "", "x" ist als Zahl > 5 (Number("") ist 0,
+ *      Number("x") ist NaN), der wahre Zweig mit dem Tippfehler `acount`
+ *      wurde nie gelesen. Behoben durch zwei grosse Zahlen in SONDEN_WERTE.
+ *   2. `Object.hasOwn(p, "account")` loest NICHT den `has`-Trap aus, sondern
+ *      `getOwnPropertyDescriptor` (`Object.hasOwn` ruft intern
+ *      `[[GetOwnProperty]]`, nicht `[[HasProperty]]`) — ohne einen eigenen
+ *      Trap dafuer faellt ein Proxy auf das TARGET zurueck (ein leeres
+ *      Objekt), `Object.hasOwn` liefert dann IMMER `false`, unabhaengig vom
+ *      Sondenwert, und der wahre Zweig wird nie gelesen. Behoben durch einen
+ *      eigenen `getOwnPropertyDescriptor`-Trap, der wie `has` protokolliert
+ *      und dem `vorhandenLautHas`-Flag folgt. Der Rot-Beweis unten nutzt
+ *      `Object.prototype.hasOwnProperty.call(p, ...)` statt `Object.hasOwn`
+ *      selbst — `tsconfig.json` steht auf ES2020-Lib, `Object.hasOwn` braucht
+ *      ES2022; beide loesen denselben `[[GetOwnProperty]]`-Mechanismus und
+ *      damit denselben Trap aus.
+ *
  * BEKANNTE GRENZE, DIE BLEIBT (kein Anspruch auf Vollstaendigkeit): Ein Lesen
  * ausserhalb des synchronen Aufrufs — etwa `setTimeout(() => use(p.x))` oder
  * eine `Promise`, die `p` erst spaeter ausliest — wird nicht erfasst, weil
  * dieser Test nach dem synchronen Rueckgabewert der Vorlagenfunktion nicht
  * weiterwartet. Keine heutige Vorlage tut das (alle sind reine, synchrone
- * Template-Strings); wird das je anders, deckt dieser Test es nicht ab.
+ * Template-Strings); wird das je anders, deckt dieser Test es nicht ab. Eine
+ * Schwelle GROESSER als die groessten Sondenwerte hier (heute 100) wuerde
+ * ebenso durchrutschen wie vor Nacharbeit 3 eine Schwelle > 5 — das ist
+ * dieselbe Klasse von Luecke, nur verschoben, nicht behoben.
  *
  * Beide Seiten (Backend: `backend/tests/test_log_messages.py`, Frontend:
  * hier) pruefen gegen DIESELBE Datei `logMessages.contract.json` — es gibt
@@ -47,8 +71,11 @@ import type { Lang, LogMessageParams } from "./i18n";
 // Deckt Vergleiche wie `p.x === 1`, `p.x === 0`, Wahrheitswert-Pruefungen
 // (`p.x ? ... : ...`) und Leerstring-Pruefungen (`p.x === "" ? ... : ...`)
 // ab, indem jede Vorlage einmal je Wert aufgerufen und die UNION der dabei
-// gelesenen Eigenschaften gebildet wird.
-const SONDEN_WERTE: Array<string | number> = [0, 1, 2, "", "x"];
+// gelesenen Eigenschaften gebildet wird. 6 und 100 (Nacharbeit 3, #115)
+// decken Schwellen ab, die ueber den kleinen Werten liegen (z. B.
+// `Number(p.count) > 5 ? ... : ...`) — eine bekannte Restgrenze bleibt eine
+// Schwelle > 100, siehe Moduldocstring.
+const SONDEN_WERTE: Array<string | number> = [0, 1, 2, "", "x", 6, 100];
 
 function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
   const gelesen = new Set<string>();
@@ -70,6 +97,14 @@ function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
       has(_target, eigenschaft) {
         if (typeof eigenschaft === "string") gelesen.add(eigenschaft);
         return vorhandenLautHas;
+      },
+      // `Object.hasOwn(p, "x")` loest DIESEN Trap aus, nicht `has` (siehe
+      // Moduldocstring, Nacharbeit 3 / #115) — ohne ihn faellt der Proxy auf
+      // das leere Target zurueck und `Object.hasOwn` liefert immer `false`.
+      getOwnPropertyDescriptor(_target, eigenschaft) {
+        if (typeof eigenschaft === "string") gelesen.add(eigenschaft);
+        if (!vorhandenLautHas) return undefined;
+        return { configurable: true, enumerable: true, value: wert };
       },
     });
     try {
@@ -193,5 +228,52 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
   it("ein Vertragseintrag ohne Vorlage faellt auf", () => {
     const erweiterterVertrag: VertragForm = { ...vertrag, log_niemand_sendet_mich: [] };
     expect(() => pruefeVertrag(logMessages, erweiterterVertrag, sprachen)).toThrow();
+  });
+
+  // Nacharbeit 3 (#115): die zwei Restformen aus dem Moduldocstring.
+
+  it("eine Schwelle ausserhalb der kleinen Sondenwerte faellt auf", () => {
+    // Ohne 6/100 in SONDEN_WERTE waere `Number(p.count) > 5` nie wahr
+    // gewesen und der Tippfehler `acount` nie gelesen worden.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          Number(p.count) > 5
+            ? `${p.count} Assets von '${p.acount}' hinzugefuegt`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("eine `hasOwnProperty`-Abfrage mit Tippfehler im wahren Zweig faellt auf", () => {
+    // `Object.hasOwn(p, "account")` (so im Befund #115 benannt) braucht das
+    // ES2022-Lib-Target — `tsconfig.json` steht auf ES2020 und diese Datei
+    // haelt sich daran, statt den Compiler-Target projektweit anzuheben
+    // (ausserhalb des Umfangs dieses Slices). `Object.prototype.
+    // hasOwnProperty.call(p, "account")` loest denselben internen
+    // `[[GetOwnProperty]]`-Mechanismus aus wie `Object.hasOwn` — und damit
+    // denselben `getOwnPropertyDescriptor`-Trap, nicht `has`.
+    //
+    // `count` wird IMMER gelesen (haelt beide Faelle sonst ununterscheidbar).
+    // Ohne den `getOwnPropertyDescriptor`-Trap faellt die Abfrage auf das
+    // leere Target zurueck und liefert IMMER `false` — der Zweig mit dem
+    // Tippfehler `acount` wuerde nie gelesen, `gelesen` waere
+    // {"account","count"} und traefe zufaellig genau den Vertrag
+    // (Nacharbeit-2-Lehre: "Testdaten muessen den Unterschied erzwingen").
+    // Erst der Trap macht die Abfrage (bei den WAHR-Laeufen) wahr, liest
+    // dadurch `acount` UND haelt die Divergenz zum Vertrag sichtbar.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          `${p.count}: ` +
+          (Object.prototype.hasOwnProperty.call(p, "account") ? `${p.acount}` : `${p.account}`),
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
   });
 });
