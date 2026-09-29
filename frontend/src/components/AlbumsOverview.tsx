@@ -13,7 +13,7 @@ import {
   Pencil,
   Check,
 } from "lucide-react";
-import { api, ManagedAlbum, SyncLogEntry } from "../api/client";
+import { api, ApiError, ManagedAlbum, SyncLogEntry } from "../api/client";
 import { formatDate, LANG_LOCALES, useT, type ServerErrorLike } from "../i18n";
 import { bucketByGroup, mergePersonRefs } from "../lib/albumGroups";
 
@@ -60,6 +60,18 @@ interface AlbumGroup {
   // derselben Gruppe) — Issue #123 verlangt das Gegenteil: jedes solche
   // Album bleibt markiert.
   tooFewPeople: boolean;
+  // Welcher TEXT gezeigt wird, ist eine eigene Frage von `tooFewPeople`
+  // (Nacharbeit 1 zu #123, alle drei Stimmen): Bisher waehlte die Karte den
+  // Satz ueber `group.person_refs.length` — die ZUSAMMENGEFUEHRTE Liste,
+  // dieselbe Quelle, die Nacharbeit 2 fuer die Markierung SELBST schon
+  // verworfen hatte. Ein Album mit 0 Personen neben einem mit 2 zeigte so
+  // "Nur noch eine Person" (falsch, es sind ja gar keine mehr) oder, je nach
+  // Ueberlappung, gar nichts. Jetzt direkt aus den ALBEN DER GRUPPE
+  // abgeleitet: `hasZeroPeopleAlbum`, wenn eines von ihnen leer ist,
+  // `hasOnePersonAlbum`, wenn eines genau eine Person fuehrt — beides kann
+  // gleichzeitig zutreffen, dann erscheinen beide Texte.
+  hasZeroPeopleAlbum: boolean;
+  hasOnePersonAlbum: boolean;
 }
 
 function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
@@ -67,7 +79,20 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
     const personRefs = mergePersonRefs(group);
     const dates = group.map((a) => a.last_synced_at).filter(Boolean) as string[];
     const lastSync = dates.length ? dates.sort().reverse()[0] : undefined;
-    const first = group[0];
+    // Nacharbeit 1 (#123, Gegenpruefer G1, Blindpruefer W1, WICHTIG): `first`
+    // bestimmt Anzeigename, Besitzerzeile UND die Vorbelegung des
+    // Umbenennen-Feldes (`renameValue` unten). Bis hierher war das immer
+    // `group[0]` — steht das verwaiste Album einer gemischten Gruppe vorn
+    // (die Ladereihenfolge des Servers ist nicht garantiert), zeigte die
+    // Karte nach einem erfolgreichen Umbenennen weiter den ALTEN Namen, und
+    // ein erneut geoeffnetes Eingabefeld war mit dem alten statt dem neuen
+    // Namen vorbelegt — ein Enter ohne jede Aenderung benannte dann
+    // stillschweigend zurueck (Folgefund, Blindpruefer W2). Bevorzugt wird
+    // jetzt das ERSTE GESUNDE Album; nur wenn die ganze Gruppe verwaist ist,
+    // bleibt es beim ersten ueberhaupt — unveraendertes Verhalten fuer
+    // diesen Fall, und `displayedOwnerMissing` unten bleibt darueber korrekt:
+    // Ist das gewaehlte `first` gesund, ist es automatisch `false`.
+    const first = group.find((a) => !a.owner_account_missing) ?? group[0];
     const ownerRef = first.person_refs.find((r) => r.account_id === first.owner_account_id);
     // Use total_assets from the most recently synced entry (most accurate)
     const mostRecent = [...group].sort((a, b) =>
@@ -85,6 +110,8 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
       ownerMissing: group.some((a) => a.owner_account_missing),
       displayedOwnerMissing: !!first.owner_account_missing,
       tooFewPeople: group.some((a) => a.too_few_people),
+      hasZeroPeopleAlbum: group.some((a) => a.person_refs.length === 0),
+      hasOnePersonAlbum: group.some((a) => a.person_refs.length === 1),
     };
   });
 }
@@ -131,9 +158,14 @@ function AlbumGroupCard({
   const [localLogs, setLocalLogs] = React.useState<SyncLogEntry[] | null>(null);
   const [localSyncing, setLocalSyncing] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [renaming, setRenaming] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(group.album_name);
   const [renameError, setRenameError] = React.useState<string | null>(null);
+  // Album-Namen, die das UMBENENNEN in diesem Durchlauf uebersprungen hat,
+  // weil der Server sie einzeln mit `err_owner_account_not_found` ablehnte
+  // (Nacharbeit 1, #123, Gegenpruefer G3 — siehe `handleRename` unten).
+  const [renameSkipped, setRenameSkipped] = React.useState<string[]>([]);
 
   // Ein lokales Ergebnis ist NEUER als ein liegengebliebenes Sammelergebnis
   // (Fund des Fremdpruefers an #79). Vorher hatte `externalLogs` Vorrang,
@@ -177,6 +209,7 @@ function AlbumGroupCard({
   const handleDelete = async () => {
     if (!confirm(t("album_remove_confirm", group.album_name, group.albums.length))) return;
     setDeleting(true);
+    setDeleteError(null);
     // PARALLEL statt nacheinander (Owner-Entscheid 29.09.2026, #123, #121
     // Punkt 1): Seit #101 wartet `DELETE /api/sync/albums/{id}` am
     // Albumschloss dieses EINEN Albums (`sync_service._album_schloss`) — ein
@@ -188,8 +221,22 @@ function AlbumGroupCard({
     // in Issue #121, hier nicht wiederholt — nicht selbst nachgemessen,
     // docs/agents/lehren.md §46). `Promise.all` startet alle DELETEs sofort; nur das
     // Album mit dem gerade gehaltenen Schloss wartet noch.
-    await Promise.all(group.albums.map((album) => api.sync.deleteAlbum(album.id).catch(() => {})));
+    //
+    // Nacharbeit 1 (#123, alle drei Stimmen): Ein Fehlschlag verschwand bis
+    // hierher spurlos — jeder DELETE trug sein eigenes `.catch(() => {})`,
+    // und `Promise.all` selbst kann dann gar nicht mehr ablehnen. Der Nutzer
+    // sah "fertig", auch wenn ein Album weiterhin verwaltet blieb.
+    // `Promise.allSettled` behaelt beide Faelle auseinander, ohne die
+    // Parallelitaet oder die Invalidierungen (auch `["album-group"]`, #110)
+    // aufzugeben — ein Fehlschlag wird jetzt gezaehlt und sichtbar gemacht.
+    const ergebnisse = await Promise.allSettled(
+      group.albums.map((album) => api.sync.deleteAlbum(album.id))
+    );
+    const fehlgeschlagen = ergebnisse.filter((r) => r.status === "rejected").length;
     setDeleting(false);
+    if (fehlgeschlagen > 0) {
+      setDeleteError(t("album_remove_partial_failed", fehlgeschlagen, group.albums.length));
+    }
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
     // Entfernen aendert die Gruppe (weniger/keine Alben mehr) — eine
@@ -208,9 +255,14 @@ function AlbumGroupCard({
   const handleDeleteSingle = async (album: ManagedAlbum) => {
     if (!confirm(t("album_remove_single_confirm", album.album_name))) return;
     setDeleting(true);
+    setDeleteError(null);
+    // Nacharbeit 1 (#123, alle drei Stimmen): derselbe stille Fehlschlag wie
+    // bei `handleDelete` oben, hier fuer die Einzelentfernung.
     try {
       await api.sync.deleteAlbum(album.id);
-    } catch (_) {}
+    } catch (_) {
+      setDeleteError(t("album_remove_single_failed", album.album_name));
+    }
     setDeleting(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
@@ -249,14 +301,37 @@ function AlbumGroupCard({
       return;
     }
     setRenameError(null);
+    setRenameSkipped([]);
     setLocalSyncing(true);
     setLocalLogs(null);
     const logs: SyncLogEntry[] = [];
+    // Nacharbeit 1 (#123, Gegenpruefer G3, WICHTIG): `gesundeAlben` stammt aus
+    // der Liste, die beim LADEN des Tabs galt — steckt darin ein Konto, das
+    // seither (in einem anderen Tab) geloescht wurde, faehrt die Schleife
+    // dessen Album trotzdem an. Der Server lehnt NUR DIESES EINE Album mit
+    // `err_owner_account_not_found` ab (`routers/albums.py::
+    // rename_managed_album`). Bis hierher riss das die GANZE Schleife ab —
+    // die Ausnahme verliess sie nach oben in den `catch`-Block, und jedes
+    // noch nicht erreichte Album blieb unbenannt, ohne jeden Hinweis. Jetzt
+    // gilt dieses eine Album als UEBERSPRUNGEN (`uebersprungen`, sichtbar
+    // gemacht im `finally`-Block unten), die Schleife laeuft mit den
+    // uebrigen weiter. Jeder ANDERE Fehler verhaelt sich unveraendert: Er
+    // bricht ab, sein Text erscheint in `renameError`, und die bis dahin
+    // gesammelten Eintraege bleiben sichtbar (#79).
+    const uebersprungen: string[] = [];
     try {
       for (const album of gesundeAlben) {
-        logs.push(...(await api.sync.renameAlbum(album.id, nextName)));
+        try {
+          logs.push(...(await api.sync.renameAlbum(album.id, nextName)));
+        } catch (error) {
+          if (error instanceof ApiError && error.key === "err_owner_account_not_found") {
+            uebersprungen.push(album.album_name);
+            continue;
+          }
+          throw error;
+        }
       }
-      if (logs.every((entry) => entry.status === "success")) setRenaming(false);
+      if (logs.length && logs.every((entry) => entry.status === "success")) setRenaming(false);
     } catch (error) {
       setRenameError(errorText(error as ServerErrorLike));
     } finally {
@@ -269,6 +344,7 @@ function AlbumGroupCard({
         setLocalLogs(logs);
         setLokalZuletzt(true);
       }
+      if (uebersprungen.length) setRenameSkipped(uebersprungen);
       setLocalSyncing(false);
       qc.invalidateQueries({ queryKey: ["managed-albums"] });
       qc.invalidateQueries({ queryKey: ["sync-log"] });
@@ -355,6 +431,7 @@ function AlbumGroupCard({
                     setRenaming(false);
                     setRenameValue(group.album_name);
                     setRenameError(null);
+                    setRenameSkipped([]);
                   }}
                   aria-label={t("cancel")}
                 >
@@ -399,13 +476,20 @@ function AlbumGroupCard({
           <span>
             {group.ownerMissing && t("album_owner_missing_badge")}
             {group.ownerMissing && group.tooFewPeople && " · "}
-            {/* 0 und 1 verbleibende Person(en) sind unterschiedliche Texte
-                (Nacharbeit 1, kleiner Fund): "Nur noch eine Person" waere bei
-                null Personen falsch. */}
-            {group.tooFewPeople &&
-              (group.person_refs.length === 0
-                ? t("album_no_people_badge")
-                : t("album_too_few_people_badge"))}
+            {/* Nacharbeit 1 zu #123 (alle drei Stimmen): Der Text wurde bis
+                hierher aus der ZUSAMMENGEFUEHRTEN Personenliste der Gruppe
+                gewaehlt (`group.person_refs.length`) — genau die Quelle, die
+                Nacharbeit 2 zu #99/#112 fuer die Markierung SELBST schon
+                verworfen hatte (`tooFewPeople` oben, `group.some`). Ein
+                Album mit 0 Personen neben einem mit 2 zeigte so faelschlich
+                "Nur noch eine Person", ein Album mit 1 Person neben einem
+                mit 1 weiteren zeigte gar nichts. Jetzt direkt aus den ALBEN
+                DER GRUPPE abgeleitet: 0 Personen -> "keine Person", genau 1
+                -> "eine Person", beides gleichzeitig moeglich -> beide
+                Texte. */}
+            {group.hasZeroPeopleAlbum && t("album_no_people_badge")}
+            {group.hasZeroPeopleAlbum && group.hasOnePersonAlbum && " · "}
+            {group.hasOnePersonAlbum && t("album_too_few_people_badge")}
             {/* Sichtbarer Hinweis, dass der Abgleich verwaiste Alben
                 UEBERSPRINGT statt sie zu sperren (Nacharbeit 1) — nur wenn
                 noch mindestens ein gesundes Album da ist; sind alle
@@ -451,6 +535,12 @@ function AlbumGroupCard({
 
       <SyncLogDisplay logs={displayLogs} syncing={syncing} />
       {renameError && <p className="text-xs text-red-400">{renameError}</p>}
+      {renameSkipped.length > 0 && (
+        <p className="text-xs text-amber-400">
+          {t("album_rename_skipped_hint", renameSkipped.join(", "))}
+        </p>
+      )}
+      {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}
 
       {isDeleted && (
         <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
@@ -465,6 +555,7 @@ function AlbumGroupCard({
           onClick={() => {
             setRenameValue(group.album_name);
             setRenameError(null);
+            setRenameSkipped([]);
             setRenaming(true);
           }}
           disabled={syncing || deleting || renaming || renameLocked}

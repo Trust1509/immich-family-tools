@@ -59,17 +59,21 @@ const { albenMock, autoSyncGet, renameMock, refreshMock, deleteMock } = vi.hoist
   deleteMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
-  api: {
-    sync: {
-      albums: albenMock,
-      refreshAlbum: refreshMock,
-      deleteAlbum: deleteMock,
-      renameAlbum: renameMock,
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return {
+    ...actual,
+    api: {
+      sync: {
+        albums: albenMock,
+        refreshAlbum: refreshMock,
+        deleteAlbum: deleteMock,
+        renameAlbum: renameMock,
+      },
+      autoSync: { get: autoSyncGet, set: vi.fn() },
     },
-    autoSync: { get: autoSyncGet, set: vi.fn() },
-  },
-}));
+  };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -187,10 +191,13 @@ describe("AlbumsOverview: handleDelete entfernt eine Gruppe PARALLEL", () => {
     await waitFor(() => expect(albenMock.mock.calls.length).toBeGreaterThan(1));
   });
 
-  it("entfernt eine Gruppe auch dann vollstaendig, wenn EIN DELETE ablehnt", async () => {
+  it("entfernt die drei uebrigen Alben trotzdem, UND macht den einen Fehlschlag sichtbar (Nacharbeit 1, #123, alle drei Stimmen)", async () => {
     // Wie schon bei der sequenziellen Fassung: ein einzelner Fehlschlag darf
-    // die anderen drei nicht verhindern — `Promise.all` mit `.catch(() => {})`
-    // je Aufruf, nicht ein `try` um den ganzen Block.
+    // die anderen drei nicht verhindern — `Promise.allSettled`, nicht ein
+    // `try` um den ganzen Block. NEU seit Nacharbeit 1: Der Fehlschlag darf
+    // dabei nicht mehr STILL verschluckt werden (er war es bis hierher, siehe
+    // `.catch(() => {})` je Aufruf in der Vorfassung von `handleDelete`) — er
+    // muss als sichtbarer, uebersetzter Text auf der Karte stehen.
     vi.stubGlobal(
       "confirm",
       vi.fn(() => true)
@@ -214,5 +221,34 @@ describe("AlbumsOverview: handleDelete entfernt eine Gruppe PARALLEL", () => {
         ).disabled
       ).toBe(false)
     );
+
+    // Die sichtbare Meldung: 1 von 4 Eintraegen konnte nicht entfernt werden.
+    expect(screen.getByText("1 von 4 Einträgen konnten nicht entfernt werden.")).toBeTruthy();
+  });
+
+  it("zeigt KEINE Fehlermeldung, wenn alle vier DELETEs gelingen", async () => {
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true)
+    );
+    deleteMock.mockResolvedValue(undefined);
+
+    await rendern();
+    await waitFor(() => expect(screen.getByText("Grossfamilie")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Verknüpfung entfernen/i }));
+
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledTimes(4));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: /Verknüpfung entfernen/i,
+          }) as HTMLButtonElement
+        ).disabled
+      ).toBe(false)
+    );
+
+    expect(screen.queryByText(/konnte.*nicht entfernt werden/)).toBeNull();
   });
 });

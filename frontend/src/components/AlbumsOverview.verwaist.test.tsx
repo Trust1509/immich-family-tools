@@ -68,17 +68,21 @@ const { albenMock, autoSyncGet, refreshMock, renameMock, deleteMock } = vi.hoist
   deleteMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
-  api: {
-    sync: {
-      albums: albenMock,
-      refreshAlbum: refreshMock,
-      deleteAlbum: deleteMock,
-      renameAlbum: renameMock,
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return {
+    ...actual,
+    api: {
+      sync: {
+        albums: albenMock,
+        refreshAlbum: refreshMock,
+        deleteAlbum: deleteMock,
+        renameAlbum: renameMock,
+      },
+      autoSync: { get: autoSyncGet, set: vi.fn() },
     },
-    autoSync: { get: autoSyncGet, set: vi.fn() },
-  },
-}));
+  };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();

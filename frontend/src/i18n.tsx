@@ -797,6 +797,38 @@ export const translations = {
     "es-ES": (name: string) =>
       `¿Eliminar la entrada del álbum huérfano "${name}"?\n\nEl álbum se conservará en Immich. Los demás álbumes de este grupo siguen gestionados.`,
   },
+  // Nacharbeit 1 (#123, Gegenpruefer G3): Die Liste im Tab kann veraltet
+  // sein — ein Konto wird in einem anderen Tab geloescht, WAEHREND das
+  // Umbenennen schon laeuft. Der Server lehnt dann nur das EINE betroffene
+  // Album ab; die Schleife laeuft mit den uebrigen weiter, statt
+  // abzubrechen, und dieser Text macht sichtbar, welches Album dabei
+  // uebersprungen wurde (kein `log_*`-Schluessel: das ist kein
+  // Protokolleintrag, sondern ein reiner UI-Hinweis auf der Karte).
+  album_rename_skipped_hint: {
+    de: (namen: string) => `Übersprungen (inzwischen verwaist): ${namen}.`,
+    en: (namen: string) => `Skipped (orphaned in the meantime): ${namen}.`,
+    "pt-BR": (namen: string) => `Ignorado (órfão nesse meio tempo): ${namen}.`,
+    "es-ES": (namen: string) => `Omitido (huérfano mientras tanto): ${namen}.`,
+  },
+  // Nacharbeit 1 (#123, alle drei Stimmen): `handleDelete`/`handleDeleteSingle`
+  // verschluckten einen Fehlschlag bislang stumm (`.catch(() => {})`). Diese
+  // beiden Texte machen ihn sichtbar.
+  album_remove_partial_failed: {
+    de: (fehlgeschlagen: number, gesamt: number) =>
+      `${fehlgeschlagen} von ${gesamt} Einträgen konnten nicht entfernt werden.`,
+    en: (fehlgeschlagen: number, gesamt: number) =>
+      `${fehlgeschlagen} of ${gesamt} entries could not be removed.`,
+    "pt-BR": (fehlgeschlagen: number, gesamt: number) =>
+      `${fehlgeschlagen} de ${gesamt} registros não puderam ser removidos.`,
+    "es-ES": (fehlgeschlagen: number, gesamt: number) =>
+      `${fehlgeschlagen} de ${gesamt} entradas no se pudieron eliminar.`,
+  },
+  album_remove_single_failed: {
+    de: (name: string) => `Album "${name}" konnte nicht entfernt werden.`,
+    en: (name: string) => `Album "${name}" could not be removed.`,
+    "pt-BR": (name: string) => `O álbum "${name}" não pôde ser removido.`,
+    "es-ES": (name: string) => `El álbum "${name}" no se pudo eliminar.`,
+  },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────
   log_subtitle: {

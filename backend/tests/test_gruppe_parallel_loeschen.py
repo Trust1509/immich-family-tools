@@ -18,6 +18,21 @@ Ohne dieses Warten waere nicht bewiesen, dass ueberhaupt ein Fenster
 entstanden ist — nur, dass am Ende alle vier weg sind, was eine rein
 sequenzielle Reihenfolge genauso liefern wuerde (§40: ein Test, der nur das
 Endergebnis betrachtet, uebersieht den toten Zwischenzustand).
+
+Nacharbeit 1 (#123, Blindpruefer K6): Der `asyncio.gather` auf a2/a3/a4 stand
+bis hierher OHNE Zeitlimit. Ein Rueckbau auf EIN Schloss fuer alle Alben
+(statt eins JE Album-ID) laesst a2/a3/a4 am SELBEN Schloss haengen wie a1 —
+und a1 wird erst nach diesem `gather` freigegeben (`freigabe.set()` weiter
+unten). Ohne Zeitlimit haengt der Test dann UNBEGRENZT, statt rot zu werden;
+genau das ist der Fall, den `docs/agents/lehren.md` als teurer beschreibt als
+ein falsches Ergebnis: ein haengender Lauf blockiert die ganze Suite (und in
+der CI den Runner), statt in Sekunden zu melden, was kaputt ist.
+`asyncio.wait_for` mit einer grosszuegigen Frist macht den Rueckbau ROT statt
+STUMM — gemessen: mit einem einzigen globalen Schloss (`_album_schloss`
+durch eine Attrappe ersetzt, die immer dasselbe `asyncio.Lock()` liefert)
+wird dieser Test innerhalb weniger Sekunden rot, nicht erst nach dem
+Pytest-eigenen Abbruch (der hier gar nicht griffe, weil kein Suite-weites
+Zeitlimit gesetzt ist).
 """
 import asyncio
 import json
@@ -114,9 +129,29 @@ async def test_drei_geschwister_werden_entfernt_waehrend_das_vierte_im_schloss_h
 
             # a2, a3, a4 haengen an KEINEM gemeinsamen Schloss mit a1 - sie
             # duerfen fertig werden, WAEHREND a1 noch wartet.
-            r2, r3, r4 = await asyncio.gather(
-                delete_tasks["a2"], delete_tasks["a3"], delete_tasks["a4"]
-            )
+            #
+            # Nacharbeit 1 (#123, Blindpruefer K6): Mit ZEITLIMIT, nicht ohne
+            # — ein Rueckbau auf EIN Schloss fuer alle Alben liesse a2/a3/a4
+            # hier auf a1 warten, das selbst erst NACH diesem Abschnitt
+            # freigegeben wird (`freigabe.set()` weiter unten). Ohne
+            # `wait_for` haengt der Test dann fuer immer, statt in Sekunden
+            # ROT zu werden.
+            try:
+                r2, r3, r4 = await asyncio.wait_for(
+                    asyncio.gather(
+                        delete_tasks["a2"], delete_tasks["a3"], delete_tasks["a4"]
+                    ),
+                    timeout=10.0,
+                )
+            except asyncio.TimeoutError:
+                # a1 freigeben, damit der haengende `refresh_task` nicht seinerseits
+                # den Testlauf (bzw. den Lifespan-Abbau danach) blockiert.
+                freigabe.set()
+                pytest.fail(
+                    "a2/a3/a4 wurden nach 10s nicht fertig - Verdacht: Rueckbau auf "
+                    "EIN Schloss fuer alle Alben statt eins je Album-ID (a1 haelt es "
+                    "per Refresh, a2/a3/a4 haengen dann mit statt fertig zu werden)"
+                )
             dauer_ohne_a1 = time.monotonic() - start
             assert r2.status_code == 204, r2.text
             assert r3.status_code == 204, r3.text

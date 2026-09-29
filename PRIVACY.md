@@ -27,7 +27,10 @@ older than the window stays in `accounts.json` on disk until the next
 successful write to the log; measured directly against the store: a 200-day-old
 entry was still present on disk right after removing its account, because
 removing an account does not itself write a log entry. Clearing the log in the
-UI removes it immediately, regardless of age.
+UI removes it from `accounts.json` immediately, regardless of age — but, as
+with any write, the pre-clear state (including the log it just replaced)
+lands in `accounts.json.bak` and stays readable there until the next save;
+see the `.bak` paragraphs below.
 
 **Container logs are a separate channel this file does not cover.** Several
 operations log account and album names to the container's standard output —
@@ -42,25 +45,28 @@ entries from every managed album's linked-people list, and clears its face
 thumbnail/embedding caches. It does **not** delete photos, people, albums, or
 users in Immich. Owner decision 2026-09-28 (#99, #112): several other kinds of
 local data about that account deliberately survive the removal instead of
-disappearing silently. Two of the three below do have a removal path, but only
-a **blunt** one — it removes more than just the traces of this one account, and
-nothing lets you target just those traces. For the third, updated 2026-09-29
-(#123) to say so plainly: there is currently **no removal path at all**, blunt
-or otherwise:
+disappearing silently. One of the three below now has a precise removal path
+(updated 2026-09-29, #123 — see the first bullet); one still only a **blunt**
+one — it removes more than just the traces of this one account, and nothing
+lets you target just those traces; and the third, updated 2026-09-29 (#123) to
+say so plainly, has currently **no removal path at all**, blunt or otherwise:
 
 - Its managed albums stay in the tool, marked as orphaned (owner account
-  missing) or as having too few linked people. Removing the album entry itself
-  (not just the account) is the only way to clear it — and even that removes
-  only the tool's record, never the album or its photos in Immich. A re-added
-  account never heals an orphaned album either: this tool assigns a fresh
-  random identifier to every added account, which can never match the
-  identifier already stored on the old album.
+  missing) or as having too few linked people. Since 2026-09-29 (#123), an
+  orphaned album can be removed **individually** — even out of a mixed group
+  that still has a healthy sibling album — not only as part of removing the
+  whole group at once; either way, removal clears only the tool's record,
+  never the album or its photos in Immich. A re-added account never heals an
+  orphaned album either: this tool assigns a fresh random identifier to every
+  added account, which can never match the identifier already stored on the
+  old album.
 - The synchronization log is untouched, including entries whose text mentions
   the account by name or whose undo data points at the removed account
   (attempting to undo such an entry is refused instead of silently allowed).
   This one does eventually age out — see the retention paragraph above — and
-  clearing the log in the UI removes it (and every other entry) immediately,
-  at any age; neither path lets you remove just the entries about one account.
+  clearing the log in the UI removes it (and every other entry) from
+  `accounts.json` immediately, at any age, subject to the same `.bak` caveat
+  as above; neither path lets you remove just the entries about one account.
 - Dismissed-match and name-sync markers are untouched — and unlike the two
   above, **nothing in this application currently removes them**, at any age,
   in bulk or individually. The code path to unmark a dismissed match exists
@@ -71,23 +77,35 @@ or otherwise:
 
 **The ordinary save leaves one more generation behind, and it is not the
 rollback copy described below.** Every write to `accounts.json` —
-`ConfigStore._save` — first copies the file's current on-disk content to
-`accounts.json.bak`, unconditionally, on every save, then writes the new
-state (`backend/services/config_store.py`, `_save`). Read directly against
-that code: the backup always lags by exactly one save, because it holds
-whatever was on disk right before the write that just happened. Concretely —
-`clear_log()` sets the in-memory log to empty and then calls `_save()`; since
-the file on disk still carries the old log at that point, `_save()` copies it
-into `accounts.json.bak` before writing the now-empty log to `accounts.json`
-itself. The old log stays readable in `.bak` until the _next_ write to
-`accounts.json` (any write, not only another log change) overwrites the
-backup with a newer snapshot. The same mechanism applies to `delete_account()`:
-it removes the account from the in-memory data and then calls `_save()` once,
-so the pre-delete on-disk state — including the removed account's API key —
-is what lands in `accounts.json.bak`, and it stays there until the next save.
-`accounts.json.bak` is written with the same restrictive permissions as the
-primary file, but it is a second file on disk carrying the same secrets, and
-its short, save-cycle-bounded lifetime is easy to mistake for "already gone".
+`ConfigStore._save` — copies the file's _current on-disk content_ to
+`accounts.json.bak` before writing the new state, but **only if
+`accounts.json` already exists at that point**
+(`backend/services/config_store.py`, `_save`: `if self._path.exists():
+shutil.copy2(...)`). Read directly against that code, this cuts both ways:
+the very first save of a fresh instance creates **no** `.bak` at all — there
+is nothing on disk yet to copy. From the second save onward, the backup
+always lags by exactly one save, because it holds whatever was on disk right
+before the write that just happened. Concretely — `clear_log()` sets the
+in-memory log to empty and then calls `_save()`; since the file on disk still
+carries the old log at that point (and, ordinarily, already exists), `_save()`
+copies it into `accounts.json.bak` before writing the now-empty log to
+`accounts.json` itself. The old log stays readable in `.bak` until the _next_
+write to `accounts.json` (any write, not only another log change) overwrites
+the backup with a newer snapshot. The same mechanism applies to
+`delete_account()`: it removes the account from the in-memory data and then
+calls `_save()` once, so the pre-delete on-disk state — including the removed
+account's API key — is what lands in `accounts.json.bak`, and it stays there
+until the next save. `accounts.json.bak` is written with the same restrictive
+permissions as the primary file, but it is a second file on disk carrying the
+same secrets. **Its lifetime is bounded by the _next save_, not by elapsed
+time — calling it "short" would be wrong.** A dormant instance (auto-sync
+disabled, nobody acting on it) may go a long time between saves, during which
+`.bak` — and anything it captured, such as a just-removed account's API key —
+stays exactly as it was. Starting the application and read-only access
+(browsing accounts, matches, the log) do not write to `accounts.json` and
+therefore do not touch `.bak` either; only an actual write does. This is easy
+to mistake for "already gone" precisely because it looks stale, not because
+it is.
 
 **Rollback copies are the exception, and the operator has to act on it.** Before
 anything it cannot undo — a schema migration, an album-identifier assignment —
