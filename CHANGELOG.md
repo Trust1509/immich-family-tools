@@ -2,6 +2,101 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [1.9.0] – 2026-09-29
+
+**Risk: backup**
+
+No data migration and no schema change. The backup line is here because the
+first sync after the upgrade may **change album names in the tool**: the name
+in Immich now wins (#97). If you renamed albums directly in Immich since you
+created them here, the tool adopts those names on the next sync. A snapshot of
+`accounts.json` before the upgrade lets you go back to 1.8.0 with the old
+names. Under 1.9.0 the next sync adopts the Immich name again — to keep a name,
+rename the album in Immich.
+
+### Two groups may carry the same name (#98)
+
+A group name is a label, not an identity. Renaming an album group no longer
+refuses a name because another group already uses it — the message "already
+belongs to a different group" is gone. While two groups share a name, the group
+preview stays silent for that name, and a new album with that name starts its
+own group. To add someone to one of the existing groups, use **Extend** and
+pick the group there.
+
+### The name in Immich wins (#97)
+
+When the tool syncs a managed album, it takes over the album's current name
+from Immich and logs the change ("Album … is now called … in Immich"). A rename
+you did in Immich shows up here; a rename that reached Immich but failed to be
+saved here heals on the next sync. An empty or blank name from Immich is
+ignored.
+
+### Creating an album waits for the group preview (#110)
+
+The "create" and "link" buttons stay disabled until the group preview has
+answered for exactly the name you typed. If the preview fails (for example the
+server is briefly unreachable), the button stays disabled and you get a
+**Retry** button — the tool no longer lets a failed check silently decide the
+group. The preview is fetched fresh for every name you type, and creating,
+linking, renaming, extending or removing an album refreshes it.
+
+### Removing an account no longer makes things disappear (#99, #112, #123)
+
+- Albums stay under management even if only one person — or none — is left,
+  and are **marked** ("Owner account deleted", "Only one person left",
+  "No person linked anymore").
+- Renaming or syncing a group handles the albums whose owner still exists and
+  **skips** the others, with a visible note; on rename, the server refuses
+  only the orphaned album itself. The nightly auto-sync skips orphaned albums
+  too, without an error entry every night.
+- An orphaned album can be **removed on its own**; the other albums of its
+  group stay under management.
+- **Undo** is disabled for log entries of a removed account.
+- The sync log, dismissed suggestions and synced-name markers are **kept**
+  when you remove an account. Previously, removing any account cleared _all_
+  dismissed suggestions and synced-name markers — for every account — and
+  dropped log entries that belonged to it or merely contained its name as part
+  of another word.
+- **Privacy:** removing an account no longer clears its local traces.
+  `PRIVACY.md` describes what stays: the log still ages out and can be cleared,
+  orphaned albums can be removed one by one, but dismissed-suggestion and
+  synced-name markers currently have no removal path at all.
+
+### Changes to one album no longer undo each other (#101, #123)
+
+Syncing, renaming, extending and removing an album now wait for each other.
+Before, extending an album with a person could write back an older version of
+the album and silently undo a rename that had just finished. If an album is
+removed while another operation is waiting for it, that operation stops
+("Managed album not found") instead of changing Immich for an album you no
+longer manage. Removing an album waits only for an operation already running on
+that same album; the albums of a group are removed in parallel, and if one of
+them cannot be removed, the card says so.
+
+### Clearer log lines for the rollback copies (#105)
+
+The container log now says which rollback copy was written:
+`Rueckweg vor Schemasprung auf Version N: …` or
+`Rueckweg vor Kennungsvergabe: …`, and the matching `… nicht moeglich: …`
+warnings. Version 1.8.0 used `Sicherung vor Schemasprung` for both — if you set
+up log alerts on that text, update them. `docs/BACKUP_RESTORE.md` lists both
+forms. The nightly auto-sync logs the orphaned albums it skips by id, and its
+album count no longer includes them.
+
+### For contributors
+
+- Log messages are now a contract: every `log_*` key the backend sends needs an
+  entry in `frontend/src/logMessages.contract.json` and a template in all four
+  languages; a test on each side enforces it (#94).
+- The working tree uses LF line endings on every platform (`.gitattributes`),
+  guarded in CI; `npx prettier --check .` now also works on Windows checkouts
+  with `core.autocrlf=true`. Existing Windows checkouts: see `CLAUDE.md` for the
+  one-time refresh (#104).
+- API: `GET /api/sync/albums` returns two computed flags per album,
+  `owner_account_missing` and `too_few_people`; `err_album_name_in_use` is no
+  longer returned. `DELETE /api/sync/albums/{id}` may wait until an operation
+  already running on the same album has finished.
+
 ## [1.8.0] – 2026-09-27
 
 **Risk: backup**
