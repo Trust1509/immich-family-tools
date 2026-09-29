@@ -571,17 +571,46 @@ class ConfigStore:
 
         Beide Stufen halten die zwei Ausnahmen aus #78: ein leerer Name sagt
         nichts, ein mehrdeutiger auch nicht.
+
+        SEIT #113 nur noch eine duenne Huelle um `group_candidates_for_name`:
+        Diese Methode kollabiert dessen rohe Kandidatenmenge auf "eindeutig
+        oder nichts"; wer die Kandidaten SELBST braucht (Vorschau bei
+        Mehrdeutigkeit, `resolve_group_id`), ruft die andere Methode direkt —
+        derselbe zweistufige Algorithmus, an EINER Stelle.
+        """
+        kandidaten = self.group_candidates_for_name(album_name, albums)
+        return next(iter(kandidaten)) if len(kandidaten) == 1 else None
+
+    def group_candidates_for_name(
+        self, album_name, albums: Optional[list] = None
+    ) -> set[str]:
+        """Alle Gruppen, die dieser Name treffen koennte — roh, ohne Faltung
+        auf "eindeutig oder nichts" (#113).
+
+        `existing_group_for_name`/`_gruppe_fuer_namen` beantworten nur
+        "genau eine oder keine" und kollabieren einen mehrdeutigen Namen auf
+        `None` — fuer eine Vorschau, die dem Nutzer eine ECHTE Wahl anbietet,
+        und fuer eine Ablehnung, die zwischen "kein Treffer" und "mehrdeutig"
+        unterscheidet, reicht das nicht. Diese Methode laeuft denselben
+        zweistufigen Algorithmus (Begruendung: `_gruppe_fuer_namen`), liefert
+        aber bei Nicht-Eindeutigkeit die rohe Kandidatenmenge der zuletzt
+        ausgewerteten Stufe, statt sie zu verwerfen.
+
+        Leere Menge heisst: der Name trifft keine Gruppe. Genau ein Element
+        heisst: eindeutiger Treffer (identisch mit `existing_group_for_name`).
+        Mehr als eins heisst: mehrdeutig — GENAU diese Gruppen kommen infrage.
         """
         if albums is None:
             albums = self._data.get("managed_albums", [])
+        kandidaten: set[str] = set()
         for faltung in (self._name_key, self._name_key_vor_83):
             schluessel = faltung(album_name)
             if not schluessel:
-                return None
+                return set()
             kandidaten = self._gruppen_je_name(albums, faltung).get(schluessel, set())
             if len(kandidaten) == 1:
-                return next(iter(kandidaten))
-        return None
+                return kandidaten
+        return kandidaten
 
     def _backfill_group_ids(self, albums: list[dict]) -> bool:
         """Vergibt fehlende Gruppenkennungen aus der bisherigen Namensregel.
@@ -702,6 +731,15 @@ class ConfigStore:
 
         Die Personen werden ueber Konto UND Person entdoppelt; zwei
         Immich-Instanzen koennen dieselbe Personen-Kennung vergeben.
+
+        `owner_account_missing`/`too_few_people` (#124 B9): dieselben zwei
+        Markierungen wie auf `ManagedAlbumOut` (#99, #112), hier auf
+        GRUPPENEBENE aggregiert, weil eine Gruppe mehrere Alben mit
+        verschiedenen Besitzern buendeln kann. `owner_account_missing` ist
+        wahr, sobald IRGENDEIN Album der Gruppe verwaist ist — wer beitritt,
+        soll das VORHER sehen, nicht erst nach dem Beitritt am einzelnen
+        Album. `too_few_people` zaehlt die entdoppelte Personenmenge oben,
+        nicht `person_refs` einzelner Alben.
         """
         alben = [a for a in self._data.get("managed_albums", [])
                  if a.get("group_id") == group_id]
@@ -713,22 +751,47 @@ class ConfigStore:
                 if schluessel not in gesehen:
                     gesehen.add(schluessel)
                     refs.append(ref)
+        lebende_konten = {a.id for a in self.list_accounts()}
         return {
             "group_id": group_id,
             "album_names": sorted({a.get("album_name", "") for a in alben}),
             "person_refs": refs,
+            "owner_account_missing": any(
+                a.get("owner_account_id") not in lebende_konten for a in alben
+            ),
+            "too_few_people": len(refs) < 2,
         }
 
     def resolve_group_id(self, album_name: str, *,
                          chosen: Optional[str] = None,
-                         force_new: bool = False) -> str:
+                         force_new: bool = False,
+                         expected_none: bool = False) -> str:
         """Welche Gruppe es WIRKLICH wird — einziger Eigentuemer der Regel.
 
-        Ohne Angabe bleibt es beim heutigen Verhalten (der Name entscheidet).
+        Ohne Angabe bleibt es beim heutigen Verhalten (der Name entscheidet) —
+        MIT EINER Ausnahme seit #113: Ein mehrdeutiger Name (mehr als eine
+        Gruppe traegt ihn) wird IMMER abgelehnt, wenn keine ausdrueckliche
+        Wahl vorliegt. Vorher oeffnete `group_id_for_name` hier still eine
+        DRITTE Gruppe — `existing_group_for_name` sieht "mehrdeutig" und
+        "unbekannt" gleich (`None`) und kann das nicht unterscheiden; diese
+        Methode fragt `group_candidates_for_name` direkt und sieht den
+        Unterschied.
+
         Eine ausdrueckliche Wahl schlaegt den Namen; eine unbekannte Kennung
         wird ABGELEHNT, statt eine Gruppe zu erfinden — sonst legt ein
         Tippfehler eine Geistergruppe an, zu der nie ein zweites Album findet,
         und niemand sieht es, weil das Anlegen gelingt.
+
+        `expected_none` (#119): Der Aufrufer bestaetigt hiermit, dass SEINE
+        Vorschau zu diesem Namen "keine Gruppe" zeigte. Trifft der Name jetzt
+        doch eine Gruppe — sei es, weil zwischen Vorschau und Klick eine
+        andere Anfrage genau diesen Namen angelegt hat —, wird abgelehnt statt
+        still beizutreten; die Oberflaeche laedt die Vorschau danach neu.
+        Ohne dieses Flag (Vorgabe: aus, das heutige Verhalten fuer Aufrufer,
+        die es nicht mitschicken — auch die rohe API) bleibt der stille
+        Beitritt bestehen: Das ist genau der Fall, den #86 will (zwei
+        GLEICHZEITIGE Anlagen desselben NEUEN Namens sollen in EINER Gruppe
+        landen, nicht mit einer Ablehnung enden).
         """
         import errors
 
@@ -747,7 +810,16 @@ class ConfigStore:
             if chosen not in bekannt:
                 raise errors.group_not_found(chosen)
             return chosen
-        return self.group_id_for_name(album_name)
+
+        kandidaten = self.group_candidates_for_name(album_name)
+        if len(kandidaten) > 1:
+            raise errors.group_choice_required(album_name)
+        if len(kandidaten) == 1:
+            [treffer] = kandidaten
+            if expected_none:
+                raise errors.group_situation_changed(album_name)
+            return treffer
+        return str(uuid.uuid4())
 
     def gruppen_schloss(self, album_name: str) -> asyncio.Lock:
         """Das Schloss fuer diesen Albumnamen.
@@ -797,8 +869,16 @@ class ConfigStore:
         mehrdeutigen oder leeren Namen wird nicht geraten, sondern eine eigene
         Gruppe geoeffnet.
 
-        Einziger Eigentuemer dieser Regel — die Stellen, die frueher je eigene
-        Namensgruppen bildeten, fragen ab jetzt nur noch nach group_id.
+        STAND #113: `resolve_group_id` — der eigentliche Eigentuemer der
+        "welche Gruppe wird es wirklich"-Regel — ruft diese Methode NICHT
+        mehr auf. Ihr "mehrdeutig -> stille neue Gruppe" ist seit #113 fuer
+        Anlage/Verknuepfung FALSCH (dort lehnt `resolve_group_id` mehrdeutige
+        Namen ohne ausdrueckliche Wahl ab, statt zu raten); `resolve_group_id`
+        baut ihre eigene, kuerzere Fassung direkt auf
+        `group_candidates_for_name`. Diese Methode bleibt als eigenstaendiges,
+        oeffentliches "nur der Name entscheidet, notfalls neu"-Werkzeug
+        bestehen (getestet in `test_config_store.py`), hat aber aktuell
+        keinen Aufrufer in `routers/`.
         """
         treffer = self.existing_group_for_name(album_name)
         return treffer if treffer else str(uuid.uuid4())

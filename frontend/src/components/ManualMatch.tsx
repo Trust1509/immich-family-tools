@@ -312,6 +312,12 @@ function AlbumSection({
             </select>
           ))}
 
+        {/* #119, Punkt 4 (KLEIN): ein gewaehltes Immich-Album ohne Namen
+            sperrte bisher ohne Hinweis. */}
+        {albumMode === "existing" && existingAlbumId && !wirksamerName.trim() && (
+          <p className="text-xs text-amber-500">{t("album_existing_unnamed_hint")}</p>
+        )}
+
         {/* Auch beim VERKNUEPFEN, nicht nur beim Anlegen: Das Backend
             gruppiert dort genauso ueber den Namen, und ohne die Anzeige
             verschmilzt es still (Blindpruefer 21.09.2026). */}
@@ -417,7 +423,16 @@ export default function ManualMatch() {
         persons: selections.map((s) => ({ account_id: s.account_id, person_id: s.person_id })),
         canonical_name: canonicalName.trim(),
         owner_account_id: effectiveOwner || undefined,
-        ...(eigeneGruppe ? { force_new_group: true } : gruppeId ? { group_id: gruppeId } : {}),
+        // #119: Ohne Treffer wird das ANGEZEIGTE "keine Gruppe" ausdruecklich
+        // mitgeschickt (`expected_no_group`) — der Server prueft das unter
+        // dem Namensschloss frisch nach, statt still einer inzwischen
+        // entstandenen Gruppe beizutreten. `wirksamerName` ist hier immer
+        // gesetzt: `isValid` unten haelt den Startknopf sonst gesperrt.
+        ...(eigeneGruppe
+          ? { force_new_group: true }
+          : gruppeId
+            ? { group_id: gruppeId }
+            : { expected_no_group: true }),
         ...(albumMode === "new"
           ? { album_name: albumName.trim() || canonicalName.trim() }
           : // BEWUSST OHNE album_name: Das Feld gehoert dem Anlege-Modus und

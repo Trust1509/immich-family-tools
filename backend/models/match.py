@@ -116,6 +116,20 @@ class SyncNamesMultiRequest(BaseModel):
     # erzwingt eine eigene. Beides zugleich wird abgelehnt.
     group_id: Optional[str] = None
     force_new_group: bool = False
+    # #119: Der Client bestaetigt hiermit, dass SEINE Vorschau zu diesem
+    # Namen "keine Gruppe" zeigte. Vorgabe `False` — die rohe API und ein
+    # Client ohne dieses Feld behalten fuer den EINDEUTIGEN Fall das
+    # bisherige Verhalten: existiert inzwischen GENAU EINE Gruppe zu diesem
+    # Namen, tritt die Anfrage ihr still bei (das ist der Fall aus #86, zwei
+    # GLEICHZEITIGE Anlagen desselben neuen Namens sollen in EINER Gruppe
+    # landen, nicht mit einer Ablehnung enden). Ein MEHRDEUTIGER Name wird
+    # seit #113 immer abgelehnt, unabhaengig von diesem Feld. Wer
+    # `expected_no_group=true` setzt, bekommt zusaetzlich die schaerfere
+    # Pruefung: existiert jetzt doch GENAU EINE Gruppe, wird auch das
+    # abgelehnt statt still beizutreten — die Oberflaeche laedt die Vorschau
+    # dann neu, statt den Nutzer ungefragt einer Gruppe beitreten zu lassen,
+    # die er nie gesehen hat.
+    expected_no_group: bool = False
 
 
 class ExtendMatchRequest(BaseModel):
@@ -136,6 +150,8 @@ class SyncAlbumRequest(BaseModel):
     # erzwingt eine eigene. Beides zugleich wird abgelehnt.
     group_id: Optional[str] = None
     force_new_group: bool = False
+    # #119, dieselbe Bedeutung wie bei `SyncNamesMultiRequest` — siehe dort.
+    expected_no_group: bool = False
 
 
 class RenameManagedAlbumRequest(BaseModel):

@@ -167,10 +167,12 @@ def test_die_eigene_gruppe_darf_eine_zweite_schreibweise_bekommen(mit_bestand):
 def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand):
     """Der Weg AUS dem Schaden von #78 heraus — drei Fassungen lang gesperrt.
 
-    Zwei Gruppen heissen versehentlich gleich. Die Gruppenvorschau schweigt
-    deshalb für beide: Wer den Namen tippt, bekommt keine Gruppe angeboten.
-    Der eine Vorgang, der das behebt, ist eine Schreibweise zu ändern, die nur
-    in der ersten Faltungsstufe zusammenfällt.
+    Zwei Gruppen heissen versehentlich gleich. Die Gruppenvorschau kann sie
+    deshalb nicht auseinanderhalten: Wer den Namen tippt, bekommt keine der
+    beiden automatisch VORGESCHLAGEN (`group_id_for_name`/`resolve_group_id`
+    ohne ausdrueckliche Wahl finden keinen eindeutigen Treffer). Der eine
+    Vorgang, der das behebt, ist eine Schreibweise zu ändern, die nur in der
+    ersten Faltungsstufe zusammenfällt.
 
     Alle drei Vorfassungen der Kollisionsprüfung haben genau diesen Vorgang mit
     409 abgelehnt — mit einer Auskunft, die nicht stimmte: Die andere Gruppe
@@ -179,15 +181,36 @@ def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand)
 
     Gemessen wird hier nicht der Statuscode allein, sondern die WIRKUNG an der
     Tür, um die es geht: Die Vorschau muss danach für beide Schreibweisen
-    antworten.
+    EINDEUTIG antworten.
+
+    NACHTRAG #113 (29.09.2026): "Schweigt" traf die VORSCHAU selbst nicht
+    mehr fuer JEDE Schreibweise gleich genau — sie kollabiert Mehrdeutigkeit
+    nicht mehr blind auf `null`, sondern zeigt Kandidaten, wo welche zu
+    FINDEN sind. Gemessen (neu, an dieser Stelle): Fuer die BYTEGLEICHE
+    Schreibweise "Strassenfest" sind das jetzt beide Gruppen (`status:
+    "many"`) — Stufe 2 (`.lower()`, kein `ß`->`ss`) findet hier trotzdem
+    beide, weil die Datenbank selbst nur "Strassenfest" kennt. Fuer
+    "Straßenfest" bleibt es bei `null`: Stufe 1 faltet `ß`->`ss` und sieht
+    dieselben zwei Kandidaten, Stufe 2 faltet NICHT und findet zum
+    Schluessel "straßenfest" nichts in einer Datenbank, die nur
+    "strassenfest" kennt — LEER, nicht mehrdeutig (dieselbe Stufe-2-Grenze
+    wie in `test_namensfaltung.py`, nur hier zum ersten Mal SICHTBAR, weil
+    die alte Fassung beide Faelle ohnehin auf `null` abbildete). Der
+    Testname und der obige Absatz bleiben als datierte Historie stehen
+    (`docs/agents/lehren.md`, "Ein Widerspruch über zwei Dateien");
+    geprueft wird unten die neue, jetzt UNTERSCHIEDLICHE Form je Schreibweise.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Strassenfest", "gruppe-2")])
 
-    # Vorher schweigt die Vorschau für beide — das ist der Schaden.
-    for schreibweise in ("Strassenfest", "Straßenfest"):
-        assert c.get("/api/sync/album-group",
-                     params={"album_name": schreibweise}).json() is None
+    vorher_doppel_s = c.get("/api/sync/album-group",
+                            params={"album_name": "Strassenfest"}).json()
+    assert vorher_doppel_s["status"] == "many", vorher_doppel_s
+    assert {k["group_id"] for k in vorher_doppel_s["candidates"]} == {"gruppe-1", "gruppe-2"}
+
+    vorher_scharf_s = c.get("/api/sync/album-group",
+                            params={"album_name": "Straßenfest"}).json()
+    assert vorher_scharf_s is None, vorher_scharf_s
 
     antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Straßenfest"})
     assert antwort.status_code == 200, antwort.text

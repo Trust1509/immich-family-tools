@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, type GroupCandidate } from "../api/client";
 import { useT } from "../i18n";
 
 /**
@@ -32,8 +32,18 @@ export interface GruppenAntwort {
    * selbst, ein Fail-open waere ein Griff ins Ungewisse.
    */
   ok: boolean;
-  /** Die Gruppe bei Erfolg, sonst immer `null`. */
+  /** Die Gruppe, der beigetreten wuerde — bei "keine Gruppe" oder "eigene
+   *  Gruppe" (auch innerhalb einer Mehrdeutigkeit) immer `null`. */
   groupId: string | null;
+  /**
+   * #113: true nur, wenn der Name MEHRDEUTIG ist (mehrere Gruppen tragen
+   * ihn) UND der Nutzer noch KEINE der Kandidaten und auch nicht "eigene
+   * Gruppe" gewaehlt hat. Optional statt eines Pflichtfelds, damit ein
+   * Aufrufer, der die alte, flache `GruppenAntwort`-Form konstruiert (siehe
+   * `GruppenWahl.test.tsx`), unveraendert kompiliert — `undefined` zaehlt
+   * wie `false`. Der Aufrufer sperrt sein Anlegen zusaetzlich darauf.
+   */
+  wahlAusstehend?: boolean;
 }
 
 /**
@@ -54,10 +64,28 @@ export function gruppenBereitschaft(
   // Nichts einzugeben heisst nichts zu pruefen — ein leeres Feld sperrt
   // nicht, unabhaengig davon, was eine fruehere Antwort behauptete.
   if (!name) return { bereit: true, gruppeId: null };
-  if (!antwort || antwort.name !== name || !antwort.ok) {
+  // #113: bei Mehrdeutigkeit bleibt es gesperrt, bis der Nutzer eine der
+  // Kandidaten (oder "eigene Gruppe") gewaehlt hat — `ok` allein (die
+  // Vorschau selbst war erfolgreich) reicht dafuer nicht.
+  if (!antwort || antwort.name !== name || !antwort.ok || antwort.wahlAusstehend) {
     return { bereit: false, gruppeId: null };
   }
   return { bereit: true, gruppeId: antwort.groupId };
+}
+
+/**
+ * Typ-Wache fuer die "many"-Antwort (#113) — als eigene, benannte Funktion
+ * statt eines Inline-`"status" in gruppe`-Checks an jeder Stelle, DAMIT
+ * TypeScript `gruppe` an jeder Aufrufstelle wirklich EINENGT (auch ueber
+ * eine `const mehrdeutig = ...`-Zwischenvariable hinweg — TS engt seit 4.4
+ * durch "aliased conditions" hindurch ein). Eine Form-Heuristik ohne
+ * Typ-Wache waere hier ein stilles Sicherheitsloch: `gruppe.person_refs`
+ * existiert auf der "many"-Form nicht.
+ */
+function mehrdeutigeAntwort(
+  g: GroupCandidate | { status: "many"; candidates: GroupCandidate[] } | null | undefined
+): g is { status: "many"; candidates: GroupCandidate[] } {
+  return !!g && "status" in g && g.status === "many";
 }
 
 /**
@@ -150,11 +178,38 @@ export function GruppenWahl({
     // DANN ist der Schluessel wegen der Entprellung noch "" und die Abfrage
     // `enabled: false`. Bis der Schluessel (300ms spaeter) einen echten Namen
     // traegt, ist es kein neuer Mount mehr aus TanStacks Sicht — die Option
-    // hatte nie etwas zu tun. Entfernt, `npm test` bleibt 158/158 gruen.
+    // hatte nie etwas zu tun. Entfernt; `npm test` bleibt gruen (Zahl hier
+    // bewusst weggelassen — sie veraltet mit jedem neuen Test, siehe
+    // `docs/agents/lehren.md`, "Belegen statt annehmen").
     staleTime: 0,
   });
 
   const passt = entprellt === gesucht;
+
+  // #113: "many" ist an einem eigenen Feld erkennbar, das der eindeutige
+  // Treffer NIE traegt (dessen Form ist unveraendert flach, siehe
+  // `api/client.ts`, `AlbumGroupPreview`) — kein Raten anhand der Form.
+  const mehrdeutig = mehrdeutigeAntwort(gruppe);
+  const kandidaten: GroupCandidate[] = mehrdeutig ? gruppe.candidates : [];
+
+  // Welchen Kandidaten der Nutzer bei Mehrdeutigkeit gewaehlt hat — lebt NUR
+  // hier, nicht beim Aufrufer: `onAntwort` traegt das Ergebnis (`groupId`)
+  // ohnehin schon nach oben, genau wie beim eindeutigen Treffer. Eine
+  // Auswahl gehoert zu GENAU EINER Eingabe; wechselt der Name, ist sie
+  // wertlos (derselbe Grundsatz wie bei der Antwort selbst).
+  const [gewaehlterKandidat, setGewaehlterKandidat] = useState<string | null>(null);
+  useEffect(() => {
+    setGewaehlterKandidat(null);
+  }, [entprellt]);
+  // Verteidigt gegen eine Auswahl, die nach einer Invalidierung nicht mehr
+  // unter den frischen Kandidaten steht (die gewaehlte Gruppe ist
+  // inzwischen wirklich verschwunden) — dieselbe Klasse wie der
+  // Ruecksetzer fuer "eigene Gruppe" unten, nur fuer die vielen Kandidaten.
+  useEffect(() => {
+    if (gewaehlterKandidat && !kandidaten.some((k) => k.group_id === gewaehlterKandidat)) {
+      setGewaehlterKandidat(null);
+    }
+  }, [kandidaten, gewaehlterKandidat]);
 
   // VIER Zustaende (Nacharbeit 1 erweitert die vorherigen drei um
   // "pausiert/offline", das vorher faelschlich als abgeschlossen zaehlte):
@@ -183,7 +238,9 @@ export function GruppenWahl({
           : "laeuft";
 
   const laeuft = zustand === "laeuft";
-  const zeigeGruppe = zustand === "erfolg" && !!gruppe;
+  // Die EIN-GRUPPE-Anzeige (unten) gilt nur, wenn es wirklich genau eine
+  // ist — bei Mehrdeutigkeit zeigt eine eigene Auswahl (#113).
+  const zeigeGruppe = zustand === "erfolg" && !!gruppe && !mehrdeutig;
   // NUR bei ERFOLG mit leerem Ergebnis gilt "sicher keine Gruppe" — ein
   // Fehlschlag ist keine Auskunft ueber die Gruppe und darf eine bereits
   // gewaehlte "eigene Gruppe" nicht zuruecksetzen (Fund 4, Nacharbeit 1:
@@ -196,14 +253,32 @@ export function GruppenWahl({
     if (keineGruppeErfolg && eigeneGruppe) onEigeneGruppeChange(false);
   }, [keineGruppeErfolg, eigeneGruppe, onEigeneGruppeChange]);
 
+  // #113: solange der Name mehrdeutig ist UND weder eine bestehende Gruppe
+  // noch "eigene Gruppe" gewaehlt wurde, bleibt die Wahl AUSSTEHEND — der
+  // Aufrufer sperrt sein Anlegen zusaetzlich darauf (`gruppenBereitschaft`).
+  const wahlAusstehend = mehrdeutig && !eigeneGruppe && !gewaehlterKandidat;
+
   // Die Antwort traegt IMMER den Namen, zu dem sie gehoert — der Aufrufer
   // vergleicht selbst (`gruppenBereitschaft`), statt einer vorverdauten
   // Buchung zu vertrauen (Fund 3, Nacharbeit 1).
   const antwortOk = zustand === "erfolg";
-  const antwortGruppeId = antwortOk ? (gruppe?.group_id ?? null) : null;
+  const antwortGruppeId = !antwortOk
+    ? null
+    : mehrdeutig
+      ? eigeneGruppe
+        ? null
+        : gewaehlterKandidat
+      : gruppe && "group_id" in gruppe
+        ? gruppe.group_id
+        : null;
   useEffect(() => {
-    onAntwort({ name: entprellt, ok: antwortOk, groupId: antwortGruppeId });
-  }, [entprellt, antwortOk, antwortGruppeId, onAntwort]);
+    onAntwort({
+      name: entprellt,
+      ok: antwortOk,
+      groupId: antwortGruppeId,
+      wahlAusstehend: antwortOk && wahlAusstehend,
+    });
+  }, [entprellt, antwortOk, antwortGruppeId, wahlAusstehend, onAntwort]);
 
   if (laeuft) return <p className="text-xs text-gray-600">{t("group_checking")}</p>;
 
@@ -225,7 +300,77 @@ export function GruppenWahl({
   // zeigen: `zustand` ist dann "leer" (nichts zu suchen), `gruppe` haengt
   // aber noch am vorigen Schluessel. Ohne diese Schranke behauptete die App
   // rund eine Drittelsekunde etwas ueber einen Namen, den es nicht mehr gibt.
-  if (!zeigeGruppe || !gruppe) return null;
+  // `zeigeGruppe` deckt nur den EIN-Treffer-Fall; `mehrdeutig` (das die
+  // Auswahl unten rendert) ist seit #113 der zweite gueltige Grund.
+  if (!zeigeGruppe && !mehrdeutig) return null;
+  if (!gruppe) return null; // reine Typ-Schranke fuer TS — mehrdeutig/zeigeGruppe schliessen das schon aus
+
+  // #113: mehrdeutig — ALLE Kandidaten anbieten, dieselbe Form wie der
+  // eindeutige Treffer, PLUS "eigene Gruppe". Ohne Vorauswahl (Owner-
+  // Entscheid 29.09.2026, #113): weder ein Radiobutton noch "eigene Gruppe"
+  // ist zu Beginn markiert.
+  if (mehrdeutig) {
+    return (
+      <div className="space-y-1.5 bg-immich-surface border border-immich-border rounded-lg p-2">
+        <p className="text-xs text-amber-400">{t("group_choice_needed")}</p>
+        <div className="space-y-1.5">
+          {kandidaten.map((k) => (
+            <label
+              key={k.group_id}
+              className="flex items-start gap-2 text-xs text-gray-300 cursor-pointer"
+            >
+              <input
+                type="radio"
+                name="gruppenwahl-kandidat"
+                className="mt-0.5"
+                checked={!eigeneGruppe && gewaehlterKandidat === k.group_id}
+                onChange={() => {
+                  setGewaehlterKandidat(k.group_id);
+                  if (eigeneGruppe) onEigeneGruppeChange(false);
+                }}
+              />
+              <span className="space-y-1">
+                <span className="flex flex-wrap gap-1.5">
+                  {k.person_refs.map((ref) => (
+                    <span
+                      key={`${ref.account_id}::${ref.person_id}`}
+                      className="badge"
+                      style={{
+                        backgroundColor: ref.account_color,
+                        fontSize: "0.65rem",
+                        padding: "0 4px",
+                      }}
+                    >
+                      {ref.person_name}
+                    </span>
+                  ))}
+                </span>
+                {(k.owner_account_missing || k.too_few_people) && (
+                  <span className="block text-amber-500">
+                    {k.owner_account_missing && <span>{t("group_marker_owner_missing")} </span>}
+                    {k.too_few_people && <span>{t("group_marker_too_few_people")}</span>}
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer pt-1">
+            <input
+              type="radio"
+              name="gruppenwahl-kandidat"
+              checked={eigeneGruppe}
+              onChange={() => {
+                setGewaehlterKandidat(null);
+                onEigeneGruppeChange(true);
+              }}
+            />
+            {t("group_own")}
+          </label>
+        </div>
+        {eigeneGruppe && <p className="text-xs text-gray-500">{t("group_own_hint")}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5 bg-immich-surface border border-immich-border rounded-lg p-2">
@@ -241,6 +386,12 @@ export function GruppenWahl({
           </span>
         ))}
       </div>
+      {(gruppe.owner_account_missing || gruppe.too_few_people) && (
+        <p className="text-xs text-amber-500">
+          {gruppe.owner_account_missing && <span>{t("group_marker_owner_missing")} </span>}
+          {gruppe.too_few_people && <span>{t("group_marker_too_few_people")}</span>}
+        </p>
+      )}
       <label className="flex items-center gap-2 text-xs text-gray-300 pt-1">
         <input
           type="checkbox"

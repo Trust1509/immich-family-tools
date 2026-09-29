@@ -118,8 +118,18 @@ def test_die_gruppenvorschau_verstummt_fuer_den_jetzt_doppelten_namen(mit_bestan
     """Die Kehrseite, ausdruecklich hingenommen (Befund im Bau-Brief zu #98).
 
     Zwei Gruppen mit demselben Namen sind fuer `existing_group_for_name`
-    nicht mehr unterscheidbar (#78) — die Vorschau antwortet fuer diesen
-    Namen mit `null`, genau wie bei jedem anderen mehrdeutigen Namen.
+    nicht mehr unterscheidbar (#78) — `resolve_group_id`/`group_id_for_name`
+    (die Wege, die WIRKLICH etwas anlegen) sehen fuer diesen Namen weiterhin
+    keinen eindeutigen Treffer.
+
+    NACHTRAG #113 (29.09.2026): Die VORSCHAU selbst "verstummt" seit #113
+    nicht mehr — sie kollabiert Mehrdeutigkeit nicht laenger auf `null`
+    (ununterscheidbar von "kein Treffer"), sondern zeigt `status: "many"`
+    mit BEIDEN Kandidaten, genau damit ein Nutzer hier explizit waehlen
+    kann statt im Dunkeln zu stehen. Der Testname und die erste Haelfte des
+    Docstrings sind bewusst NICHT umgeschrieben (`docs/agents/lehren.md`,
+    "Ein Widerspruch über zwei Dateien" — dokumentierende Aussage, datierter
+    Nachtrag statt Korrektur); die Pruefung unten folgt der neuen Form.
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
                      _album("a2", "Herbstfest", "gruppe-2")])
@@ -132,4 +142,5 @@ def test_die_gruppenvorschau_verstummt_fuer_den_jetzt_doppelten_namen(mit_bestan
     assert antwort.status_code == 200, antwort.text
 
     nachher = c.get("/api/sync/album-group", params={"album_name": "Herbstfest"}).json()
-    assert nachher is None, nachher
+    assert nachher["status"] == "many", nachher
+    assert {k["group_id"] for k in nachher["candidates"]} == {"gruppe-1", "gruppe-2"}, nachher

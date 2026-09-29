@@ -260,4 +260,48 @@ describe("ExtendMatch: Gruppen-Cache nach dem Erweitern (#110, Nacharbeit 2, Fun
       ).toBe(true)
     );
   });
+
+  it("invalidiert die Gruppenvorschau AUCH, wenn das Erweitern fehlschlaegt (#119, Punkt 3, onSettled)", async () => {
+    // `onSettled` statt nur `onSuccess` — ExtendMatch aendert die Gruppe
+    // (neue Person/neues Konto). `ExtendMatch.tsx` selbst zeigt zwar keine
+    // GruppenWahl-Vorschau, aber ANDERE offene Dialoge (MatchSuggestions,
+    // ManualMatch) fuer denselben Namen sollen danach keine veraltete
+    // Antwort mehr sehen — bisher ungetestet fuer den FEHLERPFAD.
+    extendMock.mockRejectedValueOnce(new Error("netzwerk kaputt"));
+    byAccountMock.mockResolvedValue([
+      { id: "person-neu", name: "Person Neu", account_id: "konto-2", asset_count: 1 },
+    ]);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spion = vi.spyOn(qc, "invalidateQueries");
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <ExtendMatch />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
+
+    fireEvent.click(karteMit("Person A"));
+    const kontoAuswahl = await screen.findByRole("combobox");
+    fireEvent.change(kontoAuswahl, { target: { value: "konto-2" } });
+    const personenfeld = await screen.findByPlaceholderText("Person suchen…");
+    fireEvent.focus(personenfeld);
+    fireEvent.mouseDown(await screen.findByText("Person Neu"));
+
+    fireEvent.click(screen.getByText("Zum Match hinzufügen"));
+
+    await waitFor(() => expect(extendMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        spion.mock.calls.some(
+          (call) =>
+            call[0] &&
+            typeof call[0] === "object" &&
+            "queryKey" in call[0] &&
+            (call[0] as { queryKey?: unknown[] }).queryKey?.[0] === "album-group"
+        )
+      ).toBe(true)
+    );
+  });
 });

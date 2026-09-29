@@ -389,6 +389,20 @@ describe("ManualMatch: die angezeigte Gruppe wird auch geschickt", () => {
     expect(namesMultiMock.mock.calls[0][0].group_id).toBe("gruppe-1");
   });
 
+  it("schickt expected_no_group mit, wenn die Vorschau keine Gruppe fand (#119)", async () => {
+    vorschauMock.mockResolvedValue(null);
+    await fuelleFormular();
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    expect(namesMultiMock.mock.calls[0][0].expected_no_group).toBe(true);
+    expect(namesMultiMock.mock.calls[0][0].group_id).toBeUndefined();
+    expect(namesMultiMock.mock.calls[0][0].force_new_group).toBeUndefined();
+  });
+
   it("schickt beim Verknuepfen keinen stehengebliebenen Albumnamen", async () => {
     // Das Namensfeld gehoert dem Anlege-Modus und wird beim Umschalten nur
     // AUSGEBLENDET. Mitgeschickt entschied sein Wert ueber die Gruppe,
@@ -454,6 +468,41 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
       ).toBe(true)
     );
   });
+
+  it("die Invalidierung wirkt WIRKLICH — nicht nur der Aufruf mit der richtigen Form (#119, Punkt 2)", async () => {
+    // Derselbe Fund wie bei MatchSuggestions: `queryKey[0] === "album-group"`
+    // allein beweist nicht, dass die WIRKLICHE Abfrage ["album-group",
+    // "Testalbum"] getroffen wird — ein `exact: true` saehe im Spion oben
+    // genauso aus. Hier wird ein zweiter echter Vorschau-Aufruf verlangt.
+    await fuelleFormular();
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("invalidiert die Gruppenvorschau AUCH, wenn names-multi fehlschlaegt (#119, Punkt 3, onSettled)", async () => {
+    // `onSettled` statt nur `onSuccess`: ein Teil-Schreibvorgang kann schon
+    // eine Gruppe veraendert haben, auch wenn die Anfrage insgesamt als
+    // Fehler zurueckkommt. Bisher ungetestet.
+    namesMultiMock.mockRejectedValueOnce(new Error("netzwerk kaputt"));
+    await fuelleFormular();
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    // Das Formular bleibt nach einem Fehlschlag offen (kein Reset), also
+    // bleibt GruppenWahl beobachtet — der automatische Refetch ist der
+    // sichtbare Nachweis.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe("Gewaehltes Album verschwindet bei GLEICHEM Besitzer (#110, Nacharbeit 2, WICHTIG Fund 3d)", () => {
@@ -503,5 +552,29 @@ describe("Gewaehltes Album verschwindet bei GLEICHEM Besitzer (#110, Nacharbeit 
     fireEvent.click(knopf());
     await wartenAufRuhe();
     expect(namesMultiMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Kleinfunde (#119, Punkt 4)", () => {
+  it("zeigt einen Hinweis, wenn das gewaehlte bestehende Album keinen Namen traegt", async () => {
+    kontoAlbenMock.mockResolvedValue([{ id: "immich-leer", name: "" }]);
+    await fuelleFormular();
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+
+    await waitFor(() => expect(kontoAlbenMock).toHaveBeenCalled());
+    // 2 Personen-Konto-Auswahlen + Besitzer-Auswahl (immer da) + die
+    // Album-Auswahl, die erst im Modus "Verknuepfen" hinzukommt.
+    await waitFor(() => expect(screen.getAllByRole("combobox").length).toBeGreaterThan(3));
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-leer" } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Dieses Album hat in Immich keinen Namen — bitte dort erst einen Namen vergeben."
+        )
+      ).toBeTruthy()
+    );
+    expect((screen.getByText(STARTKNOPF) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -20,19 +20,42 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 @router.get("/album-group")
 async def album_group_preview(album_name: str, request: Request):
-    """Welcher Gruppe wuerde ein Album mit diesem Namen beitreten? (#81)
+    """Welcher Gruppe wuerde ein Album mit diesem Namen beitreten? (#81, #113)
 
-    `null`, wenn keine — oder wenn der Name nichts aussagt (leer, mehrdeutig).
-    Die Regel liegt in ConfigStore; hier steht nur der Aufruf, damit es bei
-    EINEM Eigentuemer bleibt.
+    Drei Antworten, wo es bisher nur zwei gab:
+
+    * `null` — kein Treffer (Name unbekannt oder leer).
+    * ein flaches Objekt (`group_id`, `album_names`, `person_refs`, plus
+      `owner_account_missing`/`too_few_people` seit #124 B9) — GENAU EINE
+      Gruppe traegt den Namen. UNVERAENDERTE Form gegenueber vor #113, damit
+      ein Client, der nur den eindeutigen Fall kennt, nichts merkt.
+    * `{"status": "many", "candidates": [...]}` — MEHRDEUTIG: mehrere Gruppen
+      tragen denselben Namen. `candidates` traegt ALLE, in derselben Form wie
+      der eindeutige Treffer — die Oberflaeche bietet damit eine echte Wahl
+      an, statt nur zu wissen, dass es mehrere gibt (vorher kollabierte
+      `existing_group_for_name` das still auf `null`, ununterscheidbar von
+      "kein Treffer").
+
+    Die Regel (wer als Kandidat zaehlt) liegt in ConfigStore
+    (`group_candidates_for_name`); hier steht nur der Aufruf und das
+    Zusammensetzen der Antwortform, damit es bei EINEM Eigentuemer der Regel
+    bleibt.
     """
     store = request.app.state.store
-    group_id = store.existing_group_for_name(album_name)
-    if not group_id:
+    kandidaten = store.group_candidates_for_name(album_name)
+    if not kandidaten:
         return None
-    details = store.group_details(group_id)
-    details["person_refs"] = _mit_lebenden_kontodaten(store, details["person_refs"])
-    return details
+    if len(kandidaten) == 1:
+        [group_id] = kandidaten
+        details = store.group_details(group_id)
+        details["person_refs"] = _mit_lebenden_kontodaten(store, details["person_refs"])
+        return details
+    kandidaten_details = []
+    for group_id in sorted(kandidaten):
+        details = store.group_details(group_id)
+        details["person_refs"] = _mit_lebenden_kontodaten(store, details["person_refs"])
+        kandidaten_details.append(details)
+    return {"status": "many", "candidates": kandidaten_details}
 
 
 def _resolve_match(match_id: str, matches: list):
@@ -133,7 +156,14 @@ async def _manuelles_album_unter_dem_schloss(
         return [sync_service.album_gab_es_schon(bestehend[0].album_name)]
 
     async with store.gruppen_schloss(name_fuer_gruppe):
-        gruppe = gruppe_vorab if festgelegt else store.group_id_for_name(name_fuer_gruppe)
+        # #113/#119: Nur die Namensregel wird hier frisch ausgewertet (siehe
+        # der lange Kommentar am Aufrufer) — `resolve_group_id` statt
+        # `group_id_for_name`, damit ein mehrdeutig gewordener Name auch an
+        # DIESER Stelle abgelehnt wird, statt still eine dritte Gruppe zu
+        # oeffnen, und `expected_no_group` auch hier greift.
+        gruppe = gruppe_vorab if festgelegt else store.resolve_group_id(
+            name_fuer_gruppe, expected_none=body.expected_no_group,
+        )
         if body.existing_album_id:
             _, album_logs = await sync_service.link_existing_album(
                 match_id=match_id,
@@ -268,9 +298,18 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         # `album_name_vorab` ZUERST, und zwar genau so weit, wie der Code es
         # haelt: Beim Verknuepfen OHNE mitgeschickten Namen ist es der echte
         # Name aus Immich; MIT mitgeschicktem Namen ist es dieser.
+        #
+        # `expected_none` auch HIER schon (nicht erst unter dem Schloss in
+        # `_manuelles_album_unter_dem_schloss`): Fail-fast vor dem Umbenennen,
+        # wenn die Lage schon JETZT nicht mehr zur Vorschau des Aufrufers
+        # passt — spart bei `festgelegt=False` die Immich-Aufrufe fuer einen
+        # Vorgang, der ohnehin abgelehnt wird. Der spaetere Aufruf unter dem
+        # Schloss bleibt trotzdem die AUTORITATIVE Pruefung (#113, #119): Nur
+        # er sieht den Stand unmittelbar vor dem Speichern.
         gruppe_vorab = store.resolve_group_id(
             album_name_vorab or body.album_name or "",
             chosen=body.group_id, force_new=body.force_new_group,
+            expected_none=body.expected_no_group,
         )
 
     logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
@@ -430,7 +469,8 @@ async def _album_anlegen_unter_dem_schloss(body, request, owner, all_accounts,
         # beidem liegen die Immich-Aufrufe.
         async with store.gruppen_schloss(album_name):
             gruppe = store.resolve_group_id(
-                album_name, chosen=body.group_id, force_new=body.force_new_group
+                album_name, chosen=body.group_id, force_new=body.force_new_group,
+                expected_none=body.expected_no_group,
             )
             _, logs = await sync_service.link_existing_album(
                 match_id=body.match_id,
@@ -448,7 +488,8 @@ async def _album_anlegen_unter_dem_schloss(body, request, owner, all_accounts,
             raise errors.album_name_required()
         async with store.gruppen_schloss(body.album_name):
             gruppe = store.resolve_group_id(
-                body.album_name, chosen=body.group_id, force_new=body.force_new_group
+                body.album_name, chosen=body.group_id, force_new=body.force_new_group,
+                expected_none=body.expected_no_group,
             )
             _, logs = await sync_service.create_shared_album(
                 match_id=body.match_id,

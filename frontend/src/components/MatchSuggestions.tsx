@@ -44,6 +44,7 @@ function AlbumDialog({
     existing_album_id?: string;
     force_new_group?: boolean;
     group_id?: string;
+    expected_no_group?: boolean;
   }) => void;
   onCancel: () => void;
   isPending: boolean;
@@ -79,13 +80,18 @@ function AlbumDialog({
     // wird — hier steht deshalb keine zweite Bedingung, die auseinanderlaufen
     // koennte.
     // Was angezeigt wurde, wird geschickt: entweder ausdruecklich diese
-    // Gruppe oder ausdruecklich eine eigene. Ohne Treffer bleibt es beim
-    // bisherigen Verhalten (der Name entscheidet).
+    // Gruppe oder ausdruecklich eine eigene. Ohne Treffer wird das
+    // ANGEZEIGTE "keine Gruppe" seit #119 explizit mitgeschickt
+    // (`expected_no_group`) — der Server prueft das unter dem Namensschloss
+    // frisch nach und lehnt ab, statt still einer inzwischen entstandenen
+    // Gruppe beizutreten. `wirksamerName` ist hier immer gesetzt: Ohne Namen
+    // bleibt `gruppenBereit` nach `gruppenBereitschaft` zwar "bereit", aber
+    // `canSubmit` unten haelt den Knopf trotzdem gesperrt (leerer Name).
     const gruppenwahl = ownGroup
       ? { force_new_group: true }
       : gruppeId
         ? { group_id: gruppeId }
-        : {};
+        : { expected_no_group: true };
     if (mode === "new") {
       onSubmit({ owner_account_id: ownerAccountId, album_name: albumName, ...gruppenwahl });
     } else {
@@ -104,9 +110,18 @@ function AlbumDialog({
   // gesetzt ist. `gruppenBereitschaft` haelt einen leeren Namen faelschlich
   // fuer "nichts zu pruefen" — derselbe Schutz wie in ManualMatch.tsx (#110,
   // Nacharbeit 2, Fund 1, Blindpruefer Probe P5, gemessen).
+  //
+  // `.trim()` bei "new" (#119, Punkt 4, KLEIN): ein Name aus reinem
+  // Leerraum ist truthy — `!!albumName` allein gab den Knopf frei, obwohl
+  // GruppenWahl darunter gar nichts anzeigte (der Name faellt bei ihr auf
+  // "leer" zurueck) und der Server ihn ohnehin ablehnt.
   const canSubmit =
-    (mode === "new" ? !!albumName : bestehendesAlbumGueltig(existingAlbumId, wirksamerName)) &&
-    gruppenBereit;
+    (mode === "new"
+      ? !!albumName.trim()
+      : bestehendesAlbumGueltig(existingAlbumId, wirksamerName)) && gruppenBereit;
+  // Ein gewaehltes Immich-Album OHNE Namen sperrte bisher ohne jeden
+  // Hinweis (#119, Punkt 4, KLEIN) — der Nutzer sah nur einen toten Knopf.
+  const zeigeUnbenanntHinweis = mode === "existing" && !!existingAlbumId && !wirksamerName.trim();
 
   return (
     <div className="space-y-3 bg-immich-bg border border-immich-border rounded-lg p-3">
@@ -173,6 +188,10 @@ function AlbumDialog({
             </select>
           )}
         </div>
+      )}
+
+      {zeigeUnbenanntHinweis && (
+        <p className="text-xs text-amber-500">{t("album_existing_unnamed_hint")}</p>
       )}
 
       <GruppenWahl
@@ -273,6 +292,7 @@ function MatchCard({
       // Tests gruen, Feld kommt an. Wahr bleibt nur, dass `tsc` schweigt.
       force_new_group?: boolean;
       group_id?: string;
+      expected_no_group?: boolean;
     }) => api.sync.album({ match_id: match.id, ...body }),
     onSuccess: (entries) => {
       const ok = entries.every((e) => e.status === "success");

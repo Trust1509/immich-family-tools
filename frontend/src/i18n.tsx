@@ -421,6 +421,14 @@ export const translations = {
     "pt-BR": "— Selecionar álbum —",
     "es-ES": "— Selecciona un álbum —",
   },
+  // #119, Punkt 4 (KLEIN): ein gewaehltes Immich-Album ohne Namen sperrte
+  // bisher OHNE Hinweis — der Nutzer sah nur einen toten Knopf.
+  album_existing_unnamed_hint: {
+    de: "Dieses Album hat in Immich keinen Namen — bitte dort erst einen Namen vergeben.",
+    en: "This album has no name in Immich — please name it there first.",
+    "es-ES": "Este álbum no tiene nombre en Immich — asígnale uno allí primero.",
+    "pt-BR": "Este álbum não tem nome no Immich — dê um nome a ele lá primeiro.",
+  },
   group_joins: {
     de: "Tritt der bestehenden Gruppe bei",
     en: "Joins the existing group",
@@ -456,6 +464,28 @@ export const translations = {
     en: "Retry",
     "es-ES": "Reintentar",
     "pt-BR": "Tentar novamente",
+  },
+  // #113: der Name ist mehrdeutig — mehrere Gruppen tragen ihn, keine ist
+  // vorausgewaehlt. Die Ueberschrift ueber der Auswahlliste.
+  group_choice_needed: {
+    de: "Mehrere Gruppen tragen diesen Namen — welche ist gemeint?",
+    en: "Several groups carry this name — which one is meant?",
+    "es-ES": "Varios grupos tienen este nombre — ¿cuál es el correcto?",
+    "pt-BR": "Vários grupos têm esse nome — qual é o certo?",
+  },
+  // #124 B9: Markierungen in der Gruppenvorschau — je EINE Gruppe, egal ob
+  // eindeutiger Treffer oder ein Kandidat unter mehreren.
+  group_marker_owner_missing: {
+    de: "Ein Album dieser Gruppe ist verwaist (Besitzerkonto fehlt).",
+    en: "An album in this group is orphaned (owner account is missing).",
+    "es-ES": "Un álbum de este grupo está huérfano (falta la cuenta propietaria).",
+    "pt-BR": "Um álbum deste grupo está órfão (falta a conta proprietária).",
+  },
+  group_marker_too_few_people: {
+    de: "Diese Gruppe hat weniger als zwei Personen.",
+    en: "This group has fewer than two people.",
+    "es-ES": "Este grupo tiene menos de dos personas.",
+    "pt-BR": "Este grupo tem menos de duas pessoas.",
   },
   album_new_desc: {
     de: "Neues Album wird erstellt, mit den beteiligten Accounts geteilt und Fotos automatisch hinzugefügt.",
@@ -1098,6 +1128,16 @@ export const translations = {
     "pt-BR": "Clique em um álbum para selecioná-lo.",
     "es-ES": "Haz clic en un álbum para seleccionarlo.",
   },
+  // #124 B8: das zuletzt abgeglichene Album der Gruppe ist verwaist
+  // (Besitzerkonto fehlt) — Erweitern wuerde ohnehin an dieser Pruefung in
+  // `sync_service._extend_match_unlocked` scheitern (`log_owner_account_
+  // missing`); die Karte bleibt deshalb sichtbar, aber sichtbar gesperrt.
+  extend_group_locked_hint: {
+    de: "Dieses Album ist verwaist (Besitzerkonto fehlt) — kann nicht erweitert werden.",
+    en: "This album is orphaned (owner account is missing) — it cannot be extended.",
+    "es-ES": "Este álbum está huérfano (falta la cuenta propietaria) — no se puede ampliar.",
+    "pt-BR": "Este álbum está órfão (falta a conta proprietária) — não é possível ampliá-lo.",
+  },
   extend_new_account: {
     de: "Neuer Account",
     en: "New account",
@@ -1353,6 +1393,18 @@ export const translations = {
     en: "That album group no longer exists",
     "es-ES": "Ese grupo de álbumes ya no existe",
     "pt-BR": "Esse grupo de álbuns não existe mais",
+  },
+  err_group_choice_required: {
+    de: "Dieser Name gehört zu mehreren Gruppen — bitte eine davon wählen oder eine eigene anlegen",
+    en: "This name belongs to several groups — please choose one, or start your own",
+    "es-ES": "Este nombre pertenece a varios grupos — elige uno o crea uno propio",
+    "pt-BR": "Esse nome pertence a vários grupos — escolha um ou crie um próprio",
+  },
+  err_group_situation_changed: {
+    de: "Die Gruppenlage hat sich seit der Vorschau geändert — bitte erneut prüfen",
+    en: "The group situation has changed since the preview — please check again",
+    "es-ES": "La situación del grupo cambió desde la vista previa — vuelve a comprobarlo",
+    "pt-BR": "A situação do grupo mudou desde a pré-visualização — verifique novamente",
   },
   err_album_name_required: {
     // Neutral formuliert, weil dieselbe Meldung seit #79 auch beim UMBENENNEN

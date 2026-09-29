@@ -159,11 +159,26 @@ function AlbumGroupCard({
   onSelect: () => void;
 }) {
   const { t, lang } = useT();
+  // #124 B8: Das Album, das `ExtendMatch` fuer diese Gruppe tatsaechlich
+  // benutzt (`group.primary_album`, das ZULETZT synchronisierte), ist
+  // verwaist — sein Besitzerkonto fehlt. Erweitern wuerde ohnehin an der
+  // Pruefung in `sync_service._extend_match_unlocked` scheitern
+  // (`log_owner_account_missing`, gemessen am Code): kein Absturz, aber ein
+  // stiller Fehlschlag ohne jede Vorwarnung. Die Karte bleibt SICHTBAR
+  // (nicht anbieten waere hier dasselbe wie ein Album verschwinden zu
+  // lassen, das Nutzer schon kennen), aber sichtbar GESPERRT.
+  const gesperrt = !!group.primary_album.owner_account_missing;
   return (
     <button
-      onClick={onSelect}
+      onClick={gesperrt ? undefined : onSelect}
+      disabled={gesperrt}
+      aria-disabled={gesperrt}
       className={`w-full text-left card space-y-3 transition-colors ${
-        selected ? "border-immich-primary bg-immich-primary/10" : "hover:border-gray-500"
+        gesperrt
+          ? "opacity-50 cursor-not-allowed"
+          : selected
+            ? "border-immich-primary bg-immich-primary/10"
+            : "hover:border-gray-500"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -207,6 +222,8 @@ function AlbumGroupCard({
         <Clock size={10} />
         <span>{t("last_sync", formatDate(group.last_synced_at, LANG_LOCALES[lang]))}</span>
       </div>
+
+      {gesperrt && <p className="text-xs text-amber-500">{t("extend_group_locked_hint")}</p>}
     </button>
   );
 }

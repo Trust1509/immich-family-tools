@@ -142,12 +142,26 @@ export interface Match {
   names_synced: boolean;
 }
 
-/** Die Gruppe, der ein neues Album beitreten wuerde (#81). */
-export interface AlbumGroupPreview {
+/** Eine mögliche Gruppe für einen Albumnamen (#81) — dieselbe Form, ob sie
+ *  der EINE eindeutige Treffer ist oder einer von mehreren Kandidaten bei
+ *  Mehrdeutigkeit (#113). `owner_account_missing`/`too_few_people` seit
+ *  #124 B9: dieselben zwei Markierungen wie auf `ManagedAlbum`, hier auf
+ *  GRUPPENEBENE — wer beitritt, soll das VORHER sehen. */
+export interface GroupCandidate {
   group_id: string;
   album_names: string[];
   person_refs: ManagedAlbum["person_refs"];
+  owner_account_missing?: boolean;
+  too_few_people?: boolean;
 }
+
+/** Die Antwort von `GET /api/sync/album-group` (#81, #113):
+ *  - `null` — kein Treffer (Name unbekannt oder leer).
+ *  - ein `GroupCandidate` — GENAU EINE Gruppe traegt den Namen. Flache Form,
+ *    UNVERAENDERT gegenueber vor #113.
+ *  - `{status: "many", candidates}` — mehrdeutig: mehrere Gruppen tragen
+ *    denselben Namen, ALLE als Kandidaten in derselben Form. */
+export type AlbumGroupPreview = GroupCandidate | { status: "many"; candidates: GroupCandidate[] };
 
 export interface ManagedAlbum {
   id: string;
@@ -251,6 +265,11 @@ export const api = {
       /** Ausdrueckliche Gruppenwahl (#81); ohne beides entscheidet der Name. */
       group_id?: string;
       force_new_group?: boolean;
+      /** #119: die Vorschau zeigte "keine Gruppe" — der Server prueft das
+       *  unter dem Namensschloss frisch nach und lehnt ab, wenn es nicht
+       *  mehr stimmt, statt still einer inzwischen entstandenen Gruppe
+       *  beizutreten. */
+      expected_no_group?: boolean;
     }) =>
       request<SyncLogEntry[]>("/sync/names-multi", {
         method: "POST",
@@ -264,6 +283,8 @@ export const api = {
       /** Ausdrueckliche Gruppenwahl (#81); ohne beides entscheidet der Name. */
       group_id?: string;
       force_new_group?: boolean;
+      /** #119, dieselbe Bedeutung wie bei `namesMulti` — siehe dort. */
+      expected_no_group?: boolean;
     }) =>
       request<SyncLogEntry[]>("/sync/album", {
         method: "POST",

@@ -265,3 +265,41 @@ def group_not_found(group_id: str) -> AppError:
         f"Gruppe {group_id} existiert nicht",
         {"group_id": group_id},
     )
+
+
+def group_choice_required(album_name: str) -> AppError:
+    """Mehrdeutiger Name, keine ausdrueckliche Wahl (#113).
+
+    `existing_group_for_name` kollabiert "mehrdeutig" auf dasselbe `None` wie
+    "unbekannt" — dort war deshalb nicht zu unterscheiden. `resolve_group_id`
+    fragt seit #113 die rohen Kandidaten (`group_candidates_for_name`) und
+    lehnt hiermit ab, statt still eine dritte Gruppe zu oeffnen. 409, nicht
+    422: Es liegt kein fehlerhaftes Feld vor, sondern ein bestehender
+    Zustand (mehrere Gruppen), der eine Angabe ERFORDERLICH macht, die noch
+    fehlt — dieselbe Familie wie `manual_match_id_collision`.
+    """
+    return AppError(
+        409,
+        "err_group_choice_required",
+        f"Der Name '{album_name}' gehört zu mehreren Gruppen — wähle eine "
+        f"davon oder lege eine eigene Gruppe an.",
+        {"album": str(album_name)},
+    )
+
+
+def group_situation_changed(album_name: str) -> AppError:
+    """Der Aufrufer erwartete "keine Gruppe", jetzt gibt es eine (#119).
+
+    Trifft zu, wenn ein Client `expected_no_group=true` mitschickt (seine
+    Vorschau zeigte "keine Gruppe"), aber zwischen Vorschau und Anfrage eine
+    ANDERE Anfrage genau diesen Namen einer Gruppe zugeordnet hat. 409 wie
+    `group_choice_required`: kein fehlerhaftes Feld, ein Zustand, der sich
+    seit der Vorschau des Aufrufers geaendert hat.
+    """
+    return AppError(
+        409,
+        "err_group_situation_changed",
+        f"Die Gruppenlage zu '{album_name}' hat sich seit der Vorschau "
+        f"geändert — bitte erneut prüfen.",
+        {"album": str(album_name)},
+    )

@@ -945,6 +945,104 @@ def test_resolve_group_id_lehnt_widerspruechliche_angaben_ab(tmp_path):
     assert leer.value.key == "err_group_choice_conflict"
 
 
+# ----------------------------------------------------------------------
+# #113: Vorschau bei Mehrdeutigkeit + Ablehnung ohne ausdrueckliche Wahl
+# ----------------------------------------------------------------------
+
+
+def test_group_candidates_for_name_liefert_alle_kandidaten_bei_mehrdeutigkeit(tmp_path):
+    """Anders als `existing_group_for_name`: hier bleibt die MENGE sichtbar."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    assert store.group_candidates_for_name("Doppelt") == {"gruppe-1", "gruppe-2"}
+    assert store.group_candidates_for_name("Kennt keiner") == set()
+    assert store.group_candidates_for_name("  ") == set()
+
+
+def test_group_candidates_for_name_eindeutig_ist_dieselbe_menge_wie_existing_group_for_name(
+    tmp_path,
+):
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    assert store.group_candidates_for_name("Testalbum") == {"gruppe-1"}
+    assert store.existing_group_for_name("Testalbum") == "gruppe-1"
+
+
+def test_resolve_group_id_lehnt_mehrdeutigen_namen_ohne_wahl_ab(tmp_path):
+    """DIE Kernaenderung von #113 — vorher gab `resolve_group_id` hier still
+    eine DRITTE Kennung zurueck (`group_id_for_name` -> `existing_group_for_
+    name` sieht "mehrdeutig" nicht anders als "unbekannt")."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as fehler:
+        store.resolve_group_id("Doppelt")
+    assert fehler.value.key == "err_group_choice_required"
+    # Und die alte Methode raet weiterhin (sie ist bewusst NICHT die Regel
+    # von `resolve_group_id`, siehe ihr eigener Docstring) — der Vergleich
+    # zeigt, dass die beiden jetzt wirklich verschiedene Antworten geben.
+    assert store.group_id_for_name("Doppelt") not in {"gruppe-1", "gruppe-2"}
+
+
+def test_resolve_group_id_expected_none_lehnt_ab_wenn_die_gruppe_jetzt_existiert(tmp_path):
+    """#119: Der Aufrufer erwartete "keine Gruppe" — jetzt gibt es eine."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as fehler:
+        store.resolve_group_id("Testalbum", expected_none=True)
+    assert fehler.value.key == "err_group_situation_changed"
+
+
+def test_resolve_group_id_expected_none_stoert_den_unveraenderten_fall_nicht(tmp_path):
+    """Gegenprobe: Bleibt die Lage "keine Gruppe", stoert das Flag nichts."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    neu = store.resolve_group_id("Ganz neuer Name", expected_none=True)
+
+    assert neu and neu != "gruppe-1"
+
+
+def test_resolve_group_id_expected_none_aendert_die_mehrdeutigkeits_ablehnung_nicht(tmp_path):
+    """Mehrdeutig wird IMMER abgelehnt — unabhaengig von `expected_none`
+    (siehe Docstring von `resolve_group_id`: das Flag ist nur fuer den
+    Uebergang leer -> eindeutig zustaendig, nicht fuer Mehrdeutigkeit)."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as ohne:
+        store.resolve_group_id("Doppelt", expected_none=False)
+    assert ohne.value.key == "err_group_choice_required"
+
+    with pytest.raises(AppError) as mit:
+        store.resolve_group_id("Doppelt", expected_none=True)
+    assert mit.value.key == "err_group_choice_required"
+
+
 def test_group_details_zeigt_wem_man_beitritt(tmp_path):
     """Die Vorschau muss die Personen der GANZEN Gruppe fuehren, entdoppelt.
 
@@ -1000,6 +1098,56 @@ def test_group_details_haelt_gleiche_personen_aus_zwei_konten_auseinander(tmp_pa
 
     assert len(details["person_refs"]) == 2
     assert {r["account_id"] for r in details["person_refs"]} == {"acc-1", "konto-2"}
+
+
+def test_group_details_traegt_die_markierungen_aus_124_b9(tmp_path):
+    """#124 B9: `owner_account_missing`/`too_few_people` fehlten in der
+    Vorschau — wer beitritt, soll VORHER sehen, dass ein Mitglied verwaist
+    ist, nicht erst danach am einzelnen Album."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1", "p2"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    unversehrt = store.group_details("gruppe-1")
+    assert unversehrt["owner_account_missing"] is False
+    assert unversehrt["too_few_people"] is False  # zwei Personen
+
+    # Das Besitzerkonto ("acc-1") verschwindet aus dem LEBENDEN Bestand.
+    store._data["accounts"].pop("acc-1")
+
+    verwaist = store.group_details("gruppe-1")
+    assert verwaist["owner_account_missing"] is True
+    assert verwaist["too_few_people"] is False  # die Personenzahl aendert sich dadurch NICHT
+
+
+def test_group_details_too_few_people_zaehlt_die_entdoppelte_menge(tmp_path):
+    """Eine Person genuegt nicht — und zwei Alben mit DERSELBEN Person auch
+    nicht (`too_few_people` zaehlt die entdoppelte Gruppenmenge, nicht die
+    Zahl der Alben)."""
+    path = tmp_path / "accounts.json"
+    eins = _album("a1", "Testalbum", ["p1"], group_id="gruppe-1")
+    zwei = _album("a2", "Anders", ["p1"], group_id="gruppe-1")  # dieselbe Person
+    _write_albums(path, [eins, zwei])
+    store = ConfigStore(str(path))
+
+    assert store.group_details("gruppe-1")["too_few_people"] is True
+
+
+def test_group_details_owner_account_missing_ist_wahr_wenn_irgendein_album_verwaist_ist(
+    tmp_path,
+):
+    """Eine Gruppe mit MEHREREN Alben und verschiedenen Besitzern: schon EIN
+    verwaistes Album macht die ganze Gruppe als "hat ein verwaistes
+    Mitglied" sichtbar."""
+    path = tmp_path / "accounts.json"
+    eins = _album("a1", "Testalbum", ["p1"], group_id="gruppe-1")
+    zwei = _album("a2", "Testalbum", ["p2"], group_id="gruppe-1")
+    zwei["owner_account_id"] = "acc-2"
+    _write_albums(path, [eins, zwei])
+    store = ConfigStore(str(path))
+    store._data["accounts"].pop("acc-1")  # nur EIN Besitzer verschwindet
+
+    assert store.group_details("gruppe-1")["owner_account_missing"] is True
 
 
 # ----------------------------------------------------------------------

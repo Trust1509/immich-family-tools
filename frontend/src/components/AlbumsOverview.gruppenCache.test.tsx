@@ -149,7 +149,7 @@ describe("AlbumsOverview: Gruppen-Cache nach Umbenennen", () => {
   });
 
   it("invalidiert die Gruppenvorschau AUCH, wenn das Umbenennen wirft (#110, Nacharbeit 2, KLEIN Fund 4)", async () => {
-    // `handleRename` invalidiert schon seit #79 im `finally`-Block — dieser
+    // `handleRename` invalidiert schon seit #110 im `finally`-Block — dieser
     // Test haelt genau das fest, statt es nur zu behaupten.
     renameMock.mockRejectedValue({ message: "Der Name gehört bereits zu einer anderen Gruppe." });
     const spion = zeichne();
