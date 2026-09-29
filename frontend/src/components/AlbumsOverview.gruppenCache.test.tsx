@@ -124,7 +124,8 @@ describe("AlbumsOverview: Gruppen-Cache nach Entfernen", () => {
     const spion = zeichne();
     await waitFor(() => expect(screen.getByText("Testalbum")).toBeTruthy());
 
-    // #124 Fund B12: `getByTitle` statt `getByRole`/`name` wie die neueren
+    // #124 Fund B12 (Nacharbeit 1 zu #124, KLEIN: Richtung war hier verkehrt
+    // beschrieben): `getByRole`/`name` statt `getByTitle`, wie die neueren
     // Testdateien (Teststil-Angleichung, keine Verhaltensaenderung).
     fireEvent.click(screen.getByRole("button", { name: /Verknüpfung entfernen/i }));
 

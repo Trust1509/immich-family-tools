@@ -196,7 +196,10 @@ describe("Nach einem Teilausfall", () => {
     // Album zwei noch den alten. Der Gruppenname wird vom ERSTEN Album
     // abgeleitet und ist der vorbelegte Feldwert.
     //
-    // #124 Fund B11 (Owner-Entscheid, Nachlese #123 Punkt 11): Die FRUEHERE
+    // #124 Fund B11 (technische Vorgabe des Orchestrators, KEIN
+    // Owner-Entscheid — Nacharbeit 1 zu #124, WICHTIG 3, korrigiert diesen
+    // Kommentar: er nannte die Regel bis hierher faelschlich einen
+    // Owner-Entscheid. Nachlese #123 Punkt 11): Die FRUEHERE
     // Fassung dieses Tests erwartete, dass ein unveraendertes Enter genau
     // deshalb (weil B von A abweicht) DOCH einen Rename-Versuch fuer ALLE
     // gesunden Alben ausloest — inklusive B, das damit "mitgezogen" wurde.

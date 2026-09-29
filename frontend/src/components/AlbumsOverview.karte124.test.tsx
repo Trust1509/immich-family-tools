@@ -295,10 +295,29 @@ describe("#124 Fund A3: renameError wird beim Start von Abgleichen/Entfernen zur
 });
 
 describe("#124 Fund A3: Enter ohne Aenderung (Nullvorgang, Fund B11) raeumt einen stehenden Uebersprungen-Hinweis weg", () => {
-  it("zeigt den Hinweis nach dem fehlgeschlagenen Versuch, aber nicht mehr nach dem no-op Enter", async () => {
+  it("zeigt den Hinweis nach dem fehlgeschlagenen Versuch, aber nicht mehr nach dem no-op Enter (VOR dem ersten Versuch)", async () => {
+    // Diese Probe zeigt den no-op-Zweig OHNE vorherigen Versuch: Feld
+    // oeffnen, SOFORT (ohne zu tippen) Enter — das ist immer noch ein
+    // echter Nullvorgang, unabhaengig vom weiteren Verlauf.
+    const gruppe = [album({ id: "a", album_name: "Ausgangsname", owner_account_id: "konto-a" })];
+    albenMock.mockResolvedValue(gruppe);
+
+    await rendern("Ausgangsname");
+    fireEvent.click(screen.getByRole("button", { name: /Album umbenennen/i }));
+    const feld = await screen.findByDisplayValue("Ausgangsname");
+    fireEvent.keyDown(feld, { key: "Enter" });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(renameMock).not.toHaveBeenCalled();
+    expect(screen.queryByDisplayValue("Ausgangsname")).toBeNull();
+  });
+
+  it("Nacharbeit 1 (#124, WICHTIG 3): NACH einem echten (ganz uebersprungenen) Versuch ist ein erneutes Enter mit demselben Text KEIN Nullvorgang mehr", async () => {
     // ZWEI Alben, BEIDE werden mit dem no-op-Namen (dem urspruenglich
     // geoeffneten Feldwert) uebersprungen — das Feld bleibt offen
-    // (`logs.length` bleibt 0), der Hinweis steht.
+    // (`logs.length` bleibt 0), der Hinweis steht. Das IST bereits ein
+    // echter Versuch (es wurden zwei Netzwerkaufrufe gemacht), auch wenn
+    // beide uebersprungen wurden.
     const gruppe = [
       album({ id: "a", album_name: "Ausgangsname", owner_account_id: "konto-a" }),
       album({ id: "b", album_name: "Ausgangsname", owner_account_id: "konto-b" }),
@@ -323,20 +342,28 @@ describe("#124 Fund A3: Enter ohne Aenderung (Nullvorgang, Fund B11) raeumt eine
     // Das Feld steht noch offen (kein Album wurde tatsaechlich umbenannt).
     const feldNochOffen = screen.getByDisplayValue("Neuer Name");
 
-    // Der Nutzer setzt den Feldwert zurueck auf den Wert BEIM OEFFNEN und
-    // bestaetigt erneut — das ist jetzt (Fund B11) ein echter Nullvorgang.
+    // Nacharbeit 1 (#124, WICHTIG 3): Der Nutzer setzt den Feldwert zurueck
+    // auf den Wert BEIM OEFFNEN und bestaetigt erneut. VOR dieser Nacharbeit
+    // war das ein (stiller) Nullvorgang — genau die Luecke aus WICHTIG 3:
+    // Nach einem bereits gelaufenen Versuch ist JEDES weitere Enter ein
+    // ECHTER Versuch, unabhaengig vom Text. Diesmal gelingt er (der Server
+    // nimmt "Ausgangsname" jetzt an), und das Feld schliesst ueber den
+    // Erfolgspfad, nicht ueber einen stillen Nullvorgang.
     renameMock.mockClear();
+    renameMock.mockResolvedValue([
+      { id: "l", timestamp: "", action: "rename_album", details: "", status: "success" },
+    ]);
     fireEvent.change(feldNochOffen, { target: { value: "Ausgangsname" } });
     fireEvent.keyDown(feldNochOffen, { key: "Enter" });
 
-    // Kein weiterer Netzwerkaufruf, und der stehende Hinweis ist weg.
-    await new Promise((r) => setTimeout(r, 10));
-    expect(renameMock).not.toHaveBeenCalled();
-    expect(
-      screen.queryByText(
-        "Übersprungen, weil die zugehörigen Besitzerkonten inzwischen gelöscht sind: 2 von 2 Alben."
-      )
-    ).toBeNull();
+    await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "Übersprungen, weil die zugehörigen Besitzerkonten inzwischen gelöscht sind: 2 von 2 Alben."
+        )
+      ).toBeNull()
+    );
     expect(screen.queryByDisplayValue("Neuer Name")).toBeNull();
   });
 });
