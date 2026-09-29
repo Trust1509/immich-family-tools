@@ -119,6 +119,19 @@ async def _run_auto_sync(app_state) -> None:
     Entscheidung des Hauptagenten, nicht Teil dieses Owner-Entscheids und
     nicht Gegenstand dieses Skips hier. Dieser Skip hier betrifft
     ausschliesslich den naechtlichen Auto-Sync.
+
+    PRAEZISIERT (Nacharbeit 1, #117/#121/#103, Fund „KLEIN"): „Verwaiste
+    Alben werden uebersprungen" gilt nur fuer Alben, die schon VOR diesem
+    Lauf verwaist waren — `lebende_konten` ist eine Momentaufnahme direkt zu
+    Beginn dieser Funktion. Ein Album, dessen Besitzer WAEHREND dieses Laufs
+    geloescht wird (waehrend ein FRUEHERES Album in der Schleife noch
+    abgeglichen wird), steht zu diesem Zeitpunkt noch in `albums` und wird
+    ganz normal an `refresh_managed_album` uebergeben — es entsteht dafuer
+    GENAU EIN `log_owner_account_missing`-Eintrag fuer diesen Lauf (aus
+    `_refresh_managed_album_unlocked`'s eigenem, frischen Besitzer-Check),
+    kein taeglich wiederkehrender: Der naechste Lauf sieht das Konto beim
+    ERNEUTEN Aufbau von `lebende_konten` schon als tot und ueberspringt das
+    Album dann regulaer ueber den Weg oben.
     """
     from services.sync_service import refresh_managed_album
     store = app_state.store

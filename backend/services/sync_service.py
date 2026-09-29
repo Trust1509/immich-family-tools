@@ -501,19 +501,23 @@ async def _refresh_managed_album_unlocked(
     Each account uses its own API key to add its own new assets.
     """
     logs: list[SyncLogEntry] = []
-    account_map = {a.id: a for a in all_accounts}
     new_total = 0
 
     # Get current asset IDs in album (using owner's key)
     #
-    # FRISCH AUS DEM STORE, NICHT AUS `account_map` (#117 Nachtrag): `all_accounts`
-    # ist ein Schnappschuss, den der Aufrufer VOR dem Albumschloss gebaut hat
-    # (`routers/albums.py`, `main._run_auto_sync`). Wird der Besitzer
-    # GENAU WAEHREND dieser Funktion auf ihr Schloss wartet geloescht, traegt
-    # `account_map` ihn trotzdem noch — mit seinem jetzt ungueltigen API-
-    # Schluessel. Gemessen (erzwungenes Fenster): Immich bekam einen
-    # Aufruf mit dem Schluessel eines Kontos, das zu diesem Zeitpunkt schon
-    # geloescht war. `store.get_account` liest dagegen den AKTUELLEN Bestand.
+    # FRISCH AUS DEM STORE, NICHT AUS EINEM SCHNAPPSCHUSS (#117 Nachtrag):
+    # `all_accounts` ist ein Schnappschuss, den der Aufrufer VOR dem
+    # Albumschloss gebaut hat (`routers/albums.py`, `main._run_auto_sync`).
+    # Wird der Besitzer GENAU WAEHREND dieser Funktion auf ihr Schloss
+    # wartet geloescht, traegt ein aus `all_accounts` gebauter `dict` ihn
+    # trotzdem noch — mit seinem jetzt ungueltigen API-Schluessel. Gemessen
+    # (erzwungenes Fenster): Immich bekam einen Aufruf mit dem Schluessel
+    # eines Kontos, das zu diesem Zeitpunkt schon geloescht war.
+    # `store.get_account` liest dagegen den AKTUELLEN Bestand. Seit
+    # Nacharbeit 1 gilt dasselbe auch fuer jeden TEILNEHMER weiter unten,
+    # nicht mehr nur fuer den Besitzer — ein eigener `account_map`-Schnapp-
+    # schuss wuerde diese Zusage wieder unterlaufen, darum gibt es hier
+    # keinen mehr.
     owner = store.get_account(managed.owner_account_id)
     if not owner:
         return [SyncLogEntry(
@@ -525,9 +529,17 @@ async def _refresh_managed_album_unlocked(
 
     owner_client = ImmichClient(owner.immich_url, owner.api_key)
     participant_ids = {ref["account_id"] for ref in managed.person_refs}
+    # FRISCH GEGENGEPRUEFT, NICHT NUR AUS `all_accounts` GEFILTERT (Nacharbeit
+    # 1 zu #117/#121/#103): `all_accounts` ist derselbe Schnappschuss wie
+    # `account_map` unten — siehe dessen Begruendung. Ein Teilnehmer, der
+    # zwischen dem Bau dieses Schnappschusses und hier geloescht wurde, stuende
+    # sonst weiterhin in `share_accounts` und bekaeme einen echten
+    # `share_album_with_users`-Aufruf spendiert, obwohl sein Konto schon weg
+    # ist. `store.get_account` liest den AKTUELLEN Bestand.
     share_accounts = [
         account for account in all_accounts
         if account.id != owner.id and account.id in participant_ids
+        and store.get_account(account.id) is not None
     ]
     logs.extend(
         await _share_album_if_needed(
@@ -560,7 +572,24 @@ async def _refresh_managed_album_unlocked(
         logs.append(name_entry)
 
     for ref in managed.person_refs:
-        account = account_map.get(ref["account_id"])
+        # FRISCH AUS DEM STORE, NICHT AUS `account_map` (Nacharbeit 1 zu
+        # #117/#121/#103 — gemessen, Blocker-Klasse „Teilnehmerschluessel"):
+        # `account_map` ist derselbe Schnappschuss aus `all_accounts`, den der
+        # Aufrufer VOR dem Albumschloss gebaut hat (`routers/albums.py`,
+        # `main._run_auto_sync`) — dieselbe Schwaeche, die der Docstring bei
+        # `_refresh_managed_album_unlocked`s Besitzer-Lesung oben schon fuer
+        # den BESITZER beschreibt, traf bisher jeden TEILNEHMER ungeprueft:
+        # Wird ein Teilnehmer WAEHREND dieser Schleife (an einem `await` einer
+        # frueheren Runde) geloescht, trug `account_map` ihn trotzdem noch
+        # weiter, mit seinem jetzt ungueltigen API-Schluessel — gemessen
+        # (erzwungenes Fenster, Sonde S2): Immich bekam einen Aufruf mit dem
+        # Schluessel eines zu diesem Zeitpunkt schon geloeschten Kontos.
+        # `store.get_account` liest den AKTUELLEN Bestand, direkt VOR dem
+        # Aufrufblock fuer genau dieses Konto — ein bereits laufender Aufruf
+        # (fuer ein FRUEHERES Konto derselben Schleife) wird dadurch nicht
+        # abgebrochen, nur der NAECHSTE Block startet mit einer frischen
+        # Pruefung.
+        account = store.get_account(ref["account_id"])
         if not account:
             continue
         client = ImmichClient(account.immich_url, account.api_key)
@@ -686,9 +715,23 @@ async def refresh_managed_album(
     Nacharbeit 1). Der Auto-Sync faengt das je Album ab
     (`main._run_auto_sync`, eigene `except errors.AppError`-Zeile, die an der
     FEHLERART haengt — `exc.key == "err_managed_album_not_found"`, nicht am
-    Statuscode; #121/#103 Punkt 4/3, dort stand vorher `except Exception`,
-    was nie zutraf); ein Router-Aufruf sieht ein 404 wie beim schon vorher
-    unbekannten Album.
+    Statuscode; #121/#103 Punkt 4/3); ein Router-Aufruf sieht ein 404 wie
+    beim schon vorher unbekannten Album.
+
+    RICHTIGGESTELLT (Nacharbeit 1, Fund „KLEIN"): Hier stand bis dahin, vor
+    #121/#103 habe an dieser Stelle `except Exception` gestanden, „was nie
+    zutraf" — das war ungenau bis falsch: `except Exception` haette
+    `AppError` (eine `HTTPException`-Unterklasse) durchaus gefangen, nur
+    ohne zwischen „Album planmaessig entfernt" und einem echten Fehler zu
+    unterscheiden. Der eigentliche, gemessene Befund war ein anderer: Der
+    `except errors.AppError`-Zweig selbst war UNERREICHT, weil
+    `refresh_managed_album` im Auto-Sync-Pfad nie eine andere `AppError`-Art
+    als `err_managed_album_not_found` wirft — kein Test lief je durch das
+    `else`. Drei Mutationen ueberlebten deshalb unbemerkt die volle Suite
+    (`exc.status_code == 404` statt `exc.key`, die Fehlerzeile mit
+    `album.album_name` statt `album.id`, ein Zweig, der IMMER uebersprungen
+    wird) — siehe `test_main.py::
+    test_auto_sync_unterscheidet_fehlerart_nicht_statuscode`.
     """
     async with _album_schloss(managed.id):
         frisches = _frisch(managed, store)
@@ -834,7 +877,6 @@ async def _extend_match_unlocked(
     `log_person_already_in_album`. Die frische Pruefung verhindert genau das.
     """
     logs: list[SyncLogEntry] = []
-    account_map = {a.id: a for a in all_accounts}
 
     # Guard: person already in this album
     already = any(
@@ -851,11 +893,45 @@ async def _extend_match_unlocked(
         ))
         return logs
 
-    # FRISCH AUS DEM STORE, NICHT AUS `account_map` — dieselbe Begruendung
-    # wie in `_refresh_managed_album_unlocked` (#117 Nachtrag): `account_map`
-    # stammt aus einer `all_accounts`-Liste, die der Aufrufer VOR dem
-    # Albumschloss gebaut hat und die einen zwischenzeitlich geloeschten
-    # Besitzer noch enthalten kann.
+    # FRISCH AUS DEM STORE, VOR JEDEM IMMICH-AUFRUFBLOCK FUER `new_account`
+    # (Nacharbeit 1, BLOCKER): Der Aufrufer (`routers/albums.py::extend_match`)
+    # liest `new_account` VOR dem Albumschloss — genau wie er es vor #117
+    # Nachtrag auch fuer den Besitzer tat. Wartet diese Erweiterung hinter
+    # einem laufenden Schreiber am Schloss und wird WAEHREND dieses Wartens
+    # GENAU DIESES Konto geloescht, haette die alte Fassung es trotzdem an
+    # `person_refs` angehaengt und mit seinem (jetzt ungueltigen) Schluessel
+    # bei Immich angerufen (gemessen, Sonde S1: `get_person`,
+    # `get_person_assets`, `add_assets_to_album` NACH dem 204). Diese Pruefung
+    # laeuft VOR dem ersten Immich-Aufruf fuer `new_account` (der
+    # Personen-Validierung unten) — ein zu DIESEM Zeitpunkt schon laufender
+    # Aufruf wird dagegen nicht abgebrochen (siehe die zweite Haelfte des
+    # Blockers unten, `_ohne_tote_konten`, das genau diesen Fall als
+    # Ruecksicherung schliesst: Ein Aufruf, der HIER die Pruefung noch
+    # bestanden hat, aber zwischen Validierung und dem abschliessenden
+    # `store.update_managed_album` gelöscht wird, landet trotzdem nicht
+    # dauerhaft im Bestand).
+    #
+    # KEIN NEUER `message_key`: `frontend/` steht in diesem Slice unter
+    # „nicht anfassen" (paralleler Slice) — ein frischer Schluessel bliebe
+    # ohne Uebersetzung und ohne Eintrag in `logMessages.contract.json`.
+    # `log_person_validation_failed` traegt schon die richtige Form (Konto
+    # konnte nicht fuer diese Erweiterung herangezogen werden) und denselben
+    # `{account}`-Parameter; der Name kommt aus der VOR dem Schloss gelesenen
+    # Kopie, die trotz geloeschtem Konto noch existiert.
+    neuer_konto_name = new_account.name
+    new_account = store.get_account(new_account.id)
+    if not new_account:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details=f"Konto '{neuer_konto_name}' ist nicht mehr vorhanden.",
+            status="error", error_message="ACCOUNT_GONE",
+            message_key="log_person_validation_failed",
+            message_params={"account": neuer_konto_name},
+        ))
+        return logs
+
+    # FRISCH AUS DEM STORE (#117 Nachtrag): der Aufrufer baut `all_accounts`
+    # VOR dem Albumschloss.
     owner = store.get_account(managed.owner_account_id)
     if not owner:
         logs.append(SyncLogEntry(

@@ -825,10 +825,11 @@ class ConfigStore:
     async def delete_account(self, account_id: str) -> bool:
         """Entfernt ein Konto und seine Personen-Referenzen — sonst NICHTS.
 
-        SEIT #117 ASYNC UND SCHLOSSPFLICHTIG: `delete_account` schrieb bisher
-        OHNE jedes Albumschloss in `managed_albums`, direkt auf `self._data`.
-        Die drei Schreiber eines Albums (Refresh/Umbenennen/Erweitern) lesen
-        ihren Datensatz dagegen UNTER `sync_service._album_schloss` frisch
+        SEIT #117 SCHLOSSPFLICHTIG, SEIT NACHARBEIT 1 (#117/#121/#103) OHNE
+        EIGENES WARTEN: `delete_account` schrieb urspruenglich OHNE jedes
+        Albumschloss in `managed_albums`, direkt auf `self._data`. Die drei
+        Schreiber eines Albums (Refresh/Umbenennen/Erweitern) lesen ihren
+        Datensatz dagegen UNTER `sync_service._album_schloss` frisch
         (`_frisch`), warten auf Immich und schreiben am Ende den GANZEN
         Datensatz zurueck. Lief `delete_account` in diesem Wartefenster,
         gewann der spaeter fertige Schreiber mit seiner ALTEN Kopie und nahm
@@ -836,14 +837,40 @@ class ConfigStore:
         Fenster): `konto-3` stand nach `delete_account("konto-3")` parallel
         zu einer Erweiterung wieder in `person_refs`.
 
-        Die Richtung: Nicht die drei Schreiber vor JEDER fremden Aenderung
-        schuetzen (das waere generisch und teuer), sondern `delete_account`
-        selbst unter dasselbe Schloss stellen, das die drei Schreiber schon
-        halten — je BETROFFENEM Album, auf einem dort frisch gelesenen
-        Datensatz. Damit kann `delete_account` eine laufende Operation nicht
-        mehr ueberholen: Es wartet, bis sie ihr Schloss verlaesst (inklusive
-        ihres eigenen abschliessenden Schreibens), und arbeitet danach auf
-        dem Ergebnis dieser Operation weiter — nie umgekehrt.
+        Die ERSTE Fassung dieser Methode (nach #117) nahm dafuer je
+        betroffenem Album SEQUENZIELL dessen `_album_schloss` — und wartete
+        damit, in Summe, auf jedes gehaltene Schloss NACHEINANDER: Ein Aufruf
+        hinter einem laufenden Sammelabgleich ueber vier Alben brauchte die
+        SUMME aller vier Wartezeiten, bevor er ueberhaupt antwortete —
+        gemessen 1,29 s bei vier mal 0,3 s Einzelwartezeit — und nach aussen
+        war das Konto in dieser ganzen Zeit schon verschwunden (`GET
+        /api/accounts` ohne das Konto), aber die Anfrage stand noch offen
+        (Nacharbeit 1, Befund der Pruefstimmen, "Konvoi").
+
+        DIE NEUE REGEL, SEIT NACHARBEIT 1 — dieselbe Regel, die JEDER
+        Schreiber jetzt befolgt (`ConfigStore._ohne_tote_konten`, unter
+        `add_managed_album`/`update_managed_album`): `delete_account` WARTET
+        AUF KEIN ALBUMSCHLOSS. Es nimmt ein Schloss nur, wenn es SOFORT frei
+        ist (`asyncio.Lock.locked()` unmittelbar vor `async with`, ohne
+        dazwischenliegenden `await` — kein Zeitfenster, in dem das Schloss
+        zwischen Pruefung und Zugriff von jemand anderem genommen werden
+        koennte). Ist es das nicht, ueberspringt `delete_account` dieses
+        Album einfach: Der Halter des Schlosses bereinigt die tote Referenz
+        selbst, wenn ER seinen Datensatz zurueckschreibt — genau das leistet
+        `_ohne_tote_konten` an JEDER Schreibstelle, nicht nur hier. Die
+        Kontoloeschung selbst bleibt dadurch so schnell, wie es die Alben mit
+        FREIEM Schloss erlauben, unabhaengig davon, wie viele Alben gerade von
+        einer laufenden Operation gehalten werden (belegt:
+        `test_konto_loeschung_ohne_konvoi.py`).
+
+        HEILWEG, EBENFALLS NEU: Dieser Durchlauf raeumt nicht nur Referenzen
+        auf DAS gerade geloeschte Konto, sondern auf JEDES Konto, das es
+        nicht mehr gibt — unabhaengig davon, seit wann. Ein Album, dessen
+        Bereinigung durch einen fruehreren Abbruch (Ausnahme, Prozessende)
+        auf halbem Weg stehen blieb, wird beim NAECHSTEN Aufruf dieser
+        Methode mitgeheilt, auch wenn `account_id` diesmal ein ANDERES Konto
+        meint — oder eines, das es laengst nicht mehr gibt (siehe die
+        Ergebnis-Zusicherung unten).
 
         Das Konto selbst (die `accounts`-Zeile) wird VOR der Album-Schleife
         entfernt und sofort gespeichert: Diese Zeile haengt an keinem
@@ -891,47 +918,105 @@ class ConfigStore:
           Eintrag lehnt der Server bereits ab (`errors.account_gone`); die
           Oberflaeche sperrt den Knopf zusaetzlich vorab.
 
-        Einzig die `person_refs` des geloeschten Kontos verschwinden aus
-        jedem Album, und `linked_match_ids` wird danach neu berechnet — beide
-        haengen direkt am Konto, nicht am Datenbestand insgesamt. Seit #117
-        passiert das je Album UNTER dessen `_album_schloss`, auf einem dort
-        frisch gelesenen Datensatz — siehe den Absatz oben.
-        """
-        if account_id not in self._data["accounts"]:
-            return False
-        del self._data["accounts"][account_id]
-        self._save()
+        Einzig die `person_refs` toter Konten verschwinden aus jedem Album
+        (nicht nur die des HIER geloeschten — siehe „Heilweg" oben), und
+        `linked_match_ids` wird danach neu berechnet — beide haengen direkt
+        am Konto, nicht am Datenbestand insgesamt. Seit #117 passiert das je
+        Album UNTER dessen `_album_schloss`, auf einem dort frisch gelesenen
+        Datensatz — seit Nacharbeit 1 nur noch fuer Alben, deren Schloss in
+        diesem Moment FREI ist (siehe oben).
 
+        RUECKGABEWERT, SEIT NACHARBEIT 1 PRAEZISIERT: `True`, wenn diese
+        Anfrage etwas bewirkt hat — entweder gab es das Konto noch (die
+        Kontenzeile verschwindet) ODER der Heilweg hat mindestens eine tote
+        Referenz entfernt, die von einem frueheren, moeglicherweise
+        abgebrochenen Aufruf liegen geblieben war. `False` nur, wenn WEDER
+        das Konto existierte NOCH irgendwo eine tote Referenz zu raeumen war
+        — der Normalfall fuer eine erfundene oder bereits vollstaendig
+        bereinigte Kennung. Ein zweites `DELETE` auf ein bereits geloeschtes
+        Konto mit liegen gebliebenen Resten (etwa nach einer Ausnahme
+        zwischen zwei Alben, siehe `test_konto_loeschung_ohne_konvoi.py::
+        test_abbruch_zwischen_zwei_alben_heilt_beim_naechsten_versuch`) heilt
+        die Reste und antwortet 204, nicht 404 — der Router
+        (`routers/accounts.py::delete_account`) meldet `account_not_found`
+        nur noch fuer den echten Nichttreffer: eine Kennung, die WEDER im
+        Kontenbestand noch als Referenz irgendwo auftaucht. Ein Client, der
+        sein eigenes `DELETE` wiederholt (Zeitueberschreitung, doppelter
+        Klick), laeuft damit nicht in einen Fehler, der keiner ist — DELETE
+        bleibt idempotent, wie die Projekt-Praemisse „nichts verschwindet
+        still" es fuer eine aufraeumende Operation verlangt.
+        """
         # Lokaler Import: `sync_service` importiert `config_store` bereits
         # auf Modulebene (fuer `ConfigStore`) — ein Import auf Modulebene
         # HIER waere ein Kreislauf. Siehe die Begruendung beim Schlossregister
         # oben.
         from services import sync_service
 
+        existierte = account_id in self._data["accounts"]
+        if existierte:
+            del self._data["accounts"][account_id]
+            self._save()
+
+        lebende_konten = set(self._data["accounts"].keys())
         betroffene_alben = [
             a["id"] for a in self._data.get("managed_albums", [])
-            if any(ref.get("account_id") == account_id
+            if any(ref.get("account_id") not in lebende_konten
                    for ref in a.get("person_refs", []))
         ]
+        geheilt = False
         for album_id in betroffene_alben:
-            async with sync_service._album_schloss(album_id):
+            schloss = sync_service._album_schloss(album_id)
+            if schloss.locked():
+                # NICHT WARTEN (Nacharbeit 1, "Konvoi"): Ein anderer Schreiber
+                # haelt dieses Schloss gerade. Er bereinigt tote Referenzen
+                # beim eigenen Zurueckschreiben selbst (`_ohne_tote_konten`,
+                # ueber `update_managed_album`) — `delete_account` muesste
+                # hier nur warten, um danach dieselbe Arbeit ein zweites Mal
+                # zu tun. Kein `await` zwischen dieser Pruefung und dem
+                # `async with` unten: Die Pruefung ist deshalb verbindlich,
+                # nicht nur eine Momentaufnahme.
+                continue
+            async with schloss:
                 frisches = self.get_managed_album(album_id)
                 if frisches is None:
-                    # Zwischen der Kandidatenliste oben (aus einem
-                    # Schnappschuss VOR jedem Schloss) und diesem Schloss
-                    # kann das Album verschwunden sein — etwa durch ein
-                    # gleichzeitiges `DELETE /api/sync/albums/{id}`, das
-                    # dasselbe Schloss haelt. Dann gibt es nichts mehr zu
-                    # bereinigen; kein Fehler.
+                    # GEMESSEN UNERREICHT MIT DEM HEUTIGEN AUFRUFGRAPHEN
+                    # (Nacharbeit 1, ehrlich benannt statt verschwiegen — die
+                    # Mutation `if False:` an dieser Stelle ueberlebte die
+                    # volle Suite): Diese Zeile schuetzte VOR Nacharbeit 1 vor
+                    # einer echten Race — `delete_account` WARTETE damals
+                    # selbst am Schloss, und ein gleichzeitiges
+                    # `DELETE /api/sync/albums/{id}` (dasselbe Schloss) konnte
+                    # das Album entfernen, WAEHREND diese Methode noch
+                    # wartete. Seit Nacharbeit 1 WARTET `delete_account` auf
+                    # kein gehaltenes Schloss mehr (siehe oben) — ist es
+                    # gehalten, wird das Album uebersprungen, BEVOR dieser
+                    # Zweig ueberhaupt erreicht wird; ist es frei, laeuft der
+                    # gesamte Rumpf dieser Schleifenrunde OHNE ein einziges
+                    # `await` (`get_managed_album`/`update_managed_album` sind
+                    # synchron), also OHNE eine Stelle, an der ein
+                    # `DELETE /api/sync/albums/{id}` dazwischenkommen koennte.
+                    # Die Pruefung bleibt trotzdem stehen: Sie ist billig,
+                    # und ein kuenftiger Umbau des Schlossmodells (etwa ein
+                    # `await` zwischen Lesen und Schreiben) wuerde die
+                    # Race sonst STILL wieder oeffnen, mit einem
+                    # `AttributeError` statt eines klaren "nichts zu tun" als
+                    # Folge.
                     continue
+                vorher = len(frisches.person_refs)
+                # `update_managed_album` filtert tote Konten selbst
+                # (`_ohne_tote_konten`) — das explizite Herausfiltern hier
+                # bleibt trotzdem stehen, um VORHER/NACHHER vergleichen und
+                # `geheilt` korrekt setzen zu koennen.
                 frisches.person_refs = [
                     ref for ref in frisches.person_refs
-                    if ref.get("account_id") != account_id
+                    if ref.get("account_id") in lebende_konten
                 ]
+                if len(frisches.person_refs) != vorher:
+                    geheilt = True
                 # `update_managed_album` berechnet `linked_match_ids` selbst
                 # neu (siehe dort) — hier nicht doppelt tun.
                 self.update_managed_album(frisches)
-        return True
+        return existierte or geheilt
 
     # ------------------------------------------------------------------
     # Dismissed matches
@@ -1132,7 +1217,40 @@ class ConfigStore:
                 return ManagedAlbum(**a)
         return None
 
+    def _ohne_tote_konten(self, person_refs: list[dict]) -> list[dict]:
+        """Referenzen auf Konten, die es nicht mehr gibt, werden verworfen.
+
+        NACHARBEIT 1 (#117/#121/#103): EINE Regel fuer ALLE Schreiber
+        (Abgleich, Umbenennen, Erweitern, Auto-Sync, Anlegen/Verknuepfen) —
+        statt sie an jeder Schreibstelle einzeln nachzubauen, sitzt sie hier,
+        am einzigen Ort, an dem jeder Schreiber ohnehin vorbeikommt
+        (`add_managed_album`/`update_managed_album`). Ein Konto, das
+        zwischen dem Lesen eines Schreibers und seinem Zurueckschreiben
+        geloescht wurde, kann sich damit nie wieder in einen Datensatz
+        schreiben — unabhaengig davon, WANN genau der Schreiber es in seine
+        Kopie aufgenommen hat (vor, waehrend oder nach der Loeschung). Das
+        schliesst den BLOCKER aus der Nacharbeit strukturell: `extend_match`
+        haengt `new_account` an `managed.person_refs` an, bevor es hierher
+        schreibt — war das Konto zu DIESEM Zeitpunkt (dem Schreiben, nicht
+        dem Anhaengen) schon weg, verschwindet die Referenz hier wieder,
+        auch wenn der Immich-Aufruf mit dem alten Schluessel bereits
+        zu Ende gelaufen ist (ein laufender Aufruf wird nicht abgebrochen —
+        siehe die Docstrings der Aufrufer).
+
+        Referenzen werden NIE neu angehaengt, nur entfernt — das Gegenstueck
+        (ein Konto zurueckholen) gibt es hier nicht und braucht es nicht.
+        """
+        lebende_konten = set(self._data.get("accounts", {}).keys())
+        return [r for r in person_refs if r.get("account_id") in lebende_konten]
+
     def add_managed_album(self, album: ManagedAlbum) -> None:
+        # Dieselbe Regel wie beim Zurueckschreiben (siehe `_ohne_tote_konten`):
+        # Ein waehrend der Anlage geloeschtes Konto darf nicht in einem NEUEN
+        # Album landen (Nacharbeit 1, Tuer 2/4 — gemessen ueber
+        # `link_existing_album`). Die Anlage-Schloesser selbst
+        # (`gruppen_schloss`/`treffer_schloss`, `resolve_group_id`) bleiben
+        # unberuehrt — diese Zeile filtert nur das Ergebnis vor dem Speichern.
+        album.person_refs = self._ohne_tote_konten(album.person_refs)
         # Always compute linked_match_ids before saving
         album.linked_match_ids = self.compute_linked_match_ids(album.person_refs)
         albums = self._data.setdefault("managed_albums", [])
@@ -1154,13 +1272,24 @@ class ConfigStore:
         `_rename_managed_album_unlocked`, `_extend_match_unlocked` in
         `sync_service.py`, sowie diese Klasse selbst in `delete_account`)
         den Datensatz UNTER DEMSELBEN Albumschloss frisch gelesen hat
-        (`_frisch`/`get_managed_album`), bevor er hierher schreibt — ein
-        Verschwinden zwischen jenem Lesen und diesem Schreiben ist unter dem
-        Schloss ausgeschlossen (kein `await` dazwischen). Trifft die Ausnahme
-        trotzdem, ist das ein Fehler in genau dieser Verdrahtung — ein neuer
-        Aufrufer, der die Schlossregel nicht einhaelt — und kein normaler
-        Betriebsfall, den ein Aufrufer abfangen muesste.
+        (`_frisch`/`get_managed_album`), bevor er hierher schreibt. Das
+        Schloss selbst — nicht die Abwesenheit von `await` zwischen Lesen und
+        Schreiben, die es an mehreren Stellen durchaus gibt (Immich-Aufrufe
+        in `_refresh_managed_album_unlocked` u. a.) — ist es, was ein
+        Verschwinden DES ALBUMS zwischen jenem Lesen und diesem Schreiben
+        ausschliesst: Ein zweiter Schreiber oder `delete_managed_album`
+        braeuchte fuer denselben Schritt dasselbe Schloss (Nacharbeit 1 —
+        vorher stand hier faelschlich „kein await dazwischen"). Trifft die
+        Ausnahme trotzdem, ist das ein Fehler in genau dieser Verdrahtung —
+        ein neuer Aufrufer, der die Schlossregel nicht einhaelt — und kein
+        normaler Betriebsfall, den ein Aufrufer abfangen muesste.
+
+        SEIT NACHARBEIT 1 FILTERT AUCH DIESE METHODE tote Kontoreferenzen
+        heraus (`_ohne_tote_konten`) — siehe dort fuer die Begruendung. Das
+        gilt fuer JEDEN Aufrufer gleichermassen, auch fuer `delete_account`
+        selbst, das denselben Weg nimmt.
         """
+        album.person_refs = self._ohne_tote_konten(album.person_refs)
         # Always recompute linked_match_ids before saving
         album.linked_match_ids = self.compute_linked_match_ids(album.person_refs)
         albums = self._data.get("managed_albums", [])

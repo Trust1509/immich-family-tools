@@ -78,10 +78,14 @@ class ManagedAlbumOut(ManagedAlbum):
 
     `owner_account_missing`: das Besitzerkonto (`owner_account_id`) existiert
     nicht mehr im Kontenbestand — das verwaiste Album aus `CONTEXT.md`.
-    `too_few_people`: weniger als zwei Personen stehen noch in
-    `person_refs` — kann unabhaengig vom Besitzerkonto eintreten (ein
-    Teilnehmer, nicht der Besitzer, wurde geloescht) und blockiert fuer sich
-    allein weder Umbenennen noch Abgleichen.
+    `too_few_people`: weniger als zwei Referenzen in `person_refs` zeigen auf
+    ein NOCH LEBENDES Konto (Nacharbeit 1, #117/#121/#103) — kann unabhaengig
+    vom Besitzerkonto eintreten (ein Teilnehmer, nicht der Besitzer, wurde
+    geloescht) und blockiert fuer sich allein weder Umbenennen noch
+    Abgleichen. Eine Referenz auf ein bereits geloeschtes Konto zaehlt NICHT
+    mit — sie kann kurzzeitig liegen bleiben (ihr Album war beim Loeschen
+    gerade durch ein anderes Schloss belegt) und wird beim naechsten
+    Schreibvorgang dieses Albums geraeumt (`ConfigStore._ohne_tote_konten`).
     """
     owner_account_missing: bool = False
     too_few_people: bool = False

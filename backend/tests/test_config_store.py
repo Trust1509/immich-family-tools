@@ -32,15 +32,50 @@ def test_invalid_config_fails_closed(tmp_path):
 
 @pytest.mark.asyncio
 async def test_delete_account_removes_local_references(tmp_path):
+    """Nacharbeit 1 (#117/#121/#103), Fund des Fremdpruefers: Diese Probe
+    prueft SEIT DEM UMBAU auf #117 (Albumschloss je betroffenem Album) nur
+    noch, dass das Konto aus `list_accounts()` verschwindet — der Name
+    verspricht mehr, als der Koerper haelt. Die eigentliche
+    Referenz-Bereinigung hat inzwischen eigene, ausfuehrlichere Proben
+    (`test_konto_loeschen_erhaelt_bestand.py`); hier steht wieder ein Rot-Beweis
+    fuer GENAU das, was der Name verspricht: eine `person_refs`-Referenz
+    verschwindet mit dem Konto.
+    """
     # `delete_account` ist seit #117 async: Es nimmt je betroffenem Album
     # dessen `_album_schloss`, damit ein laufender Refresh/Umbenennen/
     # Erweitern die Loeschung nicht mit einer alten Kopie zurueckdrehen kann.
+    from models.match import ManagedAlbum
+
     store = ConfigStore(str(tmp_path / "accounts.json"))
     account = store.add_account(
         AccountCreate(name="A", immich_url="http://192.168.1.2", api_key="secret")
     )
+    bleibt = store.add_account(
+        AccountCreate(name="B", immich_url="http://192.168.1.3", api_key="secret-b")
+    )
+    album = ManagedAlbum(
+        id="album-lokale-referenzen", match_id="m-lokale-referenzen",
+        album_id="immich-lokale-referenzen", album_name="Testalbum",
+        group_id="gruppe-lokale-referenzen", owner_account_id=bleibt.id,
+        person_refs=[
+            {"account_id": account.id, "person_id": f"person-{account.id}",
+             "person_name": "Person A", "account_name": account.name,
+             "account_color": account.color},
+            {"account_id": bleibt.id, "person_id": f"person-{bleibt.id}",
+             "person_name": "Person B", "account_name": bleibt.name,
+             "account_color": bleibt.color},
+        ],
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    store.add_managed_album(album)
+
     assert await store.delete_account(account.id)
-    assert store.list_accounts() == []
+    assert store.list_accounts() == [bleibt]
+
+    verbliebenes_album = store.get_managed_album("album-lokale-referenzen")
+    assert verbliebenes_album is not None
+    assert [r["account_id"] for r in verbliebenes_album.person_refs] == [bleibt.id], (
+        "die lokale Referenz auf das geloeschte Konto ist nicht verschwunden")
 
 
 def test_update_managed_album_wirft_bei_unbekannter_kennung(tmp_path):

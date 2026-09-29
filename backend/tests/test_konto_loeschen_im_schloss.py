@@ -11,29 +11,57 @@ sichtbar, wurde aber vom naechsten Schreibvorgang wieder rueckgaengig gemacht
 (gemessen, Panel zu #101: `konto-3` stand nach `delete_account("konto-3")`
 parallel zu einer Erweiterung wieder in `person_refs`).
 
-Seit dieser Nacharbeit nimmt `ConfigStore.delete_account` je betroffenem Album
-dasselbe `sync_service._album_schloss` wie die drei Schreiber, auf einem dort
-frisch gelesenen Datensatz. Die Loeschung wartet dann, bis die laufende
-Operation ihr Schloss verlaesst (inklusive ihres eigenen abschliessenden
-Schreibens), und arbeitet danach auf DEREN Ergebnis weiter.
+Seit dieser Nacharbeit nahm `ConfigStore.delete_account` dafuer je
+betroffenem Album dasselbe `sync_service._album_schloss` wie die drei
+Schreiber — und WARTETE, bis eine laufende Operation es freigab. Das erzeugte
+einen neuen Fehler, den NACHARBEIT 1 (#117/#121/#103) behebt: Wartete die
+Loeschung so auf MEHRERE gehaltene Alben nacheinander (etwa hinter einem
+Sammelabgleich ueber vier Alben), summierten sich deren Wartezeiten zu einem
+"Konvoi" (gemessen 1,29 s bei vier mal 0,3 s Einzelwartezeit), waehrend das
+Konto nach aussen laengst verschwunden war (`GET /api/accounts` ohne das
+Konto) — die Anfrage selbst stand aber noch offen. Siehe
+`test_konto_loeschung_ohne_konvoi.py` fuer den Konvoi-Beweis und die
+Blind-/Gegenpruefer-Proben (S1/S1b/S2/S3/S5/S6/S7/S8, A/B/D/F/F2/G/H), die
+seither AUSSCHLIESSLICH dort stehen.
 
-Das Fenster wird erzwungen (`docs/agents/lehren.md` §44), exakt wie in
-`test_loeschen_im_schloss.py`: Die Konto-Loeschung wird als eigene Task
-gestartet und die Probe wartet aktiv, bis sie wirklich als Warteschlangen-
-Eintrag am Albumschloss haengt (`asyncio.Lock._waiters`), bevor sie den
-Immich-Haken zurueckkehren laesst.
+NACHARBEIT 1: `ConfigStore.delete_account` WARTET AUF KEIN ALBUMSCHLOSS MEHR
+(`docs/agents/lehren.md`-Klasse "grün ohne bewiesen" haette hier sonst wieder
+zugeschlagen — ein Wartemechanismus, der schneller wird, indem man ihn
+entfernt, verdient eine eigene Begruendung, keine stille Annahme): Ist ein
+betroffenes Album gerade gesperrt, ueberspringt die Loeschung es; der Halter
+des Schlosses entfernt die tote Referenz SELBST, wenn er seinen Datensatz
+zurueckschreibt (`ConfigStore._ohne_tote_konten`, aus `update_managed_album`
+fuer JEDEN Schreiber). Die Tests HIER pruefen deshalb nicht mehr, dass die
+Loeschung selbst wartet — sondern dass sie SOFORT zurueckkehrt, WAEHREND eine
+andere Operation noch mit dem (zum Zeitpunkt ihres eigenen Starts gueltigen)
+Konto arbeitet, und dass die Referenz danach trotzdem verschwindet, sobald
+diese Operation ihren Datensatz zurueckschreibt.
 
 WARUM DER BESITZER (nicht ein beliebiger Teilnehmer) geloescht wird: Der
 Besitzer steht in jedem hier gebauten Album selbst auch als `person_refs`-
 Eintrag — die Probe deckt damit in EINEM Zug sowohl die Referenz-Entfernung
 (#117, Hauptteil) als auch den ueblichen Fall ab, in dem ein geloeschtes
-Konto zugleich Besitzer war. Der Besitzer-FRISCH-Check selbst (#117 Nachtrag:
-Umbenennen/Abgleichen lesen den Besitzer jetzt unter dem Schloss aus dem
-Store, nicht mehr aus einer vor dem Schloss gebauten Kontenliste) hat eigene,
-naeherliegende Proben in `test_sync_service.py` — dort laesst er sich als
-reiner Unit-Test fassen, weil das Zeitfenster, das er schliesst (zwischen
-`_frisch` und der Besitzerpruefung), KEIN `await` enthaelt und sich darum
-nicht ueber echte Nebenlaeufigkeit erzwingen laesst.
+Konto zugleich Besitzer war.
+
+RICHTIGSTELLUNG (Nacharbeit 1, WICHTIG 4): Hier stand bis zu dieser Fassung,
+das Zeitfenster zwischen dem Lesen des Besitzers VOR dem Schloss und der
+eigentlichen Besitzerpruefung sei nicht ueber echte Nebenlaeufigkeit
+erzwingbar, weil dazwischen kein `await` liege. Das war FALSCH — und zwar aus
+einem Grund, den diese Datei selbst nicht zeigen konnte: Das Fenster liegt
+nicht zwischen `_frisch` und der Besitzerpruefung (dort stimmt die
+Beobachtung, dort liegt tatsaechlich kein `await`), sondern zwischen einem
+Lesen VOR dem Schloss (wie es ein Aufrufer VOR #117 Nachtrag tat) und dem
+WARTEN an einem belegten Schloss — und genau dort liegt ein `await`
+(`async with _album_schloss(...)`, wenn das Schloss belegt ist). Eine
+Mutation, die `owner_account = store.get_account(...)` vor
+`async with _album_schloss(...)` verschiebt (Blind M6, Gegen M5), blieb an
+DIESER Datei gruen, weil die hier gebauten Operationen ihren eigenen
+Besitzer-Check laengst bestanden hatten, BEVOR sie am Immich-Haken
+haengenblieben (siehe unten) — das erzwingt das FALSCHE Fenster. Die
+RICHTIGE Probe steht jetzt in
+`test_konto_loeschung_ohne_konvoi.py::test_umbenennen_liest_den_besitzer_nach_dem_warten_nicht_davor`:
+Sie laesst ein Umbenennen HINTER einem belegten Schloss WARTEN (ein echter
+Warteschlangen-Eintrag) und loescht den Besitzer WAEHREND dieses Wartens.
 
 DIE OPERATION, DIE HIER WARTET, HATTE DEN BESITZER-CHECK LAENGST BESTANDEN,
 BEVOR SIE AM IMMICH-HAKEN HAENGEN BLEIBT — sie arbeitet legitim mit dem zu
@@ -41,7 +69,7 @@ diesem Zeitpunkt noch gueltigen Konto weiter (das ist keine Regression: eine
 laufende Operation, die mit gueltigen Daten begonnen hat, wird nicht
 rueckwirkend storniert). Was diese Probe zeigt, ist die Kehrseite: Die
 Loeschung selbst darf NICHT durch die noch laufende Operation wieder
-rueckgaengig gemacht werden — und genau das tat sie vor dieser Nacharbeit.
+rueckgaengig gemacht werden — und genau das tat sie vor #117.
 
 Alle Daten erfunden; das Repo ist oeffentlich.
 """
@@ -152,6 +180,12 @@ ERWARTETE_KONTEN_NACHHER = {
 async def test_konto_loeschung_waehrend_ein_schreiber_wartet_wird_nicht_zurueckgenommen(
     tmp_path, monkeypatch, art
 ):
+    """NACHARBEIT 1 (#117/#121/#103): angepasst an die neue Regel — die
+    Kontoloeschung WARTET nicht mehr am Albumschloss (siehe Modul-Docstring).
+    Sie kehrt SOFORT zurueck, waehrend `art` noch mit `konto-1` im Immich-Haken
+    haengt; das Album traegt `konto-1` deshalb zu diesem Zeitpunkt noch — und
+    verliert es erst, wenn `art` seinen Datensatz zurueckschreibt
+    (`ConfigStore._ohne_tote_konten`, ueber `update_managed_album`)."""
     import main
     from services import sync_service
 
@@ -160,36 +194,29 @@ async def test_konto_loeschung_waehrend_ein_schreiber_wartet_wird_nicht_zurueckg
     monkeypatch.setattr(main.settings, "config_path", str(pfad), raising=False)
 
     client_ref: dict = {}
-    delete_task_ref: dict = {}
+    op_task_ref: dict = {}
     store_ref: dict = {}
     # AUSSERHALB des Immich-Hakens gefuellt und AUSSERHALB des `async with`
     # geprueft — ein `assert` IM Haken liefe innerhalb des `except
     # Exception`, mit dem die Wrapper einen Immich-Fehler abfangen, und
     # wuerde dort verschluckt (dieselbe Lehre wie #121 Punkt 2, siehe
     # `test_loeschen_im_schloss.py`).
-    fenster_erzwungen: list[bool] = []
-    konto_beim_warten_noch_da: list[bool] = []
+    konto_beim_loeschen_noch_da: list[bool] = []
+    loeschung_ergebnis: dict = {}
 
     async def haken(_m, _a):
-        if "task" in delete_task_ref:
+        if "ausgeloest" in loeschung_ergebnis:
             return  # nur beim ERSTEN Immich-Aufruf ausloesen
-        delete_task_ref["task"] = asyncio.create_task(
-            client_ref["c"].delete("/api/accounts/konto-1"))
-        schloss = sync_service._album_schloss("a1")
-        for _ in range(200):
-            await asyncio.sleep(0.005)
-            if schloss._waiters:
-                break
-        fenster_erzwungen.append(bool(schloss._waiters))
-        # Waehrend die laufende Operation ihr Schloss noch haelt, darf
-        # `delete_account` noch nicht bis zu diesem Album vorgedrungen sein —
-        # konto-1 steht also noch in `person_refs`. Erst NACH der Freigabe
-        # darf es verschwinden.
-        album = store_ref["store"].get_managed_album("a1")
-        konto_beim_warten_noch_da.append(
-            album is not None
-            and any(r["account_id"] == "konto-1" for r in album.person_refs)
+        loeschung_ergebnis["ausgeloest"] = True
+        # `art` haelt a1s Schloss bereits (der Immich-Haken laeuft darunter) —
+        # die Loeschung darf hier NICHT warten, sie kehrt sofort zurueck.
+        album_vorher = store_ref["store"].get_managed_album("a1")
+        konto_beim_loeschen_noch_da.append(
+            album_vorher is not None
+            and any(r["account_id"] == "konto-1" for r in album_vorher.person_refs)
         )
+        loeschung_ergebnis["antwort"] = await asyncio.wait_for(
+            client_ref["c"].delete("/api/accounts/konto-1"), 2)
 
     _attrappe(monkeypatch, haken)
 
@@ -203,18 +230,17 @@ async def test_konto_loeschung_waehrend_ein_schreiber_wartet_wird_nicht_zurueckg
             assert r_login.status_code == 200, r_login.text
 
             methode, url, body = FALL[art]
-            r_op = await c.request(methode, url, json=body)
-            assert "task" in delete_task_ref, "Immich-Haken nie erreicht"
-            r_del = await delete_task_ref["task"]
+            op_task_ref["task"] = asyncio.create_task(c.request(methode, url, json=body))
+            r_op = await op_task_ref["task"]
+
+        assert "antwort" in loeschung_ergebnis, "Immich-Haken nie erreicht"
+        r_del = loeschung_ergebnis["antwort"]
 
         assert r_op.status_code == 200, r_op.text
         assert r_del.status_code == 204, r_del.text
-        assert fenster_erzwungen and fenster_erzwungen[0], (
-            "Konto-Loeschung wartet nicht am Albumschloss - kein Fenster erzwungen")
-        assert konto_beim_warten_noch_da and konto_beim_warten_noch_da[0], (
-            "konto-1 war schon aus person_refs verschwunden, waehrend die "
-            "laufende Operation ihr Schloss noch hielt - die Loeschung lief "
-            "nicht wirklich unter demselben Schloss")
+        assert konto_beim_loeschen_noch_da and konto_beim_loeschen_noch_da[0], (
+            "konto-1 war schon vor der Loeschung aus person_refs verschwunden — "
+            "die Fixture baut das Fenster nicht wie beabsichtigt auf")
 
         # Der eigentliche Nachweis (#117): Das geloeschte Konto ist NACH
         # allem weg und bleibt es — kein Schreibvorgang der laufenden

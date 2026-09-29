@@ -574,10 +574,23 @@ async def list_managed_albums(request: Request):
     ergebnis = []
     for album in albums:
         _mit_lebenden_kontodaten(store, album.person_refs)
+        # NACHARBEIT 1 (#117/#121/#103): zaehlt nur Referenzen auf LEBENDE
+        # Konten. Jeder Schreiber raeumt tote Referenzen inzwischen beim
+        # Zurueckschreiben weg (`ConfigStore._ohne_tote_konten`) — aber
+        # zwischen der Loeschung eines Kontos und dem naechsten Schreibvorgang
+        # eines betroffenen Albums (etwa: das Schloss war gerade belegt, siehe
+        # `ConfigStore.delete_account`) kann eine tote Referenz eine Weile
+        # liegen bleiben. Die Markierung zaehlt sie in dieser Zeit NICHT mit
+        # — sonst zeigt „genug Personen", obwohl eine von ihnen ein
+        # geloeschtes Konto ist.
+        lebende_refs = [
+            r for r in album.person_refs
+            if r.get("account_id") in lebende_konten
+        ]
         ergebnis.append(ManagedAlbumOut(
             **album.model_dump(),
             owner_account_missing=album.owner_account_id not in lebende_konten,
-            too_few_people=len(album.person_refs) < 2,
+            too_few_people=len(lebende_refs) < 2,
         ))
     return ergebnis
 
