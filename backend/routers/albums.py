@@ -163,14 +163,25 @@ async def _gruppe_fuer_manuellen_weg_unter_dem_schloss(
     `chosen` gesetzt ist.
 
     Rueckgabe: `(gruppe, None)` zum Weitermachen, oder `(None, log_eintraege)`,
-    wenn der manuelle Weg hier schon fertig ist (Album gab es idempotent
-    schon bzw. eine fremde Kollision) — beides VOR jedem Schreibvorgang
-    entschieden.
+    wenn der manuelle Weg hier idempotent schon fertig ist (Album gab es
+    schon, Doppelklick) — VOR jedem Schreibvorgang entschieden. Eine fremde
+    Kollision unter dem Schloss gibt KEIN Tupel mehr zurueck, sondern WIRFT
+    `errors.manual_match_id_collision` (Nacharbeit 2 zu #113/#119/#124,
+    Blind/Gegen NA1): Die Vorversion dieser Funktion erkannte die Kollision
+    zwar schon HIER, also vor `sync_service.sync_names_multi` — aber lieferte
+    sie nur als `fertige_logs`-Eintrag zurueck. Der Aufrufer nutzte dieses
+    Ergebnis erst NACH dem Schreibvorgang (er schreibt unbedingt, sobald
+    diese Funktion zurueckkehrt — siehe `sync_names_multi`, Kommentar „Ab hier
+    wird geschrieben"), sodass die als Kollision erkannten Personen TROTZDEM
+    umbenannt und als abgeglichen markiert wurden. Eine Ausnahme an dieser
+    Stelle verlaesst BEIDE `async with`-Bloecke des Aufrufers (Schloesser
+    werden ueber `__aexit__` sauber freigegeben) und erreicht ihn, BEVOR er
+    schreibt.
     """
     bestehend = [a for a in store.get_managed_albums() if a.match_id == match_id]
     if bestehend:
         if not _personenmenge(body.persons) <= _personenmenge(bestehend[0].person_refs):
-            return None, [sync_service.manuelle_kennung_kollidiert(bestehend[0].album_name)]
+            raise errors.manual_match_id_collision(bestehend[0].album_name)
         return None, [sync_service.album_gab_es_schon(bestehend[0].album_name)]
 
     gruppe = store.resolve_group_id(
@@ -258,7 +269,16 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
     #                               traegt nur Name und Eigentuemer, nicht
     #                               die Auswahl; zwei verschiedene Gruppen
     #                               teilen sie sich also. Hier wird
-    #                               abgelehnt, VOR dem ersten Schreibvorgang.
+    #                               abgelehnt, VOR dem ersten Schreibvorgang —
+    #                               UND ZWAR IN BEIDEN LAGEN: sowohl bei
+    #                               dieser fail-fast Vorabpruefung unten als
+    #                               auch, trifft der Fall erst im RENNEN auf,
+    #                               unter dem Schloss in
+    #                               `_gruppe_fuer_manuellen_weg_unter_dem_
+    #                               schloss` (dort erst seit Nacharbeit 2 zu
+    #                               #113/#119/#124: die Kollision im Rennen
+    #                               loeste vorher nur einen Protokolleintrag
+    #                               aus UND schrieb trotzdem).
     #
     # TEILMENGE, nicht Gleichheit — und das ist gemessen, nicht gewaehlt:
     # `extend_match` haengt eine Person an `person_refs` des BESTEHENDEN
@@ -404,8 +424,11 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
                 return logs
 
             if fertige_logs is not None:
-                # Idempotenter Doppelklick ODER eine fremde Kollision — beide
-                # schon VOR dem Schreibvorgang entschieden (oben).
+                # NUR NOCH der idempotente Doppelklick (Album gab es schon):
+                # Eine fremde Kollision WIRFT jetzt oben in
+                # `_gruppe_fuer_manuellen_weg_unter_dem_schloss` (Nacharbeit 2
+                # zu #113/#119/#124), statt hierher als Tupel durchzureichen —
+                # sie wird also nie mehr geschrieben.
                 store.append_log(fertige_logs)
                 logs.extend(fertige_logs)
                 return logs
@@ -651,8 +674,10 @@ async def rename_managed_album(
     #
     # Das Gruppenschloss bleibt bei den beiden ANLEGE-Wegen weiter oben in
     # dieser Datei (automatisch: `create_album`/`_album_anlegen_unter_dem_
-    # schloss`; manuell: `sync_names_multi`/`_manuelles_album_unter_dem_
-    # schloss`) — dort verhindert es weiterhin, dass zwei gleichzeitige
+    # schloss`; manuell: `sync_names_multi`/`_gruppe_fuer_manuellen_weg_
+    # unter_dem_schloss`, seit Nacharbeit 1 der Nachfolger von
+    # `_manuelles_album_unter_dem_schloss`) — dort verhindert es weiterhin,
+    # dass zwei gleichzeitige
     # Anlagen mit demselben Namen in zwei Gruppen zerfallen. Das ALBUMSCHLOSS
     # (Umbenennen gegen Auffrischen) bleibt ebenfalls unveraendert: Es liegt
     # in `sync_service.rename_managed_album` und ist von dieser Aenderung

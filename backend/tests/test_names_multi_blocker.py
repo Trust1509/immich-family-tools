@@ -284,14 +284,43 @@ async def test_blocker_wiederholung_mit_expected_no_group_ist_kein_409(tmp_path,
 async def test_gewaehlte_gruppe_verschwindet_im_fenster(tmp_path, monkeypatch):
     """Gegen P7/Fremdpruefer: `group_id` wird jetzt IMMER frisch geprueft.
 
-    MESSUNG, nicht Behauptung: Das Verschwinden geschieht hier waehrend des
-    Immich-Aufrufs `get_person` INNERHALB `sync_service.sync_names_multi` —
-    also bereits UNTER dem Gruppenschloss, das dieser Slice vor den
-    Schreibvorgang gezogen hat. Das Loeschen selbst laeuft ueber
-    `sync_service._album_schloss` (eine andere Schloss-Familie, siehe
+    ZWEI FAELLE, NICHT EINER (Nacharbeit 2 zu #113/#119/#124, Blind W3): Die
+    vorige Fassung hatte hier nur einen `print` — die Mutation `gruppe =
+    body.group_id if body.group_id is not None else ...` (die frische
+    Pruefung durch ein blindes Uebernehmen der angegebenen `group_id`
+    ersetzt) blieb GRUEN, weil nichts assertierte.
+
+    FALL 1 (jetzt zugesichert, unten Berta): Die Gruppe verschwindet,
+    WAEHREND ein Aufruf mit DIESER gewaehlten Kennung noch auf das
+    Gruppenschloss WARTET — das Schloss ist zu diesem Zeitpunkt fuer ihn noch
+    nicht frei. Sobald es frei wird und Berta die frische Pruefung
+    durchlaeuft, sieht `resolve_group_id` die Kennung nicht mehr: 404
+    `err_group_not_found`, NICHTS von Bertas Personen umbenannt. Das ist die
+    Zusage dieses Slices ("`group_id` wird IMMER frisch geprueft"). Anna haelt
+    das Gruppenschloss dafuer nur offen (`force_new_group=True`, eine EIGENE,
+    von "gx" unabhaengige Gruppe) — sie ruehrt "gx" selbst nicht an, sonst
+    wuerde ihr eigenes Anlegen "gx" nach dem Loeschen STILL NEU ENTSTEHEN
+    LASSEN (gemessen: ein Aufruf mit `group_id="gx"`, dessen eigenes Album
+    waehrend seiner Pause geloescht wird, legt beim Fortsetzen ein NEUES
+    Album mit dem ALTEN `group_id`-Wert an — "gx" existiert danach wieder,
+    und Bertas frische Pruefung faende sie fael-schlich wieder vor. Das ist
+    FALL 2, nicht FALL 1, und wuerde die Zusage dieses Tests verdecken).
+
+    FALL 2 (bleibt ein Restrisiko, NICHT in diesem Test reproduziert, nur
+    benannt): Die Gruppe verschwindet, WAEHREND der Aufruf, der genau diese
+    Kennung gewaehlt hat, selbst schon MIT ihr im eigenen Immich-Aufruf
+    haengt — seine eigene `resolve_group_id`-Pruefung ist zu dem Zeitpunkt
+    schon gelaufen und erfolgreich gewesen; er haelt eine zum Zeitpunkt der
+    Pruefung gueltige Kennung schon in der Hand und schreibt sie zu Ende,
+    OHNE erneut zu pruefen (siehe Messung oben — genau das ist so passiert,
+    als die erste Fassung dieses Tests `group_id="gx"` fuer die
+    lock-haltende Anfrage benutzte). Das Loeschen selbst laeuft ueber
+    `sync_service._album_schloss` (eine ANDERE Schloss-Familie als
+    `gruppen_schloss`/`treffer_schloss` dieses Slices, siehe
     `docs/agents/lehren.md` und die "nicht anfassen"-Liste des Bau-Briefs:
-    `_album_schloss` gehoert einem anderen Slice). Dieser Test haelt fest,
-    WAS tatsaechlich passiert — nicht, was wuenschenswert waere.
+    `_album_schloss` gehoert einem anderen Slice) und schuetzt sich NICHT
+    dagegen. Beheben ist ausserhalb dieser Runde (Bau-Brief, "Nicht in
+    dieser Runde").
     """
     import main
 
@@ -299,28 +328,52 @@ async def test_gewaehlte_gruppe_verschwindet_im_fenster(tmp_path, monkeypatch):
     pfad = _datei(tmp_path, alben)
     await _start(main, pfad, monkeypatch)
     halt = _Halt()
-    _attrappen(monkeypatch, halt_get_person=halt)
+    z = _attrappen(monkeypatch, halt_get_person=halt)
     async with main.app.router.lifespan_context(main.app):
         main.app.state.client_pool = _Pool()
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),
                                      base_url="http://t") as c:
             assert (await c.post("/api/auth/login", json={"token": GEHEIM})).status_code == 200
+
+            # Anna haelt das Gruppenschloss von 'Fest' offen (angehalten in
+            # ihrem eigenen Immich-Aufruf) — mit einer EIGENEN, neuen Gruppe,
+            # die mit "gx" nichts zu tun hat (siehe Docstring, warum NICHT
+            # `group_id="gx"`). Berta WARTET am selben Schloss (gleicher
+            # Albumname "Fest") — das Schloss ist fuer sie noch nicht frei.
             halt.an = True
             ta = asyncio.create_task(c.post("/api/sync/names-multi", json={
                 "persons": [{"account_id": "konto-1", "person_id": "a1"},
                             {"account_id": "konto-2", "person_id": "a2"}],
                 "canonical_name": "Anna", "album_name": "Fest", "owner_account_id": "konto-1",
-                "group_id": "gx"}))
+                "force_new_group": True}))
             await halt.erreicht.wait()
+
+            tb = asyncio.create_task(c.post("/api/sync/names-multi", json={
+                "persons": [{"account_id": "konto-1", "person_id": "b1"},
+                            {"account_id": "konto-2", "person_id": "b2"}],
+                "canonical_name": "Berta", "album_name": "Fest", "owner_account_id": "konto-1",
+                "group_id": "gx"}))
+            store = main.app.state.store
+            fenster = await _warte_am_schloss(store.gruppen_schloss("Fest"))
+            assert fenster, "Berta haette am Gruppenschloss von 'Fest' haengen muessen"
+
+            # Geloescht, WAEHREND Berta noch am Schloss wartet — das Schloss
+            # ist fuer sie noch nicht frei (FALL 1).
             rd = await c.delete("/api/sync/albums/x1")
+            assert rd.status_code == 204, rd.text
+
             halt.frei.set()
             ra = await ta
-            liste = (await c.get("/api/sync/albums")).json()
-            # Dokumentiert im Bericht: `_album_schloss` (Loeschen) und
-            # `gruppen_schloss`/`treffer_schloss` (dieser Slice) sind
-            # verschiedene Schloss-Familien und schuetzen sich NICHT
-            # gegenseitig — das Verschwinden waehrend eines bereits unter dem
-            # Gruppenschloss laufenden Immich-Aufrufs bleibt ein bekanntes,
-            # ausserhalb des Bau-Briefs liegendes Restrisiko (siehe Bericht).
-            print(f"\nP7 delete={rd.status_code} ra={ra.status_code} "
-                  f"alben={[(a['album_name'], a['group_id']) for a in liste]}")
+            rb = await tb
+
+            # Anna beruehrt "gx" nicht (eigene, neue Gruppe) — sie ist nur
+            # dazu da, das Gruppenschloss von 'Fest' offenzuhalten.
+            assert ra.status_code == 200, ra.text
+
+            # FALL 1 (Berta): die eigentliche Zusage dieses Slices.
+            assert rb.status_code == 404, rb.text
+            assert rb.json().get("error_key") == "err_group_not_found", rb.text
+            # Der Kern: Bertas Personen wurden NICHT umbenannt. Nur Annas
+            # Paar (2 Personen, ueber ihre eigene, "gx"-unabhaengige Gruppe).
+            assert z["update_person"] == 2, (
+                f"erwartet 2 Umbenennungen (nur Anna), gemessen {z['update_person']}")

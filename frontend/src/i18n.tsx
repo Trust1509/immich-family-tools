@@ -481,11 +481,18 @@ export const translations = {
     "es-ES": "Un álbum de este grupo está huérfano (falta la cuenta propietaria).",
     "pt-BR": "Um álbum deste grupo está órfão (falta a conta proprietária).",
   },
+  // Nacharbeit 2 zu #113/#119/#124 (Blind W5): `too_few_people` ist seit
+  // Nacharbeit 1 ein ODER ueber die Alben DIESER Gruppe (mindestens EIN
+  // Album hat < 2 Personen), nicht die Personenzahl der ganzen Gruppe — die
+  // Anzeige darueber zeigt aber die Personen der GESAMTEN Gruppe (z. B. 3),
+  // und der alte Text "Diese Gruppe hat weniger als zwei Personen" hat dem
+  // widersprochen. Text jetzt wie `group_marker_owner_missing` auf "ein
+  // Album dieser Gruppe" bezogen.
   group_marker_too_few_people: {
-    de: "Diese Gruppe hat weniger als zwei Personen.",
-    en: "This group has fewer than two people.",
-    "es-ES": "Este grupo tiene menos de dos personas.",
-    "pt-BR": "Este grupo tem menos de duas pessoas.",
+    de: "Ein Album dieser Gruppe hat weniger als zwei Personen.",
+    en: "An album in this group has fewer than two people.",
+    "es-ES": "Un álbum de este grupo tiene menos de dos personas.",
+    "pt-BR": "Um álbum deste grupo tem menos de duas pessoas.",
   },
   album_new_desc: {
     de: "Neues Album wird erstellt, mit den beteiligten Accounts geteilt und Fotos automatisch hinzugefügt.",
@@ -1643,16 +1650,6 @@ export const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
     "pt-BR": (p) => `O álbum '${p.album}' já existia para esta correspondência — nada foi criado`,
     "es-ES": (p) =>
       `El álbum '${p.album}' ya existía para esta coincidencia — no se ha creado nada`,
-  },
-  log_manual_match_collision: {
-    de: (p) =>
-      `Album '${p.album}' gehört unter diesem Namen zu ANDEREN Personen — es wurde keines angelegt`,
-    en: (p) =>
-      `Album '${p.album}' belongs to DIFFERENT people under this name — nothing was created`,
-    "pt-BR": (p) =>
-      `O álbum '${p.album}' pertence a OUTRAS pessoas com este nome — nada foi criado`,
-    "es-ES": (p) =>
-      `El álbum '${p.album}' pertenece a OTRAS personas con este nombre — no se ha creado nada`,
   },
   log_album_create_failed: {
     de: (p) => `Album '${p.album}' konnte nicht erstellt werden`,

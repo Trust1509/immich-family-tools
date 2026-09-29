@@ -593,34 +593,54 @@ class ConfigStore:
         und fuer eine Ablehnung, die zwischen "kein Treffer" und "mehrdeutig"
         unterscheidet, reicht das nicht. Diese Methode laeuft denselben
         zweistufigen Algorithmus (Begruendung: `_gruppe_fuer_namen`), liefert
-        aber bei Nicht-Eindeutigkeit die rohe Kandidatenmenge der zuletzt
-        ausgewerteten Stufe, statt sie zu verwerfen.
+        aber bei Nicht-Eindeutigkeit die rohe Kandidatenmenge von Stufe 1 —
+        und nur, wenn STUFE 1 LEER ist (kein einziger Kandidat), die von
+        Stufe 2 —, statt sie zu verwerfen.
 
         Leere Menge heisst: der Name trifft keine Gruppe. Genau ein Element
         heisst: eindeutiger Treffer (identisch mit `existing_group_for_name`).
         Mehr als eins heisst: mehrdeutig — GENAU diese Gruppen kommen infrage.
 
         LOEST STUFE 2 NICHT AUF GENAU EINE GRUPPE AUF (Nacharbeit 1 zu #113,
-        Blind W-1/Gegen F4): Dann gilt die Kandidatenmenge von STUFE 1, nicht
-        die von Stufe 2. Stufe 2 ist ein DISAMBIGUATOR — sie darf eine
-        mehrdeutige oder leere Stufe-1-Antwort nur ERSETZEN, wenn sie selbst
-        auf GENAU EINE Gruppe kommt (die beiden Faelle aus dem Docstring
-        oben). Gelingt ihr das nicht, traegt sie keine zusaetzliche
-        Information gegenueber Stufe 1 — und "nichts Neues" ist etwas anderes
-        als "keine Kandidaten" oder "ein anderer Kandidatenkreis".
-        Gemessen (Blindpruefer, Gegenpruefer): Ein Bestand mit ZWEI Alben,
-        beide BYTEGLEICH "Strassenfest" (verschiedene Gruppen), war unter
-        beiden Stufen mehrdeutig — bis auf eine Anfrage mit scharfem S
+        Blind W-1/Gegen F4): Dann gilt grundsaetzlich die Kandidatenmenge von
+        STUFE 1, nicht die von Stufe 2 — MIT EINER KORREKTUR (Nacharbeit 2,
+        Blind/Gegen NA1, „Faltungs-Rueckfall kippt in der Gegenrichtung"):
+        Ist Stufe 1 selbst LEER (kein Kandidat), ist eine leere Antwort keine
+        Information — dann gilt STATTDESSEN die rohe Kandidatenmenge von
+        Stufe 2, und zwar UNVERAENDERT, auch wenn die ihrerseits mehrdeutig
+        oder leer ist. Stufe 2 ERSETZT Stufe 1 also nicht erst, wenn sie sich
+        auf GENAU EINE Gruppe festlegt (das waere der eindeutige Fall, der
+        oben schon im Schleifenkoerper zurueckkehrt) — sondern schon dann,
+        wenn Stufe 1 nichts zu bieten hat. Eine MEHRDEUTIGE, nicht-leere
+        Stufe-1-Antwort dagegen ist selbst eine Information (genau diese
+        Gruppen kommen infrage) und wird durch Stufe 2 NICHT ersetzt, auch
+        wenn Stufe 2 anders mehrdeutig waere.
+        Gemessen (Blindpruefer, Gegenpruefer, ß-Fall): Ein Bestand mit ZWEI
+        Alben, beide BYTEGLEICH "Strassenfest" (verschiedene Gruppen), war
+        unter beiden Stufen mehrdeutig — bis auf eine Anfrage mit scharfem S
         ("Straßenfest"): Stufe 1 faltet `ß`->`ss` und sieht weiterhin BEIDE
-        Kandidaten (mehrdeutig); Stufe 2 (`.lower()`, KEIN `ß`->`ss`) findet
-        zum Schluessel "straßenfest" nichts in einem Bestand, der nur
-        "strassenfest" kennt — LEER. Vorher gewann hier die leere Stufe-2-
-        Antwort: Die Vorschau zeigte `null`, und eine Anlage ohne
-        ausdrueckliche Wahl (`expected_no_group`) legte still eine DRITTE
-        Gruppe an — genau die stille Zuordnung, die `resolve_group_id`
-        eigentlich verhindern soll (`CONTEXT.md`, Docstring dieser Klasse).
-        Jetzt gewinnt Stufe 1 (mehrdeutig, zwei Kandidaten) — dieselbe
-        Antwort wie fuer die BYTEGLEICHE Schreibweise.
+        Kandidaten (mehrdeutig, NICHT leer); Stufe 2 (`.lower()`, KEIN
+        `ß`->`ss`) findet zum Schluessel "straßenfest" nichts in einem
+        Bestand, der nur "strassenfest" kennt — LEER. Weil Stufe 1 hier
+        NICHT leer ist, gewinnt sie (mehrdeutig, zwei Kandidaten) — dieselbe
+        Antwort wie fuer die BYTEGLEICHE Schreibweise; unveraendert seit
+        Nacharbeit 1.
+        Gemessen (Nacharbeit 2, Iota-subscriptum-Fall): Ein Bestand mit ZWEI
+        Alben in unterschiedlicher Unicode-Normalform desselben Namens mit
+        Iota subscriptum (`U+1FBC`/`U+0342` in g1/g2), Anfrage mit einer
+        WEITEREN Variante (`U+1FB3`/`U+0342`): Stufe 1 findet zu dieser
+        exakten Schreibweise gar keinen Schluessel — LEER. Mit der Fassung
+        aus Nacharbeit 1 gewann hier die leere Stufe-1-Antwort (`stufe_1 if
+        stufe_1 is not None else kandidaten` liefert IMMER Stufe 1, sobald
+        die Schleife sie einmal gesetzt hat — und das tut sie immer, ausser
+        bei einem eindeutigen Treffer, der schon vorher zurueckkehrt): Die
+        Vorschau zeigte `null`, und eine Anlage ohne ausdrueckliche Wahl
+        (`expected_no_group`) legte still eine DRITTE Gruppe an — genau die
+        stille Zuordnung, die `resolve_group_id` eigentlich verhindern soll
+        (`CONTEXT.md`, Docstring dieser Klasse). Jetzt (`stufe_1 if stufe_1
+        else kandidaten`) ist die leere Stufe-1-Menge falsy, also gewinnt
+        Stufe 2 — die auf beide Alben faltet und mehrdeutig antwortet: Die
+        Vorschau zeigt eine echte Wahl statt `null`.
         """
         if albums is None:
             albums = self._data.get("managed_albums", [])
@@ -636,8 +656,9 @@ class ConfigStore:
             if stufe == 0:
                 stufe_1 = kandidaten
         # Stufe 2 hat sich NICHT auf genau eine Gruppe festgelegt: Stufe 1
-        # gilt, nicht Stufe 2 (siehe Docstring oben).
-        return stufe_1 if stufe_1 is not None else kandidaten
+        # gilt, AUSSER sie ist LEER — dann gilt Stufe 2, auch mehrdeutig
+        # oder leer (Nacharbeit 2, siehe Docstring oben).
+        return stufe_1 if stufe_1 else kandidaten
 
     def _backfill_group_ids(self, albums: list[dict]) -> bool:
         """Vergibt fehlende Gruppenkennungen aus der bisherigen Namensregel.
@@ -773,12 +794,11 @@ class ConfigStore:
         ist eine Gruppe, wenn EIN Album zu wenige Personen hat, also ODER
         JE ALBUM (genau wie `GET /api/sync/albums`/`ManagedAlbumOut.
         too_few_people`, die `len(album.person_refs) < 2` je Album prueft).
-        Gemessen am Unterschied: Zwei Alben mit je EINER Person (2+... nein,
-        1+1 Personen, insgesamt entdoppelt vielleicht schon 2) galten hier
-        vorher als NICHT zu wenig, obwohl JEDES einzelne Album fuer sich
-        unvollstaendig ist — die Albumliste daneben markierte dieselbe
-        Gruppe trotzdem als "zu wenige Personen". Jetzt rechnen beide Stellen
-        dieselbe Eigenschaft.
+        Gemessen am Unterschied: Zwei Alben mit je EINER Person — 1+1, macht
+        entdoppelt schon wieder 2 — galten hier vorher als NICHT zu wenig,
+        obwohl JEDES einzelne Album fuer sich unvollstaendig ist — die
+        Albumliste daneben markierte dieselbe Gruppe trotzdem als "zu wenige
+        Personen". Jetzt rechnen beide Stellen dieselbe Eigenschaft.
         """
         alben = [a for a in self._data.get("managed_albums", [])
                  if a.get("group_id") == group_id]

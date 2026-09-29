@@ -58,28 +58,19 @@ def album_gab_es_schon(album_name: str) -> SyncLogEntry:
     )
 
 
-def manuelle_kennung_kollidiert(album_name: str) -> SyncLogEntry:
-    """Dieselbe Kollision, aber im RENNEN — da ist Ablehnen zu spaet.
-
-    Die Vorabpruefung im Router faengt den Normalfall: Sie sieht das fremde
-    Album und lehnt ab, bevor irgendetwas geschrieben ist. Kommen beide
-    Aufrufe gleichzeitig, sieht sie noch nichts — das Album entsteht erst
-    danach. Unter dem Schloss ist dann bereits umbenannt, und eine Ablehnung
-    waere genau die Klasse, die dieses Projekt dreimal getroffen hat: ein
-    Fehler, der sich als Eingabefehler ausgibt, nachdem geschrieben wurde.
-
-    Also ein FEHLEREINTRAG statt einer Ablehnung. Er ist nicht „gab es schon"
-    — das waere die Luege, die der Fremdpruefer und der Blindpruefer
-    unabhaengig voneinander gefunden haben.
-    """
-    return SyncLogEntry(
-        id=str(uuid.uuid4()), timestamp=_now(), action="create_album",
-        details=(f"Album '{album_name}' gehört unter diesem Namen zu ANDEREN "
-                 f"Personen — es wurde keines angelegt"),
-        status="error", error_message="MANUAL_MATCH_ID_COLLISION",
-        message_key="log_manual_match_collision",
-        message_params={"album": album_name},
-    )
+# `manuelle_kennung_kollidiert` (Kollision im RENNEN, als Protokolleintrag
+# statt Ablehnung) ist mit Nacharbeit 2 zu #113/#119/#124 ENTFERNT: Blind-
+# und Gegenpruefer haben gemessen, dass ihre Begruendung „Ablehnen geht nicht
+# mehr, es ist bereits umbenannt" seit Nacharbeit 1 nicht mehr stimmt — die
+# Aufloesung unter dem Schloss (`routers.albums.
+# _gruppe_fuer_manuellen_weg_unter_dem_schloss`) laeuft dort schon VOR
+# `sync_names_multi`, nur nutzte der Aufrufer das Ergebnis bis hierher nicht,
+# um den Schreibvorgang zu verhindern. Die Kollision WIRFT jetzt
+# `errors.manual_match_id_collision` (409) an genau der Stelle, an der diese
+# Funktion vorher einen Log-Eintrag baute — vor jedem Schreibvorgang, nicht
+# danach. Der Protokollschluessel `log_manual_match_collision` hat damit
+# keinen Sender mehr und ist aus `logMessages.contract.json` und
+# `frontend/src/i18n.tsx` mitentfernt (Vertrag #94).
 
 
 def _partial_failure_log(action: str, account_name: str, failed: list[dict]) -> SyncLogEntry:

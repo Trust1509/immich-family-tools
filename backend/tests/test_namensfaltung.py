@@ -418,6 +418,55 @@ def test_scharfes_s_gegen_zwei_bytegleiche_gruppen_bleibt_mehrdeutig(tmp_path):
     assert fehler.value.key == "err_group_choice_required"
 
 
+def test_iota_subscriptum_gegen_zwei_gleichnamige_gruppen_wird_mehrdeutig(tmp_path):
+    """Nacharbeit 2 zu #113/#119/#124 (Blind/Gegen NA1): die GEGENRICHTUNG
+    zum scharfen S — hier ist Stufe 1 LEER, nicht mehrdeutig.
+
+    Zwei Alben, BEIDE mit derselben (gross geschriebenen) Form "Alpha mit
+    Iota subscriptum + Perispomeni" (`U+1FBC U+0342`), in zwei verschiedenen
+    Gruppen. Die Anfrage kommt mit der KLEIN geschriebenen Form
+    (`U+1FB3 U+0342`) — `test_die_richtung_gilt_fuer_zeichen_nicht_fuer_namen`
+    haelt fest, dass genau dieses Paar NUR in Stufe 2 kollidiert:
+
+    * Stufe 1 (`_name_key`, erste Normalform + `casefold`) trennt klein und
+      gross weiterhin — die Anfrage trifft KEINEN der beiden Albennamen:
+      LEER, nicht mehrdeutig.
+    * Stufe 2 (`_name_key_vor_83`, `.lower()`, keine Normalform) legt beide
+      zusammen — die Anfrage trifft BEIDE Alben: mehrdeutig.
+
+    VORHER (Nacharbeit 1: `stufe_1 if stufe_1 is not None else kandidaten`)
+    gewann hier die LEERE Stufe-1-Antwort, weil die Schleife `stufe_1` immer
+    auf ein (moeglicherweise leeres) `set()` setzt, sobald sie ueberhaupt
+    stufe 0 durchlaeuft — „ist nicht `None`" ist fuer ein leeres `set()`
+    immer wahr. Die Vorschau zeigte `null`, und eine Anlage OHNE
+    ausdrueckliche Wahl legte still eine DRITTE Gruppe an.
+
+    JETZT (`stufe_1 if stufe_1 else kandidaten`) ist die leere Menge falsy,
+    also gewinnt Stufe 2 — mehrdeutig, echte Wahl statt stiller dritter
+    Gruppe.
+    """
+    gross = "ᾼ͂"
+    klein = "ᾷ"
+    store = _store(tmp_path, [_album(gross, "g1"), _album(gross, "g2")])
+
+    # Kontrolle: die bytegleiche (grosse) Schreibweise war schon vorher
+    # mehrdeutig — daran aendert dieser Fix nichts.
+    assert store.group_candidates_for_name(gross) == {"g1", "g2"}
+
+    # Der eigentliche Fund: die KLEINE Schreibweise darf nicht leer sein.
+    assert store.group_candidates_for_name(klein) == {"g1", "g2"}
+    assert store.existing_group_for_name(klein) is None, (
+        "mehrdeutig bleibt mehrdeutig — 'existing_group_for_name' darf hier "
+        "keinen der beiden Kandidaten einzeln herausgeben")
+
+    # Und `resolve_group_id` lehnt eine Anlage OHNE ausdrueckliche Wahl ab,
+    # statt eine dritte Gruppe zu erfinden.
+    import errors
+    with pytest.raises(errors.AppError) as fehler:
+        store.resolve_group_id(klein)
+    assert fehler.value.key == "err_group_choice_required"
+
+
 def test_backfill_haengt_an_der_fehlenden_kennung_nicht_an_der_schemaversion(tmp_path):
     """Der Schreibpfad, den mein eigener Text zu eng beschrieben hatte.
 
