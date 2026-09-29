@@ -449,6 +449,33 @@ export default function ManualMatch() {
       queryClient.invalidateQueries({ queryKey: ["sync-log"] });
       queryClient.invalidateQueries({ queryKey: ["managed-albums"] });
     },
+    // Nacharbeit 1 zu #113/#119/#124 (Gegen F8, KLEIN): Im Modus "Verknuepfen"
+    // bestimmt `existingAlbums` (Abfrage `account-albums`) den NAMEN, den die
+    // Vorschau (`gruppenBereitschaft`/`wirksamerName` oben) prueft — der
+    // SERVER loest beim Speichern aber den Namen frisch aus Immich auf
+    // (`_name_des_bestehenden_albums`). Aendert sich der Immich-Albumname
+    // zwischen dem Laden der Liste und diesem Versuch, sieht der Client
+    // weiterhin den ALTEN Namen, `expected_no_group`/die gewaehlte
+    // `group_id` passt nicht mehr zur SERVER-Sicht, der Server lehnt mit
+    // `err_group_situation_changed` ab — und ohne diese Invalidierung zeigt
+    // die Vorschau beim naechsten Versuch wieder denselben veralteten Namen:
+    // eine Ablehnungsschleife, aus der ein erneuter Klick nicht herausfuehrt.
+    //
+    // Absichtlich OHNE `instanceof ApiError` (stattdessen auf das Feld `key`
+    // geprueft): Mehrere Testdateien ersetzen `../api/client` komplett per
+    // `vi.mock(() => ({ api: {...} }))`, ohne `importOriginal` — ein
+    // `instanceof`-Vergleich gegen die dabei fehlende `ApiError`-Klasse wirft
+    // dort zur Laufzeit ("Right-hand side of 'instanceof' is not callable"),
+    // gemessen an genau dieser Datei (Rot-Beweis vor dieser Fassung).
+    onError: (error) => {
+      const key =
+        error && typeof error === "object" && "key" in error
+          ? (error as { key?: unknown }).key
+          : undefined;
+      if (key === "err_group_situation_changed") {
+        queryClient.invalidateQueries({ queryKey: ["account-albums"] });
+      }
+    },
     // `onSettled` statt nur `onSuccess` (#110, Nacharbeit 2, KLEIN Fund 4):
     // names-multi aendert Gruppen (legt an oder verknuepft) — eine von fuenf
     // Aufrufstellen. Ein Teil-Schreibvorgang kann in Immich schon eine Gruppe

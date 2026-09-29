@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type GroupCandidate } from "../api/client";
 import { useT } from "../i18n";
@@ -139,6 +139,16 @@ export function GruppenWahl({
   onAntwort: (antwort: GruppenAntwort) => void;
 }) {
   const { t } = useT();
+  // Eigene Radiogruppe JE INSTANZ (Nacharbeit 1 zu #113/#119/#124, Gegen F1/
+  // Blind K-3): Ein fester `name="gruppenwahl-kandidat"` bildete bei ZWEI
+  // gleichzeitig offenen Dialogen (zwei Matches mit demselben mehrdeutigen
+  // Namen) EINE gemeinsame Radiogruppe im Browser — ein Klick in Karte B
+  // hat den DOM-Radiobutton in Karte A optisch entmarkiert, obwohl Karte A
+  // weiterhin `gruppe-a` an ihren eigenen Aufrufer meldete (gemessen in
+  // Chromium; `happy-dom`, mit dem `npm test` laeuft, bildet dieses
+  // Browserverhalten nicht ab — die Probe dazu prueft deshalb den `name`
+  // der Radios je Instanz direkt, nicht das Anzeigeverhalten).
+  const radioName = useId();
   const [entprellt, setEntprellt] = useState("");
   const gesucht = albumName.trim();
 
@@ -210,6 +220,38 @@ export function GruppenWahl({
       setGewaehlterKandidat(null);
     }
   }, [kandidaten, gewaehlterKandidat]);
+
+  // "Eigene Gruppe" wird bei JEDER NEUEN Mehrdeutigkeit zurueckgesetzt
+  // (Nacharbeit 1 zu #113/#119/#124, Blind W-3): `eigeneGruppe` lebt beim
+  // AUFRUFER und wurde vorher nur bei "kein Treffer" zurueckgesetzt
+  // (`keineGruppeErfolg` weiter unten) — ein Fehlschlag der Vorschau oder ein
+  // Namenswechsel OHNE neue Mehrdeutigkeit durfte eine schon gewaehlte
+  // "eigene Gruppe" nicht anfassen (das deckt der bestehende Test "setzt
+  // eine gewaehlte eigene Gruppe NICHT zurueck, wenn die Vorschau nur
+  // fehlschlaegt"). Wechselte die Eingabe aber in eine NEUE Mehrdeutigkeit,
+  // blieb "eigene Gruppe" bisher trotzdem vorgewaehlt und meldete `bereit:
+  // true`, obwohl zu DIESEM Namen noch gar nichts gewaehlt wurde
+  // (Fremd-/Blindpruefer, Sonde FP1).
+  //
+  // Der Ref haelt fest, fuer WELCHEN Namen die aktuelle Mehrdeutigkeit
+  // schon einmal gesehen wurde: `mehrdeutig` wird beim Namenswechsel zuerst
+  // FALSCH (die Abfrage laedt neu, `gruppe` ist kurz `undefined`) und danach
+  // — falls die neue Antwort erneut mehrdeutig ist — wieder WAHR, jetzt aber
+  // fuer einen anderen `entprellt`-Wert. GENAU dieser Uebergang loest den
+  // Ruecksetzer aus; ein Fehlschlag haelt `mehrdeutig` dauerhaft falsch und
+  // loest ihn nie aus.
+  const mehrdeutigSeitRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!mehrdeutig) {
+      mehrdeutigSeitRef.current = null;
+      return;
+    }
+    if (mehrdeutigSeitRef.current !== entprellt) {
+      mehrdeutigSeitRef.current = entprellt;
+      onEigeneGruppeChange(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mehrdeutig, entprellt]);
 
   // VIER Zustaende (Nacharbeit 1 erweitert die vorherigen drei um
   // "pausiert/offline", das vorher faelschlich als abgeschlossen zaehlte):
@@ -321,7 +363,7 @@ export function GruppenWahl({
             >
               <input
                 type="radio"
-                name="gruppenwahl-kandidat"
+                name={radioName}
                 className="mt-0.5"
                 checked={!eigeneGruppe && gewaehlterKandidat === k.group_id}
                 onChange={() => {
@@ -357,7 +399,7 @@ export function GruppenWahl({
           <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer pt-1">
             <input
               type="radio"
-              name="gruppenwahl-kandidat"
+              name={radioName}
               checked={eigeneGruppe}
               onChange={() => {
                 setGewaehlterKandidat(null);

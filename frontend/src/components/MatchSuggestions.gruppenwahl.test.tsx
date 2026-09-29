@@ -217,6 +217,63 @@ describe("Gruppenwahl beim Anlegen", () => {
     expect(albumMock.mock.calls[0][0].force_new_group).toBeUndefined();
   });
 
+  it("bei mehrdeutigem Namen ('many') bleibt 'Album erstellen' gesperrt, bis eine Gruppe gewaehlt ist (Nacharbeit 1, Blind W-5)", async () => {
+    // Testluecke, Nacharbeit 1 zu #113/#119/#124 (Blind W-5): "many" war nur
+    // an der Einzelkomponente `GruppenWahl` geprueft, nicht end-to-end an der
+    // Vorschlagsliste.
+    const MANY = {
+      status: "many" as const,
+      candidates: [
+        {
+          group_id: "gruppe-a",
+          album_names: ["Testalbum"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "p9",
+              person_name: "Person Neun",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+        {
+          group_id: "gruppe-b",
+          album_names: ["Testalbum"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "p10",
+              person_name: "Person Zehn",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+      ],
+    };
+    vorschauMock.mockResolvedValue(MANY);
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+
+    await waitFor(() => expect(screen.getByText("Person Neun")).toBeTruthy());
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(albumMock).not.toHaveBeenCalled();
+
+    const radio = screen
+      .getByText("Person Neun")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    fireEvent.click(radio);
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+    expect(albumMock.mock.calls[0][0].group_id).toBe("gruppe-a");
+  });
+
   it("schickt die angezeigte Gruppe beim Beitritt mit", async () => {
     // Was ANGEZEIGT wird, wird auch GESCHICKT. Ohne diese Bindung liess die
     // App das Backend beim Bestaetigen erneut ueber den Namen raten — kommt

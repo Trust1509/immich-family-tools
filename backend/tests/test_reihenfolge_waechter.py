@@ -255,6 +255,43 @@ def test_die_schreibflaeche_des_stores_ist_die_erwartete():
     assert _schreibende_store_methoden() == STORE_SCHREIBT
 
 
+def _ablehnende_store_methoden() -> set:
+    """Die OEFFENTLICHEN ConfigStore-Methoden, die SELBST ablehnen koennen.
+
+    Das Gegenstueck zu `_schreibende_store_methoden` — und ohne es sieht die
+    Ablehnungs-SAAT der modulübergreifenden Huelle (`_stand_bauen`) nur ein
+    direktes `raise` in der aufrufenden Funktion selbst. `resolve_group_id`
+    wirft `errors.*` direkt in seinem eigenen Rumpf, aber der ROUTER ruft ihn
+    nur als `store.resolve_group_id(...)` — ein Attributzugriff auf eine
+    Instanz, die aus `request.app.state.store` kommt, nicht aus einem
+    Projekt-Konstruktor. Der Aufrufgraph (`ziele`) kann diese Kante deshalb
+    nicht ziehen, und ohne diese Menge blieb `resolve_group_id` unsichtbar:
+    Eine Funktion, die NUR `store.resolve_group_id(...)` aufruft und sonst
+    nichts wirft, landete nicht in `stand["lehnt"]` — gemessen an
+    `_manuelles_album_unter_dem_schloss` in `routers/albums.py` (Nacharbeit 1
+    zu #113/#119/#124, BLOCKER Blind B-1/Gegen F7): Die Funktion stand in
+    `stand["schreibt"]`, aber nicht in `stand["lehnt"]`, obwohl ihr Rumpf
+    `store.resolve_group_id(...)` aufruft — und blieb deshalb aus den
+    Kandidaten dieses Waechters aussen vor.
+    """
+    baum = _baum("services/config_store.py")
+    fns = _funktionen(baum)
+    fehlernamen = _fehlernamen(baum)
+    direkt = {name for name, k in fns.items() if _lehnt_direkt_ab(k, fehlernamen)}
+    return {n for n in _erreichbar(fns, direkt) if not n.startswith("_")}
+
+
+# Die Ablehnungsflaeche des Stores, ausgeschrieben — analog zu STORE_SCHREIBT
+# und aus demselben Grund: Faellt eine Methode aus der Ableitung, soll das
+# HIER rot werden, nicht lautlos in der Huelle verschwinden.
+STORE_LEHNT_AB = {"resolve_group_id"}
+
+
+def test_die_ablehnungsflaeche_des_stores_ist_die_erwartete():
+    """Faellt eine Methode aus der Ableitung, ist das hier rot statt lautlos."""
+    assert _ablehnende_store_methoden() == STORE_LEHNT_AB
+
+
 # ---------------------------------------------------------------------------
 # Der Aufrufgraph ueber MODULGRENZEN (#90)
 # ---------------------------------------------------------------------------
@@ -429,11 +466,12 @@ def _projekt_stand() -> dict:
     """Einmal je Lauf, fuer das echte Projekt."""
     if not _stand_puffer:
         _stand_puffer.update(_stand_bauen(
-            WURZEL, _schreibende_store_methoden(), _immich_schreibsenken()))
+            WURZEL, _schreibende_store_methoden(), _immich_schreibsenken(),
+            _ablehnende_store_methoden()))
     return _stand_puffer
 
 
-def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
+def _stand_bauen(wurzel, schreibt_store, schreibt_immich, lehnt_store=frozenset()) -> dict:
     """Baeume, Funktionen, Importe und die beiden Huellen — fuer EINE Wurzel.
 
     Die Wurzel ist ein Parameter, damit `test_der_aufrufgraph_folgt_den_importen`
@@ -553,7 +591,18 @@ def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
     for pfad, d in dateien.items():
         for name, knoten in d["fns"].items():
             kanten[(pfad, name)] = ziele(pfad, name, knoten)
-            if _lehnt_direkt_ab(knoten, d["fehlernamen"]):
+            genannt = _gerufene_namen(knoten)
+            # Eine Ablehnung ist: ein direktes `raise` ODER der Aufruf einer
+            # Store-Methode, die selbst ablehnen kann (`store.resolve_group_id`
+            # z. B.). Ohne die zweite Haelfte sah die Huelle nur ein Attribut
+            # namens `resolve_group_id`, aber nicht, DASS die aufrufende
+            # Funktion dadurch selbst zur Ablehnerin wird — symmetrisch zur
+            # Schreib-Saat direkt darunter, die genau denselben Fehler schon
+            # fuer `schreibt_store`/`schreibt_immich` vermeidet. Gemessen an
+            # `_manuelles_album_unter_dem_schloss` (Nacharbeit 1 zu
+            # #113/#119/#124, BLOCKER Blind B-1/Gegen F7): stand in
+            # `stand["schreibt"]`, fehlte aber in `stand["lehnt"]`.
+            if _lehnt_direkt_ab(knoten, d["fehlernamen"]) or (genannt & lehnt_store):
                 saat_lehnt.add((pfad, name))
             # Ein Schreibvorgang ist: eine schreibende ConfigStore-Methode
             # ODER eine veraendernde ImmichClient-Methode. Die zweite Haelfte
@@ -565,8 +614,7 @@ def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
             # ConfigStore-intern. Ohne es hier waere keine einzige
             # ConfigStore-Methode ein Schreibvorgang — und durch die
             # laeuft jeder Schreibvorgang dieser Anwendung.
-            if _gerufene_namen(knoten) & (schreibt_store | schreibt_immich
-                                          | {"_save"}):
+            if genannt & (schreibt_store | schreibt_immich | {"_save"}):
                 saat_schreibt.add((pfad, name))
 
     # Rueckwaertsgraph einmal aufbauen, dann EINE Breitensuche je Saat. Die

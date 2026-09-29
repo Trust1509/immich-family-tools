@@ -78,6 +78,8 @@ _Avoid_: Auto-grouping, group match
 
 **Nachtrag 2026-09-29 (#124 B8):** Extending an existing Managed Album (adding a new Account/Person to it) targets the group's most-recently-synced album. If that album is orphaned (`owner_account_missing`), the tool does not silently offer it — the group stays visible but visibly locked, since extending it would fail anyway (the server-side `extend_match` already answers with a `log_owner_account_missing` log entry, not a crash, when asked to extend through an orphaned owner).
 
+**Nachtrag 2026-09-29 (Nacharbeit 1 zu #113/#119/#124):** The paragraph above ("A client that omits this signal … or two genuinely simultaneous creates of a brand-new name, #86") no longer describes the UI: since #110/#119, every UI-driven creation and link already sends `expected_no_group` (or an explicit `group_id`) itself — the "client that omits the signal" is the raw API only, not two simultaneous UI creates. The sentence is left standing as dated history rather than rewritten (`docs/agents/lehren.md`, "Ein Widerspruch über zwei Dateien" — a documenting file gets a dated correction, not an edit that erases what was once true).
+
 **Album Name Source**:
 **The name in Immich wins.** When the tool refreshes a Managed Album, it adopts the album's current name from Immich; a rename done directly in Immich shows up in the tool (owner decision 2026-09-28, #97). Because every Account holds its own album, the albums of one Album Group may carry different names afterwards — that is allowed, the group stays one group.
 _Avoid_: Master name, canonical album name

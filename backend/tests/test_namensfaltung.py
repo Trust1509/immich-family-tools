@@ -376,6 +376,48 @@ def test_die_verbesserung_bleibt_wenn_es_nur_eine_gruppe_gibt(tmp_path):
     assert store.existing_group_for_name("Sommerfest") is None
 
 
+def test_scharfes_s_gegen_zwei_bytegleiche_gruppen_bleibt_mehrdeutig(tmp_path):
+    """Nacharbeit 1 zu #113/#119/#124 (Blind W-1, Gegen F4).
+
+    Zwei Alben, BEIDE byteglech "Strassenfest" geschrieben, in zwei
+    verschiedenen Gruppen. Stufe 1 (`_name_key`, faltet `ß`->`ss`) sieht fuer
+    JEDE Anfrage — auch fuer die scharfe Schreibweise "Straßenfest" — beide
+    Kandidaten: mehrdeutig. Stufe 2 (`_name_key_vor_83`, `.lower()`, KEIN
+    `ß`->`ss`) findet fuer "Straßenfest" dagegen NICHTS im Bestand (der nur
+    "Strassenfest" kennt) — LEER, nicht mehrdeutig.
+
+    VORHER gewann hier die leere Stufe-2-Antwort: `group_candidates_for_name`
+    lieferte fuer "Straßenfest" die leere Menge, die Vorschau zeigte `null`,
+    und eine Anlage OHNE ausdrueckliche Wahl legte still eine DRITTE Gruppe
+    an — der genaue Gegensatz zu dem, was #113 verspricht (`CONTEXT.md`,
+    Docstring von `resolve_group_id`: "eine unbekannte Kennung wird
+    ABGELEHNT, statt eine Gruppe zu erfinden").
+
+    JETZT gilt: Loest Stufe 2 sich nicht auf GENAU EINE Gruppe auf, gilt die
+    Kandidatenmenge von Stufe 1 — hier also weiterhin BEIDE Gruppen,
+    unabhaengig davon, ob "ss" oder "ß" geschrieben wird.
+    """
+    store = _store(tmp_path, [_album("Strassenfest", "g1"), _album("Strassenfest", "g2")])
+
+    # Rot-Beweis (am Verhalten VOR der Nacharbeit gemessen, siehe Docstring):
+    # Die bytegleiche Schreibweise war schon vorher mehrdeutig — hier zur
+    # Kontrolle, dass sich daran nichts geaendert hat.
+    assert store.group_candidates_for_name("Strassenfest") == {"g1", "g2"}
+
+    # Der eigentliche Fund: die SCHARFE Schreibweise darf nicht leer sein.
+    assert store.group_candidates_for_name("Straßenfest") == {"g1", "g2"}
+    assert store.existing_group_for_name("Straßenfest") is None, (
+        "mehrdeutig bleibt mehrdeutig — 'existing_group_for_name' darf hier "
+        "keinen der beiden Kandidaten einzeln herausgeben")
+
+    # Und `resolve_group_id` lehnt eine Anlage OHNE ausdrueckliche Wahl ab,
+    # statt eine dritte Gruppe zu erfinden.
+    import errors
+    with pytest.raises(errors.AppError) as fehler:
+        store.resolve_group_id("Straßenfest")
+    assert fehler.value.key == "err_group_choice_required"
+
+
 def test_backfill_haengt_an_der_fehlenden_kennung_nicht_an_der_schemaversion(tmp_path):
     """Der Schreibpfad, den mein eigener Text zu eng beschrieben hatte.
 

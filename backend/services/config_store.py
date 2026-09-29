@@ -599,18 +599,45 @@ class ConfigStore:
         Leere Menge heisst: der Name trifft keine Gruppe. Genau ein Element
         heisst: eindeutiger Treffer (identisch mit `existing_group_for_name`).
         Mehr als eins heisst: mehrdeutig — GENAU diese Gruppen kommen infrage.
+
+        LOEST STUFE 2 NICHT AUF GENAU EINE GRUPPE AUF (Nacharbeit 1 zu #113,
+        Blind W-1/Gegen F4): Dann gilt die Kandidatenmenge von STUFE 1, nicht
+        die von Stufe 2. Stufe 2 ist ein DISAMBIGUATOR — sie darf eine
+        mehrdeutige oder leere Stufe-1-Antwort nur ERSETZEN, wenn sie selbst
+        auf GENAU EINE Gruppe kommt (die beiden Faelle aus dem Docstring
+        oben). Gelingt ihr das nicht, traegt sie keine zusaetzliche
+        Information gegenueber Stufe 1 — und "nichts Neues" ist etwas anderes
+        als "keine Kandidaten" oder "ein anderer Kandidatenkreis".
+        Gemessen (Blindpruefer, Gegenpruefer): Ein Bestand mit ZWEI Alben,
+        beide BYTEGLEICH "Strassenfest" (verschiedene Gruppen), war unter
+        beiden Stufen mehrdeutig — bis auf eine Anfrage mit scharfem S
+        ("Straßenfest"): Stufe 1 faltet `ß`->`ss` und sieht weiterhin BEIDE
+        Kandidaten (mehrdeutig); Stufe 2 (`.lower()`, KEIN `ß`->`ss`) findet
+        zum Schluessel "straßenfest" nichts in einem Bestand, der nur
+        "strassenfest" kennt — LEER. Vorher gewann hier die leere Stufe-2-
+        Antwort: Die Vorschau zeigte `null`, und eine Anlage ohne
+        ausdrueckliche Wahl (`expected_no_group`) legte still eine DRITTE
+        Gruppe an — genau die stille Zuordnung, die `resolve_group_id`
+        eigentlich verhindern soll (`CONTEXT.md`, Docstring dieser Klasse).
+        Jetzt gewinnt Stufe 1 (mehrdeutig, zwei Kandidaten) — dieselbe
+        Antwort wie fuer die BYTEGLEICHE Schreibweise.
         """
         if albums is None:
             albums = self._data.get("managed_albums", [])
         kandidaten: set[str] = set()
-        for faltung in (self._name_key, self._name_key_vor_83):
+        stufe_1: Optional[set[str]] = None
+        for stufe, faltung in enumerate((self._name_key, self._name_key_vor_83)):
             schluessel = faltung(album_name)
             if not schluessel:
                 return set()
             kandidaten = self._gruppen_je_name(albums, faltung).get(schluessel, set())
             if len(kandidaten) == 1:
                 return kandidaten
-        return kandidaten
+            if stufe == 0:
+                stufe_1 = kandidaten
+        # Stufe 2 hat sich NICHT auf genau eine Gruppe festgelegt: Stufe 1
+        # gilt, nicht Stufe 2 (siehe Docstring oben).
+        return stufe_1 if stufe_1 is not None else kandidaten
 
     def _backfill_group_ids(self, albums: list[dict]) -> bool:
         """Vergibt fehlende Gruppenkennungen aus der bisherigen Namensregel.
@@ -738,8 +765,20 @@ class ConfigStore:
         verschiedenen Besitzern buendeln kann. `owner_account_missing` ist
         wahr, sobald IRGENDEIN Album der Gruppe verwaist ist — wer beitritt,
         soll das VORHER sehen, nicht erst nach dem Beitritt am einzelnen
-        Album. `too_few_people` zaehlt die entdoppelte Personenmenge oben,
-        nicht `person_refs` einzelner Alben.
+        Album.
+
+        `too_few_people` (Nacharbeit 1 zu #113/#119/#124, Gegen F3): zaehlte
+        hier vorher die ENTDOPPELTE Personenmenge ueber alle Alben der Gruppe
+        — der Owner-Entscheid zu #112/#123 sagt aber etwas anderes: markiert
+        ist eine Gruppe, wenn EIN Album zu wenige Personen hat, also ODER
+        JE ALBUM (genau wie `GET /api/sync/albums`/`ManagedAlbumOut.
+        too_few_people`, die `len(album.person_refs) < 2` je Album prueft).
+        Gemessen am Unterschied: Zwei Alben mit je EINER Person (2+... nein,
+        1+1 Personen, insgesamt entdoppelt vielleicht schon 2) galten hier
+        vorher als NICHT zu wenig, obwohl JEDES einzelne Album fuer sich
+        unvollstaendig ist — die Albumliste daneben markierte dieselbe
+        Gruppe trotzdem als "zu wenige Personen". Jetzt rechnen beide Stellen
+        dieselbe Eigenschaft.
         """
         alben = [a for a in self._data.get("managed_albums", [])
                  if a.get("group_id") == group_id]
@@ -759,7 +798,9 @@ class ConfigStore:
             "owner_account_missing": any(
                 a.get("owner_account_id") not in lebende_konten for a in alben
             ),
-            "too_few_people": len(refs) < 2,
+            "too_few_people": any(
+                len(a.get("person_refs", [])) < 2 for a in alben
+            ),
         }
 
     def resolve_group_id(self, album_name: str, *,

@@ -178,6 +178,48 @@ def test_endpunkt_traegt_die_markierungen_je_kandidat(client, tmp_path):
     assert kandidaten["gruppe-3"]["owner_account_missing"] is False
 
 
+def test_too_few_people_ist_ODER_je_album_nicht_die_entdoppelte_summe(client):
+    """Nacharbeit 1 zu #113/#119/#124 (Gegen F3), Owner-Entscheid #112/#123.
+
+    "Zu wenige Personen" markiert eine GRUPPE, wenn EIN Album zu wenige
+    Personen hat — ODER je Album, nicht die entdoppelte Personenzahl der
+    ganzen Gruppe. Zwei Bestaende:
+
+    * (2+1): ein Album mit zwei Personen, eins mit einer, ohne Ueberschneidung
+      — die ENTDOPPELTE Summe ist hier 3 (>= 2, "genug"), obwohl das zweite
+      Album fuer sich allein zu wenige hat.
+    * (1+1): zwei Alben mit je EINER (verschiedenen) Person — die entdoppelte
+      Summe ist hier genau 2 ("genug"), obwohl KEIN einzelnes Album fuer sich
+      zwei Personen hat.
+
+    Nach der alten Rechnung (entdoppelte Summe der Gruppe < 2) waeren BEIDE
+    Bestaende "genug" gewesen; nach der neuen (ODER je Album) sind es beide
+    nicht.
+
+    Beide muessen `too_few_people: True` liefern — wie die Albumliste
+    (`GET /api/sync/albums`, `ManagedAlbumOut.too_few_people`) es fuer jedes
+    der beteiligten Alben schon tut.
+    """
+    pfad_alben = main.app.state.store._data["managed_albums"]
+    pfad_alben.clear()
+    pfad_alben.append(_album("zwei_eins_a", "ZweiEins", "gruppe-21", ["p1", "p2"]))
+    pfad_alben.append(_album("zwei_eins_b", "ZweiEins", "gruppe-21", ["p3"]))
+    pfad_alben.append(_album("eins_eins_a", "EinsEins", "gruppe-11", ["p4"]))
+    pfad_alben.append(_album("eins_eins_b", "EinsEins", "gruppe-11", ["p5"]))
+
+    v21 = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "ZweiEins"}).json()
+    v11 = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "EinsEins"}).json()
+
+    assert v21["too_few_people"] is True, v21
+    assert v11["too_few_people"] is True, v11
+
+    # Gegenprobe: EIN Album mit >= 2 Personen und sonst nichts ist NICHT
+    # markiert.
+    pfad_alben.append(_album("genug_a", "Genug", "gruppe-genug", ["p6", "p7"]))
+    vgenug = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "Genug"}).json()
+    assert vgenug["too_few_people"] is False, vgenug
+
+
 def test_eindeutiger_treffer_traegt_die_markierungen_auch(client):
     """Dieselben zwei Felder auch am unveraenderten Ein-Treffer-Pfad."""
     antwort = client.get("/api/sync/album-group", headers=KOPF,
@@ -392,6 +434,29 @@ def test_vorschau_zeigt_lebende_kontodaten(client, tmp_path):
     assert nachher["person_refs"][0]["account_color"] == "#aaaaaa"
 
 
+def test_vorschau_zeigt_lebende_kontodaten_auch_im_many_zweig(client, tmp_path):
+    """Testluecke, Nacharbeit 1 (Blind B8): Die Kontodaten-Anreicherung
+    (`_mit_lebenden_kontodaten`) galt bisher nur getestet fuer den EINDEUTIGEN
+    Treffer — der MEHRDEUTIGE Zweig (`status: "many"`) ruft dieselbe Routine
+    im Code schon auf (`routers/albums.py`, Schleife ueber `kandidaten`), war
+    aber ungeprueft. "Doppelt" traegt zwei Gruppen (gruppe-2/gruppe-3, beide
+    Besitzer "konto-1").
+    """
+    vorher = client.get("/api/sync/album-group", headers=KOPF,
+                        params={"album_name": "Doppelt"}).json()
+    assert vorher["status"] == "many"
+    kandidaten_vorher = {k["group_id"]: k for k in vorher["candidates"]}
+    assert kandidaten_vorher["gruppe-2"]["person_refs"][0]["account_color"] == "#111111"
+
+    main.app.state.store._data["accounts"]["konto-1"]["color"] = "#aaaaaa"
+
+    nachher = client.get("/api/sync/album-group", headers=KOPF,
+                         params={"album_name": "Doppelt"}).json()
+    kandidaten_nachher = {k["group_id"]: k for k in nachher["candidates"]}
+    assert kandidaten_nachher["gruppe-2"]["person_refs"][0]["account_color"] == "#aaaaaa"
+    assert kandidaten_nachher["gruppe-3"]["person_refs"][0]["account_color"] == "#aaaaaa"
+
+
 def test_post_album_benutzt_die_gewaehlte_gruppe(client, ohne_immich, monkeypatch):
     """Der HAUPTWEG — die Vorschlagsliste. Ueber ihn lief keine Probe.
 
@@ -508,6 +573,46 @@ def test_post_album_verknuepfen_tritt_der_gewaehlten_gruppe_bei(client, ohne_imm
 
     assert antwort.status_code == 200, antwort.text
     assert _gruppe_von(client, "match-vorschlag") == "gruppe-2"
+
+
+def test_post_album_expected_no_group_wird_geprueft(client, ohne_immich, monkeypatch):
+    """Testluecke, Nacharbeit 1 (Blind B5, Gegen F2): `expected_no_group` galt
+    bisher nur ueber geprueft am MANUELLEN Weg (`/sync/names-multi`,
+    `_anlegen`) — der HAUPTWEG (Vorschlagsliste, `/sync/album`, Anlegen) war
+    ungedeckt. "Testalbum" traegt schon `gruppe-1`; wer das nicht weiss (der
+    Client zeigt "keine Gruppe") und trotzdem mit `expected_no_group`
+    anlegt, muss abgelehnt werden statt still beizutreten.
+    """
+    _vorschlags_match(monkeypatch)
+
+    antwort = client.post("/api/sync/album", headers=KOPF, json={
+        "match_id": "match-vorschlag",
+        "owner_account_id": "konto-1",
+        "album_name": "Testalbum",
+        "expected_no_group": True,
+    })
+
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_situation_changed"
+
+
+def test_post_album_verknuepfen_expected_no_group_wird_geprueft(client, ohne_immich, monkeypatch):
+    """Dieselbe Testluecke fuer den VIERTEN Aufrufort — Verknuepfen ueber die
+    Vorschlagsliste (Blind B6, Gegen F2). `existing_album_id="immich-x"`
+    loest ueber die Attrappe auf "Testalbum" auf, das schon `gruppe-1`
+    traegt.
+    """
+    _vorschlags_match(monkeypatch)
+
+    antwort = client.post("/api/sync/album", headers=KOPF, json={
+        "match_id": "match-vorschlag",
+        "owner_account_id": "konto-1",
+        "existing_album_id": "immich-x",
+        "expected_no_group": True,
+    })
+
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_situation_changed"
 
 
 def test_leerraum_name_reisst_die_gruppe_nicht_ab(client, ohne_immich, monkeypatch):

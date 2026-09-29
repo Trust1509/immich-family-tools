@@ -136,55 +136,81 @@ def _personenmenge(refs) -> set:
     return aus
 
 
-async def _manuelles_album_unter_dem_schloss(
-    *, body, store, match_id, owner, all_accounts, person_refs,
-    name_fuer_gruppe, gruppe_vorab, festgelegt, album_name_vorab,
-) -> list[SyncLogEntry]:
-    """Der Album-Teil des manuellen Wegs, mit gehaltenem Trefferschloss.
+async def _gruppe_fuer_manuellen_weg_unter_dem_schloss(
+    *, body, store, match_id, name_fuer_gruppe,
+) -> tuple[str | None, list[SyncLogEntry] | None]:
+    """Ergebnis-Aufloesung VOR dem ersten Schreibvorgang — mit Ablehnung.
 
-    Eigene Funktion der Lesbarkeit wegen; die Begruendung steht bei
-    `_album_anlegen_unter_dem_schloss`, samt der beiden falschen Saetze, die
-    dort eine Fassung lang standen.
+    NACHARBEIT 1 zu #113/#119/#124 (BLOCKER, Blind B-1/Gegen F7): Vorher stand
+    diese Aufloesung im Anschluss an `_manuelles_album_unter_dem_schloss`, die
+    der Aufrufer erst NACH `sync_service.sync_names_multi` (Immich-
+    Umbenennung), `store.append_log` und `mark_all_pairs_synced` betreten hat.
+    `resolve_group_id` kann ablehnen (mehrdeutiger Name ohne Wahl,
+    `expected_no_group` verletzt, eine gewaehlte Kennung, die es nicht mehr
+    gibt) — eine Ablehnung DAHER traf immer erst, nachdem die Personen bereits
+    umbenannt und das Paar als abgeglichen markiert war. Der Kommentar „die
+    kann nicht ablehnen“, der hier stand, war falsch.
+
+    Jetzt haelt der Aufrufer BEIDE Schloesser (Treffer- und Gruppenschloss)
+    schon, BEVOR er `sync_service.sync_names_multi` ruft, und diese Funktion
+    ist der EINZIGE Ort, an dem hier abgelehnt werden darf. Das Ergebnis wird
+    danach nur noch VERWENDET, nicht erneut aufgeloest.
+
+    `festgelegt` (eine ausdrueckliche `group_id`/`force_new_group`) ist KEIN
+    Grund mehr, die frische Aufloesung zu ueberspringen: Auch eine gewaehlte
+    Gruppe kann zwischen der Vorschau und diesem Moment verschwunden sein
+    (Gegen F11/Fremdpruefer, P7) — `resolve_group_id` prueft das MIT, wenn
+    `chosen` gesetzt ist.
+
+    Rueckgabe: `(gruppe, None)` zum Weitermachen, oder `(None, log_eintraege)`,
+    wenn der manuelle Weg hier schon fertig ist (Album gab es idempotent
+    schon bzw. eine fremde Kollision) — beides VOR jedem Schreibvorgang
+    entschieden.
     """
     bestehend = [a for a in store.get_managed_albums() if a.match_id == match_id]
     if bestehend:
-        # Im Rennen sieht die Vorabpruefung oben noch nichts — das Album
-        # entsteht erst danach. Ablehnen ginge hier nicht mehr, ohne hinter
-        # einen Schreibvorgang zu geraten; also ein Fehlereintrag.
         if not _personenmenge(body.persons) <= _personenmenge(bestehend[0].person_refs):
-            return [sync_service.manuelle_kennung_kollidiert(bestehend[0].album_name)]
-        return [sync_service.album_gab_es_schon(bestehend[0].album_name)]
+            return None, [sync_service.manuelle_kennung_kollidiert(bestehend[0].album_name)]
+        return None, [sync_service.album_gab_es_schon(bestehend[0].album_name)]
 
-    async with store.gruppen_schloss(name_fuer_gruppe):
-        # #113/#119: Nur die Namensregel wird hier frisch ausgewertet (siehe
-        # der lange Kommentar am Aufrufer) — `resolve_group_id` statt
-        # `group_id_for_name`, damit ein mehrdeutig gewordener Name auch an
-        # DIESER Stelle abgelehnt wird, statt still eine dritte Gruppe zu
-        # oeffnen, und `expected_no_group` auch hier greift.
-        gruppe = gruppe_vorab if festgelegt else store.resolve_group_id(
-            name_fuer_gruppe, expected_none=body.expected_no_group,
+    gruppe = store.resolve_group_id(
+        name_fuer_gruppe, chosen=body.group_id, force_new=body.force_new_group,
+        expected_none=body.expected_no_group,
+    )
+    return gruppe, None
+
+
+async def _manuelles_album_anlegen(
+    *, body, store, match_id, owner, all_accounts, person_refs,
+    album_name_vorab, gruppe,
+) -> list[SyncLogEntry]:
+    """Legt das Album an bzw. verknuepft es — die Gruppe steht schon fest.
+
+    Eigene Funktion der Lesbarkeit wegen; die Begruendung fuer die Auslagerung
+    steht bei `_album_anlegen_unter_dem_schloss`, samt der beiden falschen
+    Saetze, die dort eine Fassung lang standen.
+    """
+    if body.existing_album_id:
+        _, album_logs = await sync_service.link_existing_album(
+            match_id=match_id,
+            owner_account=owner,
+            album_id=body.existing_album_id,
+            album_name=album_name_vorab,
+            all_accounts=all_accounts,
+            person_refs=person_refs,
+            store=store,
+            group_id=gruppe,
         )
-        if body.existing_album_id:
-            _, album_logs = await sync_service.link_existing_album(
-                match_id=match_id,
-                owner_account=owner,
-                album_id=body.existing_album_id,
-                album_name=album_name_vorab,
-                all_accounts=all_accounts,
-                person_refs=person_refs,
-                store=store,
-                group_id=gruppe,
-            )
-        else:
-            _, album_logs = await sync_service.create_shared_album(
-                match_id=match_id,
-                owner_account=owner,
-                all_accounts=all_accounts,
-                person_refs=person_refs,
-                album_name=body.album_name,
-                store=store,
-                group_id=gruppe,
-            )
+    else:
+        _, album_logs = await sync_service.create_shared_album(
+            match_id=match_id,
+            owner_account=owner,
+            all_accounts=all_accounts,
+            person_refs=person_refs,
+            album_name=body.album_name,
+            store=store,
+            group_id=gruppe,
+        )
     return album_logs
 
 
@@ -276,7 +302,6 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
 
     owner = None
     album_name_vorab = None
-    gruppe_vorab = None
     if requested_album:
         owner = store.get_account(owner_id)
         if not owner:
@@ -292,66 +317,106 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         # beschreibt und die einen Commit zuvor in derselben Datei behoben
         # wurde (Blindpruefer 21.09.2026).
         #
-        # Hier wird ABGELEHNT und die ausdrueckliche Wahl FESTGELEGT — beides
-        # vor jedem Schreibvorgang.
-        #
         # `album_name_vorab` ZUERST, und zwar genau so weit, wie der Code es
         # haelt: Beim Verknuepfen OHNE mitgeschickten Namen ist es der echte
         # Name aus Immich; MIT mitgeschicktem Namen ist es dieser.
         #
-        # `expected_none` auch HIER schon (nicht erst unter dem Schloss in
-        # `_manuelles_album_unter_dem_schloss`): Fail-fast vor dem Umbenennen,
-        # wenn die Lage schon JETZT nicht mehr zur Vorschau des Aufrufers
-        # passt — spart bei `festgelegt=False` die Immich-Aufrufe fuer einen
-        # Vorgang, der ohnehin abgelehnt wird. Der spaetere Aufruf unter dem
-        # Schloss bleibt trotzdem die AUTORITATIVE Pruefung (#113, #119): Nur
-        # er sieht den Stand unmittelbar vor dem Speichern.
-        gruppe_vorab = store.resolve_group_id(
-            album_name_vorab or body.album_name or "",
-            chosen=body.group_id, force_new=body.force_new_group,
-            expected_none=body.expected_no_group,
-        )
-
-    logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
-    store.append_log(logs)
-
-    # Mark all pairwise combinations as names-synced
-    if all(e.status == "success" for e in logs):
-        store.mark_all_pairs_synced([e.person_id for e in body.persons])
-
-    wants_album = (body.album_name or body.existing_album_id) and all(e.status == "success" for e in logs)
-    if wants_album:
-        assert owner is not None  # oben aufgeloest, sonst waere hier nichts gewollt
-        match_id = manual_match_id
-        all_accounts = store.list_accounts()
-        name_fuer_gruppe = album_name_vorab or body.album_name or ""
-        festgelegt = body.group_id is not None or body.force_new_group
-        # Speichern unter dem Schloss (#84) — und NUR die Namensregel wird
-        # darunter frisch ausgewertet.
+        # NUR WENN NOCH KEIN ALBUM ZU DIESER MANUELLEN KENNUNG EXISTIERT
+        # (Gegen F6, KLEIN): Ein Doppelklick oder Netz-Retry schickt denselben
+        # Koerper zweimal — mit `expected_no_group=True` sah die Vorschau beim
+        # ERSTEN Mal "keine Gruppe", und nach dem ersten Erfolg gibt es sie
+        # jetzt. Ohne diese Reihenfolge lehnte die Vorabpruefung die exakte
+        # Wiederholung mit `err_group_situation_changed` ab, obwohl der
+        # "gab es schon"-Zweig sie gleich darauf ohnehin idempotent
+        # akzeptiert haette — die Vorabpruefung darf also nicht VOR dem
+        # "gab es schon"-Zweig laufen.
         #
-        # Die erste Fassung loeste hier in JEDEM Fall neu auf. Damit konnte
-        # `resolve_group_id` nach dem Umbenennen ablehnen (404, wenn die
-        # gewaehlte Gruppe inzwischen verschwunden ist) — dieselbe Klasse, die
-        # der Absatz oben beschreibt, von mir zum dritten Mal in dieser Datei
-        # eingebaut (Blindpruefer 21.09.2026, gemessen).
-        #
-        # Die ausdrueckliche Wahl steht schon fest und ist vor dem ersten
-        # Schreibvorgang geprueft. Frischen Blick braucht allein die
-        # Namensregel — und die kann nicht ablehnen.
-        # Trefferschloss ZUERST, dann Gruppenschloss — die Reihenfolge ist
-        # in `config_store._treffer_schloesser` festgelegt und der Grund,
-        # warum die zwei Schloesser sich nicht verklemmen koennen.
-        async with store.treffer_schloss(match_id):
-            album_logs = await _manuelles_album_unter_dem_schloss(
+        # FAIL-FAST, NICHT MEHR AUTORITATIV (Nacharbeit 1 zu #113/#119/#124,
+        # BLOCKER): Diese Aufloesung spart die Immich-Umbenennung fuer einen
+        # Vorgang, der schon JETZT erkennbar abgelehnt wuerde (unbekannte
+        # Kennung, Widerspruch, schon jetzt mehrdeutiger Name). Sie ersetzt
+        # NICHT die frische Pruefung weiter unten: Die Lage kann sich bis zum
+        # tatsaechlichen Speichern noch aendern, und NUR die Pruefung unter
+        # dem Schloss (`_gruppe_fuer_manuellen_weg_unter_dem_schloss`) ist die
+        # AUTORITATIVE — sie laeuft nicht mehr NACH `sync_service.
+        # sync_names_multi`, sondern DAVOR (das war der Blocker: eine
+        # Ablehnung von hier lief nach dem Umbenennen in Immich, dem
+        # Protokolleintrag und der Markierung als abgeglichen).
+        bestehend_vorab = [a for a in store.get_managed_albums()
+                           if a.match_id == manual_match_id]
+        if not bestehend_vorab:
+            store.resolve_group_id(
+                album_name_vorab or body.album_name or "",
+                chosen=body.group_id, force_new=body.force_new_group,
+                expected_none=body.expected_no_group,
+            )
+
+    if not requested_album:
+        logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
+        store.append_log(logs)
+        if all(e.status == "success" for e in logs):
+            store.mark_all_pairs_synced([e.person_id for e in body.persons])
+        return logs
+
+    assert owner is not None  # oben aufgeloest, weil requested_album gilt
+    match_id = manual_match_id
+    all_accounts = store.list_accounts()
+    name_fuer_gruppe = album_name_vorab or body.album_name or ""
+
+    # BEIDE Schloesser werden jetzt VOR dem ersten Schreibvorgang genommen,
+    # und die Gruppenaufloesung (mit ALLEN Pruefungen — Mehrdeutigkeit,
+    # `expected_no_group`, eine gewaehlte Kennung, die es nicht mehr gibt)
+    # passiert DARUNTER, BEVOR `sync_service.sync_names_multi` ruft (Immich-
+    # Umbenennung), `store.append_log` oder `mark_all_pairs_synced` — das
+    # Ergebnis wird danach nur noch VERWENDET, nicht erneut aufgeloest.
+    #
+    # Vorher lag dieselbe Aufloesung ERST NACH diesen drei Schreibvorgaengen
+    # (Nacharbeit 1 zu #113/#119/#124, BLOCKER Blind B-1/Gegen F7): Eine
+    # Ablehnung traf immer erst, nachdem die Personen bereits umbenannt und
+    # das Paar als abgeglichen markiert war — die dritte Verletzung derselben
+    # Regel in dieser Datei, jetzt vom Reihenfolge-Waechter erzwungen statt
+    # nur von einem Kommentar getragen.
+    #
+    # Und `festgelegt` (eine ausdrueckliche `group_id`) ist kein Grund mehr,
+    # diese Aufloesung zu ueberspringen: Auch eine gewaehlte Gruppe kann
+    # zwischen Vorschau und diesem Moment verschwunden sein (Gegen
+    # F11/Fremdpruefer) — `resolve_group_id` prueft das mit, wenn `chosen`
+    # gesetzt ist.
+    #
+    # Trefferschloss ZUERST, dann Gruppenschloss — die Reihenfolge ist in
+    # `config_store._treffer_schloesser` festgelegt und der Grund, warum die
+    # zwei Schloesser sich nicht verklemmen koennen.
+    async with store.treffer_schloss(match_id):
+        async with store.gruppen_schloss(name_fuer_gruppe):
+            gruppe, fertige_logs = await _gruppe_fuer_manuellen_weg_unter_dem_schloss(
+                body=body, store=store, match_id=match_id,
+                name_fuer_gruppe=name_fuer_gruppe,
+            )
+
+            # Ab hier wird geschrieben — jede Ablehnung liegt jetzt darueber.
+            logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
+            store.append_log(logs)
+            erfolgreich = all(e.status == "success" for e in logs)
+            if erfolgreich:
+                store.mark_all_pairs_synced([e.person_id for e in body.persons])
+
+            if not erfolgreich:
+                return logs
+
+            if fertige_logs is not None:
+                # Idempotenter Doppelklick ODER eine fremde Kollision — beide
+                # schon VOR dem Schreibvorgang entschieden (oben).
+                store.append_log(fertige_logs)
+                logs.extend(fertige_logs)
+                return logs
+
+            album_logs = await _manuelles_album_anlegen(
                 body=body, store=store, match_id=match_id, owner=owner,
                 all_accounts=all_accounts, person_refs=person_refs,
-                name_fuer_gruppe=name_fuer_gruppe,
-                gruppe_vorab=gruppe_vorab, festgelegt=festgelegt,
-                album_name_vorab=album_name_vorab,
+                album_name_vorab=album_name_vorab, gruppe=gruppe,
             )
-        store.append_log(album_logs)
-        logs.extend(album_logs)
-
+    store.append_log(album_logs)
+    logs.extend(album_logs)
     return logs
 
 

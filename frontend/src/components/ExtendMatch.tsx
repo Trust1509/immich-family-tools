@@ -307,7 +307,21 @@ export default function ExtendMatch() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["album-group"] }),
   });
 
-  const isValid = !!selectedGroup && !!newAccountId && !!newPersonId;
+  // Nacharbeit 1 zu #113/#119/#124 (Blind K-1): `isValid` kannte die Sperre
+  // aus `AlbumGroupCard`/`gesperrt` (verwaistes `primary_album`) bisher
+  // NICHT. Solange die Karte selbst gewaehlt wird, waehrend sie noch gesund
+  // ist, macht das keinen Unterschied — aber eine laufende Auswahl kann
+  // VERWAISEN, waehrend der Nutzer schon Konto und Person gewaehlt hat (eine
+  // Invalidierung von `managed-albums` bringt einen neuen, jetzt verwaisten
+  // Stand). Die Karte selbst sperrt sich dann zwar sichtbar neu (`gesperrt`
+  // in `AlbumGroupCard`), aber der "Zum Match hinzufügen"-Knopf blieb frei
+  // und haette an der Server-Pruefung ohnehin nur als stiller Fehlschlag
+  // geendet (Sonde FP4, Fremd-/Blindpruefer).
+  const isValid =
+    !!selectedGroup &&
+    !selectedGroup.primary_album.owner_account_missing &&
+    !!newAccountId &&
+    !!newPersonId;
 
   return (
     <div className="p-6 max-w-2xl space-y-6">

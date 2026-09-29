@@ -187,18 +187,27 @@ def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand)
     mehr fuer JEDE Schreibweise gleich genau — sie kollabiert Mehrdeutigkeit
     nicht mehr blind auf `null`, sondern zeigt Kandidaten, wo welche zu
     FINDEN sind. Gemessen (neu, an dieser Stelle): Fuer die BYTEGLEICHE
-    Schreibweise "Strassenfest" sind das jetzt beide Gruppen (`status:
-    "many"`) — Stufe 2 (`.lower()`, kein `ß`->`ss`) findet hier trotzdem
-    beide, weil die Datenbank selbst nur "Strassenfest" kennt. Fuer
-    "Straßenfest" bleibt es bei `null`: Stufe 1 faltet `ß`->`ss` und sieht
-    dieselben zwei Kandidaten, Stufe 2 faltet NICHT und findet zum
-    Schluessel "straßenfest" nichts in einer Datenbank, die nur
-    "strassenfest" kennt — LEER, nicht mehrdeutig (dieselbe Stufe-2-Grenze
-    wie in `test_namensfaltung.py`, nur hier zum ersten Mal SICHTBAR, weil
-    die alte Fassung beide Faelle ohnehin auf `null` abbildete). Der
-    Testname und der obige Absatz bleiben als datierte Historie stehen
-    (`docs/agents/lehren.md`, "Ein Widerspruch über zwei Dateien");
-    geprueft wird unten die neue, jetzt UNTERSCHIEDLICHE Form je Schreibweise.
+    Schreibweise "Strassenfest" sind das beide Gruppen (`status: "many"`) —
+    Stufe 2 (`.lower()`, kein `ß`->`ss`) findet hier trotzdem beide, weil die
+    Datenbank selbst nur "Strassenfest" kennt.
+
+    NACHTRAG Nacharbeit 1 zu #113/#119/#124 (Blind W-1/Gegen F4, 29.09.2026):
+    Fuer "Straßenfest" stand hier zuvor `null` — Stufe 1 faltet `ß`->`ss` und
+    sieht dieselben zwei Kandidaten (mehrdeutig), Stufe 2 faltet NICHT und
+    findet zum Schluessel "straßenfest" nichts in einer Datenbank, die nur
+    "strassenfest" kennt (LEER, dieselbe Stufe-2-Grenze wie in
+    `test_namensfaltung.py`). Die vorige Fassung liess dabei die LEERE
+    Stufe-2-Antwort gewinnen — mit der Folge, dass eine Anlage ohne
+    ausdrueckliche Wahl (`expected_no_group`) still eine DRITTE Gruppe
+    anlegte, obwohl der Name erkennbar mehrdeutig war (genau der Fehler, den
+    `resolve_group_id` verhindern soll). `group_candidates_for_name` faellt
+    jetzt auf Stufe 1 zurueck, wenn Stufe 2 sich nicht auf GENAU EINE Gruppe
+    festlegt — die Vorschau fuer "Straßenfest" antwortet deshalb jetzt
+    ebenfalls mit `status: "many"` und denselben zwei Kandidaten wie fuer die
+    bytegleiche Schreibweise. Der Testname und der obige Absatz bleiben als
+    datierte Historie stehen (`docs/agents/lehren.md`,
+    "Ein Widerspruch über zwei Dateien"); geprueft wird unten die aktuelle
+    Form je Schreibweise.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Strassenfest", "gruppe-2")])
@@ -210,7 +219,8 @@ def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand)
 
     vorher_scharf_s = c.get("/api/sync/album-group",
                             params={"album_name": "Straßenfest"}).json()
-    assert vorher_scharf_s is None, vorher_scharf_s
+    assert vorher_scharf_s["status"] == "many", vorher_scharf_s
+    assert {k["group_id"] for k in vorher_scharf_s["candidates"]} == {"gruppe-1", "gruppe-2"}
 
     antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Straßenfest"})
     assert antwort.status_code == 200, antwort.text
