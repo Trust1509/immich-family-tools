@@ -149,7 +149,8 @@ function AlbumGroupCard({
   externalLogs,
   externalSyncing,
   externalError,
-  externalRunSeq,
+  externalNummer,
+  vergebeNummer,
 }: {
   group: AlbumGroup;
   externalLogs?: SyncLogEntry[] | null; // results pushed from "Alle synchronisieren"
@@ -157,18 +158,48 @@ function AlbumGroupCard({
   // #102: uebersetzte Fehlerzeile, wenn der SAMMEL-Abgleich fuer diese
   // Gruppe (teilweise) fehlgeschlagen ist — getrennt vom Protokoll.
   externalError?: string;
-  // Nacharbeit 1 (#124, BLOCKER): zaehlt bei jedem START von "Alle
-  // synchronisieren" hoch (siehe `AlbumsOverview` unten) — die Grundlage
-  // dafuer, "juenger" an einem Zaehler statt an einer Objekt-Identitaet
-  // festzumachen (`lokalZuletzt` oben).
-  externalRunSeq: number;
+  // Welle 4, S1, Nacharbeit 2 (#124/#102, LETZTE Runde): ersetzt
+  // `externalRunSeq` + `lokalZuletzt` + die Objekt-Identitaetspruefung. Der
+  // Blindpruefer hatte 6fae875 widerlegt: Ein vollstaendig gescheiterter
+  // Sammellauf blieb ohne Fehlerzeile, wenn eine LOKALE Aktion VOR seinem
+  // Start begann und DANACH endete — `lokalZuletzt` wurde erst am ENDE der
+  // lokalen Aktion `true`, ueberschrieb damit die (juengere!) Sammel-
+  // Fehlerzeile, obwohl der Sammellauf spaeter STARTETE.
+  //
+  // Jede Aktion (jede lokale Aktion einer Karte, der Sammellauf als Ganzes)
+  // zieht jetzt beim EIGENEN START eine Nummer aus DEMSELBEN, in
+  // `AlbumsOverview` gefuehrten Zaehler (`vergebeNummer` unten) — Startzeit
+  // statt Endzeit entscheidet, wer "juenger" ist. Die Karte zeigt
+  // Fehlerzeile/eigene Hinweise der Aktion mit der HOECHSTEN Nummer, die fuer
+  // SIE etwas getan hat (`lokalGewinnt` unten); das Protokoll folgt separat
+  // dem juengsten ERFOLGREICHEN Ergebnis, gleich ob lokal oder Sammel
+  // (`letztesProtokoll`, Befund W1/Q3 — ein spaeterer Totalausfall darf ein
+  // frueheres Erfolgsprotokoll nicht verdraengen).
+  //
+  // `0` heisst "kein gezaehlter Sammellauf fuer diese Gruppe" — ein
+  // Sammellauf, der fuer die Gruppe keine einzige Anfrage gestellt hat (die
+  // Gruppe ist inzwischen ganz verwaist), zaehlt fuer sie NICHT und bekommt
+  // hier nie eine Nummer gestempelt (siehe `AlbumsOverview`, `betroffene`) —
+  // er verdraengt deshalb auch kein juengeres Protokoll (Q3b).
+  externalNummer: number;
+  vergebeNummer: () => number;
 }) {
   const { t, lang, errorText } = useT();
   const qc = useQueryClient();
   const [localLogs, setLocalLogs] = React.useState<SyncLogEntry[] | null>(null);
   const [localSyncing, setLocalSyncing] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  // KLEIN (Sonde Q5b): ZAHLEN/NAME statt eines fertig gerenderten Strings —
+  // wie `localRefreshErrorInfo` unten wird erst beim RENDERN, mit der dann
+  // aktuellen Sprache, uebersetzt (`deleteErrorText` unten). Vorher stand ein
+  // einmal (in der zum Zeitpunkt des Fehlschlags aktuellen Sprache)
+  // gerenderter String im Zustand; ein spaeterer Sprachwechsel liess die
+  // Zeile in der alten Sprache stehen.
+  const [deleteErrorInfo, setDeleteErrorInfo] = React.useState<
+    | { art: "gruppe"; fehlgeschlagen: number; gesamt: number }
+    | { art: "einzel"; albumName: string }
+    | null
+  >(null);
   const [renaming, setRenaming] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(group.album_name);
   // Feldwert BEIM OEFFNEN (#124, Fund B11) — die Grundlage fuer den
@@ -187,7 +218,20 @@ function AlbumGroupCard({
   // Umbenennen-VERSUCH lief — siehe `handleRename` unten. Nullvorgang gilt
   // nur, solange das hier `false` ist.
   const [renameAttempted, setRenameAttempted] = React.useState(false);
-  const [renameError, setRenameError] = React.useState<string | null>(null);
+  // KLEIN (Sonde Q5b): der ROHE Fehler statt eines fertig gerenderten
+  // Strings — `renameErrorText` unten ruft `errorText()` erst beim RENDERN
+  // auf, mit der dann aktuellen Sprache (wie `errorText` es an der
+  // Aufrufstelle unten in `handleRename` schon vorher tat, nur jetzt bei
+  // JEDEM Rendern statt einmalig beim Fehlschlag).
+  const [renameErrorInfo, setRenameErrorInfo] = React.useState<ServerErrorLike | null>(null);
+  // W3/K3 (Sonde Q6, Nacharbeit 2, LETZTE Runde, Mutation M28): Nach einem
+  // bereits gelaufenen ECHTEN Versuch ist ein Enter auf einem leeren/nur aus
+  // Leerzeichen bestehenden Feld kein stiller Nullvorgang mehr — der Nutzer
+  // hat auf DIESEM Feld schon einen Fehler gesehen. `handleRename` schickt in
+  // diesem Fall weiterhin NICHTS an den Server, schliesst das Feld aber nicht
+  // mehr lautlos: dieser Hinweis bleibt stehen, bis das Feld neu geoeffnet
+  // oder ein echter (nicht-leerer) Versuch gestartet wird.
+  const [renameEmptyHint, setRenameEmptyHint] = React.useState(false);
   // Album-Namen, die das UMBENENNEN in diesem Durchlauf uebersprungen hat,
   // weil der Server sie einzeln mit `err_owner_account_not_found` ablehnte
   // (Nacharbeit 1, #123, Gegenpruefer G3 — siehe `handleRename` unten).
@@ -212,8 +256,7 @@ function AlbumGroupCard({
   const [renameSkippedRemovedTotal, setRenameSkippedRemovedTotal] = React.useState(0);
   // #102: Eine EIGENE Fehlerzeile fuer einen (teilweise) gescheiterten
   // EINZEL-Abgleich (`handleRefresh` unten) — getrennt vom Protokoll
-  // (`SyncLogDisplay`), das nur den Verlauf des SERVERS zeigt. Folgt
-  // derselben "lokal vor extern"-Prioritaet wie `localLogs`/`lokalZuletzt`.
+  // (`SyncLogDisplay`), das nur den Verlauf des SERVERS zeigt.
   //
   // Nacharbeit 1 (#124, KLEIN): Schluessel + Zahlen statt eines fertigen
   // Strings — der String wurde bis hierher EINMAL mit der zum Zeitpunkt des
@@ -233,44 +276,56 @@ function AlbumGroupCard({
         localRefreshErrorInfo.gesamt
       )
     : null;
+  const renameErrorText = renameErrorInfo ? errorText(renameErrorInfo) : null;
+  const deleteErrorText = deleteErrorInfo
+    ? deleteErrorInfo.art === "gruppe"
+      ? t("album_remove_partial_failed", deleteErrorInfo.fehlgeschlagen, deleteErrorInfo.gesamt)
+      : t("album_remove_single_failed", deleteErrorInfo.albumName)
+    : null;
 
-  // Ein lokales Ergebnis ist NEUER als ein liegengebliebenes Sammelergebnis
-  // (Fund des Fremdpruefers an #79). Vorher hatte `externalLogs` Vorrang,
-  // solange der Eintrag aus „Alle synchronisieren“ im Zustand stand — ein
-  // danach ausgeloestes Umbenennen zeigte sein Ergebnis dann nirgends, auch
-  // ein fehlerhaftes nicht.
-  //
-  // Nacharbeit 1 (#124, BLOCKER): "juenger" haengt jetzt an einem ZAEHLER
-  // der Aktion (`externalRunSeq`, zaehlt bei jedem START von "Alle
-  // synchronisieren" hoch — siehe `AlbumsOverview` unten), NICHT mehr an der
-  // OBJEKT-IDENTITAET von `externalLogs`. Der alte Vergleich verglich
-  // `externalLogs` nur gegen sein eigenes voriges Rendern: Fiel ein
-  // Sammellauf fuer diese Gruppe komplett aus UND gab es nie einen frueheren
-  // guten Lauf, blieb `externalLogs` bei `undefined` — `undefined ===
-  // undefined`, der Effekt lief nie, und ein danach ausgeloester,
-  // vollstaendig gescheiterter Sammellauf blieb OHNE jede Fehlerzeile
-  // (gemessen, Sonden P1/P1b). Ein NEUER Sammellauf ist jetzt in jedem Fall
-  // die juengere Aktion, sobald er STARTET — unabhaengig davon, ob sein
-  // Ergebnis am Ende leer bleibt.
-  //
-  // WICHTIG 2 (#124, Fremdpruefer): Derselbe Lauf-Start setzt jetzt auch die
-  // FREMDEN Hinweise dieser Karte zurueck (`resetFremdeHinweise` im Effekt
-  // unten) — bis hierher ueberstand ein Umbenennen- oder Entfernen-Fehler
-  // (und umgekehrt ein liegengebliebener Sammel-Fehler) den Start eines
-  // neuen "Alle synchronisieren".
-  const [lokalZuletzt, setLokalZuletzt] = React.useState(false);
-  React.useEffect(() => {
-    resetFremdeHinweise();
-    setLokalZuletzt(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalRunSeq]);
-  const displayLogs = !lokalZuletzt && externalLogs !== undefined ? externalLogs : localLogs;
+  // Welle 4, S1, Nacharbeit 2 (LETZTE Runde): die Startnummer der Aktion, die
+  // GERADE die lokalen Hinweiszustaende oben besetzt (`0` = "auf dieser Karte
+  // lief noch nie eine lokale Aktion") — vergeben von `vergebeNummer` (Prop
+  // aus `AlbumsOverview`, EIN gemeinsamer Zaehler fuer alle Karten UND den
+  // Sammellauf). `lokalGewinnt`: die lokale Aktion ist juenger als der
+  // zuletzt fuer diese Gruppe GEZAEHLTE Sammellauf — Ties sind ausgeschlossen,
+  // der Zaehler vergibt jeden Wert genau einmal.
+  const [localAktionsNummer, setLocalAktionsNummer] = React.useState(0);
+  const lokalGewinnt = localAktionsNummer > externalNummer;
   const syncing = externalSyncing || localSyncing;
-  // #102: dieselbe "lokal vor extern"-Prioritaet fuer die eigene Fehlerzeile
-  // wie fuer `displayLogs` oben — eine lokale Aktion ist die juengere, BIS
-  // ein neuer Sammellauf startet (siehe Effekt oben).
-  const displayRefreshError =
-    !lokalZuletzt && externalError !== undefined ? externalError : localRefreshErrorText;
+  // Die Fehlerzeile/eigenen Hinweise gehoeren der Aktion mit der hoeheren
+  // Startnummer. Beide Seiten raeumen ihre EIGENEN Hinweise synchron bei
+  // IHREM eigenen Start ab (`resetFremdeHinweise` unten fuer lokal,
+  // `setBulkSyncErrors(new Map())` in `AlbumsOverview` fuer den Sammellauf) —
+  // ein zusaetzliches "blende aus, solange die Gewinner-Aktion noch laeuft"
+  // ist deshalb NICHT noetig: Startet die jeweils juengere Seite, ist ihr
+  // eigener Hinweis in genau demselben Moment schon wieder leer.
+  const displayRefreshError = lokalGewinnt ? localRefreshErrorText : externalError;
+
+  // Das juengste ERFOLGREICHE Protokoll der Karte, gleich ob lokal oder aus
+  // "Alle synchronisieren" (Befund W1/Q3): Ein Sammellauf, der NACH einem
+  // erfolgreichen lokalen Abgleich komplett scheitert, darf dessen Protokoll
+  // nicht durch ein AELTERES Sammelergebnis ersetzen — und umgekehrt gilt
+  // dasselbe fuer einen lokalen Fehlschlag nach einem juengeren, guten
+  // Sammellauf. Ausgewaehlt wird ausschliesslich nach STARTNUMMER, nie nach
+  // Abschlusszeit (das war exakt der 6fae875-Bug, siehe `externalNummer`
+  // oben), und nur ein NICHT-LEERES Ergebnis aktualisiert den Speicher — ein
+  // Totalausfall traegt keine Eintraege und loescht das vorige Protokoll
+  // deshalb nicht (unveraendert seit #102/WICHTIG 1, jetzt nur nicht mehr
+  // sammellauf-exklusiv).
+  const [letztesProtokoll, setLetztesProtokoll] = React.useState<{
+    nummer: number;
+    logs: SyncLogEntry[];
+  } | null>(null);
+  React.useEffect(() => {
+    if (!externalNummer || !externalLogs || externalLogs.length === 0) return;
+    setLetztesProtokoll((bisher) =>
+      externalNummer > (bisher?.nummer ?? 0)
+        ? { nummer: externalNummer, logs: externalLogs }
+        : bisher
+    );
+  }, [externalNummer, externalLogs]);
+  const displayLogs = letztesProtokoll?.logs ?? null;
 
   // Nacharbeit 1 (Hauptagent, technisch entschieden — KEIN Owner-Entscheid,
   // siehe `renameLocked` unten): Der Abgleich sperrt NICHT die ganze Gruppe.
@@ -283,24 +338,30 @@ function AlbumGroupCard({
   const gesundeAlben = group.albums.filter((album) => !album.owner_account_missing);
 
   // Nacharbeit 2 (#123, Blindpruefer K3) + #124 Fund A3: Ein stehengebliebener
-  // Hinweis aus einer FRUEHEREN Aktion auf dieser Karte darf nicht
-  // ueberleben, bis eine neue Aktion ihn zufaellig ueberschreibt oder nie.
-  // Jede der drei Aktionen (Abgleichen, Umbenennen, Entfernen) setzt deshalb
-  // beim START ALLE Hinweiszustaende der jeweils ANDEREN Aktionen zurueck —
-  // bis hierher fehlte `renameError` in `handleRefresh`/`handleDelete` (ein
-  // Umbenennen-Fehlertext stand danach neben einem frischen Abgleichs- oder
-  // Entfernen-Ergebnis) und `localRefreshErrorInfo` (#102, neu in diesem
-  // Slice).
+  // Hinweis aus einer FRUEHEREN lokalen Aktion auf dieser Karte darf nicht
+  // ueberleben, bis eine neue lokale Aktion ihn zufaellig ueberschreibt oder
+  // nie. Jede der vier lokalen Aktionen (Abgleichen, ein ECHTER
+  // Umbenennen-Versuch, Entfernen, Einzel-Entfernen) setzt deshalb beim
+  // START ALLE fremden Hinweiszustaende zurueck. Ein neuer Sammellauf
+  // braucht dafuer KEINEN eigenen Reset mehr (anders als bis 6fae875, wo
+  // `resetFremdeHinweise` zusaetzlich an einen Effekt auf `externalRunSeq`
+  // gehaengt war): Ueberholt der Sammellauf die lokale Aktion an Nummer,
+  // wird `lokalGewinnt` oben `false`, und die hier gesetzten lokalen Hinweise
+  // werden schlicht nicht mehr ANGEZEIGT — unabhaengig davon, ob sie noch im
+  // Zustand stehen (getestet: M02/M27* dieser Runde).
   const resetFremdeHinweise = () => {
-    setDeleteError(null);
-    setRenameError(null);
+    setDeleteErrorInfo(null);
+    setRenameErrorInfo(null);
+    setRenameEmptyHint(false);
     setRenameSkipped([]);
     setRenameSkippedRemoved([]);
     setLocalRefreshErrorInfo(null);
   };
 
   const handleRefresh = async () => {
+    const dieseNummer = vergebeNummer();
     resetFremdeHinweise();
+    setLocalAktionsNummer(dieseNummer);
     setLocalSyncing(true);
     setLocalLogs(null);
     const allLogs: SyncLogEntry[] = [];
@@ -319,7 +380,15 @@ function AlbumGroupCard({
     if (fehlgeschlagen > 0) {
       setLocalRefreshErrorInfo({ fehlgeschlagen, gesamt: gesundeAlben.length });
     }
-    setLokalZuletzt(true);
+    // Welle 4, S1, Nacharbeit 2: das juengste ERFOLGREICHE Protokoll der
+    // Karte aktualisieren (nur ein NICHT-LEERES Ergebnis zaehlt, siehe
+    // `letztesProtokoll` oben) — ein Totalausfall (leeres `allLogs`) loescht
+    // das vorige Protokoll deshalb nicht.
+    if (allLogs.length) {
+      setLetztesProtokoll((bisher) =>
+        dieseNummer > (bisher?.nummer ?? 0) ? { nummer: dieseNummer, logs: allLogs } : bisher
+      );
+    }
     setLocalSyncing(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["sync-log"] });
@@ -327,12 +396,10 @@ function AlbumGroupCard({
 
   const handleDelete = async () => {
     if (!confirm(t("album_remove_confirm", group.album_name, group.albums.length))) return;
+    const dieseNummer = vergebeNummer();
     setDeleting(true);
     resetFremdeHinweise();
-    // Nacharbeit 1 (#124, WICHTIG 2): Entfernen ist wie Umbenennen/Abgleichen
-    // eine eigene Aktion auf dieser Karte — ein liegengebliebener
-    // Sammel-Fehler (`externalError`) darf ein Entfernen nicht ueberleben.
-    setLokalZuletzt(true);
+    setLocalAktionsNummer(dieseNummer);
     // PARALLEL statt nacheinander (Owner-Entscheid 29.09.2026, #123, #121
     // Punkt 1): Seit #101 wartet `DELETE /api/sync/albums/{id}` am
     // Albumschloss dieses EINEN Albums (`sync_service._album_schloss`) — ein
@@ -374,7 +441,7 @@ function AlbumGroupCard({
     ).length;
     setDeleting(false);
     if (fehlgeschlagen > 0) {
-      setDeleteError(t("album_remove_partial_failed", fehlgeschlagen, group.albums.length));
+      setDeleteErrorInfo({ art: "gruppe", fehlgeschlagen, gesamt: group.albums.length });
     }
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
@@ -393,9 +460,10 @@ function AlbumGroupCard({
   // ID statt der ganzen Gruppe.
   const handleDeleteSingle = async (album: ManagedAlbum) => {
     if (!confirm(t("album_remove_single_confirm", album.album_name))) return;
+    const dieseNummer = vergebeNummer();
     setDeleting(true);
     resetFremdeHinweise();
-    setLokalZuletzt(true);
+    setLocalAktionsNummer(dieseNummer);
     // Nacharbeit 1 (#123, alle drei Stimmen): derselbe stille Fehlschlag wie
     // bei `handleDelete` oben, hier fuer die Einzelentfernung.
     //
@@ -409,7 +477,7 @@ function AlbumGroupCard({
       if (error instanceof ApiError && error.key === "err_managed_album_not_found") {
         // Schon weg - kein Fehlschlag, keine Meldung.
       } else {
-        setDeleteError(t("album_remove_single_failed", album.album_name));
+        setDeleteErrorInfo({ art: "einzel", albumName: album.album_name });
       }
     }
     setDeleting(false);
@@ -420,12 +488,13 @@ function AlbumGroupCard({
 
   const handleRename = async () => {
     // Nacharbeit 1 (#124, KLEIN — "Ein Nullvorgang loescht eine noch
-    // gueltige Abgleich-Fehlerzeile"): `deleteError`/`localRefreshErrorInfo`
-    // werden NICHT MEHR hier am Anfang zurueckgesetzt, sondern erst weiter
-    // unten, NACHDEM feststeht, dass es sich um einen ECHTEN Versuch handelt
-    // (nicht um einen der beiden Nullvorgang-Zweige). Vorher raeumte schon
-    // das blosse Oeffnen-und-unveraendert-Bestaetigen einen noch gueltigen
-    // Abgleichs-Hinweis einer ANDEREN Aktion weg.
+    // gueltige Abgleich-Fehlerzeile"): die fremden Hinweise (`deleteErrorInfo`,
+    // `localRefreshErrorInfo`, ...) werden NICHT MEHR hier am Anfang
+    // zurueckgesetzt, sondern erst weiter unten, NACHDEM feststeht, dass es
+    // sich um einen ECHTEN Versuch handelt (nicht um einen der Nullvorgang-
+    // Zweige). Vorher raeumte schon das blosse Oeffnen-und-unveraendert-
+    // Bestaetigen einen noch gueltigen Abgleichs-Hinweis einer ANDEREN Aktion
+    // weg.
     // Nacharbeit 1 (#124, KLEIN Punkt „h"): Waehrend ein Entfernen fuer diese
     // Karte laeuft, darf ein offen gebliebenes Umbenennen-Feld nicht mehr
     // per Enter feuern — bis hierher sperrte nur der KNOPF zum OEFFNEN des
@@ -438,11 +507,26 @@ function AlbumGroupCard({
     if (deleting) return;
     const nextName = renameValue.trim();
     if (!nextName) {
-      // Leeres Feld: kein gueltiger Name. Schliesst wie ein Nullvorgang,
-      // OHNE fremde Hinweise anzutasten (siehe Kommentar oben).
+      // W3/K3 (Sonde Q6, Nacharbeit 2, LETZTE Runde, Mutation M28): Ein
+      // leeres/nur-Leerzeichen-Feld ist kein gueltiger Name — bis hierher
+      // schloss das Feld dabei IMMER still (wie ein Nullvorgang), auch NACH
+      // einem bereits gelaufenen echten Versuch. Genau dann ist Stille
+      // falsch: Der Nutzer hat schon eine Fehlermeldung gesehen, ein Enter
+      // auf dem jetzt geleerten Feld darf sie nicht kommentarlos wegwischen.
+      // Kein Serveraufruf in BEIDEN Zweigen — nur der zweite laesst das Feld
+      // offen und zeigt einen eigenen Hinweis statt sich zu schliessen. Der
+      // Text eines VORIGEN Fehlschlags (`renameErrorInfo`) macht diesem
+      // eigenen Hinweis Platz, statt zwei rote Zeilen uebereinander zu
+      // zeigen — das leere Feld ist jetzt das eigentliche Problem.
+      if (renameAttempted) {
+        setRenameErrorInfo(null);
+        setRenameEmptyHint(true);
+        return;
+      }
       setRenaming(false);
       setRenameValue(group.album_name);
-      setRenameError(null);
+      setRenameErrorInfo(null);
+      setRenameEmptyHint(false);
       setRenameSkipped([]);
       setRenameSkippedRemoved([]);
       return;
@@ -484,21 +568,20 @@ function AlbumGroupCard({
     if (!renameAttempted && nextName === renameOpenedValue) {
       setRenaming(false);
       setRenameValue(group.album_name);
-      setRenameError(null);
+      setRenameErrorInfo(null);
+      setRenameEmptyHint(false);
       setRenameSkipped([]);
       setRenameSkippedRemoved([]);
       return;
     }
+    const dieseNummer = vergebeNummer();
     setRenameAttempted(true);
     // Ein ECHTER Versuch ist die juengere Aktion auf dieser Karte (siehe
-    // `lokalZuletzt` oben) — anders als die beiden Nullvorgang-Zweige oben,
-    // die bewusst NICHTS an fremden Hinweisen aendern.
-    setDeleteError(null);
-    setLocalRefreshErrorInfo(null);
-    setLokalZuletzt(true);
-    setRenameError(null);
-    setRenameSkipped([]);
-    setRenameSkippedRemoved([]);
+    // `localAktionsNummer`/`lokalGewinnt` oben) — anders als die beiden
+    // Nullvorgang-Zweige oben, die bewusst NICHTS an fremden Hinweisen
+    // aendern.
+    resetFremdeHinweise();
+    setLocalAktionsNummer(dieseNummer);
     setLocalSyncing(true);
     setLocalLogs(null);
     const logs: SyncLogEntry[] = [];
@@ -519,8 +602,8 @@ function AlbumGroupCard({
     // Hinweis nennt fuer jede ihren EIGENEN Grund (`album_rename_skipped_hint`
     // vs. `album_rename_skipped_removed_hint`), statt fuer beide denselben,
     // teils falschen Satz zu zeigen. Jeder ANDERE Fehler verhaelt sich
-    // unveraendert: Er bricht ab, sein Text erscheint in `renameError`, und
-    // die bis dahin gesammelten Eintraege bleiben sichtbar (#79).
+    // unveraendert: Er bricht ab, sein Text erscheint in `renameErrorInfo`,
+    // und die bis dahin gesammelten Eintraege bleiben sichtbar (#79).
     const uebersprungen: string[] = [];
     const uebersprungenEntfernt: string[] = [];
     try {
@@ -562,7 +645,7 @@ function AlbumGroupCard({
       // Server-Refetch noch nicht zurueck ist) — nicht der Regelfall.
       if (logs.length && logs.every((entry) => entry.status === "success")) setRenaming(false);
     } catch (error) {
-      setRenameError(errorText(error as ServerErrorLike));
+      setRenameErrorInfo(error as ServerErrorLike);
     } finally {
       // Die schon gesammelten Eintraege gehoeren auch dann auf die Karte, wenn
       // eine SPAETERE Anfrage geworfen hat (Fund des Fremdpruefers an #79):
@@ -571,7 +654,13 @@ function AlbumGroupCard({
       // was vorher schon umbenannt worden war.
       if (logs.length) {
         setLocalLogs(logs);
-        setLokalZuletzt(true);
+        // Welle 4, S1, Nacharbeit 2: das juengste ERFOLGREICHE Protokoll der
+        // Karte aktualisieren (siehe `letztesProtokoll` oben) — auch ein
+        // TEILWEISE erfolgreicher Versuch (manche Eintraege `status:
+        // "error"`) zaehlt hier als "nicht leer", unveraendert seit #79.
+        setLetztesProtokoll((bisher) =>
+          dieseNummer > (bisher?.nummer ?? 0) ? { nummer: dieseNummer, logs } : bisher
+        );
       }
       // #124 Fund A1: Die Gesamtzahl wird HIER, zum Zeitpunkt des
       // Durchlaufs, eingefroren (`gesundeAlben.length` in diesem Moment) —
@@ -655,7 +744,8 @@ function AlbumGroupCard({
                       // das Feld gerade neu geoeffnet wurde.
                       setRenaming(false);
                       setRenameValue(group.album_name);
-                      setRenameError(null);
+                      setRenameErrorInfo(null);
+                      setRenameEmptyHint(false);
                       setRenameSkipped([]);
                       setRenameSkippedRemoved([]);
                     }
@@ -681,7 +771,8 @@ function AlbumGroupCard({
                   onClick={() => {
                     setRenaming(false);
                     setRenameValue(group.album_name);
-                    setRenameError(null);
+                    setRenameErrorInfo(null);
+                    setRenameEmptyHint(false);
                     setRenameSkipped([]);
                     setRenameSkippedRemoved([]);
                   }}
@@ -794,16 +885,25 @@ function AlbumGroupCard({
 
       <SyncLogDisplay logs={displayLogs} syncing={syncing} />
       {/* #102: eine EIGENE Zeile fuer einen (teilweise) gescheiterten
-          Abgleich, getrennt vom Protokoll oben — folgt derselben
-          "lokal vor extern"-Prioritaet wie `displayLogs`. */}
+          Abgleich, getrennt vom Protokoll oben. Welle 4 S1 Nacharbeit 2:
+          `displayRefreshError` traegt die Vorrang-Entscheidung (lokal vs.
+          Sammellauf, per Startnummer) schon in sich — die uebrigen vier
+          Hinweise sind reine LOKALE Konzepte (kein Sammellauf erzeugt sie)
+          und werden deshalb explizit an `lokalGewinnt` gebunden: Ueberholt
+          ein juengerer Sammellauf die lokale Aktion, verschwinden sie aus
+          der Anzeige, ohne dass ein neuer lokaler Vorgang sie erst raeumen
+          muesste (M02/M27* dieser Runde). */}
       {displayRefreshError && <p className="text-xs text-red-400">{displayRefreshError}</p>}
-      {renameError && <p className="text-xs text-red-400">{renameError}</p>}
-      {renameSkipped.length > 0 && (
+      {lokalGewinnt && renameErrorText && <p className="text-xs text-red-400">{renameErrorText}</p>}
+      {lokalGewinnt && renameEmptyHint && (
+        <p className="text-xs text-red-400">{t("album_rename_empty_hint")}</p>
+      )}
+      {lokalGewinnt && renameSkipped.length > 0 && (
         <p className="text-xs text-amber-400">
           {t("album_rename_skipped_hint", renameSkipped.length, renameSkippedTotal)}
         </p>
       )}
-      {renameSkippedRemoved.length > 0 && (
+      {lokalGewinnt && renameSkippedRemoved.length > 0 && (
         <p className="text-xs text-amber-400">
           {t(
             "album_rename_skipped_removed_hint",
@@ -812,7 +912,7 @@ function AlbumGroupCard({
           )}
         </p>
       )}
-      {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}
+      {lokalGewinnt && deleteErrorText && <p className="text-xs text-red-400">{deleteErrorText}</p>}
 
       {isDeleted && (
         <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
@@ -834,7 +934,8 @@ function AlbumGroupCard({
             // Nacharbeit 1 (#124, WICHTIG 3): jede neue Oeffnen-Session
             // startet ohne einen bereits gelaufenen Versuch.
             setRenameAttempted(false);
-            setRenameError(null);
+            setRenameErrorInfo(null);
+            setRenameEmptyHint(false);
             setRenameSkipped([]);
             setRenameSkippedRemoved([]);
             setRenaming(true);
@@ -964,10 +1065,27 @@ export default function AlbumsOverview() {
   const qc = useQueryClient();
   const groups = groupAlbums(albums);
 
-  // bulkSyncState: Ergebnis je Gruppe des LAUFENDEN/letzten Sammellaufs.
-  // Schluessel fehlt = noch nie gelaufen; Wert `null` = dieser Lauf haelt die
-  // Gruppe gerade fuer syncend (Spinner); Wert ein Feld = dieser Lauf ist fuer
-  // die Gruppe fertig (leer, wenn ALLE Anfragen geworfen haben).
+  // Welle 4, S1, Nacharbeit 2 (#124/#102, LETZTE Runde): EIN fortlaufender
+  // Zaehler fuer ALLE Aktionen dieser Seite — jede lokale Aktion einer Karte
+  // (in `AlbumGroupCard`, ueber die Prop `vergebeNummer` unten) UND der
+  // Sammellauf hier ziehen ihre Startnummer aus DEMSELBEN Zaehler. Ein Ref
+  // genuegt: Der Zaehler selbst muss kein Rendern ausloesen, nur EINDEUTIGE,
+  // STEIGENDE Werte liefern — das Rendern loesen die States aus, die eine
+  // vergebene Nummer dann TRAGEN (`bulkSyncNummer` unten,
+  // `localAktionsNummer` in `AlbumGroupCard`). Ersetzt `bulkSyncRunSeq` +
+  // `lokalZuletzt` + `bulkSyncLastGood` — Einzelheiten und der Fehler, den
+  // das alte Modell hatte, stehen bei `externalNummer` in `AlbumGroupCard`.
+  const naechsteNummer = React.useRef(0);
+  const vergebeNummer = () => ++naechsteNummer.current;
+
+  // bulkSyncState: Ergebnis je Gruppe des LAUFENDEN/letzten GEZAEHLTEN
+  // Sammellaufs. Schluessel fehlt = fuer diese Gruppe noch nie ein gezaehlter
+  // Lauf; Wert `null` = dieser Lauf haelt die Gruppe gerade fuer syncend
+  // (Spinner); Wert ein Feld = dieser Lauf ist fuer die Gruppe fertig (leer,
+  // wenn ALLE Anfragen geworfen haben). "Gezaehlt" heisst: der Lauf hat fuer
+  // die Gruppe mindestens ein gesundes Album angefahren — eine Gruppe ohne
+  // gesundes Album wird von einem Lauf gar nicht erst hier eingetragen
+  // (Q3b/WICHTIG 1 unten).
   //
   // #103 Punkt 5: Zwei Kommentare an verschiedenen Stellen dieser Datei
   // beschrieben diese drei Zustaende WIDERSPRUECHLICH — einer sagte "null =
@@ -980,36 +1098,16 @@ export default function AlbumsOverview() {
   const [bulkSyncState, setBulkSyncState] = React.useState<Map<string, SyncLogEntry[] | null>>(
     new Map()
   );
-  // #102 (P1): das letzte NICHT-LEERE Ergebnis je Gruppe — bleibt ueber einen
-  // nachfolgenden TOTAL-Fehlschlag EINES SPAETEREN Sammel-Laufs hinweg
-  // erhalten (Nacharbeit 1, #124, KLEIN: hier stand vorher "desselben
-  // Sammel-Laufs" — irrefuehrend, da EIN Lauf eine Gruppe nur einmal
-  // anfaehrt; gemeint ist immer ein NACHFOLGENDER Lauf). Ohne dieses zweite
-  // Gedaechtnis loescht ein zweiter, vollstaendig scheiternder Sammellauf das
-  // Ergebnis des ERSTEN kommentarlos: `bulkSyncState` traegt dann fuer die
-  // Gruppe ein leeres Feld, `SyncLogDisplay` zeigt fuer ein leeres Feld
-  // nichts, und auf der Karte steht ploetzlich nichts mehr, obwohl der erste
-  // Lauf durchaus Ergebnisse hatte (gemessen: "voriges Ergebnis noch da:
-  // false").
-  //
-  // Nacharbeit 1 (#124, WICHTIG 1, Sonde P2): Wird die Gruppe INZWISCHEN
-  // GANZ verwaist (kein gesundes Album mehr), faehrt ein weiterer Sammellauf
-  // gar kein Album mehr an (`gesunde` unten ist leer) — `groupLogs` bleibt
-  // leer, ABER `fehlgeschlagen` bleibt auch `0` (nichts wurde versucht, also
-  // ist nichts geworfen). Dieser Lauf ist also weder ein Erfolg noch ein
-  // Fehlschlag, sondern "nichts zu tun": `bulkSyncLastGood` bleibt UNVERAENDERT
-  // (der letzte echte Erfolg bleibt sichtbar) und `bulkSyncErrors` bekommt
-  // KEINEN neuen Eintrag. Das ist bewusst so belassen — die Karte zeigt die
-  // Verwaisung bereits ueber die eigene Markierung
-  // (`group.ownerMissing`/`album_owner_missing_badge`) an; der alte
-  // Sync-Log-Eintrag als reiner VERLAUFSEINTRAG ("das hat zuletzt
-  // funktioniert") bleibt richtig, auch wenn er nicht mehr "aktuell" ist.
-  const [bulkSyncLastGood, setBulkSyncLastGood] = React.useState<Map<string, SyncLogEntry[]>>(
-    new Map()
-  );
-  // #102: Fehlerzahlen je Gruppe fuer den LETZTEN Sammellauf, getrennt vom
-  // Protokoll — ein Teil- oder Volltreffer OHNE Fehlschlag raeumt den
-  // Eintrag der Gruppe wieder ab (siehe die Schleife unten).
+  // Die Startnummer des GEZAEHLTEN Sammellaufs je Gruppe (s.o.) — die
+  // "Last-Good"-Bewahrung ueber einen spaeteren Totalausfall hinweg lebt
+  // seit dieser Runde nicht mehr hier (vormals `bulkSyncLastGood`), sondern
+  // im gemeinsamen `letztesProtokoll`-Speicher jeder Karte (siehe dort):
+  // Der Speicher muss auch lokale Erfolge aufnehmen koennen, nicht nur
+  // Sammel-Erfolge (Befund W1/Q3).
+  const [bulkSyncNummer, setBulkSyncNummer] = React.useState<Map<string, number>>(new Map());
+  // #102: Fehlerzahlen je Gruppe fuer den LETZTEN gezaehlten Sammellauf,
+  // getrennt vom Protokoll — ein Teil- oder Volltreffer OHNE Fehlschlag
+  // raeumt den Eintrag der Gruppe wieder ab (siehe die Schleife unten).
   //
   // Nacharbeit 1 (#124, KLEIN): ZAHLEN statt eines fertigen Strings — wie
   // `localRefreshErrorInfo` in `AlbumGroupCard` wird erst beim RENDERN
@@ -1020,17 +1118,26 @@ export default function AlbumsOverview() {
     Map<string, { fehlgeschlagen: number; gesamt: number }>
   >(new Map());
   const [refreshingAll, setRefreshingAll] = React.useState(false);
-  // Nacharbeit 1 (#124, BLOCKER): zaehlt bei jedem START eines Sammellaufs
-  // hoch — die Grundlage dafuer, dass `AlbumGroupCard` "juenger" an einem
-  // ZAEHLER der Aktion festmacht, nicht an der Objekt-Identitaet von
-  // `externalLogs` (siehe dort). `0` heisst "noch nie gelaufen".
-  const [bulkSyncRunSeq, setBulkSyncRunSeq] = React.useState(0);
 
   const handleRefreshAll = async () => {
+    const laufNummer = vergebeNummer();
     setRefreshingAll(true);
-    setBulkSyncRunSeq((s) => s + 1);
-    // Mark all groups as "syncing"
-    setBulkSyncState(new Map(groups.map((g) => [g.group_id, null])));
+    // Q3b/WICHTIG 1 (Nacharbeit 2, LETZTE Runde): nur Gruppen mit MINDESTENS
+    // einem gesunden Album werden von DIESEM Lauf ueberhaupt beruehrt — eine
+    // ganz verwaiste Gruppe bekommt weder einen Spinner noch eine gestempelte
+    // Nummer, damit ein 0-Anfragen-Lauf kein juengeres lokales (oder ein
+    // frueheres Sammel-)Protokoll verdraengen kann.
+    const betroffene = groups.filter((g) => g.albums.some((a) => !a.owner_account_missing));
+    setBulkSyncState((prev) => {
+      const next = new Map(prev);
+      for (const g of betroffene) next.set(g.group_id, null);
+      return next;
+    });
+    setBulkSyncNummer((prev) => {
+      const next = new Map(prev);
+      for (const g of betroffene) next.set(g.group_id, laufNummer);
+      return next;
+    });
     // Nacharbeit 1 (#124, WICHTIG 2): ein neuer Sammellauf raeumt die
     // Fehlerzeilen des VORIGEN Laufs sofort beim START ab, statt sie stehen
     // zu lassen, bis diese Gruppe in der Schleife unten an der Reihe war —
@@ -1039,7 +1146,6 @@ export default function AlbumsOverview() {
     setBulkSyncErrors(new Map());
 
     for (const group of groups) {
-      const groupLogs: SyncLogEntry[] = [];
       // Nacharbeit 1: wie der einzelne "Jetzt synchronisieren"-Knopf und wie
       // der Auto-Sync — verwaiste Alben werden UEBERSPRUNGEN, nicht mit
       // demselben Fehlereintrag pro Klick bedacht (siehe `gesundeAlben` in
@@ -1054,8 +1160,13 @@ export default function AlbumsOverview() {
       // Komponenten GETEILTEN Zustand (z. B. ein Set laufender Loesch-IDs in
       // `AlbumsOverview`, nach unten UND von `AlbumGroupCard` nach oben
       // gereicht) — das ist mehr als dieser Nacharbeit-Slice an Umfang
-      // vorsieht (`Umfang nicht erweitern"). Gemeldet, nicht gebaut.
+      // vorsieht (`Umfang nicht erweitern`). Gemeldet, nicht gebaut.
       const gesunde = group.albums.filter((album) => !album.owner_account_missing);
+      // Q3b/WICHTIG 1: ein Lauf ohne gesundes Album zaehlt fuer diese Gruppe
+      // nicht (s.o.) — er stellt weder `bulkSyncState` noch `bulkSyncErrors`
+      // fuer sie um.
+      if (gesunde.length === 0) continue;
+      const groupLogs: SyncLogEntry[] = [];
       let fehlgeschlagen = 0;
       for (const album of gesunde) {
         try {
@@ -1066,12 +1177,6 @@ export default function AlbumsOverview() {
       }
       // Update this group's results immediately, keep others in their current state
       setBulkSyncState((prev) => new Map(prev).set(group.group_id, groupLogs));
-      // #102: nur ein NICHT-LEERES Ergebnis wird als "letztes gutes Ergebnis"
-      // gemerkt — ein Volltreffer ersetzt das vorige, ein Volltausfall laesst
-      // es unangetastet (siehe `bulkSyncLastGood` oben).
-      if (groupLogs.length > 0) {
-        setBulkSyncLastGood((prev) => new Map(prev).set(group.group_id, groupLogs));
-      }
       // Nacharbeit 1 (#124, WICHTIG 4: vormals M29 — das fehlende
       // Abraeumen einer Gruppen-Fehlerzeile bei einem spaeteren guten
       // Sammellauf blieb ungeprueft): Ein eigenes `else { next.delete(...) }`
@@ -1142,19 +1247,16 @@ export default function AlbumsOverview() {
             // `bulkSyncState` oben (einziger Eigentuemer dieser Beschreibung,
             // #103 Punkt 5) — kurz: `null` = dieser Lauf haelt die Gruppe
             // gerade fuer syncend.
-            const externalSyncing = bulkSyncState.has(group.group_id) && bulkEntry === null;
-            // Ein LEERES Sammelergebnis ist kein Ergebnis (Fund des
-            // Blindpruefers an der Nacharbeit): Werfen alle Auffrischungen
-            // einer Gruppe, ist `bulkEntry` ein leeres Feld — nicht
-            // `undefined`. #102: Statt in diesem Fall stillschweigend auf
-            // `undefined` (und damit auf `localLogs`, meist `null`)
-            // zurueckzufallen, zeigt die Karte das letzte NICHT-LEERE
-            // Ergebnis dieser Gruppe (`bulkSyncLastGood`) weiter — ein
-            // Volltausfall loescht das vorige Ergebnis nicht mehr
-            // kommentarlos, und `bulkSyncErrors` (unten) macht den
-            // Fehlschlag selbst sichtbar.
-            const externalLogs =
-              bulkEntry && bulkEntry.length ? bulkEntry : bulkSyncLastGood.get(group.group_id);
+            const externalSyncing = bulkEntry === null;
+            // Welle 4, S1, Nacharbeit 2 (LETZTE Runde): rohe Daten des
+            // aktuellen (gezaehlten) Laufs — KEIN Rueckfall auf ein
+            // "letztes gutes Ergebnis" mehr hier (vormals `bulkSyncLastGood`):
+            // dieses Gedaechtnis lebt jetzt in `letztesProtokoll` der Karte
+            // selbst, weil es auch lokale Erfolge aufnehmen muss (Befund
+            // W1/Q3). Ein Volltausfall bleibt trotzdem sichtbar erhalten —
+            // nur eben in der Karte, nicht mehr hier.
+            const externalLogs = bulkEntry ?? undefined;
+            const externalNummer = bulkSyncNummer.get(group.group_id) ?? 0;
             const externalErrorInfo = bulkSyncErrors.get(group.group_id);
             // Nacharbeit 1 (#124, KLEIN): erst HIER, beim Rendern, mit der
             // aktuellen Sprache uebersetzen (siehe `bulkSyncErrors` oben) —
@@ -1173,7 +1275,8 @@ export default function AlbumsOverview() {
                 externalLogs={externalLogs}
                 externalSyncing={externalSyncing}
                 externalError={externalError}
-                externalRunSeq={bulkSyncRunSeq}
+                externalNummer={externalNummer}
+                vergebeNummer={vergebeNummer}
               />
             );
           })}

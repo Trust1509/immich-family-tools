@@ -901,6 +901,17 @@ export const translations = {
       return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
     },
   },
+  // W3/K3 (Sonde Q6, Welle 4 S1 Nacharbeit 2, LETZTE Runde, Mutation M28):
+  // Nach einem bereits gelaufenen ECHTEN Umbenennen-Versuch schliesst ein
+  // Enter auf einem leeren/nur aus Leerzeichen bestehenden Feld nicht mehr
+  // still — dieser Hinweis macht sichtbar, dass nichts an den Server ging.
+  // Kein Zahlwort, keine Grammatikverzweigung noetig.
+  album_rename_empty_hint: {
+    de: "Bitte einen Namen eingeben.",
+    en: "Please enter a name.",
+    "pt-BR": "Por favor, informe um nome.",
+    "es-ES": "Por favor, introduce un nombre.",
+  },
   // #102: Ein Abgleich (Einzel- oder Sammellauf), der fuer eine Gruppe TEIL-
   // oder VOLLSTAENDIG scheitert, bekommt eine EIGENE Zeile auf der Karte,
   // getrennt vom Protokoll (`SyncLogDisplay`) — das Protokoll ist der
