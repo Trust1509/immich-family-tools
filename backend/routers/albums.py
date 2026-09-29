@@ -514,20 +514,18 @@ async def rename_managed_album(
     owner = store.get_account(managed.owner_account_id)
     if not owner:
         raise errors.owner_account_not_found()
-    # Nacharbeit 2 zu #99/#112 (Gegen- und Blindpruefer, gemessen ueber HTTP
-    # mit einem absichtlich veralteten Client): Die gruppenweite
-    # Umbenennen-Sperre der Oberflaeche (`AlbumsOverview.tsx`) ist nur
-    # Komfort — mit einer veralteten Liste (zweiter Tab, 30s `staleTime`,
-    # anderes Geraet) haette die Schleife dort das gesunde Album umbenannt,
-    # bevor sie am verwaisten mit 404 scheitert: eine Gruppe mit zwei Namen.
-    # Die Regel gehoert deshalb HIERHER, vor den ersten Schreibvorgang, wo
-    # sie kein Client mehr umgehen kann.
-    lebende_konten = {a.id for a in store.list_accounts()}
-    if any(
-        a.group_id == managed.group_id and a.owner_account_id not in lebende_konten
-        for a in alle_alben
-    ):
-        raise errors.group_member_owner_missing(managed.group_id)
+    # KEINE GRUPPENWEITE SPERRE MEHR (Owner-Entscheid 29.09.2026, #123): Die
+    # Sperre aus Nacharbeit 2 zu #99/#112 (`err_group_member_owner_missing`)
+    # ist entfernt. Sie war eine Agenten-Entscheidung, schuetzte eine Regel,
+    # die `CONTEXT.md` nicht hat (Namen innerhalb einer Gruppe duerfen
+    # abweichen, #97), und verhinderte nur, dass das Werkzeug Namen wieder
+    # angleicht. Umbenennen einer gemischten Gruppe benennt jetzt die Alben
+    # MIT lebendem Besitzer um und ueberspringt die verwaisten — wie beim
+    # Abgleichen (`AlbumsOverview.tsx`, `gesundeAlben`). Der Server lehnt nur
+    # noch das VERWAISTE Album SELBST ab, ueber die Pruefung direkt oben
+    # (`errors.owner_account_not_found()`); ein Geschwister-Album mit
+    # lebendem Besitzer wird davon nicht mehr beruehrt.
+    #
     # KEINE NAMENSPRUEFUNG MEHR (Owner-Entscheid 28.09.2026, #98): Zwei
     # verschiedene Albumgruppen duerfen denselben Namen tragen. Die
     # Kollisionspruefung, die hier bis #98 stand (`ConfigStore.

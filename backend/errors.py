@@ -85,28 +85,6 @@ def owner_account_not_found() -> AppError:
     return AppError(404, "err_owner_account_not_found", "Owner-Account nicht gefunden")
 
 
-def group_member_owner_missing(group_id: str) -> AppError:
-    """Ein GESCHWISTER-Album derselben Gruppe hat kein lebendes Besitzerkonto.
-
-    Nacharbeit 2 zu #99/#112 (Gegen- und Blindpruefer, gemessen): Die
-    gruppenweite Umbenennen-Sperre stand bis hierher nur im Browser
-    (`AlbumsOverview.tsx`) — mit einer veralteten Liste (zweiter Tab, 30s
-    `staleTime`, anderes Geraet) benannte die Schleife dort das gesunde
-    Album um und scheiterte am verwaisten mit `err_owner_account_not_found`:
-    eine Gruppe mit zwei Namen. Diese Meldung gilt fuer das ANDERE Album —
-    das selbst einen lebenden Besitzer hat, aber dessen GRUPPE ein
-    verwaistes Mitglied traegt. `owner_account_not_found` bleibt fuer das
-    verwaiste Album selbst zustaendig.
-    """
-    return AppError(
-        409,
-        "err_group_member_owner_missing",
-        "Ein Album dieser Gruppe hat kein lebendes Besitzerkonto mehr — "
-        "Umbenennen ist für die ganze Gruppe gesperrt.",
-        {"group_id": str(group_id)},
-    )
-
-
 def match_not_found() -> AppError:
     return AppError(404, "err_match_not_found", "Match nicht gefunden")
 

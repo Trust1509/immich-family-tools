@@ -30,11 +30,14 @@ interface AlbumGroup {
   // Markierungen aus GET /api/sync/albums — beim Lesen berechnet, nicht
   // gespeichert (Owner-Entscheid 28.09.2026, #99/#112). `ownerMissing`
   // betrifft IRGENDEIN Album der Gruppe: Eine Gruppe buendelt je ein Album
-  // pro Konto, und schon ein einziges verwaistes Album darin sperrt das
-  // Umbenennen der Gruppe (server-seitig durchgesetzt seit Nacharbeit 2,
-  // `errors.group_member_owner_missing`) — WAS genau in der Oberflaeche
-  // gesperrt wird, ist eine technische Entscheidung des Hauptagenten
-  // (Nacharbeit 1), siehe `renameLocked` unten.
+  // pro Konto. Bis Nacharbeit 2 zu #99/#112 sperrte schon ein einziges
+  // verwaistes Album das Umbenennen der GANZEN Gruppe, server-seitig
+  // durchgesetzt ueber `errors.group_member_owner_missing`. Diese Sperre ist
+  // mit Owner-Entscheid 29.09.2026 (#123) ersatzlos entfernt: Umbenennen
+  // bedient jetzt die gesunden Alben und ueberspringt die verwaisten — wie
+  // der Abgleich, siehe `gesundeAlben` unten. `ownerMissing` bleibt die
+  // Grundlage der sichtbaren MARKIERUNG (Text auf der Karte), nicht mehr
+  // einer Sperre.
   ownerMissing: boolean;
   // `displayedOwnerMissing` ist ENGER: nur, ob der ANGEZEIGTE Besitzer (der
   // des ersten Albums, `owner_name` unten) selbst fehlt — nicht irgendein
@@ -42,14 +45,20 @@ interface AlbumGroup {
   // gemischte Gruppe zeigte vorher "Besitzerkonto gelöscht" in der
   // Besitzer-Zeile, obwohl der dort GENANNTE Besitzer noch lebte.
   displayedOwnerMissing: boolean;
-  // Ob die Gruppe ALS GANZES weniger als zwei verknuepfte Personen hat —
-  // an derselben zusammengefuehrten Liste gemessen, die als
-  // "Verknuepfte Personen" angezeigt wird (`person_refs` oben), NICHT am
-  // Oder ueber die einzelnen Alben. Nacharbeit 2 (Blindpruefer, gemessen):
-  // Das ODER ueber `too_few_people` je Album zeigte "Nur noch eine Person"
-  // auch dann, wenn die zusammengefuehrte Liste bereits drei Personen
-  // enthielt — ein Album der Gruppe hatte fuer sich allein nur eine, weil
-  // Alben derselben Gruppe nicht zwingend denselben Personenkreis fuehren.
+  // Ob MINDESTENS EIN Album der Gruppe fuer sich allein zu wenige Personen
+  // hat — ein ODER ueber `too_few_people` je Album (Owner-Entscheid
+  // 29.09.2026, #123, Rueckschritt aus Nacharbeit 2 zu #99/#112 zurueckgebaut).
+  //
+  // Nacharbeit 2 hatte das stattdessen aus der ZUSAMMENGEFUEHRTEN Personenliste
+  // der Gruppe berechnet (`personRefs.length < 2`) — mit der Begruendung, das
+  // ODER ueber einzelne Alben zeige "Nur noch eine Person" faelschlich auch
+  // dann, wenn die Gruppe insgesamt schon drei Personen fuehrt. Genau das ist
+  // aber die vom Owner gewollte Markierung: Ein Album mit einer Person in
+  // einer Gruppe mit weiteren Personen VERLOR seine Markierung unter der
+  // zusammengefuehrten Berechnung (gemessen, #123: HEAD `false`, HEAD~1
+  // `true`, bei Album A mit 1 Person neben Album B mit 2 Personen in
+  // derselben Gruppe) — Issue #123 verlangt das Gegenteil: jedes solche
+  // Album bleibt markiert.
   tooFewPeople: boolean;
 }
 
@@ -75,7 +84,7 @@ function groupAlbums(albums: ManagedAlbum[]): AlbumGroup[] {
       person_refs: personRefs,
       ownerMissing: group.some((a) => a.owner_account_missing),
       displayedOwnerMissing: !!first.owner_account_missing,
-      tooFewPeople: personRefs.length < 2,
+      tooFewPeople: group.some((a) => a.too_few_people),
     };
   });
 }
@@ -168,11 +177,18 @@ function AlbumGroupCard({
   const handleDelete = async () => {
     if (!confirm(t("album_remove_confirm", group.album_name, group.albums.length))) return;
     setDeleting(true);
-    for (const album of group.albums) {
-      try {
-        await api.sync.deleteAlbum(album.id);
-      } catch (_) {}
-    }
+    // PARALLEL statt nacheinander (Owner-Entscheid 29.09.2026, #123, #121
+    // Punkt 1): Seit #101 wartet `DELETE /api/sync/albums/{id}` am
+    // Albumschloss dieses EINEN Albums (`sync_service._album_schloss`) — ein
+    // Schloss je Album-ID, keins ueber die Gruppe. Ein sequenzieller Lauf
+    // lief deshalb einem laufenden Abgleich unnoetig hinterher: Haelt ein
+    // Refresh das Schloss von Album 2, wartete Album 1 in der Schleife
+    // trotzdem VOR Album 2 — Alben 3 und 4 kamen erst danach an die Reihe,
+    // obwohl ihr eigenes Schloss die ganze Zeit frei war (Zeitmessung dazu
+    // in Issue #121, hier nicht wiederholt — nicht selbst nachgemessen,
+    // docs/agents/lehren.md §46). `Promise.all` startet alle DELETEs sofort; nur das
+    // Album mit dem gerade gehaltenen Schloss wartet noch.
+    await Promise.all(group.albums.map((album) => api.sync.deleteAlbum(album.id).catch(() => {})));
     setDeleting(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
@@ -182,26 +198,52 @@ function AlbumGroupCard({
     qc.invalidateQueries({ queryKey: ["album-group"] });
   };
 
+  // Einzelentfernung eines VERWAISTEN Albums (Owner-Entscheid 29.09.2026,
+  // #123): `handleDelete` oben nimmt immer die GANZE Gruppe — fuer ein
+  // gemischtes Album gibt es damit bis hierher keinen Weg, nur das verwaiste
+  // Mitglied loszuwerden, ohne das gesunde mitzureissen. Eigene Funktion,
+  // eigene Rueckfrage (`album_remove_single_confirm`, nennt das EINE Album),
+  // eigener Schreibpfad — derselbe Endpunkt wie oben, nur mit einer einzigen
+  // ID statt der ganzen Gruppe.
+  const handleDeleteSingle = async (album: ManagedAlbum) => {
+    if (!confirm(t("album_remove_single_confirm", album.album_name))) return;
+    setDeleting(true);
+    try {
+      await api.sync.deleteAlbum(album.id);
+    } catch (_) {}
+    setDeleting(false);
+    qc.invalidateQueries({ queryKey: ["managed-albums"] });
+    qc.invalidateQueries({ queryKey: ["matches"] });
+    qc.invalidateQueries({ queryKey: ["album-group"] });
+  };
+
   const handleRename = async () => {
     // KEINE Client-seitige Sperrpruefung mehr hier (Nacharbeit 1 hatte eine,
     // Nacharbeit 2 entfernt sie wieder — Blindpruefer, gemessen): Sie war mit
     // Enter an ein bereits abgehaengtes Eingabefeld praktisch unerreichbar
-    // (Mutation "Pruefung entfernt" blieb bei voller Suite gruen) UND der
-    // eigentliche Grund ist jetzt server-seitig behoben — `PATCH
-    // /api/sync/albums/{id}` lehnt JEDES Album einer Gruppe ab, sobald ein
-    // Geschwister-Album keinen lebenden Besitzer mehr hat
-    // (`errors.group_member_owner_missing`, `routers/albums.py`). Eine
-    // veraltete Liste (zweiter Tab, andere `staleTime`) kann eine Gruppe
-    // damit nicht mehr in zwei Namen zerlegen; das schliessende Feld oben
-    // bleibt reiner Komfort fuer den Normalfall.
+    // (Mutation "Pruefung entfernt" blieb bei voller Suite gruen).
+    //
+    // Owner-Entscheid 29.09.2026 (#123): Die Schleife laeuft nur noch ueber
+    // `gesundeAlben`, nicht mehr ueber `group.albums` — wie der Abgleich
+    // (`handleRefresh` oben). Der Server lehnt seit diesem Slice nur noch
+    // das VERWAISTE Album SELBST ab (`errors.owner_account_not_found`,
+    // `routers/albums.py::rename_managed_album`); die fruehere
+    // gruppenweite Sperre (`errors.group_member_owner_missing`) ist
+    // ersatzlos entfernt. Ein Anfahren des verwaisten Albums haette also
+    // ohnehin nur denselben Fehlereintrag je Klick erzeugt (dieselbe
+    // Ueberlegung wie bei `handleRefresh`, `docs/agents/lehren.md` §45) —
+    // hier wird es deshalb erst gar nicht versucht. Der sichtbare Hinweis
+    // (`album_sync_skips_orphaned_hint`) gilt jetzt fuer BEIDES, Abgleichen
+    // und Umbenennen.
     const nextName = renameValue.trim();
     // KEIN Abbruch bei „Name gleich dem Gruppennamen“: Der Gruppenname ist vom
     // ERSTEN Album abgeleitet (`groupAlbums`). Nach einem Teilfehler traegt das
     // erste Album schon den neuen Namen — mit dem alten Vergleich war der
     // zweite Versuch deshalb ein Nullvorgang, und das fehlgeschlagene Album
     // blieb fuer immer zurueck (Fund des Fremdpruefers an #79). Abgebrochen
-    // wird nur, wenn ALLE Alben der Gruppe den Namen schon tragen.
-    if (!nextName || group.albums.every((album) => album.album_name === nextName)) {
+    // wird nur, wenn ALLE gesunden Alben der Gruppe den Namen schon tragen —
+    // ein verwaistes Album zaehlt hier nicht mit, es wird ja uebersprungen.
+    if (!nextName || gesundeAlben.every((album) => album.album_name === nextName)) {
       setRenaming(false);
       setRenameValue(group.album_name);
       return;
@@ -211,7 +253,7 @@ function AlbumGroupCard({
     setLocalLogs(null);
     const logs: SyncLogEntry[] = [];
     try {
-      for (const album of group.albums) {
+      for (const album of gesundeAlben) {
         logs.push(...(await api.sync.renameAlbum(album.id, nextName)));
       }
       if (logs.every((entry) => entry.status === "success")) setRenaming(false);
@@ -239,22 +281,23 @@ function AlbumGroupCard({
   };
 
   const isDeleted = displayLogs?.some((e) => e.error_message === "ALBUM_DELETED");
-  // NICHT Owner-Entscheid — technisch vom Hauptagenten entschieden
-  // (Nacharbeit 1, #99/#112): Ein Album ohne lebenden Besitzer sperrt in der
-  // Oberflaeche UMBENENNEN der ganzen Gruppe. Das ist seit Nacharbeit 2 reiner
-  // KOMFORT (verhindert das Oeffnen des Felds und einen von vornherein
-  // aussichtslosen Rundlauf) — die eigentliche Garantie gegen eine halb
-  // umbenannte Gruppe mit zwei Namen steht jetzt server-seitig in
-  // `routers/albums.py::rename_managed_album`
-  // (`errors.group_member_owner_missing`): Er lehnt JEDES Album einer
-  // Gruppe ab, sobald ein Geschwister-Album keinen lebenden Besitzer mehr
-  // hat, unabhaengig davon, wie aktuell die Liste dieses Clients ist. Der
-  // ABGLEICH sperrt NICHT: er laeuft fuer die gesunden Alben weiter und
-  // ueberspringt die verwaisten, siehe `gesundeAlben` oben. Entfernen bleibt
-  // in jedem Fall moeglich. "Nur noch eine Person"/"keine Person mehr"
-  // sperrt fuer sich allein nichts, wird aber ebenfalls sichtbar (Text,
-  // nicht nur Farbe).
-  const renameLocked = group.ownerMissing;
+  // Owner-Entscheid 29.09.2026 (#123): UMBENENNEN sperrt nicht mehr schon bei
+  // einem einzelnen verwaisten Album der Gruppe — es sperrt nur noch, wenn
+  // KEIN gesundes Album mehr uebrig ist, genau wie der ABGLEICH-Knopf
+  // (`gesundeAlben.length === 0`, siehe `disabled` beim "Jetzt
+  // synchronisieren"-Knopf unten). Eine gemischte Gruppe bleibt bedienbar:
+  // `handleRename` benennt die gesunden Alben um und ueberspringt die
+  // verwaisten, mit demselben sichtbaren Hinweis wie beim Abgleichen
+  // (`album_sync_skips_orphaned_hint`). Die fruehere gruppenweite
+  // Server-Sperre (`errors.group_member_owner_missing`) ist dafuer
+  // ersatzlos entfernt — der Server lehnt nur noch das verwaiste Album
+  // SELBST ab (`errors.owner_account_not_found`), und die Schleife oben
+  // faehrt das verwaiste Album gar nicht erst an. Entfernen bleibt in jedem
+  // Fall moeglich, je Gruppe (`handleDelete`) oder je verwaistem Album
+  // einzeln (`handleDeleteSingle`). "Nur noch eine Person"/"keine Person
+  // mehr" sperrt fuer sich allein nichts, wird aber ebenfalls sichtbar
+  // (Text, nicht nur Farbe).
+  const renameLocked = gesundeAlben.length === 0;
 
   // Schliesst ein offenes Umbenennen-Feld, sobald die Sperre eintritt (Konto
   // in einem anderen Tab geloescht, Liste neu geladen) — NUR das Feld.
@@ -374,6 +417,35 @@ function AlbumGroupCard({
               </>
             )}
           </span>
+        </div>
+      )}
+
+      {/* Einzelentfernung eines verwaisten Albums (Owner-Entscheid
+          29.09.2026, #123) — nur bei einer GEMISCHTEN oder mehrfach
+          verwaisten Gruppe (mehr als ein Album insgesamt): Bei genau einem
+          Album IST der Gruppenknopf "Entfernen" unten schon die
+          Einzelentfernung, eine zweite Zeile dafuer waere doppelt. */}
+      {group.ownerMissing && group.albums.length > 1 && (
+        <div className="space-y-1">
+          {group.albums
+            .filter((album) => album.owner_account_missing)
+            .map((album) => (
+              <div
+                key={album.id}
+                className="flex items-center justify-between gap-2 text-xs text-amber-300 bg-amber-900/10 border border-amber-800/60 rounded px-2 py-1"
+              >
+                <span className="truncate">{album.album_name}</span>
+                <button
+                  className="p-1 text-red-400 hover:text-red-300 shrink-0"
+                  onClick={() => handleDeleteSingle(album)}
+                  disabled={deleting}
+                  aria-label={t("album_remove_single_action")}
+                  title={t("album_remove_single_action")}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
         </div>
       )}
 

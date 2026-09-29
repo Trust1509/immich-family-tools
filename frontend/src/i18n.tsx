@@ -753,19 +753,23 @@ export const translations = {
     "pt-BR": "Nenhuma pessoa mais vinculada",
     "es-ES": "Ya no hay ninguna persona vinculada",
   },
-  // Nur noch das UMBENENNEN wird gesperrt (Nacharbeit 1) — der Abgleich
-  // ueberspringt verwaiste Alben nur noch, siehe `album_sync_skips_orphaned_hint`.
+  // Der Knopf sperrt nur noch, wenn KEIN gesundes Album mehr uebrig ist
+  // (Owner-Entscheid 29.09.2026, #123) — eine gemischte Gruppe benennt die
+  // gesunden Alben um und ueberspringt die verwaisten, siehe
+  // `album_sync_skips_orphaned_hint`.
   album_locked_owner_missing_hint: {
     de: "Umbenennen ist gesperrt: Besitzerkonto gelöscht.",
     en: "Renaming is locked: owner account deleted.",
     "pt-BR": "Renomear está bloqueado: conta proprietária excluída.",
     "es-ES": "Cambiar el nombre está bloqueado: cuenta propietaria eliminada.",
   },
+  // Owner-Entscheid 29.09.2026 (#123): Der Hinweis galt bisher nur dem
+  // Abgleich; seither ueberspringt das UMBENENNEN verwaiste Alben ebenso.
   album_sync_skips_orphaned_hint: {
-    de: "Verwaiste Alben werden beim Abgleich übersprungen.",
-    en: "Orphaned albums are skipped during sync.",
-    "pt-BR": "Álbuns órfãos são ignorados durante a sincronização.",
-    "es-ES": "Los álbumes huérfanos se omiten durante la sincronización.",
+    de: "Verwaiste Alben werden beim Abgleichen und Umbenennen übersprungen.",
+    en: "Orphaned albums are skipped when syncing and renaming.",
+    "pt-BR": "Álbuns órfãos são ignorados ao sincronizar e ao renomear.",
+    "es-ES": "Los álbumes huérfanos se omiten al sincronizar y al cambiar el nombre.",
   },
   // Nacharbeit 2 (Blindpruefer, kleiner Fund): eine GANZ verwaiste Gruppe
   // deaktivierte "Jetzt synchronisieren" ohne jeden Grund im Titel.
@@ -774,6 +778,24 @@ export const translations = {
     en: "No album in this group still has a living owner account.",
     "pt-BR": "Nenhum álbum deste grupo ainda tem uma conta proprietária ativa.",
     "es-ES": "Ningún álbum de este grupo tiene ya una cuenta propietaria activa.",
+  },
+  // Einzelentfernung eines verwaisten Albums (Owner-Entscheid 29.09.2026,
+  // #123) — bisher nahm "Entfernen" immer die ganze Gruppe.
+  album_remove_single_action: {
+    de: "Dieses verwaiste Album entfernen",
+    en: "Remove this orphaned album",
+    "pt-BR": "Remover este álbum órfão",
+    "es-ES": "Eliminar este álbum huérfano",
+  },
+  album_remove_single_confirm: {
+    de: (name: string) =>
+      `Eintrag für das verwaiste Album "${name}" entfernen?\n\nDas Album in Immich bleibt erhalten. Die übrigen Alben dieser Gruppe bleiben verwaltet.`,
+    en: (name: string) =>
+      `Remove the entry for the orphaned album "${name}"?\n\nThe album in Immich will be kept. The other albums in this group stay managed.`,
+    "pt-BR": (name: string) =>
+      `Remover o registro do álbum órfão "${name}"?\n\nO álbum no Immich será mantido. Os demais álbuns deste grupo continuam gerenciados.`,
+    "es-ES": (name: string) =>
+      `¿Eliminar la entrada del álbum huérfano "${name}"?\n\nEl álbum se conservará en Immich. Los demás álbumes de este grupo siguen gestionados.`,
   },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────
@@ -1082,14 +1104,6 @@ export const translations = {
     en: (id: string) => `Owner account ${id} not found`,
     "es-ES": (id: string) => `Cuenta propietaria ${id} no encontrada`,
     "pt-BR": (id: string) => `Conta proprietária ${id} não encontrada`,
-  },
-  err_group_member_owner_missing: {
-    de: "Ein Album dieser Gruppe hat kein lebendes Besitzerkonto mehr — Umbenennen ist für die ganze Gruppe gesperrt.",
-    en: "One album in this group no longer has a living owner account — renaming is locked for the whole group.",
-    "es-ES":
-      "Un álbum de este grupo ya no tiene una cuenta propietaria activa — cambiar el nombre está bloqueado para todo el grupo.",
-    "pt-BR":
-      "Um álbum deste grupo não tem mais uma conta proprietária ativa — renomear está bloqueado para o grupo inteiro.",
   },
   err_match_not_found: {
     de: "Match nicht gefunden",

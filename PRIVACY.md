@@ -42,8 +42,11 @@ entries from every managed album's linked-people list, and clears its face
 thumbnail/embedding caches. It does **not** delete photos, people, albums, or
 users in Immich. Owner decision 2026-09-28 (#99, #112): several other kinds of
 local data about that account deliberately survive the removal instead of
-disappearing silently — and for two of them, there is currently **no removal
-path at all**, not merely a delay:
+disappearing silently. Two of the three below do have a removal path, but only
+a **blunt** one — it removes more than just the traces of this one account, and
+nothing lets you target just those traces. For the third, updated 2026-09-29
+(#123) to say so plainly: there is currently **no removal path at all**, blunt
+or otherwise:
 
 - Its managed albums stay in the tool, marked as orphaned (owner account
   missing) or as having too few linked people. Removing the album entry itself
@@ -55,14 +58,36 @@ path at all**, not merely a delay:
 - The synchronization log is untouched, including entries whose text mentions
   the account by name or whose undo data points at the removed account
   (attempting to undo such an entry is refused instead of silently allowed).
-  This one does eventually age out — see the retention paragraph above.
+  This one does eventually age out — see the retention paragraph above — and
+  clearing the log in the UI removes it (and every other entry) immediately,
+  at any age; neither path lets you remove just the entries about one account.
 - Dismissed-match and name-sync markers are untouched — and unlike the two
-  above, **nothing in this application currently removes them**, at any age.
-  The code path to unmark a dismissed match exists
+  above, **nothing in this application currently removes them**, at any age,
+  in bulk or individually. The code path to unmark a dismissed match exists
   (`ConfigStore.undismiss_match`) but no API endpoint or UI action calls it;
   there is no "clear all markers for this account" action either. A marker
   set today persists in `accounts.json` indefinitely, independent of whether
   the account it originally concerned still exists.
+
+**The ordinary save leaves one more generation behind, and it is not the
+rollback copy described below.** Every write to `accounts.json` —
+`ConfigStore._save` — first copies the file's current on-disk content to
+`accounts.json.bak`, unconditionally, on every save, then writes the new
+state (`backend/services/config_store.py`, `_save`). Read directly against
+that code: the backup always lags by exactly one save, because it holds
+whatever was on disk right before the write that just happened. Concretely —
+`clear_log()` sets the in-memory log to empty and then calls `_save()`; since
+the file on disk still carries the old log at that point, `_save()` copies it
+into `accounts.json.bak` before writing the now-empty log to `accounts.json`
+itself. The old log stays readable in `.bak` until the _next_ write to
+`accounts.json` (any write, not only another log change) overwrites the
+backup with a newer snapshot. The same mechanism applies to `delete_account()`:
+it removes the account from the in-memory data and then calls `_save()` once,
+so the pre-delete on-disk state — including the removed account's API key —
+is what lands in `accounts.json.bak`, and it stays there until the next save.
+`accounts.json.bak` is written with the same restrictive permissions as the
+primary file, but it is a second file on disk carrying the same secrets, and
+its short, save-cycle-bounded lifetime is easy to mistake for "already gone".
 
 **Rollback copies are the exception, and the operator has to act on it.** Before
 anything it cannot undo — a schema migration, an album-identifier assignment —
@@ -70,9 +95,10 @@ the app writes `accounts.json.vor-schema-<N>.bak` or
 `accounts.json.vor-kennungsvergabe.bak`. These hold the full configuration at
 that moment: API keys, including those of accounts removed afterwards, and log
 entries past the retention window. Nothing rotates or deletes them; none of the
-retention or removal behavior described above applies to them at all. Delete
-them once an upgrade is confirmed good — `docs/BACKUP_RESTORE.md` says where
-and when.
+retention or removal behavior described above applies to them at all — and
+unlike the ordinary `accounts.json.bak` above, they are not overwritten on the
+next unrelated save either. Delete them once an upgrade is confirmed good —
+`docs/BACKUP_RESTORE.md` says where and when.
 
 ## Operator responsibility
 
