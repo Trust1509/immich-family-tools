@@ -494,9 +494,27 @@ async def test_delete_dauer_ist_unabhaengig_von_gehaltenen_schloessern(tmp_path,
 
     alben = [_album(f"a{i}", 1, [1, 3]) for i in range(1, 5)]
     async with _App(tmp_path, monkeypatch, alben) as w:
+        from services import sync_service as _ss
+
         t_auto = asyncio.create_task(w.main._run_auto_sync(w.main.app.state))
-        # Kurz warten, bis der Sammelabgleich sicher am ERSTEN Album haengt.
-        await asyncio.sleep(JE / 3)
+        # ERZWUNGENES FENSTER statt Zeitschaetzung (Nacharbeit 2, K2): Vorher
+        # stand hier `await asyncio.sleep(JE / 3)` — eine geratene Wartezeit,
+        # die den echten Zustand nie abfragt. Das genuegt fuer diesen Test
+        # selbst, aber verschleiert einen Mutanten wie M7 ('wieder warten'):
+        # Ohne die Schloss-Pruefung in `delete_account` haengt der folgende
+        # `DELETE`-Aufruf an `a1`s Schloss, bis der Sammelabgleich es (nach
+        # `4 x JE`) freigibt — das `wait_for(..., 5)` unten macht daraus einen
+        # klaren ROTEN Fehlschlag statt eines unbegrenzten Haengens, aber nur,
+        # wenn das Fenster ZUVERLAESSIG offen ist, wenn `DELETE` startet.
+        # Abfragen, ob `a1`s Schloss WIRKLICH schon haelt, statt zu schaetzen,
+        # wie lange das dauert.
+        schloss_a1 = _ss._album_schloss("a1")
+        for _ in range(400):
+            if schloss_a1.locked():
+                break
+            await asyncio.sleep(0.005)
+        else:
+            pytest.fail("a1 haelt sein Schloss nicht rechtzeitig — Fenster verfehlt")
 
         t0 = time.monotonic()
         r_del = await asyncio.wait_for(w.c.delete("/api/accounts/konto-3"), 5)

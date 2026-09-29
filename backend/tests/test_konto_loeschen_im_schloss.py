@@ -167,11 +167,32 @@ FALL = {
 
 # Nach jedem Fall duerfen im Album nur noch diese Konten stehen — konto-1
 # (der Besitzer) wurde waehrend des Wartens geloescht und darf NICHT
-# zurueckkehren; `extend` fuegt zusaetzlich konto-3 hinzu.
+# zurueckkehren.
+#
+# `extend` FUEGT KONTO-3 SEIT NACHARBEIT 2 NICHT MEHR HINZU (#117/#121/#103,
+# WICHTIG 3) — GEAENDERT GEGENUEBER NACHARBEIT 1: Der Immich-Haken dieser
+# Datei loest beim JEWEILS ERSTEN Aufruf aus; bei `extend` ist das die
+# Personen-Validierung (`new_client.get_person`, mit `konto-3`s Schluessel,
+# nicht dem des geloeschten Besitzers). Die Kontoloeschung (`konto-1`, der
+# BESITZER) laeuft darin vollstaendig durch, BEVOR `_extend_match_unlocked`
+# zum naechsten Aufrufblock kommt — und seit Nacharbeit 2 prueft die Funktion
+# vor JEDEM weiteren Immich-Aufrufblock frisch, ob der Besitzer noch lebt
+# (Befund Blind W3/W4, Gegen N5/N6: ein Aufrufblock NACH dem 204 rief zuvor
+# noch mit dem Schluessel eines bereits geloeschten Kontos). Der Besitzer
+# fehlt hier schon vor Block 2 („Album-Assets abrufen", braucht
+# `owner_client`) — ohne diesen Aufruf kennt die Funktion `existing_ids`
+# nicht und kann Block 3 (Assets von `konto-3` hinzufuegen) nicht sicher
+# gegen Duplikate ausfuehren, bricht also ehrlich mit
+# `log_owner_account_missing` ab, BEVOR `konto-3` je an `person_refs` haengt.
+# `konto-1` verschwindet trotzdem — nicht ueber `_extend_match_unlocked`s
+# eigenes `store.update_managed_album` (das wird hier nie erreicht), sondern
+# ueber das `finally` des Schloss-Wrappers
+# (`sync_service._raeume_tote_referenzen_synchron`, BLOCKER dieser
+# Nacharbeit), das bei JEDEM Ausgang aufraeumt.
 ERWARTETE_KONTEN_NACHHER = {
     "rename": {"konto-2"},
     "refresh": {"konto-2"},
-    "extend": {"konto-2", "konto-3"},
+    "extend": {"konto-2"},
 }
 
 

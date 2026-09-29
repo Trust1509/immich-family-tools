@@ -83,9 +83,13 @@ class ManagedAlbumOut(ManagedAlbum):
     vom Besitzerkonto eintreten (ein Teilnehmer, nicht der Besitzer, wurde
     geloescht) und blockiert fuer sich allein weder Umbenennen noch
     Abgleichen. Eine Referenz auf ein bereits geloeschtes Konto zaehlt NICHT
-    mit — sie kann kurzzeitig liegen bleiben (ihr Album war beim Loeschen
-    gerade durch ein anderes Schloss belegt) und wird beim naechsten
-    Schreibvorgang dieses Albums geraeumt (`ConfigStore._ohne_tote_konten`).
+    mit — sie kann liegen bleiben, bis zum ENDE DER GERADE LAUFENDEN
+    BEARBEITUNG dieses Albums (ihr Album war beim Loeschen gerade durch ein
+    anderes Schloss belegt), spaetestens aber bis zum naechsten Start
+    (Nacharbeit 2, #117/#121/#103 — `sync_service._raeume_tote_referenzen_
+    synchron` raeumt sie im `finally` jedes Schloss-Wrappers, unabhaengig
+    davon, wie dieser endet; `ConfigStore._migrate` raeumt beim Start, falls
+    zwischenzeitlich keine dieser Bearbeitungen mehr lief).
     """
     owner_account_missing: bool = False
     too_few_people: bool = False

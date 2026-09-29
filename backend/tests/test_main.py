@@ -501,10 +501,22 @@ def _store_mit_gruppen(tmp_path):
         }
 
     pfad = tmp_path / "accounts.json"
-    pfad.write_text(json.dumps({"accounts": {}, "managed_albums": [
-        album("a1", "Testalbum", "gruppe-1", ["p1", "p2"]),
-        album("a2", "Anders benannt", "gruppe-1", ["p2", "p3"]),
-    ]}), encoding="utf-8")
+    pfad.write_text(json.dumps({
+        # `konto-1` MUSS im Bestand stehen (Nacharbeit 2, #117/#121/#103):
+        # `ConfigStore._migrate` raeumt seit dieser Nacharbeit beim Start
+        # Referenzen auf Konten, die es nicht (mehr) gibt — ohne diesen
+        # Eintrag waeren ALLE `person_refs` unten schon beim Laden verworfen,
+        # obwohl dieser Test gar nicht die Kontoloeschung prueft.
+        "accounts": {"konto-1": {
+            "id": "konto-1", "name": "Konto Eins",
+            "immich_url": "http://konto1.invalid", "api_key": "platzhalter",
+            "color": "#111111", "user_id": "u1",
+        }},
+        "managed_albums": [
+            album("a1", "Testalbum", "gruppe-1", ["p1", "p2"]),
+            album("a2", "Anders benannt", "gruppe-1", ["p2", "p3"]),
+        ],
+    }), encoding="utf-8")
     return ConfigStore(str(pfad))
 
 

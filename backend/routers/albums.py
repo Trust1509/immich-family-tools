@@ -577,12 +577,15 @@ async def list_managed_albums(request: Request):
         # NACHARBEIT 1 (#117/#121/#103): zaehlt nur Referenzen auf LEBENDE
         # Konten. Jeder Schreiber raeumt tote Referenzen inzwischen beim
         # Zurueckschreiben weg (`ConfigStore._ohne_tote_konten`) — aber
-        # zwischen der Loeschung eines Kontos und dem naechsten Schreibvorgang
-        # eines betroffenen Albums (etwa: das Schloss war gerade belegt, siehe
-        # `ConfigStore.delete_account`) kann eine tote Referenz eine Weile
-        # liegen bleiben. Die Markierung zaehlt sie in dieser Zeit NICHT mit
-        # — sonst zeigt „genug Personen", obwohl eine von ihnen ein
-        # geloeschtes Konto ist.
+        # zwischen der Loeschung eines Kontos und dem Ende der gerade
+        # laufenden Bearbeitung eines betroffenen Albums (das Schloss war
+        # gerade belegt, siehe `ConfigStore.delete_account`) kann eine tote
+        # Referenz bis zu diesem Ende liegen bleiben, spaetestens aber bis
+        # zum naechsten Start (Nacharbeit 2: `sync_service._raeume_tote_
+        # referenzen_synchron` im `finally` jedes Schloss-Wrappers;
+        # `ConfigStore._migrate` beim Start). Die Markierung zaehlt sie in
+        # dieser Zeit NICHT mit — sonst zeigt „genug Personen", obwohl eine
+        # von ihnen ein geloeschtes Konto ist.
         lebende_refs = [
             r for r in album.person_refs
             if r.get("account_id") in lebende_konten

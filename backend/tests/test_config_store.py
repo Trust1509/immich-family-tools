@@ -979,7 +979,21 @@ def test_group_details_haelt_gleiche_personen_aus_zwei_konten_auseinander(tmp_pa
     zwei = _album("a2", "Testalbum", ["p1"], group_id="gruppe-1")
     zwei["person_refs"][0]["account_id"] = "konto-2"
     zwei["person_refs"][0]["account_name"] = "Konto Zwei"
-    _write_albums(path, [eins, zwei])
+    # `konto-2` MUSS im Bestand stehen (Nacharbeit 2, #117/#121/#103):
+    # `ConfigStore._migrate` raeumt seit dieser Nacharbeit beim Start
+    # Referenzen auf Konten, die es nicht (mehr) gibt — `LEGACY_ACCOUNTS`
+    # (ueber `_write_albums`) kennt nur `acc-1`/`acc-2`, nicht das hier
+    # zusaetzlich gebrauchte `konto-2`.
+    konten = dict(LEGACY_ACCOUNTS)
+    konten["konto-2"] = {
+        "id": "konto-2", "name": "Konto Zwei",
+        "immich_url": "http://konto2.invalid", "api_key": "platzhalter",
+        "color": "#222222",
+    }
+    path.write_text(
+        json.dumps({"accounts": konten, "managed_albums": [eins, zwei]}, indent=2),
+        encoding="utf-8",
+    )
     store = ConfigStore(str(path))
 
     details = store.group_details("gruppe-1")

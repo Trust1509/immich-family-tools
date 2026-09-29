@@ -100,11 +100,25 @@ async def _share_album_if_needed(
     album_id: str,
     album_name: str,
     accounts_to_share: list[Account],
+    owner_id: Optional[str] = None,
+    store: Optional[ConfigStore] = None,
 ) -> list[SyncLogEntry]:
     """
     Share album with accounts that aren't already members.
     Returns log entries only for accounts that were actually added or failed.
     Silently skips accounts that are already editors.
+
+    `owner_id`/`store` sind OPTIONAL und POSITIONAL, nicht Schluesselwoerter
+    (Nacharbeit 2, #117/#121/#103 WICHTIG 3): `create_shared_album` und
+    `link_existing_album` — beide „nicht anfassen", gehoeren zum Anlageweg
+    eines parallelen Slices — rufen diese Funktion weiterhin mit nur vier
+    Argumenten auf, unveraendert. Nur `_refresh_managed_album_unlocked` und
+    `_extend_match_unlocked` geben beide mit, um NACH dem `await` unten frisch
+    pruefen zu koennen, ob Besitzer und Teilnehmer noch leben — ohne
+    `owner_id`/`store` bleibt diese Funktion beim alten Verhalten (keine
+    Frischpruefung), auch wenn ein bestehender Test sie durch eine Attrappe
+    mit fester Positionsliste ersetzt (`*_args`-Fassungen in
+    `test_sync_service.py`), die keine Schluesselwoerter kennt.
     """
     logs: list[SyncLogEntry] = []
     if not accounts_to_share:
@@ -121,6 +135,23 @@ async def _share_album_if_needed(
             message_key="log_album_members_fetch_failed", message_params={},
         ))
         return logs
+
+    # FRISCH NACH DEM AWAIT (Nacharbeit 2, Gegen N6/N6b): Der obige Aufruf ist
+    # der ERSTE Immich-Aufruf dieser Funktion und kann lange genug dauern,
+    # dass Besitzer oder Teilnehmer waehrenddessen geloescht werden. Ein
+    # geloeschter Besitzer machte den NAECHSTEN Aufrufblock hier
+    # (`share_album_with_users`, mit `owner_client`) sonst zu einem Aufruf mit
+    # dem Schluessel eines zu diesem Zeitpunkt schon toten Kontos — der
+    # bereits laufende Aufruf oben darf zu Ende laufen (er ist es ja schon),
+    # nur der naechste Block wird ausgelassen. Ein geloeschter Teilnehmer wird
+    # nicht mehr geteilt (Nacharbeit-2-Auftrag: „das Teilen mit Nutzern
+    # geloeschter Konten auslassen").
+    if store is not None:
+        if owner_id is not None and store.get_account(owner_id) is None:
+            return logs
+        accounts_to_share = [a for a in accounts_to_share if store.get_account(a.id) is not None]
+        if not accounts_to_share:
+            return logs
 
     # Only add accounts not already in the album
     to_add = [a for a in accounts_to_share if a.user_id and a.user_id not in existing_ids]
@@ -529,23 +560,53 @@ async def _refresh_managed_album_unlocked(
 
     owner_client = ImmichClient(owner.immich_url, owner.api_key)
     participant_ids = {ref["account_id"] for ref in managed.person_refs}
-    # FRISCH GEGENGEPRUEFT, NICHT NUR AUS `all_accounts` GEFILTERT (Nacharbeit
-    # 1 zu #117/#121/#103): `all_accounts` ist derselbe Schnappschuss wie
-    # `account_map` unten — siehe dessen Begruendung. Ein Teilnehmer, der
-    # zwischen dem Bau dieses Schnappschusses und hier geloescht wurde, stuende
-    # sonst weiterhin in `share_accounts` und bekaeme einen echten
-    # `share_album_with_users`-Aufruf spendiert, obwohl sein Konto schon weg
-    # ist. `store.get_account` liest den AKTUELLEN Bestand.
+    # KEINE EIGENE FRISCHPRUEFUNG MEHR HIER (Nacharbeit 2, M10 —
+    # RICHTIGGESTELLT gegenueber Nacharbeit 1): Diese Zeile trug bis hierher
+    # ihr eigenes `store.get_account(account.id) is not None`, mit derselben
+    # Begruendung wie unten am `account_map` — ein Teilnehmer, der zwischen
+    # dem Bau des `all_accounts`-Schnappschusses und hier geloescht wurde,
+    # sollte nicht mehr geteilt werden. Seit Nacharbeit 2 filtert
+    # `_share_album_if_needed` SELBST noch einmal frisch, NACH ihrem eigenen
+    # `get_album_user_ids`-Aufruf (siehe dort, WICHTIG 3) — strikt SPAETER als
+    # diese Stelle hier, deckt also jeden Fall, den die Pruefung hier deckte,
+    # UND das Fenster WAEHREND des Aufrufs selbst. Die Pruefung hier war damit
+    # UNBEWEISBAR geworden: Eine Mutation, die sie entfernt, ueberlebt die
+    # volle Suite unbemerkt, weil die zweite Pruefung jeden Fall ohnehin
+    # abfaengt (`docs/agents/lehren.md` §1, „gruen ohne bewiesen" — gemessen,
+    # Mutation M10). `share_accounts` geht deshalb ungeprueft in
+    # `_share_album_if_needed`; `owner_id`/`store` unten geben ihr die
+    # Moeglichkeit dazu.
     share_accounts = [
         account for account in all_accounts
         if account.id != owner.id and account.id in participant_ids
-        and store.get_account(account.id) is not None
     ]
     logs.extend(
         await _share_album_if_needed(
-            owner_client, managed.album_id, managed.album_name, share_accounts
+            owner_client, managed.album_id, managed.album_name, share_accounts,
+            owner.id, store,
         )
     )
+
+    # FRISCH VOR DEM NAECHSTEN IMMICH-AUFRUFBLOCK (Nacharbeit 2, WICHTIG 3,
+    # Gegen N6): Das Teilen oben war der erste Aufrufblock mit dem
+    # Besitzerschluessel und kann lange genug gedauert haben, dass der
+    # Besitzer waehrenddessen geloescht wurde — `owner_client` truege dann
+    # noch dessen (jetzt ungueltigen) Schluessel in den naechsten Block
+    # hinein. Bereits laufende Aufrufe (das Teilen selbst) laufen zu Ende;
+    # nur DIESER naechste Block wird bei totem Besitzer ausgelassen. Die
+    # bisher gesammelten Protokolleintraege (etwa ein erfolgreiches Teilen)
+    # gehen dabei NICHT verloren — „nichts verschwindet still".
+    owner = store.get_account(owner.id)
+    if not owner:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="refresh_album",
+            details="Owner-Account nicht mehr vorhanden",
+            status="error",
+            message_key="log_owner_account_missing", message_params={},
+        ))
+        return logs
+    owner_client = ImmichClient(owner.immich_url, owner.api_key)
+
     try:
         immich_album_name, existing_asset_ids = await owner_client.get_album_assets_with_name(
             managed.album_id
@@ -702,6 +763,65 @@ def _album_schloss(album_id: str) -> asyncio.Lock:
     )
 
 
+def _raeume_tote_referenzen_synchron(album_id: str, store: ConfigStore) -> None:
+    """Bereinigt tote Kontoreferenzen DIESES Albums, NOCH UNTER DEM SCHLOSS.
+
+    Nacharbeit 2 (#117/#121/#103), BLOCKER: Bis hierher bereinigte ein
+    Halter tote Referenzen nur, wenn ER SELBST erfolgreich bis zum Ende lief
+    und `store.update_managed_album` erreichte (das filtert sie ueber
+    `ConfigStore._ohne_tote_konten`). Ein Halter, der STATTDESSEN scheitert
+    (Immich antwortet mit einem Fehler, das Album ist weg, der Besitzer fehlt,
+    ein `return` vor dem Speichern, ein Abbruch/`CancelledError`), schreibt
+    nie — und liess die tote Referenz seither STEHEN, dauerhaft, auch nach
+    einem Neustart (Blind- und Gegenpruefer, unabhaengig gemessen an
+    `f796140`/`11c0524`: ein Refresh, dessen Immich-Aufruf mit einem Fehler
+    endet, nachdem der Besitzer waehrenddessen geloescht wurde, behielt die
+    tote Referenz bis zum naechsten ERFOLGREICHEN Schreibvorgang dieses
+    Albums — der bei einem dauerhaft verwaisten Album nie kommt).
+
+    Deshalb ruft jeder der drei Schloss-Wrapper (`refresh_managed_album`,
+    `rename_managed_album`, `extend_match`) diese Funktion jetzt aus einem
+    `finally` auf, das den ganzen Rumpf innerhalb von `_album_schloss`
+    umschliesst — bei JEDEM Ausgang: Erfolg, jede Ausnahme (auch
+    `errors.managed_album_not_found()`, wenn `_frisch` `None` liefert),
+    fruehes `return`, Abbruch/`CancelledError`. `finally` laeuft in allen
+    diesen Faellen, auch bei einer Cancellation (Python fuehrt einen
+    `finally`-Block aus, bevor `CancelledError` weiter nach oben propagiert).
+
+    SYNCHRON, KEIN `await` — und das ist die tragende Eigenschaft, nicht nur
+    ein Stilmittel: `store.get_managed_album`/`store.update_managed_album`
+    sind beide synchron (reines Python, kein Netzwerk). Zwischen diesem
+    Aufraeumen und der Freigabe des Schlosses (`async with`s eigenes Ende)
+    liegt deshalb KEIN `await` — kein Zeitfenster, in dem ein weiterer
+    Schreiber dazwischenkommen und mit einer eigenen, jetzt veralteten Kopie
+    ueberschreiben koennte, was hier gerade bereinigt wurde.
+
+    Liest den Datensatz selbst noch einmal frisch (er kann sich seit dem
+    letzten `_frisch`-Aufruf des Wrappers durch den eigenen erfolgreichen
+    Schreibvorgang bereits geaendert haben) und speichert NUR bei
+    tatsaechlicher Aenderung — ein Album, das gerade erst durch
+    `delete_managed_album` verschwunden ist (`store.get_managed_album`
+    liefert dann `None`), wird uebersprungen, kein Fehler.
+    """
+    frisches = store.get_managed_album(album_id)
+    if frisches is None:
+        return
+    vorher = len(frisches.person_refs)
+    # `store.get_account` statt des privaten `ConfigStore._ohne_tote_konten`:
+    # `sync_service` kennt seinen Store nur ueber diese oeffentliche
+    # Schnittstelle (siehe die Doppel in `test_sync_service.py`, die
+    # `ConfigStore` nicht erben und das private Helferlein deshalb nicht
+    # tragen) — `update_managed_album` filtert bei der ECHTEN `ConfigStore`
+    # ohnehin ueber `_ohne_tote_konten` noch einmal nach, diese Zeile ist die
+    # Voraussetzung fuer den VORHER/NACHHER-Vergleich, der entscheidet, ob
+    # hier ueberhaupt gespeichert wird.
+    gefiltert = [r for r in frisches.person_refs if store.get_account(r.get("account_id")) is not None]
+    if len(gefiltert) == vorher:
+        return
+    frisches.person_refs = gefiltert
+    store.update_managed_album(frisches)
+
+
 async def refresh_managed_album(
     managed: ManagedAlbum,
     all_accounts: list[Account],
@@ -732,14 +852,21 @@ async def refresh_managed_album(
     `album.album_name` statt `album.id`, ein Zweig, der IMMER uebersprungen
     wird) — siehe `test_main.py::
     test_auto_sync_unterscheidet_fehlerart_nicht_statuscode`.
+
+    RAEUMT SEIT NACHARBEIT 2 BEI JEDEM AUSGANG AUF (BLOCKER, #117/#121/#103):
+    `finally` ruft `_raeume_tote_referenzen_synchron` — siehe dort fuer die
+    Begruendung, insbesondere warum dort KEIN `await` liegt.
     """
     async with _album_schloss(managed.id):
-        frisches = _frisch(managed, store)
-        if frisches is None:
-            raise errors.managed_album_not_found()
-        return await _refresh_managed_album_unlocked(
-            frisches, all_accounts, store
-        )
+        try:
+            frisches = _frisch(managed, store)
+            if frisches is None:
+                raise errors.managed_album_not_found()
+            return await _refresh_managed_album_unlocked(
+                frisches, all_accounts, store
+            )
+        finally:
+            _raeume_tote_referenzen_synchron(managed.id, store)
 
 
 async def _rename_managed_album_unlocked(
@@ -838,17 +965,25 @@ async def rename_managed_album(
     Bricht mit `errors.owner_account_not_found()` ab, wenn der Besitzer unter
     dem Schloss fehlt — bevor `update_album` gegen Immich laeuft, aus
     demselben Grund wie der `_frisch`-Abbruch oben.
+
+    RAEUMT SEIT NACHARBEIT 2 BEI JEDEM AUSGANG AUF (BLOCKER, #117/#121/#103):
+    siehe `_raeume_tote_referenzen_synchron` — auch wenn `update_album` mit
+    404 scheitert (Album in Immich weg) oder ein anderer Fehler den Rumpf
+    verlaesst, ohne dass `store.update_managed_album` je erreicht wurde.
     """
     async with _album_schloss(managed.id):
-        frisches = _frisch(managed, store)
-        if frisches is None:
-            raise errors.managed_album_not_found()
-        owner_account = store.get_account(frisches.owner_account_id)
-        if not owner_account:
-            raise errors.owner_account_not_found()
-        return await _rename_managed_album_unlocked(
-            frisches, owner_account, new_name, store
-        )
+        try:
+            frisches = _frisch(managed, store)
+            if frisches is None:
+                raise errors.managed_album_not_found()
+            owner_account = store.get_account(frisches.owner_account_id)
+            if not owner_account:
+                raise errors.owner_account_not_found()
+            return await _rename_managed_album_unlocked(
+                frisches, owner_account, new_name, store
+            )
+        finally:
+            _raeume_tote_referenzen_synchron(managed.id, store)
 
 
 async def _extend_match_unlocked(
@@ -893,23 +1028,26 @@ async def _extend_match_unlocked(
         ))
         return logs
 
-    # FRISCH AUS DEM STORE, VOR JEDEM IMMICH-AUFRUFBLOCK FUER `new_account`
-    # (Nacharbeit 1, BLOCKER): Der Aufrufer (`routers/albums.py::extend_match`)
-    # liest `new_account` VOR dem Albumschloss — genau wie er es vor #117
-    # Nachtrag auch fuer den Besitzer tat. Wartet diese Erweiterung hinter
-    # einem laufenden Schreiber am Schloss und wird WAEHREND dieses Wartens
-    # GENAU DIESES Konto geloescht, haette die alte Fassung es trotzdem an
-    # `person_refs` angehaengt und mit seinem (jetzt ungueltigen) Schluessel
-    # bei Immich angerufen (gemessen, Sonde S1: `get_person`,
-    # `get_person_assets`, `add_assets_to_album` NACH dem 204). Diese Pruefung
-    # laeuft VOR dem ersten Immich-Aufruf fuer `new_account` (der
-    # Personen-Validierung unten) — ein zu DIESEM Zeitpunkt schon laufender
-    # Aufruf wird dagegen nicht abgebrochen (siehe die zweite Haelfte des
-    # Blockers unten, `_ohne_tote_konten`, das genau diesen Fall als
-    # Ruecksicherung schliesst: Ein Aufruf, der HIER die Pruefung noch
-    # bestanden hat, aber zwischen Validierung und dem abschliessenden
-    # `store.update_managed_album` gelöscht wird, landet trotzdem nicht
-    # dauerhaft im Bestand).
+    # FRISCH AUS DEM STORE, VOR DEM ERSTEN IMMICH-AUFRUFBLOCK FUER
+    # `new_account` (Nacharbeit 1, BLOCKER; Nacharbeit 2, WICHTIG 3: DIES IST
+    # NUR NOCH DIE ERSTE VON MEHREREN SOLCHEN PRUEFUNGEN — jeder weitere
+    # Aufrufblock mit `new_account`s oder dem Besitzer-Schluessel bekommt
+    # seine EIGENE frische Pruefung, direkt davor; siehe unten). Der Aufrufer
+    # (`routers/albums.py::extend_match`) liest `new_account` VOR dem
+    # Albumschloss — genau wie er es vor #117 Nachtrag auch fuer den
+    # Besitzer tat. Wartet diese Erweiterung hinter einem laufenden
+    # Schreiber am Schloss und wird WAEHREND dieses Wartens GENAU DIESES
+    # Konto geloescht, haette die alte Fassung es trotzdem an `person_refs`
+    # angehaengt und mit seinem (jetzt ungueltigen) Schluessel bei Immich
+    # angerufen (gemessen, Sonde S1: `get_person`, `get_person_assets`,
+    # `add_assets_to_album` NACH dem 204). Diese Pruefung laeuft VOR dem
+    # ersten Immich-Aufruf fuer `new_account` (der Personen-Validierung
+    # unten) — ein zu DIESEM Zeitpunkt schon laufender Aufruf wird dagegen
+    # nicht abgebrochen (siehe die zweite Haelfte des Blockers unten,
+    # `_ohne_tote_konten`, das genau diesen Fall als Ruecksicherung
+    # schliesst: Ein Aufruf, der HIER die Pruefung noch bestanden hat, aber
+    # zwischen Validierung und dem abschliessenden `store.update_managed_album`
+    # gelöscht wird, landet trotzdem nicht dauerhaft im Bestand).
     #
     # KEIN NEUER `message_key`: `frontend/` steht in diesem Slice unter
     # „nicht anfassen" (paralleler Slice) — ein frischer Schluessel bliebe
@@ -957,9 +1095,30 @@ async def _extend_match_unlocked(
             message_params={"account": new_account.name},
         )]
 
-    # 1. Share album with new account
-    share_logs = await _share_album_if_needed(owner_client, managed.album_id, managed.album_name, [new_account])
+    # 1. Share album with new account — `owner_id`/`store` geben
+    # `_share_album_if_needed` die Moeglichkeit, NACH ihrem eigenen
+    # `get_album_user_ids`-Aufruf frisch zu pruefen, ob Besitzer UND
+    # `new_account` noch leben (Nacharbeit 2, WICHTIG 3, siehe dort).
+    share_logs = await _share_album_if_needed(
+        owner_client, managed.album_id, managed.album_name, [new_account],
+        owner.id, store,
+    )
     logs.extend(share_logs)
+
+    # FRISCH VOR BLOCK 2 (Nacharbeit 2, WICHTIG 3 — Besitzer vor jedem
+    # weiteren Aufrufblock): Das Teilen oben ist der erste Aufrufblock mit
+    # dem Besitzerschluessel und kann lange genug gedauert haben, dass der
+    # Besitzer waehrenddessen geloescht wurde.
+    owner = store.get_account(owner.id)
+    if not owner:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details="Owner-Account nicht mehr vorhanden.",
+            status="error",
+            message_key="log_owner_account_missing", message_params={},
+        ))
+        return logs
+    owner_client = ImmichClient(owner.immich_url, owner.api_key)
 
     # 2. Fetch existing asset IDs to avoid duplicates
     try:
@@ -972,6 +1131,26 @@ async def _extend_match_unlocked(
             message_key="log_album_assets_fetch_failed", message_params={},
         ))
         return logs
+
+    # FRISCH VOR BLOCK 3 (Nacharbeit 2, WICHTIG 3/4 — das neue Konto vor
+    # jedem weiteren Aufrufblock): Wird `new_account` erst HIER geloescht
+    # (also nach der Personen-Validierung und dem Teilen oben), meldete die
+    # alte Fassung trotzdem Erfolg und rief `new_client` mit dem jetzt
+    # ungueltigen Schluessel auf (Blind W5, Gegen N5). Derselbe
+    # `log_person_validation_failed`-Schluessel wie beim fruehen
+    # Nichtmehr-Vorhanden-Fall oben — kein neuer Schluessel ohne Frontend.
+    fresh_new_account = store.get_account(new_account.id)
+    if not fresh_new_account:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="extend_match",
+            details=f"Konto '{new_account.name}' ist waehrend der Erweiterung entfernt worden.",
+            status="error", error_message="ACCOUNT_GONE",
+            message_key="log_person_validation_failed",
+            message_params={"account": new_account.name},
+        ))
+        return logs
+    new_account = fresh_new_account
+    new_client = ImmichClient(new_account.immich_url, new_account.api_key)
 
     # 3. Add new person's assets
     try:
@@ -1010,8 +1189,25 @@ async def _extend_match_unlocked(
         ))
         total = len(existing_ids)
 
-    # 4. Optionally rename person
-    if canonical_name:
+    # 4. Optionally rename person — FRISCH DAVOR (Nacharbeit 2, WICHTIG 3/4):
+    # Block 3 kann lange genug gedauert haben, dass `new_account`
+    # waehrenddessen geloescht wird. Ohne diese Pruefung riefe der Rename-Block
+    # `new_client` (jetzt ungueltiger Schluessel) auf und erzeugte
+    # `log_name_synced` mit `undo_data` auf ein bereits geloeschtes Konto —
+    # genau das W5/N5 nicht zulassen sollen. Anders als bei den Bloecken
+    # oben BRICHT dieser Fund die Funktion nicht ab: Block 3 hat mit einem
+    # zu DIESEM Zeitpunkt noch lebenden Konto bereits erfolgreich
+    # geschrieben, das Ergebnis bleibt gueltig — nur die optionale
+    # Umbenennung entfaellt, ehrlich protokolliert statt still verworfen.
+    if canonical_name and store.get_account(new_account.id) is None:
+        logs.append(SyncLogEntry(
+            id=str(uuid.uuid4()), timestamp=_now(), action="sync_names",
+            details=f"Konto '{new_account.name}' ist waehrend der Erweiterung entfernt worden — Umbenennung entfaellt.",
+            status="error", error_message="ACCOUNT_GONE",
+            message_key="log_person_validation_failed",
+            message_params={"account": new_account.name},
+        ))
+    elif canonical_name:
         try:
             previous = await new_client.get_person(person_id)
             previous_name = previous.get("name", "")
@@ -1089,15 +1285,21 @@ async def extend_match(
     oder ein anderer Schluessel als `managed.id`), schliesst sich mit
     Refresh und Umbenennen nicht aus — beide Proben dazu stehen in
     `test_erweitern_schloss.py`.
+
+    RAEUMT SEIT NACHARBEIT 2 BEI JEDEM AUSGANG AUF (BLOCKER, #117/#121/#103):
+    siehe `_raeume_tote_referenzen_synchron`.
     """
     async with _album_schloss(managed.id):
-        frisches = _frisch(managed, store)
-        if frisches is None:
-            raise errors.managed_album_not_found()
-        return await _extend_match_unlocked(
-            frisches, new_account, person_id, person_name,
-            canonical_name, all_accounts, store,
-        )
+        try:
+            frisches = _frisch(managed, store)
+            if frisches is None:
+                raise errors.managed_album_not_found()
+            return await _extend_match_unlocked(
+                frisches, new_account, person_id, person_name,
+                canonical_name, all_accounts, store,
+            )
+        finally:
+            _raeume_tote_referenzen_synchron(managed.id, store)
 
 
 async def undo_sync_name(account: Account, person_id: str, previous_name: str) -> SyncLogEntry:

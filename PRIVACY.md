@@ -40,10 +40,23 @@ These lines are not part of `accounts.json`; they persist according to
 whatever log driver and retention the container runtime is configured with,
 outside this application's control.
 
-Removing an account deletes the account record itself, removes that account's
-entries from every managed album's linked-people list, and clears its face
-thumbnail/embedding caches. It does **not** delete photos, people, albums, or
-users in Immich. Owner decision 2026-09-28 (#99, #112): several other kinds of
+Removing an account deletes the account record itself and clears its face
+thumbnail/embedding caches immediately. Its entries in every managed album's
+linked-people list — including the person's name — follow, but not always in
+the same instant: an album not currently being synced/renamed/extended loses
+the entry right away; an album that IS in the middle of one of those
+operations at that moment keeps it until that operation's own end (win or
+lose — it is removed regardless of whether that operation itself succeeds),
+because a concurrent write to the same album record would otherwise be able
+to overwrite the removal with a stale copy of its own; and if the process is
+killed before that end is ever reached (crash, forced restart), the entry is
+removed at the very latest the next time the application starts
+(`backend/services/config_store.py`, `_migrate`). None of this delay is
+observable through the affected album's own actions in the meantime — a sync
+or rename in progress at the moment of removal still completes normally, it
+only carries the stale entry for the remainder of its own run. This does
+**not** delete photos, people, albums, or users in Immich. Owner decision
+2026-09-28 (#99, #112): several other kinds of
 local data about that account deliberately survive the removal instead of
 disappearing silently. One of the three below now has a precise removal path,
 but **only for orphaned albums specifically, not for managed albums in
@@ -94,10 +107,29 @@ copies it into `accounts.json.bak` before writing the now-empty log to
 `accounts.json` itself. The old log stays readable in `.bak` until the _next_
 write to `accounts.json` (any write, not only another log change) overwrites
 the backup with a newer snapshot. The same mechanism applies to
-`delete_account()`: it removes the account from the in-memory data and then
-calls `_save()` once, so the pre-delete on-disk state — including the removed
-account's API key — is what lands in `accounts.json.bak`, and it stays there
-until the next save. `accounts.json.bak` is written with the same restrictive
+`delete_account()`, but **not with a single `_save()` call** — that was true
+before 2026-09-29 and is corrected here (#117/#121/#103): removing the
+account row is one `_save()`; each managed album whose lock is free at that
+moment and therefore gets its dead references cleaned up in the same request
+is a **further** `_save()` of its own (measured: three total for two
+affected, unlocked albums — one for the account row, one per album). Since
+each `_save()` re-copies whatever is _currently_ on disk into
+`accounts.json.bak` before writing, and the account row is always removed
+**first**, `accounts.json.bak` after such a deletion holds an on-disk state
+from which the account row is **already gone** — measured directly: the
+removed account's API key was **not** present in `.bak` afterwards, contrary
+to what this paragraph used to claim. What can still be in `.bak` is a
+managed album's now-stale reference to the removed account — including that
+account's person name — if a further album's own cleanup save happened
+_after_ the save that produced the currently-readable `.bak` (measured: with
+two affected albums, `.bak` still carried the removed account's person name,
+because it captured the state after the first album's cleanup but before the
+second's). An album whose lock was **not** free at deletion time is not
+cleaned up by this call at all (see the paragraph above) and its stale
+reference can persist across many further saves until that lock's holder
+finishes or the application restarts — `.bak` reflects whichever on-disk
+state preceded the _last_ save this particular `DELETE` triggered, not
+necessarily the very first one. `accounts.json.bak` is written with the same restrictive
 permissions as the primary file, but it is a second file on disk carrying the
 same secrets. **Its lifetime is bounded by the _next save_, not by elapsed
 time — calling it "short" would be wrong.** A dormant instance (auto-sync
