@@ -311,15 +311,19 @@ nicht):\*\*
   Blob trägt CRLF oder gemischte Zeilenenden (`git ls-files --eol`). Er
   fragt Attribute und Index ab, nicht den Arbeitsbaum, weil der
   Linux-Läufer ohnehin LF auscheckt und einen Rückbau sonst nie sähe.
-  Absichtlich CRLF tragende Dateien stehen mit Pfad in `AUSNAHMEN` im
-  Skript (heute keine). Die Selbstprobe baut die gemessenen Rückbau-Varianten
-  nach (Regel gelöscht, `*.md -eol`, `*.md !eol`, `*.md eol`, `*.md eol=LF`,
-  `*.MD eol=crlf`, verschachtelte `.gitattributes` mit `eol=crlf`, CRLF- und
-  gemischter Blob, Aufruf aus einem Unterverzeichnis) und die Mutanten des
-  Wächters, die das Panel an einer früheren Fassung vorbeibrachte. Bekannte
-  Grenzen stehen im Kopf des Wächters. Ein Push, der nur `.md`-Dateien
-  ändert, löst wegen `paths-ignore` keinen Lauf aus — ein CRLF-Blob in einer
-  `.md` fällt dann erst beim nächsten Code-Push auf.
+  Absichtlich CRLF tragende Dateien stehen zeilenweise mit Pfad UND
+  erlaubtem Wert (z. B. `crlf`) in `scripts/zeilenenden-ausnahmen.txt`
+  (heute keine) — exakter Pfadvergleich, kein Glob; ein Pfad, der dort
+  nicht mehr versioniert ist, ist selbst ein Befund. Die Selbstprobe baut
+  die gemessenen Rückbau-Varianten nach (Regel gelöscht, `*.md -eol`, `*.md
+!eol`, `*.md eol`, `*.md eol=LF`, `*.MD eol=crlf`, verschachtelte
+  `.gitattributes` mit `eol=crlf`, CRLF- und gemischter Blob, Aufruf aus
+  einem Unterverzeichnis) und die Mutanten des Wächters, die das Panel an
+  früheren Fassungen vorbeibrachte (u. a. die Ausnahmeliste als Glob, eine
+  gekürzte Prüfliste vor `check-attr`, ein Vergleich ohne Anker am
+  Zeilenende). Bekannte Grenzen stehen im Kopf des Wächters. Ein Push, der
+  nur `.md`-Dateien ändert, löst wegen `paths-ignore` keinen Lauf aus — ein
+  CRLF-Blob in einer `.md` fällt dann erst beim nächsten Code-Push auf.
 - Backend: `python scripts/faltung-sonde-selbsttest.py` — die Selbstprobe der
   Faltungs-Sonde (#83). Hier aus demselben Grund wie die beiden darüber, nur
   schärfer: Die Sonde trägt eine Owner-Entscheidung über eine **unumkehrbare**

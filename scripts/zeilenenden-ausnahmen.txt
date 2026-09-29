@@ -1,0 +1,14 @@
+# Ausnahmen fuer scripts/zeilenenden.sh (#104, #118).
+#
+# Eine Zeile je Ausnahme: <Pfad><TAB><erlaubter Wert>. Der Pfad ist exakt und
+# wortwoertlich (kein Glob, kein Praefix- oder Muster-Vergleich) -- er kommt
+# aus der Fund-Zeile des Waechters (der Teil vor ": eol:") oder aus Feld 2 von
+# `git ls-files --eol`. Der Wert ist der Wert, den `git check-attr` bzw.
+# `git ls-files --eol` fuer GENAU diesen Pfad melden soll (z. B. `crlf`) --
+# nicht "alles ausser lf": ein anderer Wert oder ein anderer Pfad bleibt ein
+# Befund. Ein eingetragener Pfad, der nicht mehr versioniert ist, gilt selbst
+# als Befund (veraltete Ausnahme).
+#
+# Leere Zeilen und Zeilen, die mit `#` beginnen, werden uebersprungen.
+#
+# Heute: keine Ausnahmen.
