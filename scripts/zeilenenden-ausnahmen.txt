@@ -18,8 +18,11 @@
 # Befund), ein drittes Feld oder ein leerer Pfad.
 #
 # Leere Zeilen und Zeilen, die mit `#` beginnen, werden uebersprungen. Ein
-# Byte-Order-Mark vor dem allerersten Eintrag wird abgestreift, ein
-# abschliessendes `\r` je Zeile ebenso (eine mit CRLF gespeicherte Datei
-# griffe sonst unter Git-Bash anders als unter Linux).
+# Byte-Order-Mark in der ERSTEN ZEILE DER DATEI wird abgestreift (auch wenn
+# diese Zeile ein Kommentar ist, wie hier), ein abschliessendes `\r` je
+# Zeile ebenso (eine mit CRLF gespeicherte Datei griffe sonst unter Git-Bash
+# anders als unter Linux). Ein zusaetzliches CR mitten in einer Zeile, eine
+# Zeile ganz ohne TAB und eine Datei, die zwar existiert, aber nicht lesbar
+# ist, sind selbst ein Befund.
 #
 # Heute: keine Ausnahmen.

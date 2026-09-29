@@ -41,6 +41,16 @@ export GIT_CEILING_DIRECTORIES
 BESTANDEN=0
 FEHLGESCHLAGEN=0
 UEBERSPRUNGEN=0
+# Eigener Zaehler fuer Faelle, die eine git-MINDESTVERSION brauchen (Fall 41)
+# -- getrennt von UEBERSPRUNGEN, damit die "UEBERSPRUNGEN=0 ausserhalb von
+# Windows"-Regel am Fussende unberuehrt bleibt (die ist ein Windows-Thema,
+# keins der git-Version).
+UEBERSPRUNGEN_VERSION=0
+# Eigener Zaehler fuer Faelle, die eine BERECHTIGUNGSGRENZE brauchen (Fall
+# 73) -- getrennt von UEBERSPRUNGEN, aus demselben Grund wie oben: weder
+# Windows/NTFS (Eigentuemer) noch root (jedes System) sind ein Fall der
+# "UEBERSPRUNGEN=0 ausserhalb von Windows"-Regel.
+UEBERSPRUNGEN_BERECHTIGUNG=0
 
 # Ein Wegwerf-Repo mit der echten .gitattributes, einer .md-, einer .ts-
 # und einer Datei ohne Endung — alles LF, alles eingecheckt.
@@ -243,6 +253,124 @@ EOS
   chmod +x "$d/git"
 }
 
+# Wie oben, aber fuer die WINDOWS-Variante (core.ignorecase=true) -- Fall 43
+# oben deckt nur die Linux-Seite; die Windows-Seite hatte denselben Mutanten
+# (`2>&1` statt eigener Umlenkung, #118 Nacharbeit 2).
+git_shim_stderr_warnung_win() {
+  d=$1
+  mkdir -p "$d"
+  echt=$(command -v git)
+  cat > "$d/git" <<EOS
+#!/bin/sh
+alle="\$*"
+if printf '%s' "\$alle" | grep -q 'check-attr' && printf '%s' "\$alle" | grep -q 'core.ignorecase=true'; then
+  echo "warning: simulierte Attrappen-Warnung (windows)" >&2
+fi
+exec "$echt" "\$@"
+EOS
+  chmod +x "$d/git"
+}
+
+# Baut in Verzeichnis $1 einen git-Ersatz, der `check-attr --stdin eol` fuer
+# die Variante $2 ("linux" = ignorecase=false, "windows" = ignorecase=true,
+# "beide") deterministisch scheitern laesst (Meldung $3 auf stderr, Exit
+# 129 -- ein erfundener, git-untypischer Code, damit er nicht zufaellig mit
+# einem echten git-Exit-Code verwechselt wird). Deterministisch statt eines
+# echten, git-versionsabhaengigen Fehlers (siehe Fall 41/`GIT_ATTR_SOURCE`):
+# das hier gilt unveraendert unter jeder Git-Version.
+git_shim_attr_schlaegt_fehl() {
+  d=$1; modus=$2; meldung=$3
+  mkdir -p "$d"
+  echt=$(command -v git)
+  cat > "$d/git" <<EOS
+#!/bin/sh
+alle="\$*"
+scheitern=false
+if printf '%s' "\$alle" | grep -q 'check-attr'; then
+  if printf '%s' "\$alle" | grep -q 'core.ignorecase=false'; then
+    case "$modus" in linux|beide) scheitern=true ;; esac
+  fi
+  if printf '%s' "\$alle" | grep -q 'core.ignorecase=true'; then
+    case "$modus" in windows|beide) scheitern=true ;; esac
+  fi
+fi
+if [ "\$scheitern" = true ]; then
+  cat >/dev/null
+  echo "$meldung" >&2
+  exit 129
+fi
+exec "$echt" "\$@"
+EOS
+  chmod +x "$d/git"
+}
+
+# Baut in Verzeichnis $1 einen git-Ersatz, der NUR `ls-files --eol`
+# deterministisch scheitern laesst (Meldung $2, Exit 129) -- plain `ls-files`
+# bleibt unangetastet, damit dieser Fall den Dateizaehler noch erreicht
+# (anders als Fall 42, das plain `ls-files` selbst scheitern laesst).
+git_shim_lsfiles_eol_schlaegt_fehl() {
+  d=$1; meldung=$2
+  mkdir -p "$d"
+  echt=$(command -v git)
+  cat > "$d/git" <<EOS
+#!/bin/sh
+# Der Waechter ruft \`git\` ueber eine eigene Funktion auf, die immer
+# \`-c core.quotePath=true\` voranstellt -- diese Attrappe muss das
+# ueberspringen, um an das eigentliche Unterkommando zu kommen.
+alle="\$*"
+case " \$alle " in
+  *' ls-files --eol'*)
+    echo "$meldung" >&2
+    exit 129
+    ;;
+esac
+exec "$echt" "\$@"
+EOS
+  chmod +x "$d/git"
+}
+
+# Baut in Verzeichnis $1 einen git-Ersatz, der bei `check-attr --stdin eol`
+# (beide Varianten) genau EINE erfundene Zeile zusaetzlich ausgibt -- eine
+# VERLAENGERTE statt einer gekuerzten Pruefliste. Faengt einen Mutanten, der
+# den Zeilenzahl-Abgleich von `-ne` auf `-lt` aendert (nur "zu wenig" waere
+# dann noch ein Befund, "zu viel" nicht mehr; gemessen zu #118 Nacharbeit 2,
+# Gegenpruefer-N08).
+git_shim_verlaengert_attr() {
+  d=$1
+  mkdir -p "$d"
+  echt=$(command -v git)
+  cat > "$d/git" <<EOS
+#!/bin/sh
+alle="\$*"
+if printf '%s' "\$alle" | grep -q 'check-attr'; then
+  "$echt" "\$@"
+  echo "erfunden.txt: eol: lf"
+else
+  exec "$echt" "\$@"
+fi
+EOS
+  chmod +x "$d/git"
+}
+
+# Wie oben, aber fuer `ls-files --eol` -- dieselbe VERLAENGERTE-statt-
+# gekuerzte Pruefliste, auf der Index-Seite.
+git_shim_verlaengert_eol() {
+  d=$1
+  mkdir -p "$d"
+  echt=$(command -v git)
+  cat > "$d/git" <<EOS
+#!/bin/sh
+case " \$* " in
+  *' ls-files --eol'*)
+    "$echt" "\$@"
+    printf 'i/lf\terfunden.txt\n'
+    ;;
+  *) exec "$echt" "\$@" ;;
+esac
+EOS
+  chmod +x "$d/git"
+}
+
 # 1. Sauberer Stand: kein Befund.
 r=$(neues_repo sauber)
 erwarte "1 sauber" 0 "$r"
@@ -428,10 +556,17 @@ repo_gross() {
   echo "$r"
 }
 r=$(repo_gross)
-erwarte "19 Befund hinter vielen sauberen Dateien, in docs/" 1 "$r"
+# Text-Pruefung, nicht nur Exit-Code: Ein Mutant, der die Pruefliste vor
+# `check-attr` auf eine feste Laenge kuerzt (z. B. `head -n 30`), faengt
+# genau DIESEN Befund (Position 41 von 41) gar nicht mehr, wird aber ueber
+# die Zeilenzahl-Probe trotzdem mit Exit 1 "gefangen" -- fuer den FALSCHEN
+# Grund (gemessen zu #118 Nacharbeit 2, Gegenpruefer-G8/B20: auf zwei von
+# drei gemessenen Plattformen ueberlebte dieser Mutant die ganze Selbstprobe
+# unbemerkt, weil kein Fall bisher die tatsaechliche Fundzeile verlangte).
+erwarte_text "19 Befund hinter vielen sauberen Dateien, in docs/" 1 "$r" "docs/befund.md: eol: crlf"
 
 # ---------------------------------------------------------------------------
-# Nacharbeit 1 zu #118: die zwoelf Luecken aus dem Bau-Brief (Faelle 20-50).
+# Nacharbeit 1 zu #118: die Luecken aus dem Bau-Brief (Faelle 20-53).
 # Jeder Fall nennt den Mutanten, den er faengt (Gegenpruefer M<n>, Blindpruefer
 # M0<n>) oder, wo es keinen benannten Mutanten gibt, den Meldungs-/Format-Fehler
 # aus dem Befund.
@@ -619,7 +754,7 @@ erwarte_text "36 CRLF-Blob im Index unter frontend/src/" 1 "$r" "eigene.txt"
 #     auch M7/M01 (die Probe ganz entfernen).
 r=$(neues_repo shim_windows_kuerzung)
 git_shim_kuerzt_attr "$TMP/shim37" windows
-erwarte_text "37 Windows-Haelfte der check-attr-Pruefliste gekuerzt" 1 "$r" "gekuerzte Pruefliste" "" "$TMP/shim37"
+erwarte_text "37 Windows-Haelfte der check-attr-Pruefliste gekuerzt" 1 "$r" "unpassende Pruefliste" "" "$TMP/shim37"
 
 # 38. BEIDE Haelften um dieselbe Zeile gekuerzt -- ein Mutant, der die
 #     Dateizahl durch den (dann ebenso verkuerzten) Linux-Wert ERSETZT
@@ -660,27 +795,105 @@ erwarte_text "40 ls-files --eol Pruefliste gekuerzt" 1 "$r" "ls-files --eol hat"
 
 # 41. `check-attr` kann selbst fehlschlagen (z. B. eine ungueltige
 #     GIT_ATTR_SOURCE) -- eigene Meldung statt eines rohen Git-Fehlers.
-r=$(neues_repo attr_source_fehler)
-if ausgabe=$(cd "$r" && GIT_ATTR_SOURCE=gibtsnicht sh "$WAECHTER" 2>&1); then ist=0; else ist=$?; fi
-if [ "$ist" = 1 ] && printf '%s\n' "$ausgabe" | grep -Fq -- "check-attr"; then
-  BESTANDEN=$((BESTANDEN + 1))
-else
-  FEHLGESCHLAGEN=$((FEHLGESCHLAGEN + 1))
-  echo "FEHLGESCHLAGEN: 41 GIT_ATTR_SOURCE=gibtsnicht — erwartet Exit 1 mit 'check-attr' in der Meldung, bekam Exit $ist: $ausgabe"
+#     GIT_ATTR_SOURCE gibt es erst ab git 2.40 -- unter einer aelteren
+#     Version kennt git die Variable nicht und dieser Fall wuerde dort ohne
+#     jeden Zusammenhang mit dem Waechter rot (nicht UEBERSPRUNGEN, ein
+#     EIGENER Zaehler: die "UEBERSPRUNGEN=0 ausserhalb von Windows"-Regel am
+#     Fussende gilt nur fuer Fall 14/53, git-Versionen sind kein
+#     Windows-Thema; gemessen zu #118 Nacharbeit 2).
+git_version_roh=$(git --version 2>/dev/null | sed 's/^git version //')
+git_version_major=$(printf '%s' "$git_version_roh" | cut -d. -f1)
+git_version_minor=$(printf '%s' "$git_version_roh" | cut -d. -f2)
+git_genuegt_2_40=true
+case "$git_version_major" in ''|*[!0-9]*) git_genuegt_2_40=false ;; esac
+case "$git_version_minor" in ''|*[!0-9]*) git_genuegt_2_40=false ;; esac
+if [ "$git_genuegt_2_40" = true ]; then
+  if [ "$git_version_major" -lt 2 ]; then
+    git_genuegt_2_40=false
+  elif [ "$git_version_major" -eq 2 ] && [ "$git_version_minor" -lt 40 ]; then
+    git_genuegt_2_40=false
+  fi
 fi
+if [ "$git_genuegt_2_40" = true ]; then
+  r=$(neues_repo attr_source_fehler)
+  if ausgabe=$(cd "$r" && GIT_ATTR_SOURCE=gibtsnicht sh "$WAECHTER" 2>&1); then ist=0; else ist=$?; fi
+  fehler=""
+  [ "$ist" = 1 ] || fehler="erwartet Exit 1, bekam $ist"
+  if [ -z "$fehler" ] && ! printf '%s\n' "$ausgabe" | grep -Fq -- "check-attr"; then
+    fehler="Meldung enthaelt nicht 'check-attr'"
+  fi
+  # Darf NICHT ueber die generische Zeilenzahl-Meldung "gefangen" werden
+  # (Gegenpruefer-B02: der Fehlerzweig selbst wird per `|| true` entfernt,
+  # der Ausfall faellt dann zufaellig ueber den Zeilenzahl-Abgleich auf --
+  # mit der FALSCHEN Meldung, aber demselben Exit-Code).
+  if [ -z "$fehler" ] && printf '%s\n' "$ausgabe" | grep -Fq -- "unpassende Pruefliste"; then
+    fehler="Meldung ist die generische Zeilenzahl-Meldung, nicht die echte check-attr-Fehlermeldung"
+  fi
+  if [ -z "$fehler" ]; then
+    BESTANDEN=$((BESTANDEN + 1))
+  else
+    FEHLGESCHLAGEN=$((FEHLGESCHLAGEN + 1))
+    echo "FEHLGESCHLAGEN: 41 GIT_ATTR_SOURCE=gibtsnicht — $fehler (Exit $ist): $ausgabe"
+  fi
+else
+  UEBERSPRUNGEN_VERSION=$((UEBERSPRUNGEN_VERSION + 1))
+  echo "UEBERSPRUNGEN (git $git_version_roh < 2.40, kennt GIT_ATTR_SOURCE nicht): 41 GIT_ATTR_SOURCE=gibtsnicht"
+fi
+
+# 41b/41c. Deterministische, git-versionsunabhaengige Gegenstuecke zu Fall 41:
+#     `check-attr` scheitert je Variante ueber eine Attrappe, nicht ueber
+#     eine echte, versionsabhaengige git-Fehlbedienung. Faengt Blindpruefer-
+#     M03/M07/M10 (Windows-Variante meldet faelschlich Exit 0, die
+#     Fehlermeldung verliert ihren Meldungstext, oder der Exit-Code wird zu
+#     2 statt 1) sowie Gegenpruefer-N04/B02 zuverlaessig auf jeder Plattform.
+r=$(neues_repo attr_linux_shim_fehler)
+git_shim_attr_schlaegt_fehl "$TMP/shim41b" linux "fatal: simulierter check-attr-Fehler (linux)"
+erwarte_text "41b check-attr (ignorecase=false) scheitert deterministisch" 1 "$r" \
+  "check-attr (ignorecase=false) fehlgeschlagen: fatal: simulierter check-attr-Fehler (linux)" \
+  "unpassende Pruefliste" "$TMP/shim41b"
+
+r=$(neues_repo attr_windows_shim_fehler)
+git_shim_attr_schlaegt_fehl "$TMP/shim41c" windows "fatal: simulierter check-attr-Fehler (windows)"
+erwarte_text "41c check-attr (ignorecase=true) scheitert deterministisch" 1 "$r" \
+  "check-attr (ignorecase=true) fehlgeschlagen: fatal: simulierter check-attr-Fehler (windows)" \
+  "unpassende Pruefliste" "$TMP/shim41c"
+
+# 41d. `git ls-files --eol` scheitert deterministisch (Exit 2, nicht Gits
+#     eigener Code, nicht Exit 0/1) -- faengt Blindpruefer-M02/M09 und
+#     Gegenpruefer-N01 (Exit 2 der Eol-Fehlerbehandlung auf 0 bzw. 1
+#     geaendert). Anders als Fall 42 (plain `ls-files` scheitert) betrifft
+#     das NUR `ls-files --eol`, die Dateiliste selbst bleibt intakt.
+r=$(neues_repo eol_shim_fehler)
+git_shim_lsfiles_eol_schlaegt_fehl "$TMP/shim41d" "fatal: simulierter ls-files---eol-Fehler"
+erwarte_text "41d git ls-files --eol scheitert deterministisch (Exit 2)" 2 "$r" \
+  "ls-files --eol fehlgeschlagen: fatal: simulierter ls-files---eol-Fehler" "" "$TMP/shim41d"
 
 # 42. `git ls-files` schlaegt fehl (kaputtes Git) -- Exit 2, nicht Gits
 #     eigener Exit-Code (meist 128); der Kopf verspricht nur 0/1/2.
 r=$(neues_repo lsfiles_fehler)
 git_shim_schlaegt_fehl "$TMP/shim42" ls-files "fatal: simulierter ls-files-Fehler"
-erwarte_text "42 git ls-files fehlgeschlagen (Exit 2, nicht 128)" 2 "$r" "ls-files fehlgeschlagen" "" "$TMP/shim42"
+# Der genaue stderr-Inhalt MUSS in der Meldung stehen, nicht nur die
+# statische Umrahmung "ls-files fehlgeschlagen" -- sonst faengt dieser Fall
+# einen Mutanten nicht, der `$(cat "$ls_files_warnung")` aus der Meldung
+# entfernt (gemessen zu #118 Nacharbeit 2, Blindpruefer-M06).
+erwarte_text "42 git ls-files fehlgeschlagen (Exit 2, nicht 128)" 2 "$r" "ls-files fehlgeschlagen: fatal: simulierter ls-files-Fehler" "" "$TMP/shim42"
 
 # 43. Eine blosse Git-WARNUNG auf stderr bei `check-attr` darf nicht in die
 #     Pruefliste gelangen (kein `2>&1`) -- ein sauberes Repo bleibt trotz
-#     Warnung gruen.
+#     Warnung gruen. Selbstkontrolle zuerst: Ohne den Nachweis, dass die
+#     Attrappe die Warnung UEBERHAUPT erzeugt, entschaerft sich dieser Fall
+#     selbst (ein Mutant, der die PATH-Attrappe unwirksam macht, saehe genau
+#     gleich aus wie ein Erfolg -- gemessen zu #118 Nacharbeit 2,
+#     Gegenpruefer-N34: die Warnung kam in der alten Fassung nie nachweislich
+#     an).
 r=$(neues_repo attr_stderr_warnung)
 git_shim_stderr_warnung "$TMP/shim43"
-erwarte_text "43 Git-Warnung auf stderr bei check-attr bleibt aussen vor" 0 "$r" "" "simulierte Attrappen-Warnung" "$TMP/shim43"
+if ! (PATH="$TMP/shim43:$PATH" command git -c core.ignorecase=false check-attr --stdin eol </dev/null 2>&1 >/dev/null | grep -Fq -- "simulierte Attrappen-Warnung"); then
+  FEHLGESCHLAGEN=$((FEHLGESCHLAGEN + 1))
+  echo "FEHLGESCHLAGEN: 43-Selbstkontrolle — die Attrappe erzeugt die Warnung nicht, der Fall wuerde nichts pruefen"
+else
+  erwarte_text "43 Git-Warnung auf stderr bei check-attr bleibt aussen vor" 0 "$r" "" "simulierte Attrappen-Warnung" "$TMP/shim43"
+fi
 
 # 44. Eine LEERE, aber erfolgreiche (Exit 0) `check-attr`-Antwort ist ein
 #     Befund mit klarer Meldung -- kein stiller Abbruch mitten im Skript
@@ -688,7 +901,7 @@ erwarte_text "43 Git-Warnung auf stderr bei check-attr bleibt aussen vor" 0 "$r"
 #     bisher den ganzen Waechter ohne jede Ausgabe ab).
 r=$(neues_repo attr_leere_antwort)
 git_shim_leere_attr_antwort "$TMP/shim44"
-erwarte_text "44 leere check-attr-Antwort mit Exit 0 (kein stiller Abbruch)" 1 "$r" "gekuerzte Pruefliste" "" "$TMP/shim44"
+erwarte_text "44 leere check-attr-Antwort mit Exit 0 (kein stiller Abbruch)" 1 "$r" "unpassende Pruefliste" "" "$TMP/shim44"
 
 # 45. Ein doppelter Eintrag (derselbe Pfad zweimal) ist selbst ein Befund
 #     mit klarer Meldung -- vorher gewann der erste Eintrag still.
@@ -788,6 +1001,225 @@ else
   echo "UEBERSPRUNGEN: 53 Pfad mit ':' (auf diesem System nicht anlegbar)"
 fi
 
+# ---------------------------------------------------------------------------
+# Nacharbeit 2 zu #118: die Luecken aus dem Bau-Brief (Faelle 54-73).
+# ---------------------------------------------------------------------------
+
+# 54/55. `core.quotePath=true` wird vom Waechter ERZWUNGEN, unabhaengig vom
+#     lokalen Wert (hier bewusst auf false gesetzt) -- ein Pfad mit
+#     Sonderzeichen (Umlaut) erscheint dann in Gits C-Quoting, und nur eine
+#     Ausnahme in GENAU dieser quotierten Form greift; die rohe UTF-8-Form
+#     greift NICHT. Faengt Blindpruefer-M01, Gegenpruefer-N06/N07.
+r=$(neues_repo umlaut_quotepath)
+git -C "$r" config core.quotePath false
+printf '*.bat text eol=crlf\n' >> "$r/.gitattributes"
+umlaut_datei=$(printf 't\303\244.bat')
+printf 'echo\n' > "$r/$umlaut_datei"
+git -C "$r" add -A
+mkdir -p "$r/scripts"
+printf '"t\\303\\244.bat"\tcrlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte "54 Umlaut-Pfad, Ausnahme in C-Quoting-Form greift (core.quotePath lokal false)" 0 "$r"
+
+printf '%s\tcrlf\n' "$umlaut_datei" > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte "55 Umlaut-Pfad, Ausnahme in roher UTF-8-Form greift NICHT" 1 "$r"
+
+# 56/57. Der erlaubte WERT wird exakt und case-sensitiv verglichen -- eine
+#     Ausnahme fuer 'crlf' deckt weder 'CRLF' (Grossbuchstaben) noch 'unset'
+#     (`-eol`). Faengt Blindpruefer-M05/M25 (Wert-Vergleich wird zu einem
+#     Joker fuer die woertliche Zeichenkette "crlf" bzw. case-insensitiv).
+r=$(neues_repo wert_grossbuchstaben_ausnahme)
+printf '*.md eol=CRLF\n' >> "$r/.gitattributes"
+mkdir -p "$r/scripts"
+printf 'README.md\tcrlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "56 Wert 'CRLF' (Grossbuchstaben) mit Ausnahme-Wert 'crlf' bleibt Befund" 1 "$r" "README.md: eol: CRLF"
+
+r=$(neues_repo wert_unset_ausnahme)
+printf '*.md -eol\n' >> "$r/.gitattributes"
+mkdir -p "$r/scripts"
+printf 'README.md\tcrlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "57 Wert 'unset' (-eol) mit Ausnahme-Wert 'crlf' bleibt Befund" 1 "$r" "README.md: eol: unset"
+
+# 58/59. Ein Pfad-Ausschluss bei `git ls-files`/`ls-files --eol` (z. B.
+#     ':!*.sh' oder ':!.*') nimmt eine Datei aus Pruefliste UND Dateizahl
+#     zugleich -- eine Zeilenzahl-Probe sieht das nicht. Faengt
+#     Blindpruefer-M04 (Ausschluss von *.sh/*.py) und M22 (Ausschluss von
+#     Punkt-Pfaden).
+r=$(neues_repo pfad_xsh)
+printf 'x.sh eol=crlf\n' >> "$r/.gitattributes"
+printf 'echo\n' > "$r/x.sh"
+git -C "$r" add -A
+erwarte_text "58 Befund unter x.sh (Pfad-Ausschluss *.sh)" 1 "$r" "x.sh: eol: crlf"
+
+r=$(neues_repo pfad_punktverzeichnis)
+mkdir -p "$r/.husky"
+printf '.husky/pre-commit eol=crlf\n' >> "$r/.gitattributes"
+printf 'echo\n' > "$r/.husky/pre-commit"
+git -C "$r" add -A
+erwarte_text "59 Befund unter .husky/ (Pfad-Ausschluss Punkt-Pfade)" 1 "$r" "pre-commit: eol: crlf"
+
+# 60/61. `-ne`, nicht `-lt`: eine VERLAENGERTE Pruefliste (eine erfundene
+#     Zusatzzeile) ist ebenso ein Befund wie eine gekuerzte. Faengt
+#     Gegenpruefer-N08 (Zeilenzahl-Abgleich von `-ne` auf `-lt` geaendert --
+#     "zu wenig" bleibt dann ein Befund, "zu viel" nicht mehr).
+r=$(neues_repo verlaengerte_pruefliste_attr)
+git_shim_verlaengert_attr "$TMP/shim60"
+erwarte_text "60 check-attr liefert eine Zeile zu viel (verlaengerte Pruefliste, N08)" 1 "$r" "unpassende Pruefliste" "" "$TMP/shim60"
+
+r=$(neues_repo verlaengerte_pruefliste_eol)
+git_shim_verlaengert_eol "$TMP/shim61"
+erwarte_text "61 ls-files --eol liefert eine Zeile zu viel (verlaengerte Pruefliste, N08)" 1 "$r" "unpassende Pruefliste" "" "$TMP/shim61"
+
+# 62. Die veraltete-Ausnahme-Pruefung nutzt `grep -Fxq -- "$pfad"` MIT dem
+#     Trenner `--`: ein Ausnahme-Pfad, der selbst wie eine grep-Option
+#     aussieht (`-eREADME.md`), darf `grep` nicht dazu bringen, ihn als
+#     Option statt als Suchtext zu lesen (das wuerde faelschlich "README.md"
+#     im echten Dateibestand treffen und die veraltete Ausnahme verstecken).
+#     Faengt Gegenpruefer-B21 (`--` entfernt).
+r=$(neues_repo veraltet_dash_e_pfad)
+mkdir -p "$r/scripts"
+dash_e_pfad='-eREADME.md'
+printf '%s\tlf\n' "$dash_e_pfad" > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "62 veraltete Ausnahme mit Pfad '-eREADME.md' (grep ohne --)" 1 "$r" "veraltete Ausnahme"
+
+# 63. Auf der INDEX-Seite wird der Pfad per `cut -f2` (TAB-getrennt) statt
+#     `awk '{print $NF}'` (leerzeichen-getrennt) gelesen -- ein Pfad MIT
+#     Leerzeichen muss vollstaendig ankommen, nicht nur sein letztes Wort.
+#     Faengt Gegenpruefer-N24.
+r=$(neues_repo index_leerzeichen_ausnahme)
+printf 'x\n' > "$r/a b.txt"
+blob_in_index "$r" 'a b.txt' 'x\r\n'
+mkdir -p "$r/scripts"
+printf 'a b.txt\tcrlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte "63 Index-Pfad mit Leerzeichen, Ausnahme greift (cut -f2, nicht awk NF)" 0 "$r"
+
+# 64. Dieselbe Trennung von STDOUT/STDERR wie bei Fall 43, aber fuer die
+#     WINDOWS-Variante (core.ignorecase=true) -- Fall 43 deckt nur Linux.
+#     Faengt Blindpruefer-M08, Gegenpruefer-N27 (`2>&1` statt eigener
+#     Umlenkung fuer die Windows-Variante).
+r=$(neues_repo attr_stderr_warnung_windows)
+git_shim_stderr_warnung_win "$TMP/shim64"
+if ! (PATH="$TMP/shim64:$PATH" command git -c core.ignorecase=true check-attr --stdin eol </dev/null 2>&1 >/dev/null | grep -Fq -- "simulierte Attrappen-Warnung (windows)"); then
+  FEHLGESCHLAGEN=$((FEHLGESCHLAGEN + 1))
+  echo "FEHLGESCHLAGEN: 64-Selbstkontrolle — die Attrappe erzeugt die Warnung nicht, der Fall wuerde nichts pruefen"
+else
+  erwarte_text "64 Git-Warnung auf stderr bei check-attr (windows) bleibt aussen vor" 0 "$r" "" "simulierte Attrappen-Warnung (windows)" "$TMP/shim64"
+fi
+
+# 65/66. Angewandte statt blosser Eintraege: eine Ausnahme fuer eine bereits
+#     SAUBERE, versionierte Datei greift nie und ist selbst ein Befund
+#     ("nutzlose Ausnahme") -- die Erfolgsmeldung zaehlt nur tatsaechlich
+#     ANGEWANDTE Ausnahmen (gemessen zu #118 Nacharbeit 2: vorher liess sich
+#     das mit "1 Ausnahme(n) angewendet" schoenreden, obwohl nichts griff).
+r=$(neues_repo nutzlose_ausnahme)
+mkdir -p "$r/scripts"
+printf 'README.md\tcrlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "65 nutzlose Ausnahme auf sauberer, versionierter Datei ist ein Befund" 1 "$r" "nutzlose Ausnahme"
+
+r=$(neues_repo zwei_angewandte_ausnahmen)
+printf '*.bat text eol=crlf\n' >> "$r/.gitattributes"
+printf 'echo\n' > "$r/a.bat"
+printf 'echo\n' > "$r/b.bat"
+git -C "$r" add -A
+mkdir -p "$r/scripts"
+printf 'a.bat\tcrlf\nb.bat\tcrlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "66 Erfolgsmeldung zaehlt zwei tatsaechlich angewandte Ausnahmen" 0 "$r" "2 Ausnahme"
+
+# 67/68/69. Eine Zeile ganz ohne TAB (kein Wert-Feld), ein CR mitten in der
+#     Zeile und ein doppeltes CR am Ende sind je ein eigener Formatbefund --
+#     vorher wurden sie stillschweigend als Pfad mit leerem/verunreinigtem
+#     Wert bzw. Teil des Pfads/Werts behandelt.
+r=$(neues_repo ausnahme_ohne_tab)
+mkdir -p "$r/scripts"
+printf 'README.md\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "67 Zeile ohne TAB in der Ausnahmedatei ist ein Formatbefund" 1 "$r" "kein TAB"
+
+r=$(neues_repo ausnahme_cr_mitten_in_zeile)
+mkdir -p "$r/scripts"
+printf 'README.md\rx\tlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "68 CR mitten in der Zeile der Ausnahmedatei ist ein Formatbefund" 1 "$r" "CR mitten in der Zeile"
+
+r=$(neues_repo ausnahme_cr_doppelt_am_ende)
+mkdir -p "$r/scripts"
+printf 'README.md\tlf\r\r\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+erwarte_text "69 doppeltes CR am Ende einer Zeile der Ausnahmedatei ist ein Formatbefund" 1 "$r" "CR mitten in der Zeile"
+
+# 70/71/72. Ein leerer oder fehlender Index (`GIT_INDEX_FILE` zeigt ins
+#     Leere) darf einen Format-Befund der Ausnahmedatei nicht verdecken und
+#     macht jeden eingetragenen Pfad zwangslaeufig veraltet (0 versionierte
+#     Dateien) -- vorher meldete die alte Fassung hier sofort "0 Dateien"
+#     mit Exit 0, noch bevor die Ausnahmedatei ueberhaupt gelesen wurde.
+#     Fall 72 ist die Gegenprobe: OHNE Ausnahmedatei bleibt 0 Dateien
+#     weiterhin folgenlos (Exit 0) -- die neue Pruefung darf das nicht
+#     mitreissen.
+r=$(neues_repo index_fehlt_mit_formatfehler)
+mkdir -p "$r/scripts"
+printf 'README.md\tlf\tBegruendung\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+if ausgabe=$(cd "$r" && GIT_INDEX_FILE="$TMP/idx_fehlt70" sh "$WAECHTER" 2>&1); then ist=0; else ist=$?; fi
+fehler70=""
+[ "$ist" = 1 ] || fehler70="erwartet Exit 1, bekam $ist"
+if [ -z "$fehler70" ] && ! printf '%s\n' "$ausgabe" | grep -Fq -- "drittes Feld"; then
+  fehler70="Meldung enthaelt nicht 'drittes Feld'"
+fi
+if [ -z "$fehler70" ]; then
+  BESTANDEN=$((BESTANDEN + 1))
+else
+  FEHLGESCHLAGEN=$((FEHLGESCHLAGEN + 1))
+  echo "FEHLGESCHLAGEN: 70 fehlender Index verdeckt Format-Befund nicht — $fehler70 (Exit $ist): $ausgabe"
+fi
+
+r=$(neues_repo index_fehlt_mit_ausnahme)
+mkdir -p "$r/scripts"
+printf 'README.md\tlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+if ausgabe=$(cd "$r" && GIT_INDEX_FILE="$TMP/idx_fehlt71" sh "$WAECHTER" 2>&1); then ist=0; else ist=$?; fi
+fehler71=""
+[ "$ist" = 1 ] || fehler71="erwartet Exit 1, bekam $ist"
+if [ -z "$fehler71" ] && ! printf '%s\n' "$ausgabe" | grep -Fq -- "veraltete Ausnahme"; then
+  fehler71="Meldung enthaelt nicht 'veraltete Ausnahme'"
+fi
+if [ -z "$fehler71" ]; then
+  BESTANDEN=$((BESTANDEN + 1))
+else
+  FEHLGESCHLAGEN=$((FEHLGESCHLAGEN + 1))
+  echo "FEHLGESCHLAGEN: 71 fehlender Index meldet Ausnahme nicht als veraltet — $fehler71 (Exit $ist): $ausgabe"
+fi
+
+r="$TMP/leer_0dateien"; mkdir -p "$r"
+git -C "$r" init -q
+git -C "$r" config user.email probe@example.invalid
+git -C "$r" config user.name probe
+erwarte "72 0 Dateien, keine Ausnahmedatei bleibt Exit 0" 0 "$r"
+
+# 73. Eine VORHANDENE, aber unlesbare Ausnahmedatei ist "Werkzeug kaputt"
+#     (Exit 2), kein Befund und kein stiller Erfolg -- je nach `sh` liesse
+#     eine fehlschlagende Umlenkung unter `set -eu` sonst einen
+#     uneinheitlichen, shell-eigenen Fehlertext durch. `chmod 000` entzieht
+#     den Lesezugriff auf ZWEI Arten nicht: unter NTFS/Windows dem
+#     Eigentuemer nie (gemessen: `[ -r ]` bleibt wahr), und auf jedem System
+#     nicht dem ROOT-Benutzer (gemessen in einem Docker-Container: dort laeuft
+#     alles als root, `[ -r ]` bleibt auch unter Linux wahr -- #118
+#     Nacharbeit 2). Eigener Zaehler statt UEBERSPRUNGEN: Die Windows-Regel am
+#     Fussende gilt nur fuer Fall 14/53 (Doppelpunkt im Pfad); ein
+#     root-Container ist kein Windows-Fall und darf die Regel nicht ausloesen.
+r=$(neues_repo ausnahme_unlesbar)
+mkdir -p "$r/scripts"
+printf 'README.md\tlf\n' > "$r/scripts/zeilenenden-ausnahmen.txt"
+chmod 000 "$r/scripts/zeilenenden-ausnahmen.txt"
+if [ -r "$r/scripts/zeilenenden-ausnahmen.txt" ]; then
+  UEBERSPRUNGEN_BERECHTIGUNG=$((UEBERSPRUNGEN_BERECHTIGUNG + 1))
+  echo "UEBERSPRUNGEN (Berechtigung): 73 unlesbare Ausnahmedatei (dieses System/dieser Benutzer entzieht den Lesezugriff nicht)"
+  chmod 644 "$r/scripts/zeilenenden-ausnahmen.txt"
+else
+  erwarte_text "73 unlesbare Ausnahmedatei (Exit 2)" 2 "$r" "nicht lesbar"
+  chmod 644 "$r/scripts/zeilenenden-ausnahmen.txt"
+fi
+
+# 74. Ohne jede angewandte Ausnahme darf die Erfolgsmeldung keine Ausnahme-
+#     Zahl nennen -- faengt einen Mutanten, der den neuen "$angewandt_zahl
+#     -gt 0"-Zweig durch "-ge 0" ersetzt (dasselbe Muster wie Blindpruefer-
+#     M15 auf der alten `ausnahmen_anzahl`-Zaehlung).
+r=$(neues_repo ohne_jede_ausnahme)
+erwarte_text "74 Erfolgsmeldung ohne Ausnahmen nennt keine Ausnahmezahl" 0 "$r" "" "Ausnahme"
+
 # Ausserhalb von Windows darf Fall 14 nie stillschweigend uebersprungen
 # werden (dort ist ':' in Pfaden erlaubt) — sonst koennte ein scheiterndes
 # `blob_in_index` die Probe in der CI unbemerkt gruen lassen. Auf Windows ist
@@ -801,5 +1233,5 @@ if [ "$UEBERSPRUNGEN" -gt 0 ] && [ "$plattform_windows" = false ]; then
   echo "FEHLGESCHLAGEN: $UEBERSPRUNGEN Fall/Faelle ausserhalb von Windows uebersprungen — hier nicht erlaubt"
 fi
 
-echo "$BESTANDEN bestanden, $FEHLGESCHLAGEN fehlgeschlagen, $UEBERSPRUNGEN uebersprungen"
+echo "$BESTANDEN bestanden, $FEHLGESCHLAGEN fehlgeschlagen, $UEBERSPRUNGEN uebersprungen, $UEBERSPRUNGEN_VERSION wegen git-Mindestversion uebersprungen, $UEBERSPRUNGEN_BERECHTIGUNG wegen Berechtigung uebersprungen"
 [ "$FEHLGESCHLAGEN" -eq 0 ]

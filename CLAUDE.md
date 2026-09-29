@@ -310,26 +310,31 @@ nicht):\*\*
   Windows die Muster ohne Rücksicht auf Groß-/Kleinschreibung liest), kein
   Blob trägt CRLF oder gemischte Zeilenenden (`git ls-files --eol`). Er
   fragt Attribute und Index ab, nicht den Arbeitsbaum, weil der
-  Linux-Läufer ohnehin LF auscheckt und einen Rückbau sonst nie sähe. Beide
-  Listen tragen seit #118 Nacharbeit 1 eine eigene Zeilenzahl-Probe gegen
-  `git ls-files` (eine gekürzte Zwischen-Pipe bleibt sonst unbemerkt) und
-  laufen unter `core.quotePath=true` (erzwungen, unabhängig vom lokalen
-  Wert), damit ein Pfad mit Sonderzeichen auf Attribut- und Index-Seite
-  gleich geschrieben ankommt. Absichtlich CRLF tragende Dateien stehen
-  zeilenweise mit Pfad UND erlaubtem Wert (z. B. `crlf`) in
+  Linux-Läufer ohnehin LF auscheckt und einen Rückbau sonst nie sähe. Die
+  `check-attr`-Liste trägt schon seit #118 eine eigene Zeilenzahl-Probe
+  gegen `git ls-files`; seit #118 Nacharbeit 1 gilt dieselbe Probe auch für
+  die INDEX-Liste (`git ls-files --eol`, vorher ungeprüft) — eine gekürzte
+  ODER verlängerte Zwischen-Pipe bleibt auf keiner der beiden Seiten mehr
+  unbemerkt. Beide laufen unter `core.quotePath=true` (erzwungen, unabhängig
+  vom lokalen Wert), damit ein Pfad mit Sonderzeichen auf Attribut- und
+  Index-Seite gleich geschrieben ankommt. Absichtlich CRLF tragende Dateien
+  stehen zeilenweise mit Pfad UND erlaubtem Wert (z. B. `crlf`) in
   `scripts/zeilenenden-ausnahmen.txt` (heute keine) — exakter Pfad- UND
   Wertvergleich, kein Glob, keine Groß-/Kleinschreibungs-Toleranz; ein
   eingetragener Pfad, der nicht mehr versioniert ist, ein doppelter
-  Eintrag, ein drittes Feld oder ein leerer Pfad sind selbst ein Befund mit
-  eigener Meldung, die Erfolgsmeldung nennt die Zahl der angewendeten
-  Ausnahmen. Die Selbstprobe baut die gemessenen Rückbau-Varianten nach
-  (Regel gelöscht, `*.md -eol`, `*.md !eol`, `*.md eol`, `*.md eol=LF`,
-  `*.MD eol=crlf`, verschachtelte `.gitattributes` mit `eol=crlf`, CRLF- und
-  gemischter Blob, Aufruf aus einem Unterverzeichnis) und die Mutanten des
-  Wächters, die das Panel an früheren Fassungen vorbeibrachte (u. a. die
-  Ausnahmeliste als Glob, eine gekürzte Prüfliste vor `check-attr` oder
+  Eintrag, ein drittes Feld, eine Zeile ohne TAB, ein leerer Pfad oder ein
+  CR mitten in der Zeile sind selbst ein Befund mit eigener Meldung — ebenso
+  eine Ausnahme, die nie greift (die Datei ist längst sauber): Die
+  Erfolgsmeldung zählt seit #118 Nacharbeit 2 nur tatsächlich ANGEWANDTE
+  Ausnahmen, nicht bloße Einträge. Die Selbstprobe baut die gemessenen
+  Rückbau-Varianten nach (Regel gelöscht, `*.md -eol`, `*.md !eol`,
+  `*.md eol`, `*.md eol=LF`, `*.MD eol=crlf`, verschachtelte
+  `.gitattributes` mit `eol=crlf`, CRLF- und gemischter Blob, Aufruf aus
+  einem Unterverzeichnis) und die Mutanten des Wächters, die das Panel an
+  früheren Fassungen vorbeibrachte (u. a. die Ausnahmeliste als Glob, eine
+  gekürzte oder verlängerte Prüfliste vor `check-attr` oder
   `ls-files --eol`, ein Vergleich ohne Anker am Zeilenende, ein Pfad- oder
-  Wertvergleich ohne Gross-/Kleinschreibungs-Schärfe). Bekannte Grenzen
+  Wertvergleich ohne Groß-/Kleinschreibungs-Schärfe). Bekannte Grenzen
   stehen im Kopf des Wächters. Ein Push, der nur `.md`-Dateien ändert, löst
   wegen `paths-ignore` keinen Lauf aus — ein CRLF-Blob in einer `.md` fällt
   dann erst beim nächsten Code-Push auf.
