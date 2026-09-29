@@ -63,6 +63,42 @@ import type { Lang, LogMessageParams } from "./i18n";
  * ebenso durchrutschen wie vor Nacharbeit 3 eine Schwelle > 5 — das ist
  * dieselbe Klasse von Luecke, nur verschoben, nicht behoben.
  *
+ * NACHARBEIT 1 (#115) — WEITERE RESTFORMEN (Panel-Nachlese zu Nacharbeit 3):
+ *   1. Alle Sondenwerte waren bis hierher GLEICH fuer JEDEN Parameter einer
+ *      Vorlage — ein Vergleich ZWISCHEN zwei verschiedenen Parametern
+ *      (`p.count !== p.account`) blieb deshalb immer falsch (bzw. immer
+ *      wahr), egal welcher der Werte oben verwendet wurde, weil beide Seiten
+ *      denselben Wert lasen. Ein zusaetzlicher Durchlauf mit
+ *      NAMENSABHAENGIGEN Werten (die Laenge des Eigenschaftsnamens als Zahl)
+ *      macht unterschiedlich benannte Parameter mit hoher Wahrscheinlichkeit
+ *      auch unterschiedlich wertig.
+ *   2. `typeof p.x === "boolean"` wurde nie wahr, weil kein Sondenwert ein
+ *      Boolean war — der wahre Zweig blieb ungelesen. `true`/`false` ergaenzt.
+ *   3. Ein negativer Vergleich (`p.count < 0`) und eine Zahl mit exaktem
+ *      Vergleich (`p.count === 3`) waren nicht abgedeckt — `-1` und `3`
+ *      ergaenzt.
+ *   4. `String(p.album).length > 20` und `String(p.names).includes(",")`
+ *      brauchen einen laengeren, kommahaltigen String — `"eins, zwei, drei"`
+ *      ergaenzt (17 Zeichen reicht fuer `includes(",")`, nicht fuer
+ *      `length > 20`; ein zweiter, laengerer Wert deckt beides).
+ *   5. `Object.keys(p)`/Objekt-Rest-Destrukturierung (`const {a, ...rest} =
+ *      p`) loesen den `ownKeys`-Trap aus, nicht `get`/`has` — ohne eigenen
+ *      Trap faellt ein Proxy auf das leere Target zurueck, `Object.keys(p)`
+ *      liefert IMMER `[]`. Ein eigener `ownKeys`-Trap liefert die bereits ueber
+ *      `get`/`has`/`getOwnPropertyDescriptor` in FRUEHEREN Durchlaeufen
+ *      gefundenen Eigenschaften zurueck (mit passenden Deskriptoren) — eine
+ *      Vorlage, die AUSSCHLIESSLICH ueber Enumeration liest, bleibt bewusst
+ *      als Luecke (leeres Ergebnis, siehe Docstring unten), weil dieser Test
+ *      sonst wissen muesste, welche Namen es zu enumerieren gibt, bevor er
+ *      sie gefunden hat.
+ *
+ * BEKANNTE GRENZE (Nacharbeit 1): Eine Vorlage, die NUR per `Object.keys(p)`/
+ * Rest-Destrukturierung liest und NIE eine einzelne Eigenschaft direkt
+ * anspricht, bleibt unentdeckt (der `ownKeys`-Trap kennt nur, was fruehere
+ * Durchlaeufe bereits gefunden haben) — dieselbe Klasse Luecke wie die
+ * Schwellen-Grenze oben, nur an einer anderen Stelle. Heute keine Vorlage in
+ * dieser Form.
+ *
  * Beide Seiten (Backend: `backend/tests/test_log_messages.py`, Frontend:
  * hier) pruefen gegen DIESELBE Datei `logMessages.contract.json` — es gibt
  * keine zweite, unabhaengige Erfassung mehr, die auseinanderlaufen kann.
@@ -74,13 +110,32 @@ import type { Lang, LogMessageParams } from "./i18n";
 // gelesenen Eigenschaften gebildet wird. 6 und 100 (Nacharbeit 3, #115)
 // decken Schwellen ab, die ueber den kleinen Werten liegen (z. B.
 // `Number(p.count) > 5 ? ... : ...`) — eine bekannte Restgrenze bleibt eine
-// Schwelle > 100, siehe Moduldocstring.
-const SONDEN_WERTE: Array<string | number> = [0, 1, 2, "", "x", 6, 100];
+// Schwelle > 100, siehe Moduldocstring. -1 (negativer Vergleich), 3 (exakter
+// Vergleich ausserhalb 0/1/2), true (Wahrheitswert-TYP, nicht nur truthy
+// Zahl/String — `typeof p.x === "boolean"` braucht einen ECHTEN Boolean) und
+// ein laengerer, kommahaltiger String (`String(p.x).length > 20` UND
+// `.includes(",")`) kamen in Nacharbeit 1 (#115) dazu.
+const SONDEN_WERTE: Array<string | number | boolean> = [
+  0,
+  1,
+  2,
+  "",
+  "x",
+  6,
+  100,
+  -1,
+  3,
+  true,
+  "eins, zwei, drei, vier",
+];
 
 function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
   const gelesen = new Set<string>();
 
-  const aufrufen = (wert: string | number, vorhandenLautHas: boolean): void => {
+  const aufrufen = (
+    wertFuer: (eigenschaft: string) => string | number | boolean,
+    vorhandenLautHas: boolean
+  ): void => {
     const proxy = new Proxy({} as LogMessageParams, {
       get(_target, eigenschaft) {
         if (typeof eigenschaft === "string") gelesen.add(eigenschaft);
@@ -92,7 +147,7 @@ function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
         // mit einem eigenen Fehler abbrechen, bevor ueberhaupt alle
         // Eigenschaften gelesen wurden. Ein echter Wert haelt den Aufruf am
         // Laufen, ohne die gelesene Eigenschaftsmenge zu verfaelschen.
-        return wert;
+        return typeof eigenschaft === "string" ? wertFuer(eigenschaft) : undefined;
       },
       has(_target, eigenschaft) {
         if (typeof eigenschaft === "string") gelesen.add(eigenschaft);
@@ -103,8 +158,19 @@ function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
       // das leere Target zurueck und `Object.hasOwn` liefert immer `false`.
       getOwnPropertyDescriptor(_target, eigenschaft) {
         if (typeof eigenschaft === "string") gelesen.add(eigenschaft);
-        if (!vorhandenLautHas) return undefined;
-        return { configurable: true, enumerable: true, value: wert };
+        if (!vorhandenLautHas || typeof eigenschaft !== "string") return undefined;
+        return { configurable: true, enumerable: true, value: wertFuer(eigenschaft) };
+      },
+      // `Object.keys(p)`/Objekt-Rest-Destrukturierung (`const {a, ...rest} =
+      // p`) loesen DIESEN Trap aus, nicht `get`/`has` (Nacharbeit 1, #115) —
+      // ohne ihn faellt der Proxy auf das leere Target zurueck,
+      // `Object.keys(p)` liefert IMMER `[]`. Liefert die in FRUEHEREN
+      // Durchlaeufen bereits gefundenen Eigenschaften zurueck (bekannte
+      // Grenze: eine Vorlage, die AUSSCHLIESSLICH per Enumeration liest und
+      // nie eine einzelne Eigenschaft direkt anspricht, bleibt unentdeckt —
+      // siehe Moduldocstring).
+      ownKeys() {
+        return [...gelesen];
       },
     });
     try {
@@ -118,13 +184,25 @@ function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
   };
 
   for (const wert of SONDEN_WERTE) {
-    aufrufen(wert, true);
+    aufrufen(() => wert, true);
   }
   // Eigener Lauf fuer den ABWESEND-Zweig einer `"name" in p`-Abfrage — mit
   // den Laeufen oben (immer `vorhandenLautHas: true`) allein wuerde eine
   // Vorlage, die zwischen "Eigenschaft da" und "Eigenschaft fehlt"
   // verzweigt, nur den ersten Zweig zeigen.
-  aufrufen("x", false);
+  aufrufen(() => "x", false);
+  // Eigener Lauf mit NAMENSABHAENGIGEN Werten (Nacharbeit 1, #115): alle
+  // Laeufe oben liefern JEDEM Parameter denselben Wert — ein Vergleich
+  // ZWISCHEN zwei verschiedenen Parametern (`p.count !== p.account`) bleibt
+  // damit immer falsch (bzw. immer wahr), unabhaengig vom Sondenwert. Die
+  // Laenge des Eigenschaftsnamens macht unterschiedlich benannte Parameter
+  // mit hoher Wahrscheinlichkeit auch unterschiedlich wertig (bekannte
+  // Grenze: zwei gleich lange Namen bleiben ununterscheidbar).
+  aufrufen((eigenschaft) => eigenschaft.length, true);
+  // Ein letzter Durchlauf NACH allen anderen: der `ownKeys`-Trap oben
+  // liefert erst hier etwas Sinnvolles zurueck, weil `gelesen` bis dahin
+  // schon die Summe aller vorherigen Durchlaeufe enthaelt.
+  aufrufen(() => 1, true);
 
   return gelesen;
 }
@@ -272,6 +350,134 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
         de: (p) =>
           `${p.count}: ` +
           (Object.prototype.hasOwnProperty.call(p, "account") ? `${p.acount}` : `${p.account}`),
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  // Nacharbeit 1 (#115): weitere Vorlagen-Formen — "alle Parameter bekommen
+  // heute denselben Sondenwert" behoben (namensabhaengiger Durchlauf) plus
+  // Schwellen/Typen, die die Sondenwerte vor Nacharbeit 1 nicht abdeckten.
+
+  it("ein Vergleich auf einen konkreten Zahlenwert (3) mit Tippfehler faellt auf", () => {
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          p.count === 3
+            ? `genau drei von '${p.acount}' hinzugefuegt`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("ein negativer Vergleich mit Tippfehler faellt auf", () => {
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          Number(p.count) < 0
+            ? `ungueltige Anzahl von '${p.acount}'`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("eine typeof-boolean-Pruefung mit Tippfehler im wahren Zweig faellt auf", () => {
+    // Ohne einen echten Boolean unter den Sondenwerten waere dieser Zweig
+    // nie wahr gewesen (siehe Moduldocstring, Nacharbeit 1) — `true` deckt
+    // das jetzt ab.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          typeof p.count === "boolean"
+            ? `Flag von '${p.acount}'`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("eine Laengenpruefung auf einem String-Parameter mit Tippfehler faellt auf", () => {
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_album_shared: {
+        ...logMessages.log_album_shared,
+        de: (p) =>
+          String(p.album).length > 20
+            ? `langer Albumname: '${p.albu}'`
+            : `Album '${p.album}' mit ${p.names} geteilt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("eine includes(',')-Pruefung auf einem String-Parameter mit Tippfehler faellt auf", () => {
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_album_shared: {
+        ...logMessages.log_album_shared,
+        de: (p) =>
+          String(p.names).includes(",")
+            ? `mehrere Namen: '${p.name}'`
+            : `Album '${p.album}' mit ${p.names} geteilt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("ein Vergleich ZWISCHEN zwei verschiedenen Parametern mit Tippfehler faellt auf", () => {
+    // Nacharbeit 1 (#115): ohne den namensabhaengigen Durchlauf in
+    // `gelesenePlatzhalter` waeren p.count und p.account bei JEDEM
+    // Sondenwert gleich (derselbe Wert fuer alle Eigenschaften einer
+    // Sonde) — `p.count !== p.account` also nie wahr, der Zweig mit dem
+    // Tippfehler nie gelesen.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          p.count !== p.account
+            ? `${p.acount} Assets fuer '${p.account}'`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("eine Schwelle, die NUR der Sondenwert 6 (nicht 100) faengt, faellt auf", () => {
+    // Beweist, dass 6 selbststaendig etwas faengt, nicht nur 100 (siehe
+    // Moduldocstring, "Sondenwerte 6 und 100 je einzeln festhalten").
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          Number(p.count) > 5 && Number(p.count) < 50
+            ? `${p.count} Assets von '${p.acount}' hinzugefuegt`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+  });
+
+  it("eine Schwelle, die NUR der Sondenwert 100 (nicht 6) faengt, faellt auf", () => {
+    // Beweist die Kehrseite: 100 faengt selbststaendig etwas, das 6 nicht
+    // faengt -- keiner der beiden Werte ist redundant.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          Number(p.count) > 50
+            ? `${p.count} Assets von '${p.acount}' hinzugefuegt`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
     expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
