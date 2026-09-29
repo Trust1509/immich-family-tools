@@ -223,7 +223,10 @@ describe("AlbumsOverview: handleDelete entfernt eine Gruppe PARALLEL", () => {
     );
 
     // Die sichtbare Meldung: 1 von 4 Eintraegen konnte nicht entfernt werden.
-    expect(screen.getByText("1 von 4 Einträgen konnten nicht entfernt werden.")).toBeTruthy();
+    // Nacharbeit 2 (#123, Blindpruefer K9): Singular-Verb bei genau EINEM
+    // Fehlschlag ("konnte", nicht "konnten") — die Zahl VOR "von" entscheidet
+    // die Verbform, nicht die Gesamtzahl dahinter.
+    expect(screen.getByText("1 von 4 Einträgen konnte nicht entfernt werden.")).toBeTruthy();
   });
 
   it("zeigt KEINE Fehlermeldung, wenn alle vier DELETEs gelingen", async () => {

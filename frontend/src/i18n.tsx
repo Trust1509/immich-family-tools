@@ -801,33 +801,82 @@ export const translations = {
   // sein — ein Konto wird in einem anderen Tab geloescht, WAEHREND das
   // Umbenennen schon laeuft. Der Server lehnt dann nur das EINE betroffene
   // Album ab; die Schleife laeuft mit den uebrigen weiter, statt
-  // abzubrechen, und dieser Text macht sichtbar, welches Album dabei
-  // uebersprungen wurde (kein `log_*`-Schluessel: das ist kein
-  // Protokolleintrag, sondern ein reiner UI-Hinweis auf der Karte).
+  // abzubrechen, und dieser Text macht sichtbar, dass etwas uebersprungen
+  // wurde (kein `log_*`-Schluessel: das ist kein Protokolleintrag, sondern
+  // ein reiner UI-Hinweis auf der Karte).
+  //
+  // Nacharbeit 2 (#123, Blindpruefer K8, Gegenpruefer K6): Bis hierher
+  // nannte der Text die NAMEN der uebersprungenen Alben, durch Komma
+  // getrennt. Albumnamen innerhalb EINER Gruppe sind aber praktisch immer
+  // gleich (dieselbe Karte zeigt nur EINEN Gruppennamen) — "A, A" sagt dem
+  // Nutzer nichts ausser wie viele Kommas es gab. Jetzt eine Anzahl: wie
+  // viele von den in diesem Durchlauf angefahrenen (gesunden) Alben
+  // uebersprungen wurden.
   album_rename_skipped_hint: {
-    de: (namen: string) => `Übersprungen (inzwischen verwaist): ${namen}.`,
-    en: (namen: string) => `Skipped (orphaned in the meantime): ${namen}.`,
-    "pt-BR": (namen: string) => `Ignorado (órfão nesse meio tempo): ${namen}.`,
-    "es-ES": (namen: string) => `Omitido (huérfano mientras tanto): ${namen}.`,
+    de: (uebersprungen: number, gesamt: number) => {
+      const wort = gesamt === 1 ? "Album" : "Alben";
+      return `Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: ${uebersprungen} von ${gesamt} ${wort}.`;
+    },
+    en: (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "album" : "albums";
+      return `Skipped because the owner account has since been deleted: ${uebersprungen} of ${gesamt} ${noun}.`;
+    },
+    "pt-BR": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbuns";
+      return `Ignorado porque a conta proprietária foi excluída nesse meio tempo: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+    "es-ES": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbumes";
+      return `Omitido porque la cuenta propietaria se eliminó mientras tanto: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
   },
   // Nacharbeit 1 (#123, alle drei Stimmen): `handleDelete`/`handleDeleteSingle`
   // verschluckten einen Fehlschlag bislang stumm (`.catch(() => {})`). Diese
   // beiden Texte machen ihn sichtbar.
+  //
+  // Nacharbeit 2 (#123, Blindpruefer K9): Grammatik fuer 1 UND n gefordert.
+  // Zwei Zahlen, zwei unabhaengige Stellen: `fehlgeschlagen` entscheidet das
+  // VERB (Singular "konnte" bei 1, sonst Plural "konnten" — DE; die
+  // PT-Verbform "pôde"/"puderam" und das ES-"pudo"/"pudieron" ebenso), und
+  // `gesamt` entscheidet das NOMEN ("Eintrag"/"Einträgen",
+  // "entry"/"entries", "registro"/"registros", "entrada"/"entradas"). Bei
+  // `handleDelete` heisst "entfernt" der VERWALTUNGSEINTRAG, nicht das
+  // Immich-Album (siehe `album_remove_confirm`/`album_remove_single_confirm`
+  // oben) — deshalb "Eintrag", nicht "Album".
   album_remove_partial_failed: {
-    de: (fehlgeschlagen: number, gesamt: number) =>
-      `${fehlgeschlagen} von ${gesamt} Einträgen konnten nicht entfernt werden.`,
-    en: (fehlgeschlagen: number, gesamt: number) =>
-      `${fehlgeschlagen} of ${gesamt} entries could not be removed.`,
-    "pt-BR": (fehlgeschlagen: number, gesamt: number) =>
-      `${fehlgeschlagen} de ${gesamt} registros não puderam ser removidos.`,
-    "es-ES": (fehlgeschlagen: number, gesamt: number) =>
-      `${fehlgeschlagen} de ${gesamt} entradas no se pudieron eliminar.`,
+    de: (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "Eintrag" : "Einträgen";
+      const verb = fehlgeschlagen === 1 ? "konnte" : "konnten";
+      return `${fehlgeschlagen} von ${gesamt} ${nomen} ${verb} nicht entfernt werden.`;
+    },
+    en: (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "entry" : "entries";
+      return `${fehlgeschlagen} of ${gesamt} ${nomen} could not be removed.`;
+    },
+    "pt-BR": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "registro" : "registros";
+      const verbo = fehlgeschlagen === 1 ? "não pôde" : "não puderam";
+      const particip = fehlgeschlagen === 1 ? "removido" : "removidos";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} ser ${particip}.`;
+    },
+    "es-ES": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "entrada" : "entradas";
+      const verbo = fehlgeschlagen === 1 ? "no se pudo" : "no se pudieron";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} eliminar.`;
+    },
   },
+  // Nacharbeit 2 (#123, Blindpruefer K9): Die Einzelentfernung nimmt nur den
+  // VERWALTUNGSEINTRAG weg, nie das Immich-Album selbst — der Text sprach
+  // bis hierher trotzdem vom "Album", inkonsistent zu
+  // `album_remove_single_confirm` oben ("Eintrag für das verwaiste Album").
+  // `handleDeleteSingle` ruft diesen Text ausschliesslich fuer ein
+  // VERWAISTES Album auf (siehe die Zeile im Kartenkoerper), daher hier
+  // ebenfalls "verwaist".
   album_remove_single_failed: {
-    de: (name: string) => `Album "${name}" konnte nicht entfernt werden.`,
-    en: (name: string) => `Album "${name}" could not be removed.`,
-    "pt-BR": (name: string) => `O álbum "${name}" não pôde ser removido.`,
-    "es-ES": (name: string) => `El álbum "${name}" no se pudo eliminar.`,
+    de: (name: string) => `Eintrag für das verwaiste Album "${name}" konnte nicht entfernt werden.`,
+    en: (name: string) => `The entry for the orphaned album "${name}" could not be removed.`,
+    "pt-BR": (name: string) => `O registro do álbum órfão "${name}" não pôde ser removido.`,
+    "es-ES": (name: string) => `La entrada del álbum huérfano "${name}" no se pudo eliminar.`,
   },
 
   // ── SyncPanel ─────────────────────────────────────────────────────────

@@ -28,11 +28,18 @@ genau das ist der Fall, den `docs/agents/lehren.md` als teurer beschreibt als
 ein falsches Ergebnis: ein haengender Lauf blockiert die ganze Suite (und in
 der CI den Runner), statt in Sekunden zu melden, was kaputt ist.
 `asyncio.wait_for` mit einer grosszuegigen Frist macht den Rueckbau ROT statt
-STUMM — gemessen: mit einem einzigen globalen Schloss (`_album_schloss`
+STUMM — gemessen (Nacharbeit 2, #123, Blindpruefer K10, diese Zahl stand
+vorher falsch hier): mit einem einzigen globalen Schloss (`_album_schloss`
 durch eine Attrappe ersetzt, die immer dasselbe `asyncio.Lock()` liefert)
-wird dieser Test innerhalb weniger Sekunden rot, nicht erst nach dem
-Pytest-eigenen Abbruch (der hier gar nicht griffe, weil kein Suite-weites
-Zeitlimit gesetzt ist).
+wird dieser Test nach rund 10 Sekunden rot — der `timeout=10.0` unten,
+nicht "wenige Sekunden" (gemessener Lauf: `1 failed ... in 11.56s`, davon
+sind die zehn Sekunden das `wait_for`, der Rest Testaufbau/Abbau). Das ist
+trotzdem WEIT davor, wie lange ein `pytest`-eigener Abbruch braeuchte: Ein
+solcher griffe hier ohnehin nicht, weil kein `pytest-timeout`-Plugin
+installiert ist (`pip show pytest-timeout`: "Package(s) not found") und
+kein Suite-weites Zeitlimit gesetzt ist — das ROT-Werden ist allein das
+explizite `pytest.fail(...)` nach dem eigenen `wait_for`-Timeout dieses
+Tests, nicht irgendein externer Mechanismus.
 """
 import asyncio
 import json

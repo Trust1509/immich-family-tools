@@ -214,18 +214,38 @@ describe("AlbumsOverview: Umbenennen ueberspringt ein ZWISCHENZEITLICH verwaiste
     expect(renameMock).toHaveBeenCalledWith("a", "Neuer Name");
     expect(renameMock).toHaveBeenCalledWith("c", "Neuer Name");
 
-    // Der sichtbare Hinweis nennt das uebersprungene Album beim Namen.
-    await waitFor(() => expect(screen.getByText(/Album B/)).toBeTruthy());
+    // Der sichtbare Hinweis nennt eine ANZAHL, nicht mehr die Namen
+    // (Nacharbeit 2, #123, Blindpruefer K8, Gegenpruefer K6: Albumnamen
+    // innerhalb einer Gruppe sind meist gleich, "A, A" sagt nichts) — hier
+    // 1 von 3 angefahrenen (gesunden) Alben.
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: 1 von 3 Alben."
+        )
+      ).toBeTruthy()
+    );
 
     // A und C sind erfolgreich, das Feld schliesst sich.
     await waitFor(() => expect(screen.queryByDisplayValue("Neuer Name")).toBeNull());
   });
 
   it("bricht bei einem ANDEREN Fehler weiterhin ab (kein Ueberspringen)", async () => {
+    // Nacharbeit 2 (#123, Blindpruefer K1, Gegenpruefer K4): Die vorige
+    // Fassung nutzte hier `err_album_name_in_use` (409) — einen Schluessel,
+    // den der Server seit #98 nicht mehr erzeugt (`rename_managed_album`
+    // prueft die Namenskollision nicht mehr). Ein REAL erzeugter Schluessel
+    // gehoert hierher, und zwar bewusst einer, der ebenfalls ein 404 ist:
+    // `err_managed_album_not_found` — damit die Probe eine Mutation faengt,
+    // die faelschlich JEDEN 404 uebersprringt (etwa `error.status === 404`
+    // statt des Schluesselvergleichs `error.key ===
+    // "err_owner_account_not_found"`). Ohne diesen Test waere so eine
+    // Mutation unsichtbar, weil beide Schluessel denselben HTTP-Status
+    // tragen.
     albenMock.mockResolvedValue(dreiAlben());
     renameMock.mockImplementation(async (id: string) => {
       if (id === "b") {
-        throw new ApiError("Name bereits vergeben", 409, "err_album_name_in_use");
+        throw new ApiError("Verwaltetes Album nicht gefunden", 404, "err_managed_album_not_found");
       }
       return [
         { id: `log-${id}`, timestamp: "", action: "rename_album", details: "", status: "success" },
@@ -239,11 +259,11 @@ describe("AlbumsOverview: Umbenennen ueberspringt ein ZWISCHENZEITLICH verwaiste
     fireEvent.keyDown(feld, { key: "Enter" });
 
     // A gelingt, B wirft einen ANDEREN Fehler als
-    // `err_owner_account_not_found` — die Schleife bricht ab, C wird gar
-    // nicht mehr angefahren.
+    // `err_owner_account_not_found` (auch wenn es ebenfalls ein 404 ist) —
+    // die Schleife bricht ab, C wird gar nicht mehr angefahren.
     await waitFor(() => expect(renameMock).toHaveBeenCalledTimes(2));
     expect(renameMock).not.toHaveBeenCalledWith("c", expect.anything());
-    expect(screen.getByText(/Name bereits vergeben/)).toBeTruthy();
+    expect(screen.getByText(/Verwaltetes Album nicht gefunden/)).toBeTruthy();
   });
 });
 

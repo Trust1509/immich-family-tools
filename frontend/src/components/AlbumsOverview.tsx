@@ -191,6 +191,14 @@ function AlbumGroupCard({
   const gesundeAlben = group.albums.filter((album) => !album.owner_account_missing);
 
   const handleRefresh = async () => {
+    // Nacharbeit 2 (#123, Blindpruefer K3): Ein stehengebliebener Hinweis
+    // aus einer FRUEHEREN Aktion auf dieser Karte darf nicht ueberleben, bis
+    // eine neue Aktion ihn zufaellig ueberschreibt oder nie. Jede der drei
+    // Aktionen (Abgleichen hier, Umbenennen, Entfernen) setzt deshalb beim
+    // START `deleteError` UND `renameSkipped` zurueck — nicht nur ihren
+    // eigenen Zustand.
+    setDeleteError(null);
+    setRenameSkipped([]);
     setLocalSyncing(true);
     setLocalLogs(null);
     const allLogs: SyncLogEntry[] = [];
@@ -210,6 +218,10 @@ function AlbumGroupCard({
     if (!confirm(t("album_remove_confirm", group.album_name, group.albums.length))) return;
     setDeleting(true);
     setDeleteError(null);
+    // Nacharbeit 2 (#123, Blindpruefer K3): auch ein stehengebliebener
+    // Umbenennen-Hinweis gehoert nicht mehr auf die Karte, sobald eine neue
+    // Aktion beginnt.
+    setRenameSkipped([]);
     // PARALLEL statt nacheinander (Owner-Entscheid 29.09.2026, #123, #121
     // Punkt 1): Seit #101 wartet `DELETE /api/sync/albums/{id}` am
     // Albumschloss dieses EINEN Albums (`sync_service._album_schloss`) — ein
@@ -229,10 +241,23 @@ function AlbumGroupCard({
     // `Promise.allSettled` behaelt beide Faelle auseinander, ohne die
     // Parallelitaet oder die Invalidierungen (auch `["album-group"]`, #110)
     // aufzugeben — ein Fehlschlag wird jetzt gezaehlt und sichtbar gemacht.
+    //
+    // Nacharbeit 2 (#123, Gegenpruefer K1/K2, Blindpruefer K4): Ein 404
+    // `err_managed_album_not_found` heisst "das Album ist schon weg" — ein
+    // anderer Tab hat es (oder die ganze Gruppe) bereits entfernt, WAEHREND
+    // dieser Klick unterwegs war. Das ist der gewuenschte Endzustand, kein
+    // Fehlschlag: Vorher zaehlte dieser Fall trotzdem mit ("1 von 2 ...
+    // nicht entfernt"), obwohl am Ende genau das da ist, was der Klick
+    // wollte. Jeder ANDERE Fehler (Netzwerk, 500, Schloss-Zeitueberschreitung
+    // ...) bleibt ein echter Fehlschlag.
     const ergebnisse = await Promise.allSettled(
       group.albums.map((album) => api.sync.deleteAlbum(album.id))
     );
-    const fehlgeschlagen = ergebnisse.filter((r) => r.status === "rejected").length;
+    const fehlgeschlagen = ergebnisse.filter(
+      (r) =>
+        r.status === "rejected" &&
+        !(r.reason instanceof ApiError && r.reason.key === "err_managed_album_not_found")
+    ).length;
     setDeleting(false);
     if (fehlgeschlagen > 0) {
       setDeleteError(t("album_remove_partial_failed", fehlgeschlagen, group.albums.length));
@@ -256,12 +281,23 @@ function AlbumGroupCard({
     if (!confirm(t("album_remove_single_confirm", album.album_name))) return;
     setDeleting(true);
     setDeleteError(null);
+    // Nacharbeit 2 (#123, Blindpruefer K3): siehe `handleDelete` oben,
+    // dasselbe gilt fuer die Einzelentfernung.
+    setRenameSkipped([]);
     // Nacharbeit 1 (#123, alle drei Stimmen): derselbe stille Fehlschlag wie
     // bei `handleDelete` oben, hier fuer die Einzelentfernung.
+    //
+    // Nacharbeit 2 (#123, Gegenpruefer K1/K2, Blindpruefer K4): dieselbe
+    // 404-Ausnahme wie oben — das Album ist schon weg (anderer Tab), das
+    // ist der gewuenschte Endzustand, keine Fehlermeldung noetig.
     try {
       await api.sync.deleteAlbum(album.id);
-    } catch (_) {
-      setDeleteError(t("album_remove_single_failed", album.album_name));
+    } catch (error) {
+      if (error instanceof ApiError && error.key === "err_managed_album_not_found") {
+        // Schon weg - kein Fehlschlag, keine Meldung.
+      } else {
+        setDeleteError(t("album_remove_single_failed", album.album_name));
+      }
     }
     setDeleting(false);
     qc.invalidateQueries({ queryKey: ["managed-albums"] });
@@ -270,6 +306,12 @@ function AlbumGroupCard({
   };
 
   const handleRename = async () => {
+    // Nacharbeit 2 (#123, Blindpruefer K3): siehe `handleRefresh` oben —
+    // `deleteError` gehoert nicht mehr auf die Karte, sobald eine neue
+    // Aktion beginnt. `renameSkipped` setzt diese Funktion schon weiter
+    // unten selbst zurueck (Zeile mit `setRenameError(null)`), das reicht
+    // fuer sie, da sie ausschliesslich vom Umbenennen selbst gesetzt wird.
+    setDeleteError(null);
     // KEINE Client-seitige Sperrpruefung mehr hier (Nacharbeit 1 hatte eine,
     // Nacharbeit 2 entfernt sie wieder — Blindpruefer, gemessen): Sie war mit
     // Enter an ein bereits abgehaengtes Eingabefeld praktisch unerreichbar
@@ -331,6 +373,16 @@ function AlbumGroupCard({
           throw error;
         }
       }
+      // Nacharbeit 2 (#123, Blindpruefer K2): `logs.length &&` ist absichtlich
+      // hier — nicht nur eine Absicherung gegen ein leeres `.every()` (das
+      // waere auf einem leeren Feld ohnehin `true`, ein leeres Feld haette
+      // das Eingabefeld sonst STILL geschlossen). Sind ALLE gesunden Alben
+      // uebersprungen (`uebersprungen.length === gesundeAlben.length`, jedes
+      // einzelne mit `err_owner_account_not_found`), bleibt `logs` leer —
+      // ohne diese Bedingung wuerde das Feld trotzdem verschwinden, obwohl
+      // KEIN einziges Album tatsaechlich umbenannt wurde. Das Feld bleibt
+      // offen, und `renameSkipped` (im `finally` unten) macht sichtbar,
+      // warum nichts passiert ist.
       if (logs.length && logs.every((entry) => entry.status === "success")) setRenaming(false);
     } catch (error) {
       setRenameError(errorText(error as ServerErrorLike));
@@ -409,8 +461,14 @@ function AlbumGroupCard({
                   onKeyDown={(event) => {
                     if (event.key === "Enter") handleRename();
                     if (event.key === "Escape") {
+                      // Nacharbeit 2 (#123, Blindpruefer K3): dasselbe
+                      // Zuruecksetzen wie beim X-Knopf unten — sonst blieb
+                      // ein Hinweis aus einem VORIGEN Versuch stehen, obwohl
+                      // das Feld gerade neu geoeffnet wurde.
                       setRenaming(false);
                       setRenameValue(group.album_name);
+                      setRenameError(null);
+                      setRenameSkipped([]);
                     }
                   }}
                   aria-label={t("album_rename_action")}
@@ -478,15 +536,22 @@ function AlbumGroupCard({
             {group.ownerMissing && group.tooFewPeople && " · "}
             {/* Nacharbeit 1 zu #123 (alle drei Stimmen): Der Text wurde bis
                 hierher aus der ZUSAMMENGEFUEHRTEN Personenliste der Gruppe
-                gewaehlt (`group.person_refs.length`) — genau die Quelle, die
+                gewaehlt (`group.person_refs.length === 0 ? no_people :
+                too_few_people`, Stand 03db7ea) — genau die Quelle, die
                 Nacharbeit 2 zu #99/#112 fuer die Markierung SELBST schon
-                verworfen hatte (`tooFewPeople` oben, `group.some`). Ein
-                Album mit 0 Personen neben einem mit 2 zeigte so faelschlich
-                "Nur noch eine Person", ein Album mit 1 Person neben einem
-                mit 1 weiteren zeigte gar nichts. Jetzt direkt aus den ALBEN
-                DER GRUPPE abgeleitet: 0 Personen -> "keine Person", genau 1
-                -> "eine Person", beides gleichzeitig moeglich -> beide
-                Texte. */}
+                verworfen hatte (`tooFewPeople` oben, `group.some`).
+                Nacharbeit 2 zu #123 (Blindpruefer K7, dieser Kommentar
+                stimmte vorher nicht): Ein Album mit 0 Personen neben einem
+                mit 2 zeigte so faelschlich "Nur noch eine Person" — die
+                zusammengefuehrte Liste zaehlt 2, nicht 0, und der Vergleich
+                oben traf nur genau 0. Ein Album mit 0 Personen neben einem
+                mit 1 weiteren zeigte aus demselben Grund NUR "Nur noch eine
+                Person" und nie den Null-Text, obwohl eines der beiden Alben
+                wirklich leer war (zusammengefuehrt: 1, nicht 0) — nicht "gar
+                nichts", wie hier fälschlich stand. Jetzt direkt aus den
+                ALBEN DER GRUPPE abgeleitet: 0 Personen -> "keine Person",
+                genau 1 -> "eine Person", beides gleichzeitig moeglich ->
+                beide Texte. */}
             {group.hasZeroPeopleAlbum && t("album_no_people_badge")}
             {group.hasZeroPeopleAlbum && group.hasOnePersonAlbum && " · "}
             {group.hasOnePersonAlbum && t("album_too_few_people_badge")}
@@ -537,7 +602,7 @@ function AlbumGroupCard({
       {renameError && <p className="text-xs text-red-400">{renameError}</p>}
       {renameSkipped.length > 0 && (
         <p className="text-xs text-amber-400">
-          {t("album_rename_skipped_hint", renameSkipped.join(", "))}
+          {t("album_rename_skipped_hint", renameSkipped.length, gesundeAlben.length)}
         </p>
       )}
       {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}

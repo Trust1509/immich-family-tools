@@ -45,11 +45,13 @@ entries from every managed album's linked-people list, and clears its face
 thumbnail/embedding caches. It does **not** delete photos, people, albums, or
 users in Immich. Owner decision 2026-09-28 (#99, #112): several other kinds of
 local data about that account deliberately survive the removal instead of
-disappearing silently. One of the three below now has a precise removal path
-(updated 2026-09-29, #123 — see the first bullet); one still only a **blunt**
-one — it removes more than just the traces of this one account, and nothing
-lets you target just those traces; and the third, updated 2026-09-29 (#123) to
-say so plainly, has currently **no removal path at all**, blunt or otherwise:
+disappearing silently. One of the three below now has a precise removal path,
+but **only for orphaned albums specifically, not for managed albums in
+general** (updated 2026-09-29, #123 — see the first bullet); one still only a
+**blunt** one — it removes more than just the traces of this one account, and
+nothing lets you target just those traces; and the third, updated 2026-09-29
+(#123) to say so plainly, has currently **no removal path at all**, blunt or
+otherwise:
 
 - Its managed albums stay in the tool, marked as orphaned (owner account
   missing) or as having too few linked people. Since 2026-09-29 (#123), an
@@ -101,11 +103,18 @@ same secrets. **Its lifetime is bounded by the _next save_, not by elapsed
 time — calling it "short" would be wrong.** A dormant instance (auto-sync
 disabled, nobody acting on it) may go a long time between saves, during which
 `.bak` — and anything it captured, such as a just-removed account's API key —
-stays exactly as it was. Starting the application and read-only access
-(browsing accounts, matches, the log) do not write to `accounts.json` and
-therefore do not touch `.bak` either; only an actual write does. This is easy
-to mistake for "already gone" precisely because it looks stale, not because
-it is.
+stays exactly as it was. Read-only access (browsing accounts, matches, the
+log) does not write to `accounts.json` and therefore does not touch `.bak`
+either — but **starting the application can**, and this is not hypothetical:
+`ConfigStore._migrate()` calls `_save()` on load whenever it backfills a
+field it finds missing (`backend/services/config_store.py`, `_migrate`, the
+`if changed: ... self._save()` near the end of the method), and `main.py`'s
+startup schedules `_backfill_user_ids()` in the background, which calls
+`update_account()` — and therefore `_save()` — for every account still
+missing a `user_id`. Either path exchanges `.bak` for the pre-start snapshot
+exactly like any other save; only a run with nothing left to backfill and no
+account missing a `user_id` leaves `.bak` untouched. This is easy to mistake
+for "already gone" precisely because it looks stale, not because it is.
 
 **Rollback copies are the exception, and the operator has to act on it.** Before
 anything it cannot undo — a schema migration, an album-identifier assignment —
