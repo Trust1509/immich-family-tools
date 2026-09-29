@@ -137,16 +137,80 @@ ersatzlos (BLOCKER 2, Punkt 1+2); die Namens-Shadowing-Luecke (BLOCKER 2,
 Punkt 3) verschwindet, weil es keine namensbasierte Sonderbehandlung mehr
 gibt, die sich shadowen liesse.
 
+NACHARBEIT 5 (#115, Nacharbeit 2) — ZWEI SCHICHTEN STATT EINER: STATISCH + LAUFZEIT
+-------------------------------------------------------------------------------
+Der Blindpruefer der Nacharbeit 1 hat gemessen: 14 weitere, unerkannte
+Konstruktionsformen (`cls(**roh)` in einer `@classmethod`-Fabrik,
+`e.__init__(**roh)`, ein Closure-Alias, ein Klassenattribut-Alias, ein
+Re-Export in eine ANDERE Datei, eine globale Neubindung ueber `global`, ein
+`model_validator(mode="before")`, der Rohdaten mutiert, der
+`response_model`-Weg von FastAPI, ...) — UND neue Fehlalarme ohne Ausweg im
+Gegenzug fuer die letzte Runde AST-Erweiterungen. **Mehr AST-Muster schliessen
+diese Klasse nicht**: Jede der 14 Formen ist syntaktisch beliebig variierbar,
+ein neues Muster deckt immer nur genau diese eine Variante ab, und jede
+Erweiterung der Namens-/Alias-Erkennung erweitert gleichzeitig die Flaeche
+fuer einen neuen Fehlalarm (siehe FA1-FA7 unten).
+
+Diese Runde loest das strukturell, nicht durch noch mehr Muster, mit ZWEI
+komplementaeren Aenderungen:
+
+1. **Eine LAUFZEITPRUEFUNG** (`backend/tests/conftest.py`,
+   `pruefe_laufzeit_eintrag` + eine `autouse`-Fixture) haengt sich ueber
+   `SyncLogEntry.model_post_init` (eine Zeile Produktionscode in
+   `backend/models/match.py`, siehe dort fuer die Begruendung) in JEDE
+   Konstruktion ein, die WAEHREND EINES TESTS tatsaechlich ausgefuehrt wird —
+   unabhaengig vom syntaktischen Weg. Sie sieht `cls(**roh)`,
+   `e.__init__(**roh)`, einen Closure-Alias und den `response_model`-Weg
+   gleichermassen (Rot-Beweise: `test_laufzeit_rotbeweis_*` unten), weil sie
+   nicht den QUELLTEXT liest, sondern das FERTIGE OBJEKT. Ausserhalb von
+   Tests ist der Haken immer `None`; das Produktionsverhalten aendert sich
+   dadurch nicht (Details: Moduldocstring von `conftest.py`). Ehrlich
+   benannt: Sie sieht nur, was ein Test tatsaechlich AUSFUEHRT — Code, der in
+   KEINEM Test laeuft, bleibt bei der statischen Pruefung.
+2. **Drei Fehlalarme ohne Ausweg beseitigt** (Gegenpruefer NA1 FA1/FA2/FA3/
+   FA7, Blindpruefer F1/F5; FA4; FA6/F3 — Einzelheiten je an der Fundstelle
+   unten und in "WAS ER NICHT ERFASST"):
+   - Der kategorische Fang von `type(x)(...)`/`x.__class__(...)` (siehe
+     Restform-Eintrag der Vorrunde direkt unten, jetzt GESTRICHEN) machte
+     uebliche, VOELLIG unbeteiligte Python-Idiome faelschlich rot, OHNE
+     Ausweg: `raise type(exc)(f"...: {exc}") from exc` (Ausnahme mit mehr
+     Kontext neu werfen), `self.__class__(**{**self.daten, **aenderung})`
+     (Kopie-mit-Aenderung an einem fremden Modell), `type(obj)()` (leerer
+     Klon), `type(self)(...)` in `__add__` eines Werttyps. Kein Kwarg oder
+     keine Alias-Form haette das je unterschieden — das Fangen war rein
+     SYNTAKTISCH, nicht typgebunden. ERSATZLOS entfernt; die
+     Laufzeitpruefung deckt eine ECHTE `type(vorlage)(**roh)`-Konstruktion
+     von SyncLogEntry weiterhin ab, wenn ein Test sie ausloest.
+   - `_sammle_typeadapter_aliase` band eine TypeAdapter-Variable MODULWEIT,
+     ohne Funktionsgrenze — zwei voneinander unabhaengige Funktionen mit
+     zufaellig derselben Variable `ta` (eine SyncLogEntry-bezogen, die
+     andere nicht) liessen die zweite faelschlich rot werden. Jetzt
+     GETRENNT NACH GELTUNGSBEREICH, genau wie SyncLogEntry-Aliase selbst.
+   - `_gueltige_namen_hier` bildete bislang eine reine UNION aus modulweiten
+     und funktionslokalen Namen — ein modulweiter Alias, den eine Funktion
+     LOKAL auf etwas anderes umbindet (`_Eintrag = SyncLogEntry` auf
+     Modulebene, `_Eintrag = dict` in einer Funktion), blieb dort trotzdem
+     "gueltig". Jetzt entfernt eine lokale Ueberschreibung den modulweiten
+     Namen fuer die GANZE Funktion, genau wie bei einem echten Python-Namen.
+
+Die BENANNTE LESE-AUSNAHME (siehe NACHARBEIT 4) wurde ausserdem ENGER
+gefasst — zur Laufzeit gemessene Luecken, keine theoretischen:
+`_BENANNTE_LESE_AUSNAHMEN` erlaubt jetzt AUSSCHLIESSLICH `message_key` (ein
+unveraenderlicher String), nie mehr `message_params` (ein veraenderliches
+`dict` — ein Vergleich `e.message_params == anderes` uebergibt die ECHTE
+Dict-Referenz an ein fremdes `__eq__`/`__contains__`, das darueber mutieren
+kann, waehrend es syntaktisch wie Lesen aussieht: Gegenpruefer NA1 L4/L4b/
+L4c, LAUFZEIT gemessen); nur ein Vergleich gegen ein Literal oder einen
+Namen zaehlt als beweisbar, nie ein `in` gegen einen beliebigen Behaelter
+(L4d — `in` ruft `__contains__`/`__eq__` auf jedem Element auf); und der
+Schluessel bindet an den VOLLEN, verschachtelten Funktionspfad statt nur den
+innersten Funktionsnamen (Gegenpruefer NA1 L6/L7/L7b/L7c) — eine Ausnahme
+fuer die aeussere Funktion `_fremd` deckt eine gleichnamige VERSCHACHTELTE
+Funktion `_gelistet` nicht mehr blind mit ab. `_BENANNTE_LESE_AUSNAHMEN`
+bleibt weiterhin LEER (0 berechtigte Nutzungen).
+
 Restformen (Nacharbeit 1, #115 — gefangen ohne Fehlalarm gegen den heutigen
 Baum, siehe Docstring-Abschnitt "WAS DIESER WAECHTER ERFASST"):
-  - `type(vorlage)(**roh)` / `vorlage.__class__(**roh)` — beide rufen das
-    Ergebnis einer dynamischen Typ-Ermittlung als Konstruktor auf. Im
-    heutigen Backend gibt es GENAU EINEN `type(...)`-Aufruf
-    (`type(exc).__name__` in `face_matcher.py`, kein Aufruf des Ergebnisses)
-    und KEINEN `.__class__(...)`-Aufruf (beides gemessen) — das Fangen ist
-    also ohne Fehlalarm moeglich. Eine kuenftige, unbeteiligte Nutzung dieses
-    Musters wuerde neu bewertet werden muessen; dasselbe Risiko tragen die
-    bereits bestehenden kategorischen Sperren (`model_validate`, `partial`).
   - `SyncLogEntry.construct(**roh)` (Pydantic-v1-Altform von
     `model_construct`), `.parse_obj(roh)` (Pydantic-v1-Altform von
     `model_validate`), `.model_validate_strings(roh)` — dieselbe
@@ -194,23 +258,67 @@ statt stillschweigend uebersehen — siehe "WAS ER NICHT ERFASST" unten):
     Validierung, nie als eigener, textuell sichtbarer `SyncLogEntry(...)`-
     oder `TypeAdapter(...)`-Aufruf. Das zu erfassen braucht Typfluss ueber
     Feld-Deklarationen hinweg, nicht nur einen Datei-fuer-Datei-Syntaxbaum-Scan.
-  - `type(vorlage)(**roh)`, dessen `vorlage`-Variable erst zur LAUFZEIT einer
-    fremden, unbeteiligten Klasse entstammt — die Erkennung oben ist rein
-    SYNTAKTISCH (jeder `type(x)(...)`-Aufruf gilt als Konstruktion), nicht
-    typgebunden.
+    ALLE unten aufgezaehlten Restformen (Nacharbeit 2) sind von dieser
+    Klasse: syntaktisch beliebig variierbar, deshalb bewusst NICHT statisch
+    nachgezogen, sondern von der Laufzeitpruefung abgedeckt, sobald ein Test
+    sie ausfuehrt (siehe NACHARBEIT 5 oben):
+  - `type(vorlage)(**roh)` / `vorlage.__class__(**roh)`, ECHT auf
+    SyncLogEntry angewendet (die Fehlalarm-Formen mit einer FREMDEN Klasse
+    bleiben gruen, siehe NACHARBEIT 5 Punkt 2) — der kategorische Fang dafuer
+    wurde ERSATZLOS entfernt, weil er ohne Typbindung nicht von den
+    Fehlalarmen FA1/FA2/FA3/FA7 zu unterscheiden war. Laufzeit-Rot-Beweis:
+    `test_laufzeit_rotbeweis_type_vorlage_konstruktion_mit_falschem_schluessel`.
+  - `cls(**roh)` in einer `@classmethod`-Fabrikmethode einer Unterklasse
+    (Blindpruefer P6/P15) — `_rechter_bezeichner` liefert dafuer nur den
+    Namen `cls`, der niemals in `gueltige_namen` steht; ein pauschaler Fang
+    auf den Namen `cls` traefe JEDE Fabrikmethode JEDER anderen
+    Pydantic-Klasse im Baum (Fehlalarm-Garantie). Laufzeit-Rot-Beweis:
+    `test_laufzeit_rotbeweis_cls_roh_fabrikmethode_mit_falschem_schluessel`.
+  - `e.__init__(**roh)` auf einem bereits existierenden Objekt
+    (Blindpruefer P7) — das Aufrufziel ist ein Attributzugriff `.__init__`
+    auf einer beliebigen Variablen, nicht der Klassenname. Laufzeit-Rot-
+    Beweis: `test_laufzeit_rotbeweis_e_init_roh_mit_falschem_schluessel`.
+  - Ein Closure-Alias, ueber eine verschachtelte Funktion aufgerufen
+    (Blindpruefer P1/P1b) — statisch nur mit vollem Datenfluss durch
+    Closures ueber Funktionsgrenzen hinweg zu erkennen. Laufzeit-Rot-Beweis:
+    `test_laufzeit_rotbeweis_closure_alias_mit_falschem_schluessel`.
+  - Eine GLOBALE Neubindung (`global _G; _G = SyncLogEntry` in einer
+    Funktion, benutzt in einer ANDEREN) — unser Alias-Scanner kennt
+    Modul- und Funktions-Geltungsbereiche, aber keine `global`-Erklaerung,
+    die eine Funktion SCHREIBEND auf den modulweiten Namensraum wirken
+    laesst (Blindpruefer-Sonde P15 im Sinne von "P15_global_alias";
+    ungluecklich dieselbe Ziffer wie die oben genannte `cls(**roh)`-Sonde
+    des Gegenpruefers — beide Zahlen stammen aus zwei VERSCHIEDENEN
+    Pruefstimmen mit eigener Nummerierung).
+  - Ein `model_validator(mode="before")`, der die rohen Eingabedaten VOR der
+    Validierung mutiert (`data.update(roh)`) — der ENDGUELTIGE, validierte
+    Wert wird trotzdem gegen den Vertrag geprueft (die Laufzeitpruefung sieht
+    das FERTIGE Objekt, nicht den Zwischenschritt), aber ein Fang ueber den
+    Syntaxbaum muesste dafuer wissen, WAS der Validator mit den Rohdaten tut.
+  - Ein Re-Export in eine ANDERE Datei (`_E = SyncLogEntry` in
+    `models/alias_mod.py`, importiert und benutzt in `services/
+    sync_service.py`) — `_sammle_aliase` arbeitet Datei-fuer-Datei; ein
+    Alias, dessen QUELLE in einer anderen Datei steht als seine Nutzung,
+    braucht eine projektweite (nicht dateiweite) Datenfluss-Analyse.
+  - Der `response_model`-Weg von FastAPI — validiert intern ueber Pydantics
+    `model_validate`-Mechanismus, nie ueber einen im Quelltext sichtbaren
+    `SyncLogEntry(...)`- oder `TypeAdapter(...)`-Aufruf.
 
-WAS DIESER WAECHTER ERFASST (gemessen, Stand dieser Runde):
-  - jede Konstruktion von `SyncLogEntry` oder einer (transitiven)
-    Unterklasse, ob als nackter Name, ueber einen Modulnamen, einen lokalen
-    Importalias, eine Zuweisungs-Alias (Name, Attribut, Tupel, Kette,
-    Annotation — je nach Geltungsbereich), `type(vorlage)(...)` oder
-    `vorlage.__class__(...)`;
+WAS DIESER WAECHTER ERFASST -- STATISCH (gemessen, Stand dieser Runde):
+  - jede Konstruktion von `SyncLogEntry` oder einer (transitiven, beliebig
+    tief) Unterklasse, ob als nackter Name, ueber einen Modulnamen, einen
+    lokalen Importalias, eine Zuweisungs-Alias (Name, Attribut, Tupel,
+    Kette, Annotation — je nach Geltungsbereich, GETRENNT nach Modul- und
+    Funktionsebene fuer sowohl SyncLogEntry- als auch TypeAdapter-Aliase);
   - fehlendes, nicht-woertliches oder falsch geformtes `message_key`/
     `message_params` an einer solchen Konstruktion;
   - JEDEN Attribut-Zugriff (`ctx` `Store`, `Del` ODER `Load`) auf
-    `.message_key`/`.message_params`, AUSSER einem `Load`-Zugriff, der (a)
-    Operand eines Vergleichs ist UND (b) an einer Stelle aus
-    `_BENANNTE_LESE_AUSNAHMEN` steht; eine Subskript-Zuweisung/-Loeschung auf
+    `.message_key`/`.message_params`, AUSSER einem `Load`-Zugriff auf
+    `.message_key` (NICHT `.message_params`, siehe NACHARBEIT 5), der (a)
+    Operand EINES einzelnen Vergleichs (`==`/`!=`/`is`/`is not`) GEGEN EIN
+    LITERAL ODER EINEN NAMEN ist UND (b) an einer Stelle aus
+    `_BENANNTE_LESE_AUSNAHMEN` steht (Schluessel: Datei, Klasse, VOLLER
+    verschachtelter Funktionspfad); eine Subskript-Zuweisung/-Loeschung auf
     `.message_params[...]` sowie jede Mutationsmethode
     (`.pop()`/`.update()`/`.clear()`/`.popitem()`/`.setdefault()`/
     `.__setitem__()`/`.__delitem__()`/`.__ior__()`/`.__init__()`) auf
@@ -224,24 +332,52 @@ WAS DIESER WAECHTER ERFASST (gemessen, Stand dieser Runde):
     `.model_construct(...)`/`.construct(...)`/`.parse_obj(...)`/
     `.model_validate_strings(...)` (kategorisch, unabhaengig vom Inhalt);
   - `TypeAdapter(SyncLogEntry)`/`TypeAdapter(list[SyncLogEntry])` (auch unter
-    Import- oder Variablen-Alias) `.validate_python(...)`/`.validate_json(...)`/
-    `.validate_strings(...)`;
+    Import- oder Variablen-Alias, je NACH Geltungsbereich) `.validate_python(...)`/
+    `.validate_json(...)`/`.validate_strings(...)`;
   - `dict(message_params=..., ...)`/`dict(message_key=..., ...)`.
 
-WAS ER NICHT ERFASST (bekannte Restformen, keine Vollstaendigkeit behauptet):
+  NICHT MEHR (Nacharbeit 2, ERSATZLOS entfernt, ohne Ausweg fail-closed ohne
+  Fehlalarm nicht moeglich): der kategorische Fang von `type(x)(...)` /
+  `x.__class__(...)` — siehe NACHARBEIT 5 und "WAS ER NICHT ERFASST" unten;
+  die Laufzeitpruefung deckt eine ECHTE Konstruktion dieser Form ab.
+
+WAS DIE LAUFZEITPRUEFUNG ZUSAETZLICH ERFASST (`conftest.py`, siehe dort):
+  jede Konstruktion, die WAEHREND EINES TESTS tatsaechlich ausgefuehrt wird,
+  unabhaengig vom syntaktischen Weg — `__init__`, `cls(**roh)`,
+  `e.__init__(**roh)`, ein Closure-/Klassenattribut-Alias, `model_validate`,
+  `model_construct`, der `response_model`-Weg von FastAPI, eine Unterklasse,
+  die `model_post_init` nicht selbst ueberschreibt. Sieht NICHT: Code, der in
+  KEINEM Test laeuft (dafuer ist die statische Pruefung da).
+
+WAS ER NICHT ERFASST -- WEDER STATISCH NOCH ZUR LAUFZEIT (bekannte
+Restformen, keine Vollstaendigkeit behauptet):
   - `getattr(x, "message_" + "key")` oder eine andere zur Laufzeit erst
-    zusammengesetzte Zeichenkette (kein woertlicher `ast.Constant` mehr);
-  - Reflection ueber `__dict__`/`vars(x)` ohne den Namen als Zeichenkette;
+    zusammengesetzte Zeichenkette (kein woertlicher `ast.Constant` mehr) --
+    UND kein `message_key`/`message_params`-Problem, weil die Laufzeitpruefung
+    das FERTIGE Objekt sieht, nicht den Zugriffs-Ausdruck selbst;
+  - Reflection ueber `__dict__`/`vars(x)` ohne den Namen als Zeichenkette --
+    dasselbe: das ENDERGEBNIS am Objekt ist der Massstab, nicht der Weg
+    dorthin, ausser das Endergebnis selbst weicht vom Vertrag ab;
   - ein zweites, semantisch anderes Attribut, das zufaellig auch
-    `message_key` heisst, an einer voellig anderen Klasse (der Scan ist
-    NAMENSBASIERT auf dem ganzen Baum, nicht typgebunden);
+    `message_key` heisst, an einer voellig anderen Klasse, DIE NICHT
+    SyncLogEntry oder eine Unterklasse ist (der Scan ist NAMENSBASIERT auf
+    dem ganzen Baum, nicht typgebunden — die Laufzeitpruefung dagegen IST
+    typgebunden, sie haengt nur an `SyncLogEntry.model_post_init`);
   - `model_copy(update=roh)` ohne woertliches Dict und ein Huellmodell mit
-    `list[SyncLogEntry]`-Feld — Begruendung siehe "NACHARBEIT 4" oben;
+    `list[SyncLogEntry]`-Feld — Begruendung siehe "NACHARBEIT 4" oben. BEIDE
+    Formen fuehren am Ende zu einem RICHTIGEN `SyncLogEntry`-Objekt, das die
+    Laufzeitpruefung SEHR WOHL sieht, wenn ein Test sie ausfuehrt — die
+    Einschraenkung gilt nur fuer die STATISCHE Pruefung;
   - eine benannte Lese-Ausnahme deckt AUSSCHLIESSLICH die eine erkannte
-    beweisbare Form (Vergleichsoperand) an der genannten Stelle ab — ein
-    zweiter, andersartiger lesender Zugriff (z. B. ein blosses `print(...)`)
-    an DERSELBEN Stelle bleibt verboten, das ist kein Freibrief fuer die
-    ganze Funktion.
+    beweisbare Form (ein Vergleich gegen Literal/Namen) an der GENAUEN,
+    vollen Funktionspfad-Stelle ab — ein zweiter, andersartiger lesender
+    Zugriff (z. B. ein blosses `print(...)`) an DERSELBEN Stelle bleibt
+    verboten, das ist kein Freibrief fuer die ganze Funktion; und sie deckt
+    NIE `message_params` ab, gleich welche Form (siehe NACHARBEIT 5);
+  - eine Unterklasse, die `SyncLogEntry.model_post_init` selbst
+    ueberschreibt, OHNE `super().model_post_init(...)` aufzurufen — kein
+    heutiger Produktionscode tut das; ein kategorisches Verbot dieser Form
+    ist Aufgabe der statischen Pruefung, nicht der Laufzeitpruefung.
 """
 
 from __future__ import annotations
@@ -249,11 +385,16 @@ from __future__ import annotations
 import ast
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Optional
 
 import pytest
+
+import models.match as _match_modul
+from models.match import SyncLogEntry
+from conftest import pruefe_laufzeit_eintrag
 
 WURZEL = Path(__file__).resolve().parents[2]
 BACKEND_DIR = WURZEL / "backend"
@@ -450,11 +591,22 @@ def _fixpunkt_aufloesen(roh: list[tuple[str, ast.expr]], bekannte_namen: set[str
 
 def _sammle_aliase(
     baum: ast.Module, bekannte_namen: set[str]
-) -> tuple[set[str], dict[tuple[Optional[str], str], set[str]]]:
+) -> tuple[set[str], dict[tuple[Optional[str], str], set[str]], dict[tuple[Optional[str], str], set[str]]]:
     """Ersatz fuer die fruehere `_sammle_lokale_aliase`: (modulweite Aliase,
-    {(Klasse, Funktion): NUR-DORT-gueltige Aliase}). Modulweite Aliase
-    fliessen als zusaetzliche 'bekannte Namen' in JEDEN Funktions-Fixpunkt ein
-    (eine Funktion darf einen modulweiten Alias immer sehen), nie umgekehrt."""
+    {(Klasse, Funktion): NUR-DORT-gueltige Aliase}, {(Klasse, Funktion): dort
+    LOKAL UEBERSCHRIEBENE Namen}). Modulweite Aliase fliessen als
+    zusaetzliche 'bekannte Namen' in JEDEN Funktions-Fixpunkt ein (eine
+    Funktion darf einen modulweiten Alias immer sehen), nie umgekehrt.
+
+    Der dritte Rueckgabewert schliesst einen Fehlalarm (#115, Nacharbeit 2,
+    FA6/F3): Ein modulweiter Alias `_Eintrag = SyncLogEntry`, den eine
+    Funktion LOKAL auf etwas anderes umbindet (`_Eintrag = dict`), ist -
+    genau wie bei einem echten Python-Namen - fuer die GESAMTE Funktion
+    lokal, unabhaengig davon, WORAUF die lokale Zuweisung zeigt. Ohne diese
+    Menge bliebe der modulweite Alias in dieser Funktion faelschlich
+    sichtbar (eine reine UNION haette ihn nie entfernt) - `_Eintrag(**roh)`
+    waere dann eine vermeintliche SyncLogEntry-Konstruktion, obwohl zur
+    Laufzeit `dict(**roh)` laeuft."""
     aliase_import: set[str] = set()
     for knoten in ast.walk(baum):
         if isinstance(knoten, ast.ImportFrom):
@@ -469,13 +621,15 @@ def _sammle_aliase(
     global_sichtbar = bekannte_namen | modul_aliase
 
     funktions_aliase: dict[tuple[Optional[str], str], set[str]] = {}
+    lokal_ueberschrieben: dict[tuple[Optional[str], str], set[str]] = {}
     for schluessel, roh in sammler.roh.items():
         if schluessel == (None, "<Modul>"):
             continue
+        lokal_ueberschrieben[schluessel] = {ziel for ziel, _ in roh}
         aufgeloest = _fixpunkt_aufloesen(roh, global_sichtbar)
         if aufgeloest:
             funktions_aliase[schluessel] = aufgeloest
-    return modul_aliase, funktions_aliase
+    return modul_aliase, funktions_aliase, lokal_ueberschrieben
 
 
 def _sammle_partial_aliase(baum: ast.Module) -> set[str]:
@@ -518,11 +672,23 @@ def _sammle_partial_aliase(baum: ast.Module) -> set[str]:
     return aliase
 
 
-def _sammle_typeadapter_aliase(baum: ast.Module, gueltige_namen: set[str]) -> tuple[set[str], set[str]]:
-    """(Importalias-Namen fuer `TypeAdapter` selbst, Variablennamen, die an
-    `TypeAdapter(SyncLogEntry)`/`TypeAdapter(list[SyncLogEntry])` gebunden
-    wurden — #115, Nacharbeit 1). Bewusst MODULWEIT, dieselbe Abwaegung wie
-    bei `_sammle_partial_aliase`."""
+def _sammle_typeadapter_aliase(
+    baum: ast.Module, gueltige_namen: set[str]
+) -> tuple[set[str], set[str], dict[tuple[Optional[str], str], set[str]]]:
+    """(Importalias-Namen fuer `TypeAdapter` selbst -- ein Import gilt immer
+    fuer die ganze Datei, deshalb bewusst modulweit --, modulweite
+    Variablennamen, {(Klasse, Funktion): NUR-DORT-gueltige Variablennamen}).
+
+    Die VARIABLENBINDUNG selbst ist -- anders als der Import -- seit
+    Nacharbeit 2 (#115, Gegenpruefer-Fehlalarm FA4) GETRENNT NACH
+    GELTUNGSBEREICH, genau wie `_sammle_aliase` fuer SyncLogEntry-Namen:
+    Eine Variable `ta`, die in ZWEI VOELLIG unabhaengigen Funktionen je
+    einmal einem TypeAdapter zugewiesen wird -- eine davon
+    `TypeAdapter(list[SyncLogEntry])`, die andere z. B.
+    `TypeAdapter(list[int])` --, darf die zweite, voellig unbeteiligte
+    Funktion nicht faelschlich mit der ersten verwechseln, nur weil beide
+    modulweit denselben Variablennamen benutzen (gemessen: vorher ein
+    Fehlalarm ohne Ausweg)."""
     import_aliase: set[str] = set()
     for knoten in ast.walk(baum):
         if isinstance(knoten, ast.ImportFrom) and knoten.module == "pydantic":
@@ -531,18 +697,45 @@ def _sammle_typeadapter_aliase(baum: ast.Module, gueltige_namen: set[str]) -> tu
                     import_aliase.add(alias.asname)
 
     ziel_namen = {"TypeAdapter"} | import_aliase
-    var_aliase: set[str] = set()
-    for knoten in ast.walk(baum):
-        if (
-            isinstance(knoten, ast.Assign)
-            and len(knoten.targets) == 1
+
+    def _ist_treffer(knoten: ast.Assign) -> bool:
+        return (
+            len(knoten.targets) == 1
             and isinstance(knoten.targets[0], ast.Name)
             and isinstance(knoten.value, ast.Call)
             and _rechter_bezeichner(knoten.value.func) in ziel_namen
             and any(_rechter_bezeichner_tief(arg) in gueltige_namen for arg in knoten.value.args)
-        ):
-            var_aliase.add(knoten.targets[0].id)
-    return import_aliase, var_aliase
+        )
+
+    funktionsstapel: list[str] = ["<Modul>"]
+    klassenstapel: list[Optional[str]] = [None]
+    modul_var_aliase: set[str] = set()
+    scope_var_aliase: dict[tuple[Optional[str], str], set[str]] = {}
+
+    class _TypeAdapterVarSammler(ast.NodeVisitor):
+        def visit_ClassDef(self, k: ast.ClassDef) -> None:  # noqa: N802
+            klassenstapel.append(k.name)
+            self.generic_visit(k)
+            klassenstapel.pop()
+
+        def visit_FunctionDef(self, k: ast.FunctionDef) -> None:  # noqa: N802
+            funktionsstapel.append(k.name)
+            self.generic_visit(k)
+            funktionsstapel.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815
+
+        def visit_Assign(self, k: ast.Assign) -> None:  # noqa: N802
+            if _ist_treffer(k):
+                schluessel = (klassenstapel[-1], funktionsstapel[-1])
+                if schluessel == (None, "<Modul>"):
+                    modul_var_aliase.add(k.targets[0].id)
+                else:
+                    scope_var_aliase.setdefault(schluessel, set()).add(k.targets[0].id)
+            self.generic_visit(k)
+
+    _TypeAdapterVarSammler().visit(baum)
+    return import_aliase, modul_var_aliase, scope_var_aliase
 
 
 class _SyncLogPruefer(ast.NodeVisitor):
@@ -555,16 +748,20 @@ class _SyncLogPruefer(ast.NodeVisitor):
         relativer_pfad: str,
         gueltige_namen: set[str],
         funktions_aliase: dict[tuple[Optional[str], str], set[str]],
+        lokal_ueberschrieben: dict[tuple[Optional[str], str], set[str]],
         partial_aliase: set[str],
         typeadapter_aliase: set[str],
         typeadapter_var_aliase: set[str],
+        typeadapter_var_aliase_scope: dict[tuple[Optional[str], str], set[str]],
     ):
         self.relativer_pfad = relativer_pfad
         self.gueltige_namen = gueltige_namen
         self.funktions_aliase = funktions_aliase
+        self.lokal_ueberschrieben = lokal_ueberschrieben
         self.partial_aliase = partial_aliase
         self.typeadapter_aliase = typeadapter_aliase
         self.typeadapter_var_aliase = typeadapter_var_aliase
+        self.typeadapter_var_aliase_scope = typeadapter_var_aliase_scope
         self._funktionsstapel: list[str] = ["<Modul>"]
         self._klassenstapel: list[Optional[str]] = [None]
         self.gefunden: dict[str, set[frozenset[str]]] = {}
@@ -583,12 +780,40 @@ class _SyncLogPruefer(ast.NodeVisitor):
     def _aktueller_schluessel(self) -> tuple[str, Optional[str], str]:
         return (self.relativer_pfad, self._klassenstapel[-1], self._funktionsstapel[-1])
 
+    def _scope_schluessel(self) -> tuple[Optional[str], str]:
+        """(Klasse-oder-None, Funktion) ohne den Dateinamen -- der
+        Geltungsbereichs-Schluessel, den `_sammle_aliase` und
+        `_sammle_typeadapter_aliase` fuer ihre PRO-FUNKTION-Zuordnungen
+        benutzen."""
+        return (self._klassenstapel[-1], self._funktionsstapel[-1])
+
+    def _funktionspfad(self) -> str:
+        """Der VOLLE Pfad verschachtelter Funktionen, "/"-getrennt, von
+        aussen nach innen (#115, Nacharbeit 2, Gegenpruefer NA1 L6/L7/L7b/
+        L7c, Blindpruefer L1/L1b): Fuer eine Funktion auf Modulebene oder
+        eine Methode ist das weiterhin schlicht ihr eigener Name (identisch
+        zum bisherigen Verhalten -- bestehende `_BENANNTE_LESE_AUSNAHMEN`-
+        Eintraege bleiben dadurch gueltig). Fuer eine VERSCHACHTELTE
+        Funktion ist es der Pfad ALLER umschliessenden Funktionsnamen: eine
+        Ausnahme fuer die AEUSSERE Funktion `_fremd` deckt eine gleichnamige
+        innere Funktion `_gelistet` NICHT mehr blindlings mit ab -- eine
+        zweite, andersartige Stelle mit zufaellig demselben BLOSSEN Namen
+        (verschachtelt in einer anderen Funktion, oder umgekehrt gar nicht
+        verschachtelt) ist jetzt ein ANDERER Schluessel."""
+        pfad = self._funktionsstapel[1:]  # "<Modul>" an Position 0 nie mitzaehlen
+        return "/".join(pfad) if pfad else "<Modul>"
+
     def _gueltige_namen_hier(self) -> set[str]:
-        """`gueltige_namen` (modulweit + globale Unterklassen), erweitert um
-        Zuweisungs-Aliase, die NUR in der aktuellen Funktion gelten (#115,
-        Nacharbeit 1 — Geltungsbereich statt dateiweiter Ueberdeckung)."""
-        ort = (self._klassenstapel[-1], self._funktionsstapel[-1])
-        return self.gueltige_namen | self.funktions_aliase.get(ort, set())
+        """`gueltige_namen` (modulweit + globale Unterklassen), MINUS Namen,
+        die die aktuelle Funktion LOKAL ueberschreibt (#115, Nacharbeit 2,
+        FA6/F3 — ein modulweiter Alias, den eine Funktion lokal auf etwas
+        anderes umbindet, ist fuer die GANZE Funktion lokal, genau wie ein
+        echter Python-Name), PLUS Zuweisungs-Aliase, die NUR in der
+        aktuellen Funktion gelten (#115, Nacharbeit 1 — Geltungsbereich
+        statt dateiweiter Ueberdeckung)."""
+        ort = self._scope_schluessel()
+        ueberschrieben = self.lokal_ueberschrieben.get(ort, set())
+        return (self.gueltige_namen - ueberschrieben) | self.funktions_aliase.get(ort, set())
 
     def visit_ClassDef(self, knoten: ast.ClassDef) -> None:  # noqa: N802
         self._klassenstapel.append(knoten.name)
@@ -606,19 +831,58 @@ class _SyncLogPruefer(ast.NodeVisitor):
         self._funktionsstapel.pop()
 
     def visit_Compare(self, knoten: ast.Compare) -> None:  # noqa: N802
-        """Markiert Attributzugriffe auf `.message_key`/`.message_params`,
-        die als Operand EINES Vergleichs auftreten (z. B.
-        `e.message_key == schluessel`), als strukturell BEWEISBARE Lese-Form
-        (#115, Nacharbeit 1, Punkt 1, Beispiel 1 aus dem Issue). Nur an einem
-        so bewiesenen Knoten UND nur an einer in `_BENANNTE_LESE_AUSNAHMEN`
-        gelisteten Stelle erlaubt `visit_Attribute` unten den Zugriff.
-        Reihenfolge: Markierung VOR `generic_visit`, das `visit_Attribute`
-        erst ausloest (derselbe Kniff wie eine Markierung vor dem Besuch)."""
-        for operand in (knoten.left, *knoten.comparators):
+        """Markiert einen Attributzugriff auf `.message_key` (NICHT mehr
+        `.message_params`, siehe unten), der als Operand EINES einzelnen
+        Vergleichs (`==`/`!=`/`is`/`is not`, GENAU ein Operator) gegen ein
+        Literal oder einen Namen auftritt (z. B. `e.message_key == schluessel`),
+        als strukturell BEWEISBARE Lese-Form (#115, Nacharbeit 1, Punkt 1,
+        Beispiel 1 aus dem Issue). Nur an einem so bewiesenen Knoten UND nur
+        an einer in `_BENANNTE_LESE_AUSNAHMEN` gelisteten Stelle erlaubt
+        `visit_Attribute` unten den Zugriff. Reihenfolge: Markierung VOR
+        `generic_visit`, das `visit_Attribute` erst ausloest (derselbe
+        Kniff wie eine Markierung vor dem Besuch).
+
+        ZWEI VERSCHAERFUNGEN (#115, Nacharbeit 2, Gegenpruefer NA1 L4/L4b/
+        L4c/L4d — jeweils zur LAUFZEIT gemessen):
+
+        1. NUR `message_key` (ein unveraenderlicher String) — NICHT mehr
+           `message_params` (ein veraenderliches `dict`). Ein Vergleich wie
+           `e.message_params == anderes` uebergibt die ECHTE Dict-Referenz an
+           ein FREMDES `__eq__`/`__contains__` (`in`) — ein Objekt mit
+           `def __eq__(self, anderes): anderes["names"] = "geaendert"; ...`
+           mutiert damit unter dem Deckmantel eines "Lesens" (gemessen: der
+           Log-Eintrag erreichte das Frontend mit veraenderten Parametern).
+           `message_key` ist als String dagegen immun — es gibt keinen
+           Mechanismus, ueber den ein Vergleich einen String von aussen
+           veraendern koennte.
+        2. Nur ein Vergleich gegen ein LITERAL (`ast.Constant`) oder einen
+           NAMEN (`ast.Name`) zaehlt als beweisbar — ein Vergleich gegen
+           einen `ast.Call` (`e.message_key == Irgendwas()`) oder ein `in`
+           gegen einen beliebigen Behaelter (`e.message_key in kandidaten`)
+           bleibt UNBEWIESEN und damit verboten: Der rechte Ausdruck koennte
+           selbst eine Fabrik mit Seiteneffekt sein. `in`/`not in` sind aus
+           demselben Grund NIE eine beweisbare Form, unabhaengig vom
+           Gegenstueck — `list.__contains__` ruft `__eq__` auf jedem
+           Element auf, und ein Element mit eigenem `__eq__` koennte selbst
+           bei `message_key` beliebigen Code ausfuehren.
+
+        Ein zusammengesetzter Vergleich (`a < e.message_key < b`, mehr als
+        EIN Operator) gilt aus demselben Grund NIE als beweisbar — welcher
+        Operand zu welchem Operator "gehoert", ist dort nicht mehr eindeutig
+        genug, um fail-closed zu bleiben."""
+        if len(knoten.ops) != 1:
+            self.generic_visit(knoten)
+            return
+        op = knoten.ops[0]
+        ist_beweisbarer_operator = isinstance(op, (ast.Eq, ast.NotEq, ast.Is, ast.IsNot))
+        links, rechts = knoten.left, knoten.comparators[0]
+        for operand, gegenstueck in ((links, rechts), (rechts, links)):
             if (
                 isinstance(operand, ast.Attribute)
-                and operand.attr in _LITERALE_NAMEN
+                and operand.attr == "message_key"
                 and isinstance(operand.ctx, ast.Load)
+                and ist_beweisbarer_operator
+                and isinstance(gegenstueck, (ast.Constant, ast.Name))
             ):
                 self._beweisbare_lese_knoten.add(operand)
         self.generic_visit(knoten)
@@ -652,7 +916,11 @@ class _SyncLogPruefer(ast.NodeVisitor):
                 "woertliche SyncLogEntry-Konstruktion mit message_key=... / message_params=...)"
             )
         else:
-            schluessel = self._aktueller_schluessel()
+            # NICHT `_aktueller_schluessel()` -- die Lese-Ausnahme bindet seit
+            # Nacharbeit 2 an den VOLLEN Funktionspfad (siehe
+            # `_funktionspfad`), die Schreib-Ausnahme unveraendert an den
+            # innersten Funktionsnamen (`_aktueller_schluessel`).
+            schluessel = (self.relativer_pfad, self._klassenstapel[-1], self._funktionspfad())
             if knoten in self._beweisbare_lese_knoten and schluessel in _BENANNTE_LESE_AUSNAHMEN:
                 self.lese_ausnahme_treffer[schluessel] = self.lese_ausnahme_treffer.get(schluessel, 0) + 1
             else:
@@ -758,8 +1026,8 @@ class _SyncLogPruefer(ast.NodeVisitor):
                 and _rechter_bezeichner(innerer_aufruf.func) in ({"TypeAdapter"} | self.typeadapter_aliase)
                 and any(_rechter_bezeichner_tief(arg) in gueltige_namen_hier for arg in innerer_aufruf.args)
             )
-            ist_typeadapter_variable = (
-                isinstance(innerer_aufruf, ast.Name) and innerer_aufruf.id in self.typeadapter_var_aliase
+            ist_typeadapter_variable = isinstance(innerer_aufruf, ast.Name) and innerer_aufruf.id in (
+                self.typeadapter_var_aliase | self.typeadapter_var_aliase_scope.get(self._scope_schluessel(), set())
             )
             if ist_typeadapter_aufruf or ist_typeadapter_variable:
                 self.verstoesse.append(
@@ -790,17 +1058,6 @@ class _SyncLogPruefer(ast.NodeVisitor):
             return
 
         ist_konstruktion = rechter_name in gueltige_namen_hier
-        # Gegenpruefer-Sonde bestaetigt (Skizze in `gegen/S5/k1fix`, Ergebnis
-        # selbst gemessen: genau ein `type(...)`-Aufruf im heutigen Backend,
-        # `type(exc).__name__`, kein `type(x)(...)`-Aufruf, kein
-        # `.__class__(...)`-Aufruf) — Fangen ist ohne Fehlalarm moeglich.
-        ist_dynamischer_typ_aufruf = (
-            isinstance(knoten.func, ast.Call)
-            and isinstance(knoten.func.func, ast.Name)
-            and knoten.func.func.id == "type"
-        ) or (isinstance(knoten.func, ast.Attribute) and knoten.func.attr == "__class__")
-        if ist_dynamischer_typ_aufruf:
-            ist_konstruktion = True
 
         msg_key_kw = next((kw for kw in knoten.keywords if kw.arg == "message_key"), None)
         msg_params_kw = next((kw for kw in knoten.keywords if kw.arg == "message_params"), None)
@@ -816,7 +1073,6 @@ class _SyncLogPruefer(ast.NodeVisitor):
                     message_params_knoten=msg_params_kw.value if msg_params_kw else None,
                     hat_message_params_schluessel=msg_params_kw is not None,
                     zeile=knoten.lineno,
-                    ist_dynamischer_typ_aufruf=ist_dynamischer_typ_aufruf,
                 )
         self.generic_visit(knoten)
 
@@ -827,10 +1083,9 @@ class _SyncLogPruefer(ast.NodeVisitor):
         message_params_knoten: Optional[ast.expr],
         hat_message_params_schluessel: bool,
         zeile: int,
-        ist_dynamischer_typ_aufruf: bool = False,
     ) -> None:
         ort = self._ort(zeile)
-        praefix = "type(...)/.__class__(...)-Konstruktion" if ist_dynamischer_typ_aufruf else "SyncLogEntry-Konstruktion"
+        praefix = "SyncLogEntry-Konstruktion"
         if message_key_knoten is None:
             self.verstoesse.append(f"{ort} {praefix} ohne message_key")
             return
@@ -893,17 +1148,21 @@ def backend_sendestellen(wurzel: Path = BACKEND_DIR) -> tuple[dict[str, frozense
             relativer_pfad = "backend/" + str(datei.relative_to(wurzel)).replace("\\", "/")
         else:
             relativer_pfad = str(datei.relative_to(WURZEL)).replace("\\", "/")
-        modul_aliase, funktions_aliase = _sammle_aliase(baum, gueltige_namen_global)
+        modul_aliase, funktions_aliase, lokal_ueberschrieben = _sammle_aliase(baum, gueltige_namen_global)
         gueltige_namen = gueltige_namen_global | modul_aliase
         partial_aliase = _sammle_partial_aliase(baum)
-        typeadapter_aliase, typeadapter_var_aliase = _sammle_typeadapter_aliase(baum, gueltige_namen)
+        typeadapter_aliase, typeadapter_var_aliase, typeadapter_var_aliase_scope = _sammle_typeadapter_aliase(
+            baum, gueltige_namen
+        )
         pruefer = _SyncLogPruefer(
             relativer_pfad,
             gueltige_namen,
             funktions_aliase,
+            lokal_ueberschrieben,
             partial_aliase,
             typeadapter_aliase,
             typeadapter_var_aliase,
+            typeadapter_var_aliase_scope,
         )
         pruefer.visit(baum)
         verstoesse.extend(pruefer.verstoesse)
@@ -1016,6 +1275,14 @@ def _kopiere_backend_mit_mutation(tmp_path: Path, mutation: Callable[[Path], Non
 
 def _sonde_anhaengen(backend_kopie: Path, python_quelltext: str) -> None:
     datei = backend_kopie / "services" / "sync_service.py"
+    datei.write_text(datei.read_text("utf-8") + "\n\n" + python_quelltext, "utf-8")
+
+
+def _sonde_anhaengen_datei(backend_kopie: Path, relativer_pfad: str, python_quelltext: str) -> None:
+    """Wie `_sonde_anhaengen`, aber an eine BELIEBIGE Datei -- fuer Sonden,
+    die beweisen sollen, dass der Scanner nicht nur `services/` sieht (M13,
+    #115 Nacharbeit 2)."""
+    datei = backend_kopie / relativer_pfad
     datei.write_text(datei.read_text("utf-8") + "\n\n" + python_quelltext, "utf-8")
 
 
@@ -1695,36 +1962,43 @@ def test_rotbeweis_partial_bare_alias_ist_fail_closed(tmp_path):
 # ── Nacharbeit 1 (#115): dynamische Konstruktion (Gegenpruefer-Skizze) ──────
 
 
-def test_rotbeweis_type_vorlage_konstruktion_ist_fail_closed(tmp_path):
-    """`type(vorlage)(**roh)`: die Gegenpruefer-Sonde bestaetigt -- genau EIN
-    `type(...)`-Aufruf im heutigen Backend, kein `type(x)(...)`-Aufruf --,
-    dass diese Restform ohne Fehlalarm gefangen werden kann (Skizze in
-    `gegen/S5/k1fix`)."""
+def test_sonde_type_vorlage_konstruktion_ist_kein_fehlalarm_mehr(tmp_path):
+    """Nacharbeit 2 (#115, FA1/FA2/FA3/FA7 Gegenpruefer, F1/F5 Blindpruefer):
+    `type(vorlage)(**roh)`/`vorlage.__class__(**roh)` wurden in Nacharbeit 1
+    KATEGORISCH gefangen -- unabhaengig davon, ob `vorlage` je etwas mit
+    SyncLogEntry zu tun hat. Das macht uebliche, VOELLIG UNBETEILIGTE
+    Python-Idiome faelschlich rot, OHNE Ausweg (kein Kwarg rettet
+    `raise type(exc)(...) from exc`, ein Klon-Konstruktor oder `type(self)(...)`
+    in `__add__`): `raise type(exc)(f"...: {exc}") from exc`,
+    `self.__class__(**{**self.daten, **aenderung})` (Kopie-mit-Aenderung an
+    einem VOELLIG fremden Modell), `type(obj)()` (leerer Klon) und
+    `type(self)(...)` in `__add__` eines Werttyps sind gaengige, legitime
+    Muster ausserhalb jeder SyncLogEntry-Naehe.
+
+    Der Fang ist deshalb ERSATZLOS entfernt (siehe Moduldocstring, "WAS ER
+    NICHT ERFASST") -- die Laufzeitpruefung in `conftest.py` deckt eine
+    tatsaechliche `type(vorlage)(**roh)`-Konstruktion VON SyncLogEntry ab,
+    wenn sie in einem Test ausgefuehrt wird (siehe
+    `test_laufzeit_rotbeweis_dynamischer_typ_konstruktion_mit_falschem_schluessel`
+    dort unten). Diese Sonde haelt fest, dass die vier FA-Formen jetzt GRUEN
+    bleiben, statt weiterhin (ergebnislos) fail-closed zu sein."""
     backend_kopie = _kopiere_backend_mit_mutation(
         tmp_path,
         lambda kopie: _sonde_anhaengen(
             kopie,
-            "def _rotbeweis_type_konstruktion(vorlage, roh):\n"
-            "    return type(vorlage)(**roh)\n",
+            "def _sonde_type_vorlage(vorlage, roh):\n"
+            "    return type(vorlage)(**roh)\n"
+            "\n"
+            "\n"
+            "def _sonde_dunder_class(vorlage, roh):\n"
+            "    return vorlage.__class__(**roh)\n"
+            "\n"
+            "\n"
+            "def _sonde_leerer_klon(obj):\n"
+            "    return type(obj)()\n",
         ),
     )
-    with pytest.raises(AssertionError, match="ohne message_key"):
-        pruefe_vertrag(backend_kopie)
-
-
-def test_rotbeweis_dunder_class_konstruktion_ist_fail_closed(tmp_path):
-    """`vorlage.__class__(**roh)`: dieselbe Kategorie wie `type(vorlage)(...)`,
-    gemessen 0 Vorkommen im heutigen Backend."""
-    backend_kopie = _kopiere_backend_mit_mutation(
-        tmp_path,
-        lambda kopie: _sonde_anhaengen(
-            kopie,
-            "def _rotbeweis_dunder_class(vorlage, roh):\n"
-            "    return vorlage.__class__(**roh)\n",
-        ),
-    )
-    with pytest.raises(AssertionError, match="ohne message_key"):
-        pruefe_vertrag(backend_kopie)
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
 
 
 # ── Nacharbeit 1 (#115): weitere kategorische Restformen ───────────────────
@@ -2052,3 +2326,626 @@ def test_rotbeweis_veraltete_lese_ausnahme_wird_erkannt(tmp_path, monkeypatch):
     )
     with pytest.raises(AssertionError, match="veraltete Lese-Ausnahme"):
         pruefe_vertrag(backend_kopie)
+
+
+# ── Nacharbeit 2 (#115): Fehlalarme beseitigt ───────────────────────────────
+
+
+def test_sonde_typeadapter_variable_gleichen_namens_in_zwei_funktionen_ist_kein_fehlalarm(tmp_path):
+    """FA4 (Gegenpruefer NA1): `ta = TypeAdapter(...)` war eine MODULWEITE
+    Variablen-Bindung, ohne Ruecksicht auf Funktionsgrenzen. Zwei voneinander
+    unabhaengige Funktionen, die zufaellig beide eine Variable `ta` nennen --
+    eine SyncLogEntry-bezogen, die andere (hier: `list[int]`) nicht --,
+    liessen die ZWEITE, voellig unbeteiligte Funktion faelschlich rot werden.
+    `_sammle_typeadapter_aliase` bindet Variablen jetzt GETRENNT NACH
+    GELTUNGSBEREICH, genau wie SyncLogEntry-Aliase (`_sammle_aliase`)."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "from pydantic import TypeAdapter\n"
+            "\n"
+            "\n"
+            "def _sonde_log_serialisieren(eintraege):\n"
+            "    ta = TypeAdapter(list[SyncLogEntry])\n"
+            "    return ta.dump_python(eintraege)\n"
+            "\n"
+            "\n"
+            "def _sonde_zahlen_lesen(roh):\n"
+            "    ta = TypeAdapter(list[int])\n"
+            "    return ta.validate_python(roh)\n",
+        ),
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+def test_sonde_modulalias_lokal_ueberdeckt_ist_kein_fehlalarm(tmp_path):
+    """FA6/F3 (Gegenpruefer NA1 FA6, Blindpruefer F3): Ein modulweiter Alias
+    (`_Eintrag = SyncLogEntry`), den eine Funktion LOKAL auf etwas anderes
+    umbindet (`_Eintrag = dict`), ist -- genau wie ein echter Python-Name --
+    fuer die GANZE Funktion lokal. `_gueltige_namen_hier` entfernt lokal
+    ueberschriebene Namen jetzt aus der modulweiten Sicht, statt sie per
+    Union weiter sichtbar zu lassen."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "_Eintrag = SyncLogEntry\n"
+            "\n"
+            "\n"
+            "def _sonde_roh_kopie(roh):\n"
+            "    _Eintrag = dict\n"
+            "    return _Eintrag(**roh)\n",
+        ),
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+# ── Nacharbeit 2 (#115): Rot-Beweise fuer Stellen, die grün blieben ─────────
+
+
+def test_rotbeweis_funktionslokaler_alias_in_derselben_funktion_ist_fail_closed(tmp_path):
+    """M2 (Blindpruefer-Mutationstest): `_gueltige_namen_hier` auf
+    `self.gueltige_namen` allein zu verkuerzen (funktionslokale Aliase
+    ignoriert) blieb GRUEN, weil die bestehende Geltungsbereichs-Sonde
+    (`test_sonde_lokaler_alias_in_anderer_funktion_erzeugt_keinen_fehlalarm`)
+    nur den NEGATIVEN Fall prueft (kein Fehlalarm ueber eine Funktionsgrenze
+    hinweg) -- keine bestehende Sonde beweist, dass ein funktionslokaler
+    Alias INNERHALB SEINER EIGENEN Funktion ueberhaupt noch als Konstruktion
+    erkannt wird."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _rotbeweis_funktionslokaler_alias(roh):\n"
+            "    E = SyncLogEntry\n"
+            "    return E(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="ohne message_key"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_zweistufige_transitive_unterklasse_ist_fail_closed(tmp_path):
+    """M9 (Blindpruefer-Mutationstest): `_sammle_sync_log_entry_namen` auf
+    einen DIREKTEN Vergleich (`basis == "SyncLogEntry"`) statt der
+    Mengenzugehoerigkeit (`basis in namen`) zu verkuerzen blieb GRUEN, weil
+    der bestehende Unterklassen-Test (H4) nur EINE Vererbungsstufe prueft --
+    eine Enkel-Klasse (Unterklasse einer Unterklasse) waere unter der
+    Mutation trotzdem noch als direkte Unterklasse von `SyncLogEntry`
+    erkannt worden. Erst zwei Stufen trennen die Mutation vom Original."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "class _A17(SyncLogEntry):\n"
+            "    pass\n"
+            "\n"
+            "\n"
+            "class _B17(_A17):\n"
+            "    pass\n"
+            "\n"
+            "\n"
+            "def _rotbeweis_transitiv(roh):\n"
+            "    return _B17(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="ohne message_key"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_konstruktion_ausserhalb_von_services_ist_fail_closed(tmp_path):
+    """M13 (Blindpruefer-Mutationstest): den Scan auf `wurzel / "services"`
+    zu verengen blieb GRUEN, weil AUSNAHMSLOS jede bisherige Sonde ueber
+    `_sonde_anhaengen` in `services/sync_service.py` landet. Diese Sonde
+    haengt stattdessen an `routers/albums.py` an -- einer Datei ausserhalb
+    von `services/`, in der SyncLogEntry auch real konstruiert wird
+    (`response_model=list[SyncLogEntry]`, siehe Modul)."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen_datei(
+            kopie,
+            "routers/albums.py",
+            "def _rotbeweis_ausserhalb_services(roh):\n"
+            "    return SyncLogEntry(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="ohne message_key"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_import_from_alias_fuer_synclogentry_ist_fail_closed(tmp_path):
+    """M15 (Blindpruefer-Mutationstest): das Sammeln von
+    `from models.match import SyncLogEntry as X` auf `pass` zu verkuerzen
+    blieb GRUEN, weil der bestehende Modul-Alias-Test (H7) nur
+    `import models.match as mm` (ein `ast.Import`, ueber den
+    modulqualifizierten Attributnamen erkannt) prueft, nie einen
+    `ast.ImportFrom`-Alias fuer den nackten Klassennamen selbst."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "from models.match import SyncLogEntry as _X16\n"
+            "\n"
+            "\n"
+            "def _rotbeweis_importfrom_alias(roh):\n"
+            "    return _X16(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="ohne message_key"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_schreib_ausnahme_zweimal_getroffen_ist_fail_closed(tmp_path):
+    """M3 (Blindpruefer-Mutationstest): `elif anzahl > 1` auf
+    `elif anzahl > 10**9` zu verkuerzen blieb GRUEN, weil keine bestehende
+    Sonde die benannte Schreib-Ausnahme ZWEIMAL in derselben Funktion
+    trifft -- nur der Null-Treffer-Fall (veraltete Ausnahme) war getestet."""
+
+    def mutieren(backend_kopie: Path) -> None:
+        datei = backend_kopie / "services" / "config_store.py"
+        text = datei.read_text("utf-8")
+        ziel = "                result.append(SyncLogEntry(**entry))"
+        ersatz = ziel + "\n                result.append(SyncLogEntry(**dict(entry, id='zweiter-treffer')))"
+        assert text.count(ziel) == 1, "erwartete Fundstelle in _build_log_entries nicht (mehr) vorhanden"
+        datei.write_text(text.replace(ziel, ersatz), "utf-8")
+
+    backend_kopie = _kopiere_backend_mit_mutation(tmp_path, mutieren)
+    with pytest.raises(AssertionError, match="mehrfach getroffen"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_schreib_ausnahme_ohne_klassenbindung_ist_fail_closed(tmp_path):
+    """M5 (Blindpruefer-Mutationstest): das Klassenglied aus dem
+    Ausnahme-Vergleich herauszunehmen (nur Datei+Funktion muessten passen)
+    blieb GRUEN, weil keine bestehende Sonde eine ZWEITE Klasse mit
+    gleichnamiger Methode anlegt. Diese Sonde tut genau das -- die neue
+    Klasse `_Zweite._build_log_entries` darf NICHT von der Ausnahme fuer
+    `ConfigStore._build_log_entries` mitgedeckt werden."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen_datei(
+            kopie,
+            "services/config_store.py",
+            "class _Zweite:\n"
+            "    @staticmethod\n"
+            "    def _build_log_entries(roh):\n"
+            "        return SyncLogEntry(**roh)\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="ohne message_key"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_gleicher_schluessel_verschiedene_stellen_verschiedene_parameter_ist_fail_closed(tmp_path):
+    """M6 (Blindpruefer-Mutationstest): `len(mengen) > 1` auf
+    `len(mengen) > 10**9` zu verkuerzen blieb GRUEN, weil kein bestehender
+    Test denselben `message_key` an ZWEI verschiedenen Konstruktionsstellen
+    mit UNTERSCHIEDLICHEN Parametermengen verschickt (anders als
+    `test_rotbeweis_parameter_im_backend_entfernt`, das nur EINE Stelle
+    gegen den VERTRAG abweichen laesst)."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _rotbeweis_zweite_stelle_andere_params():\n"
+            "    return SyncLogEntry(\n"
+            "        id='s', timestamp='s', action='s', details='s', status='error',\n"
+            "        message_key='log_album_shared',\n"
+            "        message_params={'album': 'x'},\n"
+            "    )\n",
+        ),
+    )
+    with pytest.raises(AssertionError, match="wird an verschiedenen Stellen mit unterschiedlichen Parametern"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_produktivpruefung_prueft_auch_parameter_nicht_nur_schluesselmengen():
+    """M11 (Blindpruefer-Mutationstest): `test_backend_stimmt_mit_dem_vertrag_ueberein`
+    durch `pass` zu ersetzen UND gleichzeitig einen echten Parameterfehler in
+    `sync_service.py` einzubauen blieb GRUEN, weil
+    `test_produktivpruefung_sieht_den_echten_baum_unabhaengig_vom_test_oben`
+    nur SCHLUESSELMENGEN vergleicht (`set(gefunden) == set(lade_vertrag())`)
+    -- ein Parameterfehler aendert die Schluesselmenge nicht. Dieser Test
+    ergaenzt den fehlenden Teil UNABHAENGIG von `pruefe_vertrag` (derselbe
+    Grund wie beim Schutztest selbst: er soll auch dann noch etwas pruefen,
+    wenn `pruefe_vertrag`s eigener Parametervergleich ausgehoehlt wuerde)."""
+    gefunden, verstoesse = backend_sendestellen()
+    assert verstoesse == [], "Fail-closed-Verstoesse: " + "; ".join(verstoesse)
+    vertrag = lade_vertrag()
+    assert set(gefunden) == set(vertrag)
+    abweichungen = {
+        schluessel: {"gesendet": sorted(gefunden[schluessel]), "vertrag": sorted(vertrag[schluessel])}
+        for schluessel in gefunden
+        if gefunden[schluessel] != frozenset(vertrag[schluessel])
+    }
+    assert abweichungen == {}, f"Parameter weichen vom Vertrag ab, Schluesselmengen-Vergleich allein sah das nicht: {abweichungen}"
+
+
+# ── Nacharbeit 2 (#115): Lese-Ausnahme enger (nur message_key, Compare-Form) ─
+
+
+def test_rotbeweis_message_params_bleibt_auch_mit_listung_verboten(tmp_path, monkeypatch):
+    """L4/L4b/L4c (Gegenpruefer NA1, LAUFZEIT gemessen): Ein Vergleich
+    `e.message_params == anderes` uebergibt die ECHTE Dict-Referenz an ein
+    fremdes `__eq__`/`__contains__` -- ein Objekt mit eigenem `__eq__` kann
+    darueber `message_params` MUTIEREN, waehrend es syntaktisch wie ein
+    Vergleich (also ein Lesen) aussieht. Die Lese-Ausnahme deckt deshalb seit
+    dieser Runde AUSSCHLIESSLICH `message_key` ab -- selbst ein expliziter
+    Eintrag fuer eine `message_params`-Vergleichsstelle in
+    `_BENANNTE_LESE_AUSNAHMEN` darf sie NICHT freischalten, weil
+    `visit_Compare` einen `message_params`-Operanden gar nicht mehr als
+    beweisbare Form markiert."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _sonde_message_params_vergleich(eintraege, schluessel):\n"
+            "    return [e for e in eintraege if e.message_params == schluessel]\n",
+        ),
+    )
+    monkeypatch.setattr(
+        _DIESES_MODUL,
+        "_BENANNTE_LESE_AUSNAHMEN",
+        {("backend/services/sync_service.py", None, "_sonde_message_params_vergleich"): "Sonde."},
+    )
+    with pytest.raises(AssertionError, match=r"lesender Zugriff auf \.message_params ist fail-closed verboten"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_in_vergleich_gegen_beliebigen_behaelter_bleibt_verboten(tmp_path, monkeypatch):
+    """L4d (Gegenpruefer NA1): `e.message_key in kandidaten` ist syntaktisch
+    ein Vergleich, aber `in` ruft `__contains__`/`__eq__` auf JEDEM Element
+    von `kandidaten` auf -- ein `in`-Vergleich zaehlt deshalb NIE als
+    beweisbare Form, selbst gegen `message_key` und selbst mit einer
+    gelisteten Ausnahme."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _sonde_in_vergleich(eintraege, kandidaten):\n"
+            "    return [e for e in eintraege if e.message_key in kandidaten]\n",
+        ),
+    )
+    monkeypatch.setattr(
+        _DIESES_MODUL,
+        "_BENANNTE_LESE_AUSNAHMEN",
+        {("backend/services/sync_service.py", None, "_sonde_in_vergleich"): "Sonde."},
+    )
+    with pytest.raises(AssertionError, match=r"lesender Zugriff auf \.message_key ist fail-closed verboten"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_lese_ausnahme_fuer_aeussere_funktion_deckt_gleichnamige_verschachtelte_nicht_ab(
+    tmp_path, monkeypatch
+):
+    """L7 (Gegenpruefer NA1): Eine Lese-Ausnahme fuer die AEUSSERE Funktion
+    `_fremd` (bare Name, wie vor dieser Runde der einzig gespeicherte
+    Schluesselteil) deckte vorher BLIND auch eine gleichnamige VERSCHACHTELTE
+    Funktion `_gelistet` mit ab, weil beide denselben innersten Namen
+    `_gelistet` bzw. `_fremd` teilten und nur der Dateiname + die Klasse +
+    EIN Funktionsname verglichen wurden. Der Schluessel ist jetzt der VOLLE
+    Funktionspfad -- eine Ausnahme fuer `_fremd` (die aeussere Funktion
+    selbst hat gar keinen beweisbaren Zugriff) deckt `_fremd/_gelistet`
+    nicht ab."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _fremd(eintraege, schluessel):\n"
+            "    def _gelistet(e):\n"
+            "        return e.message_key == schluessel\n"
+            "    return [e for e in eintraege if _gelistet(e)]\n",
+        ),
+    )
+    monkeypatch.setattr(
+        _DIESES_MODUL,
+        "_BENANNTE_LESE_AUSNAHMEN",
+        {("backend/services/sync_service.py", None, "_fremd"): "Sonde -- deckt die verschachtelte Form NICHT ab."},
+    )
+    with pytest.raises(AssertionError, match=r"lesender Zugriff auf \.message_key ist fail-closed verboten"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_rotbeweis_lese_ausnahme_fuer_blossen_namen_deckt_nur_verschachtelte_funktion_nicht_ab(
+    tmp_path, monkeypatch
+):
+    """L7b (Gegenpruefer NA1): Auch OHNE eine gleichnamige Top-Level-Funktion
+    -- die einzige `_gelistet` im Baum ist hier VERSCHACHTELT in `_fremd` --
+    deckt eine Ausnahme fuer den blossen Namen `_gelistet` (statt des vollen
+    Pfads `_fremd/_gelistet`) die verschachtelte Stelle nicht ab. Der
+    Schluessel ist der Pfad, den der Scanner tatsaechlich sieht, nicht der
+    innerste Name allein."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _fremd(eintraege, schluessel):\n"
+            "    def _gelistet(e):\n"
+            "        return e.message_key == schluessel\n"
+            "    return [e for e in eintraege if _gelistet(e)]\n",
+        ),
+    )
+    monkeypatch.setattr(
+        _DIESES_MODUL,
+        "_BENANNTE_LESE_AUSNAHMEN",
+        {("backend/services/sync_service.py", None, "_gelistet"): "Sonde -- falscher (zu kurzer) Pfad."},
+    )
+    with pytest.raises(AssertionError, match=r"lesender Zugriff auf \.message_key ist fail-closed verboten"):
+        pruefe_vertrag(backend_kopie)
+
+
+def test_sonde_lese_ausnahme_mit_vollem_funktionspfad_erlaubt_die_verschachtelte_stelle(tmp_path, monkeypatch):
+    """Kehrseite von L7/L7b (GRUEN): Der KORREKTE, VOLLE Pfad
+    `_fremd/_gelistet` erlaubt genau die verschachtelte Stelle, fuer die er
+    gedacht ist -- die Ausnahme funktioniert also nicht nur enger, sondern
+    weiterhin fuer den tatsaechlich vorgesehenen Fall."""
+    backend_kopie = _kopiere_backend_mit_mutation(
+        tmp_path,
+        lambda kopie: _sonde_anhaengen(
+            kopie,
+            "def _fremd(eintraege, schluessel):\n"
+            "    def _gelistet(e):\n"
+            "        return e.message_key == schluessel\n"
+            "    return [e for e in eintraege if _gelistet(e)]\n",
+        ),
+    )
+    monkeypatch.setattr(
+        _DIESES_MODUL,
+        "_BENANNTE_LESE_AUSNAHMEN",
+        {("backend/services/sync_service.py", None, "_fremd/_gelistet"): "Sonde -- korrekter voller Pfad."},
+    )
+    pruefe_vertrag(backend_kopie)  # darf NICHT werfen
+
+
+# ── Nacharbeit 2 (#115): Laufzeitpruefung -- Restformen ohne AST-Muster ─────
+#
+# Die vier Formen unten (`cls(**roh)` in einer Fabrikmethode,
+# `e.__init__(**roh)`, ein Closure-Alias, der `response_model`-Weg von
+# FastAPI) sind Restformen, fuer die der Blindpruefer der Nacharbeit 1
+# gemessen hat, dass KEIN AST-Muster sie ohne neue Fehlalarme schliesst
+# (siehe Moduldocstring, "NACHARBEIT 5"). Statt eines weiteren Musters
+# beweisen diese Tests, dass die LAUFZEITPRUEFUNG (`pruefe_laufzeit_eintrag`
+# in `conftest.py`, per `model_post_init`-Haken an JEDE Konstruktion
+# angehaengt) sie unabhaengig vom Konstruktionsweg fasst, sobald ein Test
+# sie tatsaechlich ausfuehrt.
+#
+# Jeder Test deaktiviert den AMBIENTEN Haken zuerst (`monkeypatch`) -- sonst
+# wuerde die autouse-Fixture selbst denselben Verstoss an IHRER EIGENEN
+# Teardown melden und diesen Test aus dem falschen Grund faellen. Das
+# eigentliche Zusammenspiel (die Fixture haengt sich tatsaechlich ein und
+# ein Verstoss faellt einen Test wirklich) beweist eigenstaendig
+# `test_laufzeitpruefung_ist_eingehaengt_end_to_end` unten -- eine
+# ECHTPROBE durch einen echten, isolierten pytest-Lauf, keine bloss
+# manuell aufgerufene Pruef-Funktion.
+
+
+@pytest.fixture()
+def _ambienten_haken_aus(monkeypatch):
+    """Deaktiviert den von der autouse-Fixture in `conftest.py` gesetzten
+    Haken fuer die Dauer eines Tests, der eine ABSICHTLICH falsche
+    Konstruktion ausloest -- ohne das wuerde die ambiente Pruefung densel-
+    ben Verstoss an ihrer eigenen Teardown melden."""
+    monkeypatch.setattr(_match_modul, "_SYNC_LOG_LAUFZEIT_HAKEN", None)
+
+
+def test_laufzeit_rotbeweis_cls_roh_fabrikmethode_mit_falschem_schluessel(_ambienten_haken_aus):
+    """P6 (Blindpruefer): `cls(**roh)` in einer `@classmethod`-Fabrik --
+    `_rechter_bezeichner` liefert dafuer nur den Namen `cls`, der in KEINEM
+    Baum je in `gueltige_namen` steht (kein AST-Muster kann das schliessen,
+    ohne dass `cls` ueberall pauschal als Konstruktion gilt und damit jede
+    Fabrikmethode JEDER anderen Pydantic-Klasse im Baum trifft)."""
+
+    class _Fabrik(SyncLogEntry):
+        @classmethod
+        def aus_roh(cls, roh: dict) -> "_Fabrik":
+            return cls(**roh)
+
+    eintrag = _Fabrik.aus_roh(
+        {
+            "id": "s",
+            "timestamp": "s",
+            "action": "s",
+            "details": "s",
+            "status": "error",
+            "message_key": "log_album_shared",
+            "message_params": {"album": "x"},  # 'names' fehlt gegenueber dem Vertrag
+        }
+    )
+    meldung = pruefe_laufzeit_eintrag(eintrag, lade_vertrag())
+    assert meldung is not None and "log_album_shared" in meldung, meldung
+
+
+def test_laufzeit_rotbeweis_e_init_roh_mit_falschem_schluessel(_ambienten_haken_aus):
+    """P7 (Blindpruefer): `e.__init__(**roh)` ruft den Konstruktor ein
+    ZWEITES Mal auf einem bereits existierenden Objekt auf -- kein
+    `ast.Call`-Ziel, das `_rechter_bezeichner` je als `SyncLogEntry`
+    identifizieren wuerde (das Ziel ist ein Attributzugriff `.__init__` auf
+    einer beliebigen Variablen, nicht der Klassenname selbst)."""
+    eintrag = SyncLogEntry(
+        id="s",
+        timestamp="s",
+        action="s",
+        details="s",
+        status="error",
+        message_key="log_album_shared",
+        message_params={"album": "x", "names": "y"},
+    )
+    eintrag.__init__(
+        id="s",
+        timestamp="s",
+        action="s",
+        details="s",
+        status="error",
+        message_key="log_voellig_anders_und_nicht_im_vertrag",
+        message_params={},
+    )
+    meldung = pruefe_laufzeit_eintrag(eintrag, lade_vertrag())
+    assert meldung is not None and "log_voellig_anders_und_nicht_im_vertrag" in meldung, meldung
+
+
+def test_laufzeit_rotbeweis_type_vorlage_konstruktion_mit_falschem_schluessel(_ambienten_haken_aus):
+    """Schliesst die Luecke, die das Entfernen des statischen `type(x)(...)`/
+    `.__class__(...)`-Fangs bewusst aufreisst (siehe Moduldocstring,
+    "NACHARBEIT 2" / `test_sonde_type_vorlage_konstruktion_ist_kein_fehlalarm_mehr`):
+    Eine ECHTE `type(vorlage)(**roh)`-Konstruktion von SyncLogEntry (nicht
+    von einer voellig fremden Klasse wie bei den Fehlalarm-Sonden) bleibt
+    trotzdem gefangen -- nur nicht mehr statisch, sondern zur Laufzeit."""
+    vorlage = SyncLogEntry(
+        id="s",
+        timestamp="s",
+        action="s",
+        details="s",
+        status="error",
+        message_key="log_album_shared",
+        message_params={"album": "x", "names": "y"},
+    )
+    eintrag = type(vorlage)(
+        id="s",
+        timestamp="s",
+        action="s",
+        details="s",
+        status="error",
+        message_key="log_dynamisch_und_nicht_im_vertrag",
+        message_params={},
+    )
+    meldung = pruefe_laufzeit_eintrag(eintrag, lade_vertrag())
+    assert meldung is not None and "log_dynamisch_und_nicht_im_vertrag" in meldung, meldung
+
+
+def test_laufzeit_rotbeweis_closure_alias_mit_falschem_schluessel(_ambienten_haken_aus):
+    """P1/P1b (Blindpruefer): Ein Closure-Alias (`E = SyncLogEntry` im
+    umschliessenden Bereich, aufgerufen ueber eine VERSCHACHTELTE Funktion)
+    ist zur Laufzeit ein ganz gewoehnlicher Python-Name -- statisch waere
+    das ueber Funktionsgrenzen hinweg nur mit vollem Datenfluss durch
+    Closures zu erkennen."""
+
+    def _aussen(roh: dict):
+        E = SyncLogEntry
+
+        def _innen():
+            return E(**roh)
+
+        return _innen()
+
+    eintrag = _aussen(
+        {
+            "id": "s",
+            "timestamp": "s",
+            "action": "s",
+            "details": "s",
+            "status": "error",
+            "message_key": "log_unbekannt_im_vertrag",
+            "message_params": {},
+        }
+    )
+    meldung = pruefe_laufzeit_eintrag(eintrag, lade_vertrag())
+    assert meldung is not None and "log_unbekannt_im_vertrag" in meldung, meldung
+
+
+def test_laufzeit_rotbeweis_response_model_weg_mit_falschem_schluessel(_ambienten_haken_aus):
+    """P9 (Blindpruefer): Der `response_model`-Weg von FastAPI validiert eine
+    Rueckgabe ueber Pydantics eigenen `model_validate`-Mechanismus, NICHT
+    ueber `__init__` -- ein reiner `__init__`-Monkeypatch (der naheliegende
+    Ansatz fuer eine Laufzeitpruefung) wuerde diesen Weg deshalb NICHT sehen,
+    der `model_post_init`-Haken in `SyncLogEntry` selbst schon (Pydantic
+    ruft ihn nach JEDER erfolgreichen Validierung auf, unabhaengig vom
+    Konstruktionsweg). Diese Sonde ruft `model_validate` direkt statt einen
+    vollen FastAPI-`TestClient` samt gemocktem Immich-Client aufzusetzen --
+    `response_model=list[SyncLogEntry]` in `routers/albums.py` validiert
+    intern ueber denselben Mechanismus (dokumentiertes FastAPI-/Pydantic-
+    v2-Verhalten), das ist hier bewusst vereinfacht, nicht end-to-end durch
+    einen echten HTTP-Aufruf bewiesen."""
+    eintrag = SyncLogEntry.model_validate(
+        {
+            "id": "s",
+            "timestamp": "s",
+            "action": "s",
+            "details": "s",
+            "status": "error",
+            "message_key": "log_album_shared",
+            "message_params": {"album": "x", "names": "y", "extra": "z"},  # 'extra' nicht im Vertrag
+        }
+    )
+    meldung = pruefe_laufzeit_eintrag(eintrag, lade_vertrag())
+    assert meldung is not None and "log_album_shared" in meldung, meldung
+
+
+def test_laufzeit_sonde_korrekter_eintrag_ist_kein_verstoss():
+    """Gegenprobe (GRUEN, ambienter Haken bleibt aktiv): Ein Eintrag, dessen
+    Schluessel und Parameter exakt dem Vertrag entsprechen, ist -- ueber
+    JEDEN der vier Wege oben -- kein Verstoss. Ohne diese Gegenprobe koennte
+    `pruefe_laufzeit_eintrag` trivial ALLES als Verstoss melden."""
+    eintrag = SyncLogEntry(
+        id="s",
+        timestamp="s",
+        action="s",
+        details="s",
+        status="error",
+        message_key="log_album_shared",
+        message_params={"album": "x", "names": "y"},
+    )
+    assert pruefe_laufzeit_eintrag(eintrag, lade_vertrag()) is None
+
+
+def test_laufzeit_sonde_eintrag_ohne_message_key_bleibt_erlaubt():
+    """Gegenprobe (GRUEN): Ein Eintrag ohne `message_key` (Alt-Format,
+    `details` als Fallback) bleibt erlaubt -- wie heute, siehe CLAUDE.md,
+    Abschnitt "Sync-Log"."""
+    eintrag = SyncLogEntry(
+        id="s", timestamp="s", action="s", details="Alt-Format-Eintrag", status="success"
+    )
+    assert pruefe_laufzeit_eintrag(eintrag, lade_vertrag()) is None
+
+
+def test_laufzeitpruefung_ist_eingehaengt_end_to_end(tmp_path):
+    """Echtprobe (#115, Nacharbeit 2) -- beweist die VERDRAHTUNG, nicht nur
+    die reine Pruef-Funktion: Kopiert `models/` und das ECHTE `conftest.py`
+    in ein frisches Wegwerf-Verzeichnis (plus die echte Vertragsdatei an
+    ihrem erwarteten relativen Pfad, den `conftest.py` selbst berechnet),
+    legt dort EINE synthetische Testdatei mit einer vertragswidrigen
+    Konstruktion an und startet einen ECHTEN, isolierten `pytest`-Lauf
+    darauf.
+
+    Ohne die Zeile `_match_modul._SYNC_LOG_LAUFZEIT_HAKEN = _haken` in
+    `conftest.py` (Mutation "Laufzeitpruefung ausgehaengt") bliebe dieser
+    isolierte Lauf GRUEN -- und DIESER Test wird dann seinerseits ROT, weil
+    er genau das FAIL erwartet. Das ist der Unterschied zu den Tests direkt
+    ueber diesem: Die pruefen die LOGIK, dieser hier die tatsaechliche
+    Installation des Hakens durch die Fixture."""
+    ziel = tmp_path / "backend"
+    (ziel / "models").mkdir(parents=True)
+    (ziel / "tests").mkdir()
+    (tmp_path / "frontend" / "src").mkdir(parents=True)
+
+    shutil.copy(BACKEND_DIR / "models" / "match.py", ziel / "models" / "match.py")
+    init_datei = BACKEND_DIR / "models" / "__init__.py"
+    (ziel / "models" / "__init__.py").write_text(
+        init_datei.read_text("utf-8") if init_datei.exists() else "", "utf-8"
+    )
+    shutil.copy(BACKEND_DIR / "tests" / "conftest.py", ziel / "tests" / "conftest.py")
+    shutil.copy(VERTRAG_PFAD, tmp_path / "frontend" / "src" / "logMessages.contract.json")
+    (ziel / "tests" / "test_sonde_echtprobe.py").write_text(
+        "from models.match import SyncLogEntry\n"
+        "\n"
+        "\n"
+        "def test_falsche_konstruktion():\n"
+        "    SyncLogEntry(\n"
+        "        id='s', timestamp='s', action='s', details='s', status='error',\n"
+        "        message_key='log_album_shared',\n"
+        "        message_params={'album': 'x'},\n"  # 'names' fehlt gegenueber dem Vertrag
+        "    )\n",
+        "utf-8",
+    )
+    r = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "-q", "tests/test_sonde_echtprobe.py"],
+        cwd=ziel,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert r.returncode != 0, f"Echtprobe blieb gruen (Haken nicht eingehaengt?): {r.stdout}\n{r.stderr}"
+    assert "Sync-Log-Vertragswaechter" in r.stdout, r.stdout
+    assert "log_album_shared" in r.stdout, r.stdout

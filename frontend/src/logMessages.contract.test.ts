@@ -114,8 +114,15 @@ import type { Lang, LogMessageParams } from "./i18n";
 // Vergleich ausserhalb 0/1/2), true (Wahrheitswert-TYP, nicht nur truthy
 // Zahl/String — `typeof p.x === "boolean"` braucht einen ECHTEN Boolean) und
 // ein laengerer, kommahaltiger String (`String(p.x).length > 20` UND
-// `.includes(",")`) kamen in Nacharbeit 1 (#115) dazu.
-const SONDEN_WERTE: Array<string | number | boolean> = [
+// `.includes(",")`) kamen in Nacharbeit 1 (#115) dazu. `null` (Nacharbeit 2,
+// #115, Gegenpruefer NA1 T3/T11) deckt `p.x == null ? ... : ...`-Verzweigungen
+// ab, die bei keinem Wert oben wahr werden -- kein heutiges Template in
+// `i18n.tsx` benutzt dieses Muster (gemessen per Durchsicht), der Frontend-Typ
+// `LogMessageParams` kennt `null` selbst nicht, die Sonde ist trotzdem ohne
+// Fehlalarm moeglich, weil `aufrufen` jeden Fehler einer Vorlage schluckt
+// (siehe `catch` unten) und `null` in einem Template-String klaglos zu
+// "null" wird.
+const SONDEN_WERTE: Array<string | number | boolean | null> = [
   0,
   1,
   2,
@@ -127,13 +134,14 @@ const SONDEN_WERTE: Array<string | number | boolean> = [
   3,
   true,
   "eins, zwei, drei, vier",
+  null,
 ];
 
 function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
   const gelesen = new Set<string>();
 
   const aufrufen = (
-    wertFuer: (eigenschaft: string) => string | number | boolean,
+    wertFuer: (eigenschaft: string) => string | number | boolean | null,
     vorhandenLautHas: boolean
   ): void => {
     const proxy = new Proxy({} as LogMessageParams, {
@@ -194,11 +202,26 @@ function gelesenePlatzhalter(fn: (p: LogMessageParams) => string): Set<string> {
   // Eigener Lauf mit NAMENSABHAENGIGEN Werten (Nacharbeit 1, #115): alle
   // Laeufe oben liefern JEDEM Parameter denselben Wert — ein Vergleich
   // ZWISCHEN zwei verschiedenen Parametern (`p.count !== p.account`) bleibt
-  // damit immer falsch (bzw. immer wahr), unabhaengig vom Sondenwert. Die
-  // Laenge des Eigenschaftsnamens macht unterschiedlich benannte Parameter
-  // mit hoher Wahrscheinlichkeit auch unterschiedlich wertig (bekannte
-  // Grenze: zwei gleich lange Namen bleiben ununterscheidbar).
-  aufrufen((eigenschaft) => eigenschaft.length, true);
+  // damit immer falsch (bzw. immer wahr), unabhaengig vom Sondenwert.
+  //
+  // NACHARBEIT 2 (#115, Gegenpruefer NA1 T1/T2): Der erste Versuch benutzte
+  // die LAENGE des Eigenschaftsnamens als Wert — zwei gleich lange Namen
+  // (z. B. "album" und "count", beide 5 Zeichen) bekamen dadurch DENSELBEN
+  // Wert, ein Vergleich zwischen ihnen blieb also weiterhin nie
+  // unterscheidbar. Selbst gemessen: 6 von 31 echten Vertragsschluesseln
+  // haben mindestens ein Parameterpaar mit gleicher Namenslaenge
+  // (log_album_created, log_album_name_adopted, log_album_renamed,
+  // log_album_shared, log_assets_added_to_album, log_assets_linked). Der
+  // Wert ist jetzt die POSITION des ERSTMALS gesehenen Namens (0, 1, 2, …) —
+  // per Definition verschieden fuer zwei verschiedene Namen, unabhaengig
+  // von deren Laenge.
+  {
+    const positionen = new Map<string, number>();
+    aufrufen((eigenschaft) => {
+      if (!positionen.has(eigenschaft)) positionen.set(eigenschaft, positionen.size);
+      return positionen.get(eigenschaft)!;
+    }, true);
+  }
   // Ein letzter Durchlauf NACH allen anderen: der `ownKeys`-Trap oben
   // liefert erst hier etwas Sinnvolles zurueck, weil `gelesen` bis dahin
   // schon die Summe aller vorherigen Durchlaeufe enthaelt.
@@ -284,7 +307,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("eine `in`-Abfrage auf einen falschen Namen faellt auf", () => {
@@ -295,17 +318,25 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
         de: (p) => ("acount" in p ? `${p.account}` : "?"),
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("eine auskommentierte Vorlage (fehlender Schluessel zur Laufzeit) faellt auf", () => {
     const { log_share_failed: _entfernt, ...ohneEintrag } = logMessages;
-    expect(() => pruefeVertrag(ohneEintrag, vertrag, sprachen)).toThrow();
+    // Vitest kuerzt lange Array-Diffs ("…(29)") -- der Schluesselname selbst
+    // steht deshalb nicht zuverlaessig in der Meldung, wohl aber, WELCHE
+    // Zusicherung ausgeloest hat (Schluesselmengen-Vergleich, nicht z. B.
+    // Sprachen oder Platzhalter).
+    expect(() => pruefeVertrag(ohneEintrag, vertrag, sprachen)).toThrow(
+      /Schluesselmenge von logMessages vs\. Vertrag/
+    );
   });
 
   it("ein Vertragseintrag ohne Vorlage faellt auf", () => {
     const erweiterterVertrag: VertragForm = { ...vertrag, log_niemand_sendet_mich: [] };
-    expect(() => pruefeVertrag(logMessages, erweiterterVertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(logMessages, erweiterterVertrag, sprachen)).toThrow(
+      /Schluesselmenge von logMessages vs\. Vertrag/
+    );
   });
 
   // Nacharbeit 3 (#115): die zwei Restformen aus dem Moduldocstring.
@@ -352,7 +383,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
           (Object.prototype.hasOwnProperty.call(p, "account") ? `${p.acount}` : `${p.account}`),
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   // Nacharbeit 1 (#115): weitere Vorlagen-Formen — "alle Parameter bekommen
@@ -370,7 +401,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("ein negativer Vergleich mit Tippfehler faellt auf", () => {
@@ -384,7 +415,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("eine typeof-boolean-Pruefung mit Tippfehler im wahren Zweig faellt auf", () => {
@@ -401,7 +432,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("eine Laengenpruefung auf einem String-Parameter mit Tippfehler faellt auf", () => {
@@ -415,7 +446,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `Album '${p.album}' mit ${p.names} geteilt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_album_shared\/de/);
   });
 
   it("eine includes(',')-Pruefung auf einem String-Parameter mit Tippfehler faellt auf", () => {
@@ -429,7 +460,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `Album '${p.album}' mit ${p.names} geteilt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_album_shared\/de/);
   });
 
   it("ein Vergleich ZWISCHEN zwei verschiedenen Parametern mit Tippfehler faellt auf", () => {
@@ -448,7 +479,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("eine Schwelle, die NUR der Sondenwert 6 (nicht 100) faengt, faellt auf", () => {
@@ -464,7 +495,7 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 
   it("eine Schwelle, die NUR der Sondenwert 100 (nicht 6) faengt, faellt auf", () => {
@@ -480,6 +511,113 @@ describe("Rot-Beweise (Fixtures — ruehren die echte i18n.tsx nie an)", () => {
             : `${p.count} Assets von '${p.account}' hinzugefuegt`,
       },
     };
-    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow();
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
+  });
+
+  // Nacharbeit 2 (#115): T1/T2, ownKeys-Rot-Beweis, GLEICHHEIT statt
+  // Teilmenge, ALLE vier Sprachen, `null`-Sonde (T3/T11).
+
+  it("zwei gleich lange Parameternamen mit vertauschtem Vergleich fallen auf", () => {
+    // T1/T2 (Gegenpruefer NA1): Vor dieser Runde bekam der namensabhaengige
+    // Durchlauf jeder Eigenschaft die LAENGE ihres Namens als Wert -- "album"
+    // und "names" sind beide 5 Zeichen lang und damit ununterscheidbar. Der
+    // Wert ist jetzt die POSITION des erstmals gesehenen Namens.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_album_shared: {
+        ...logMessages.log_album_shared,
+        de: (p) =>
+          p.album !== p.names
+            ? `Tippfehlerzweig: '${p.albu}'`
+            : `Album '${p.album}' mit ${p.names} geteilt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_album_shared\/de/);
+  });
+
+  it("eine Vorlage, die eine NICHT im Vertrag stehende Eigenschaft zusaetzlich liest, faellt auf", () => {
+    // FM4 (Gegenpruefer NA1): `pruefeVertrag` vergleicht `gelesen` und
+    // `erwartet` per `toEqual` (GLEICHHEIT) -- eine Mutation, die das auf
+    // eine reine TEILMENGEN-Pruefung "jede erwartete Eigenschaft wurde
+    // gelesen" (`erwartet ⊆ gelesen`) verkuerzt, blieb bislang GRUEN, weil
+    // JEDER bisherige Rot-Beweis einen TYPO in einem Zweig einbaut -- das
+    // erzeugt eine EXTRA gelesene Eigenschaft (z. B. "acount" NEBEN dem
+    // weiterhin im anderen Zweig gelesenen "account"), keine FEHLENDE. Diese
+    // Vorlage liest ZUSAETZLICH eine komplett erfundene Eigenschaft, ohne
+    // dabei eine der echten zu verlieren -- eine reine "wurde alles Erwartete
+    // gelesen"-Pruefung saehe das nicht, nur echte Gleichheit der Mengen tut
+    // das.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_album_shared: {
+        ...logMessages.log_album_shared,
+        de: (p) =>
+          `Album '${p.album}' mit ${p.names} geteilt (${(p as Record<string, unknown>).ungueltig})`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_album_shared\/de/);
+  });
+
+  it.each(["en", "pt-BR", "es-ES"] as const)(
+    "ein Tippfehler in der Sprache '%s' (nicht nur 'de') faellt auf",
+    (sprache) => {
+      // FM5 (Gegenpruefer NA1): ALLE bisherigen Rot-Beweise aendern
+      // ausschliesslich `de` -- eine Mutation, die die Sprachschleife in
+      // `pruefeVertrag` auf eine feste Sprache verengt, waere bislang nie
+      // aufgefallen. Je eine Sonde fuer die drei anderen Sprachen.
+      const kaputt: LogMessagesForm = {
+        ...logMessages,
+        log_assets_added: {
+          ...logMessages.log_assets_added,
+          [sprache]: (p: LogMessageParams) =>
+            p.count === 1 ? `Tippfehlerzweig: '${p.acount}'` : `${p.count}/${p.account}`,
+        },
+      };
+      expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(
+        new RegExp(`log_assets_added/${sprache}`)
+      );
+    }
+  );
+
+  it("eine Vorlage, die ueber Object.keys(p) verzweigt, faellt auf (ownKeys-Trap)", () => {
+    // Rot-Beweis fuer den `ownKeys`-Trap selbst (vorher unbewiesen -- siehe
+    // Moduldocstring): `Object.keys(p)` loest ausschliesslich den `ownKeys`-
+    // Trap aus, nicht `get`/`has`. Diese Vorlage verzweigt im ERSTEN Aufruf
+    // (der `ownKeys`-Trap kennt noch NICHTS, `gelesen` ist zu diesem
+    // Zeitpunkt leer) in den TIPPFEHLER-Zweig (`p.acount`), weil
+    // `Object.keys(p).includes("count")` dann `false` ist; erst NACHDEM
+    // `count` per direktem Zugriff im else-Zweig bekannt wurde, macht der
+    // `ownKeys`-Trap den Vergleich ab dem naechsten Aufruf wahr und der
+    // korrekte Zweig greift. Ohne den `ownKeys`-Trap bliebe
+    // `Object.keys(p)` immer `[]` (der Proxy faellt auf das leere Target
+    // zurueck) -- `includes("count")` waere NIE wahr, der Tippfehler-Zweig
+    // wuerde NIE gelesen, und diese Sonde bliebe faelschlich gruen.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          Object.keys(p).includes("count")
+            ? `Tippfehlerzweig: '${p.acount}'`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
+  });
+
+  it("ein `== null`-Vergleich mit Tippfehler im wahren Zweig faellt auf", () => {
+    // T3/T11 (Gegenpruefer NA1): `p.x == null ? … : …` wird bei keinem der
+    // bisherigen Sondenwerte wahr -- `null` selbst ergaenzt das.
+    const kaputt: LogMessagesForm = {
+      ...logMessages,
+      log_assets_added: {
+        ...logMessages.log_assets_added,
+        de: (p) =>
+          p.count == null // eslint-disable-line eqeqeq -- die Vorlage selbst prueft bewusst == null
+            ? `unbekannte Anzahl von '${p.acount}'`
+            : `${p.count} Assets von '${p.account}' hinzugefuegt`,
+      },
+    };
+    expect(() => pruefeVertrag(kaputt, vertrag, sprachen)).toThrow(/log_assets_added\/de/);
   });
 });

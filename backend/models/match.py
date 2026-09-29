@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Callable, Optional
 from enum import Enum
 
 
@@ -134,6 +134,27 @@ class RenameManagedAlbumRequest(BaseModel):
     album_name: str
 
 
+# Test-only Erweiterungspunkt fuer die Laufzeitpruefung des Sync-Log-Vertrags
+# (#115, Nacharbeit 2 -- siehe `backend/tests/conftest.py`). Ausserhalb von
+# Tests bleibt dieser Name IMMER `None`, und `SyncLogEntry.model_post_init`
+# tut dann buchstaeblich nichts -- das Produktionsverhalten aendert sich
+# dadurch NICHT: kein Log, kein Abbruch eines Abgleichs wegen eines
+# Uebersetzungsfehlers, kein sonstiger Seiteneffekt, solange kein Test den
+# Haken einhaengt. Die Fixture in `conftest.py` haengt sich NUR fuer die
+# Dauer eines einzelnen Tests ein und haengt sich in ihrem `finally` wieder
+# aus -- dieser Name traegt also nie Zustand ueber einen Test hinaus.
+#
+# Warum hier und nicht ausschliesslich in den Tests: Eine reine Testfixture
+# kann `__init__` monkeypatchen, sieht damit aber `model_validate`/
+# `model_construct`/den `response_model`-Weg von FastAPI nicht (Pydantic v2
+# ruft dafuer nicht `__init__`, sondern validiert ueber den generierten
+# Validator, der `model_post_init` unabhaengig vom Konstruktionsweg aufruft).
+# Diese eine Zeile Produktionscode ist damit die einzige Stelle, die ALLE
+# Konstruktionswege einheitlich sieht, ohne fuer jeden einzeln einen eigenen
+# Monkeypatch zu brauchen.
+_SYNC_LOG_LAUFZEIT_HAKEN: Optional[Callable[["SyncLogEntry"], None]] = None
+
+
 class SyncLogEntry(BaseModel):
     id: str
     timestamp: str
@@ -148,3 +169,15 @@ class SyncLogEntry(BaseModel):
     # remains the fallback for entries persisted before this was introduced.
     message_key: Optional[str] = None
     message_params: Optional[dict] = None
+
+    def model_post_init(self, __context) -> None:
+        """Test-only Erweiterungspunkt (#115, Nacharbeit 2) -- siehe
+        `_SYNC_LOG_LAUFZEIT_HAKEN` oben und `backend/tests/conftest.py`.
+        Ausserhalb von Tests ist der Haken `None` und diese Methode ist ein
+        reines No-Op; Pydantic ruft sie nach JEDER erfolgreichen
+        Konstruktion auf, unabhaengig vom Weg (`__init__`, `model_validate`,
+        `model_construct`, der `response_model`-Validierungspfad von
+        FastAPI) -- deckt damit auch Unterklassen ab, da sie diese Methode
+        erben, sofern sie sie nicht selbst ueberschreiben."""
+        if _SYNC_LOG_LAUFZEIT_HAKEN is not None:
+            _SYNC_LOG_LAUFZEIT_HAKEN(self)
