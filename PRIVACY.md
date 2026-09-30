@@ -70,8 +70,10 @@ it finds, in every managed album whose lock happens to be free at that
 moment — not only references to the account it was actually asked to
 remove, and not only when the request removes a real account at all. The
 very next call to `DELETE /api/accounts/{id}`, for _any_ account, including
-one that no longer exists (measured: it still returns normally and still
-performs this cleanup), heals this stale entry too, provided the album's
+one that no longer exists (measured: the HTTP response for that call is a
+404 — the account named in the URL is not found — but the cleanup of OTHER
+accounts' dead references still runs regardless, before that 404 is
+returned), heals this stale entry too, provided the album's
 lock is free by then; so does the next ordinary refresh, rename, or match
 extension for that same album, through its own end-of-run cleanup. A
 restart is the _last_ resort, not the only one. This does
@@ -240,41 +242,66 @@ the full new state, including any API keys it was about to write — stays on
 disk, unbounded, until someone finds it by hand or the application starts
 again.
 
-**Since Slice S7 Nacharbeit 1, that temporary file carries an unmistakable
-marker in its name** (`.accounts.json.speichern-tmp-<8 random characters>`
-for an ordinary save, `.accounts.json.vor-schema-<N>.bak.speichern-tmp-<8
-random characters>` or `.accounts.json.vor-kennungsvergabe.bak.speichern-tmp-
-<8 random characters>` for a rollback write) — before this fix the name
-carried no marker at all, just the same 8-character random suffix a hand
-copy could just as easily have (`.accounts.json.20260930`,
-`.accounts.json.original`), and the app deleted any file that happened to
-match that shape. **That was the bug this fix corrects: an operator's own
-hand copy, dated or named to look like a backup, was deleted on the next
-start if its suffix happened to be 8 characters from the same alphabet.**
+**That temporary file carries an unmistakable marker in its name**
+(`.accounts.json.speichern-tmp-<8 random characters>` for an ordinary save,
+`.accounts.json.vor-schema-<N>.bak.speichern-tmp-<8 random characters>` or
+`.accounts.json.vor-kennungsvergabe.bak.speichern-tmp-<8 random characters>`
+for a rollback write) — an earlier version carried no marker at all, just the
+same 8-character random suffix a hand copy could just as easily have
+(`.accounts.json.20260930`, `.accounts.json.original`), and the app deleted
+any file that happened to match that shape. **That was the bug this fix
+corrects: an operator's own hand copy, dated or named to look like a backup,
+was deleted on the next start if its suffix happened to be 8 characters from
+the same alphabet.** The marker also only ever covers the exact rollback
+suffixes the app itself writes (`vor-schema-<N>.bak`,
+`vor-kennungsvergabe.bak`) — an earlier version of the pattern accepted any
+text in that middle position and, measured directly, deleted the leftover
+temporary file of a **completely different** configuration file sitting in
+the same directory (`accounts.json.test`, say) merely because its name also
+started with `accounts.json` and ended with the marker.
 
 The app now removes a file matching its own marked pattern only if it is
-also a **regular file** (never a symlink — which could point at the real
-configuration and delete that instead — and never a directory) and its last
-modification time is **more than five minutes old** — recent enough to be
-almost certainly the current process's own in-flight write (a save takes
-milliseconds), old enough that a genuine crash leftover is still caught well
-before the next realistic restart (measured: `backend/services/
-config_store.py`, a marked leftover older than the threshold is gone after
-the next `ConfigStore` load; one written moments ago survives it). **A file
-matching what the marker pattern would have looked like before this fix
-(the plain 8-character suffix, no marker) is no longer deleted at all** —
-it can no longer be told apart from a hand copy, so the app now only warns
-about it, once, with its path, and leaves it exactly where it is; the
-operator decides. A hand-placed file that matches neither shape is left
-alone and not mentioned in the log at all, as before.
+also a **regular file** (never a symlink — deleting a symlink never touches
+what it points at, `unlink` does not follow one, but an operator's own
+symlink with a matching name should not vanish silently either — and never a
+directory) and its last modification time is **more than five minutes
+old** — old enough that a genuine crash leftover is reliably distinguished
+from a **second, concurrently running instance** on the same directory whose
+own save is still between writing the temporary file and replacing the real
+one (this application supports exactly one running instance per data
+directory, but a start is not a place to simply assume that holds). A file
+younger than that threshold — or one whose modification time is in the
+future — is **not silently left alone**: the app logs a warning naming its
+path, every time it is seen, for as long as it stays too young to remove.
+And it does not have to wait for the _next_ restart to actually go away: the
+running application schedules exactly one delayed second pass, timed to the
+same five-minute threshold, that repeats this same check once more within
+the _same_ run — closing the gap a quick crash-and-restart cycle
+(`restart: unless-stopped` typically comes back within seconds) used to
+leave open: the leftover was too young at the first check and then stayed
+untouched, silently, until whatever restart happened to come next, possibly
+hours or days later. **A file matching what the marker pattern would have
+looked like before the marker existed (the plain 8-character suffix, no
+marker) is not deleted at all** — it can no longer be told apart from a hand
+copy, so the app only warns about it, once per start, with its path, and
+leaves it exactly where it is; the operator decides. A hand-placed file that
+matches neither shape is left alone and not mentioned in the log at all, as
+before.
 
-**Since Slice S7, the application also tries to fix, not just report, one
-specific case: its own configuration file being readable by group or
-world.** On load, if `accounts.json` itself is group- or world-readable, the
+**The application also tries to fix, not just report, one specific case: its
+own configuration file being readable by group or world.** On load, once the
+file has parsed successfully as a valid configuration — an invalid one is
+left untouched in every sense, including its permissions, matching the error
+it reports in that case — if `accounts.json` itself is group- or
+world-readable, the
 app now tightens it to `0600` right there (the same permission `_save`
 already enforces on every write) and logs one INFO line naming the previous
 mode — not a warning, because the app just corrected the condition the
-warning would have been about. This closes a gap an earlier version of this
+warning would have been about. If `accounts.json` is itself a symlink, this
+tightening is skipped and logged as a warning instead: changing the mode of
+a symlink's target is a change to a file outside the app's own control, one
+the operator may have deliberately arranged, so it is reported rather than
+made silently. This closes a gap an earlier version of this
 document did not have quite right: it described `accounts.json` itself as
 covered by the sibling warning below; measured against the code, it never
 was (see `docs/BACKUP_RESTORE.md`).

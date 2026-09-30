@@ -156,13 +156,23 @@ def _eigenes_temp_muster(name: str) -> re.Pattern:
     """Erkennt NUR die eigene, neue Temp-Datei-Kennung zu `name` — beide
     Familien (`_save` UND `_sichere_vor_schemasprung`) in einem Muster, weil
     der Zwischenteil bei Letzterer selbst Punkte traegt
-    (`vor-schema-<N>.bak` bzw. `vor-kennungsvergabe.bak`): `(?:\\..+)?`
-    deckt einen beliebigen, aber vollstaendig mit einem Punkt beginnenden
-    Zwischenteil ab, verankert (`fullmatch`) an Anfang und Ende, damit kein
-    Rest davor oder danach durchrutscht."""
+    (`vor-schema-<N>.bak` bzw. `vor-kennungsvergabe.bak`).
+
+    DER ZWISCHENTEIL ZAEHLT NUR DIE BEIDEN BEKANNTEN RUECKWEG-ENDUNGEN AUF,
+    nicht mehr `(?:\\..+)?` fuer einen BELIEBIGEN Zwischenteil (Gegenpruefer,
+    gemessen): Mit dem beliebigen Zwischenteil erkannte `name="accounts.json"`
+    auch `.accounts.json.test.speichern-tmp-<8 Zeichen>` als EIGENE
+    Temp-Datei — das ist die Leiche einer VOELLIG ANDEREN, fremden
+    Konfigurationsdatei (`accounts.json.test`) im selben Ordner, und dieser
+    `ConfigStore` loeschte sie trotzdem. Die Aufzaehlung deckt nur, was
+    `_temp_praefix` tatsaechlich als `ziel.name` uebergeben bekommt
+    (`_sichere_vor_schemasprung`) — kein anderer Zwischenteil ist ein
+    moegliches Ergebnis der eigenen Schreiber, verankert (`fullmatch`) an
+    Anfang und Ende, damit kein Rest davor oder danach durchrutscht."""
     return re.compile(
-        r"^\." + re.escape(name) + r"(?:\..+)?\." + re.escape(_TEMP_KENNUNG)
-        + _TEMP_REST_MUSTER.pattern + r"$"
+        r"^\." + re.escape(name)
+        + r"(?:\.vor-schema-\d+\.bak|\.vor-kennungsvergabe\.bak)?\."
+        + re.escape(_TEMP_KENNUNG) + _TEMP_REST_MUSTER.pattern + r"$"
     )
 
 
@@ -175,26 +185,45 @@ def _altes_temp_muster(name: str) -> re.Pattern:
 
 
 # Grosszuegige Altersgrenze fuer die Loeschung EIGENER, NEU erkannter
-# Temp-Dateien beim Start (Gegenpruefer K3 / Fremdpruefer WICHTIG 1,
-# `probe_linux.py` P5): Eine zweite `ConfigStore`-Instanz auf demselben
-# Verzeichnis darf die gerade aktive Temp-Datei einer laufenden `_save`
-# NICHT loeschen, waehrend diese zwischen `mkstemp` und `os.replace` haengt.
-# Zwei Instanzen auf demselben Verzeichnis sind fuer diese Anwendung kein
-# unterstuetztes Betriebsmodell (ein Container faehrt einen Prozess mit
-# einem Store, siehe Kopf-Kommentar zu `_gruppen_schloesser`) — aber ein
-# Start ist trotzdem kein Ort, an dem man sich auf diese Annahme VERLASSEN
-# sollte, wenn eine einzige Zeile sie auch ohne Verlass absichert. Eine
-# Altersgrenze ist einfacher und lokaler als eine Umstellung auf
-# Ein-Instanz-Erzwingung (z. B. eine Lock-Datei) und deckt denselben
-# gemessenen Fall ab. Gewaehlt: 300 Sekunden — der eigentliche Schreibvorgang
-# (JSON serialisieren, `fsync`, `chmod`, `os.replace`) braucht Millisekunden
-# bis niedrige Sekunden, auch auf langsamem Speicher; 300 s liegt zwei
-# Groessenordnungen darueber und bleibt trotzdem klein genug, dass eine
-# ECHTE Leiche (Prozess hart beendet) beim naechsten realistischen Neustart
-# (typischerweise Minuten bis Stunden spaeter) zuverlaessig erfasst wird.
-# Kein Test misst 300 s selbst (zu langsam) — die Proben pruefen stattdessen
-# die BEIDEN Enden: eine gerade erst angelegte Temp-Datei (Alter ~0 s) bleibt
-# liegen, eine kuenstlich zurueckdatierte (Alter > Schwelle) wird entfernt.
+# Temp-Dateien beim Start (Gegenpruefer K3 / Fremdpruefer WICHTIG 1): Eine
+# zweite `ConfigStore`-Instanz auf demselben Verzeichnis darf die gerade
+# aktive Temp-Datei einer laufenden `_save` NICHT loeschen, waehrend diese
+# zwischen `mkstemp` und `os.replace` haengt. Zwei Instanzen auf demselben
+# Verzeichnis sind fuer diese Anwendung kein unterstuetztes Betriebsmodell
+# (ein Container faehrt einen Prozess mit einem Store, siehe Kopf-Kommentar
+# zu `_gruppen_schloesser`) — aber ein Start ist trotzdem kein Ort, an dem
+# man sich auf diese Annahme VERLASSEN sollte, wenn eine einzige Zeile sie
+# auch ohne Verlass absichert. Eine Altersgrenze ist einfacher und lokaler
+# als eine Umstellung auf Ein-Instanz-Erzwingung (z. B. eine Lock-Datei) und
+# deckt denselben gemessenen Fall ab. Gewaehlt: 300 Sekunden — der
+# eigentliche Schreibvorgang (JSON serialisieren, `fsync`, `chmod`,
+# `os.replace`) braucht Millisekunden bis niedrige Sekunden, auch auf
+# langsamem Speicher; 300 s liegt zwei Groessenordnungen darueber.
+#
+# EIN unterhalb der Schwelle liegender Rest bleibt NICHT stumm liegen (seit
+# dieser Fassung): Er wird mit Pfad als WARNUNG gemeldet, auch wenn er (noch)
+# nicht entfernt wird — siehe `_raeume_verwaiste_temp_dateien`. Und er bleibt
+# nicht bis zum naechsten vollen Neustart unbeachtet: Der Anwendungs-Lebenszyklus
+# (`main.py`, Start) plant zusaetzlich EINEN einmaligen, verzoegerten zweiten
+# Aufraeumdurchlauf ein, der nach genau dieser Altersgrenze noch einmal
+# denselben Scan faehrt (`ConfigStore.zweiter_aufraeum_durchlauf`) — ein
+# harter Absturz mit sofortigem Neustart (`restart: unless-stopped` faehrt in
+# Sekunden wieder hoch) hinterlaesst einen Rest, der beim STARTSCAN zu jung
+# ist, aber vom verzoegerten zweiten Durchlauf INNERHALB DERSELBEN laufenden
+# Instanz erfasst wird — ohne auf einen weiteren, vielleicht erst Stunden
+# spaeter faelligen Neustart zu warten. Ein `fcntl.flock` auf dem Temp-Datei-
+# Deskriptor waere eine praezisere Alternative (kein Alter raten, sondern den
+# tatsaechlichen Halter fragen) — bewusst NICHT gewaehlt: POSIX-only wie die
+# Rechte-Pruefung ohnehin, aber zusaetzlich muesste der Lock ueber die volle
+# Lebensdauer von `mkstemp` bis `os.replace` gehalten UND von der Aufraeum-
+# routine non-blocking erfragt werden, ohne selbst eine neue Racebedingung
+# einzufuehren — mehr neue Flaeche, als diese letzte Nacharbeitsrunde tragen
+# soll, und die Altersgrenze deckt denselben gemessenen Fall bereits ab.
+# Kein Test misst 300 s durch echtes Warten (zu langsam) — die Proben pruefen
+# stattdessen ueber zurueckdatierte `mtime` bzw. eine einstellbare Wartezeit
+# fuer den zweiten Durchlauf: eine gerade erst angelegte Temp-Datei (Alter
+# ~0 s) bleibt liegen (wird aber gemeldet), eine kuenstlich zurueckdatierte
+# (Alter > Schwelle) wird entfernt.
 _TEMP_MINDESTALTER_SEKUNDEN = 300.0
 
 # #106: Gruppe ODER Welt darf eine Sicherung/Konfiguration nicht lesen
@@ -258,35 +287,45 @@ class ConfigStore:
     # ------------------------------------------------------------------
 
     def _raeume_verwaiste_temp_dateien(self) -> None:
-        """#124 B10 NACHARBEIT 1: liegengebliebene Temp-Dateien von `_save`
-        UND von `_sichere_vor_schemasprung` beim Start entfernen.
+        """Liegengebliebene Temp-Dateien von `_save` UND von
+        `_sichere_vor_schemasprung` entfernen — beim Start UND, mit demselben
+        Code, aus dem einmaligen zweiten Durchlauf im laufenden Betrieb
+        (`zweiter_aufraeum_durchlauf` unten).
 
-        Beide Methoden schreiben erst in eine Temp-Datei (`tempfile.mkstemp`,
+        Beide Schreiber schreiben erst in eine Temp-Datei (`tempfile.mkstemp`,
         Praefix ueber `_temp_praefix`), dann `os.replace` — der volle Inhalt,
         inklusive Immich-API-Schluesseln, liegt also kurz auf der Platte,
         BEVOR er die eigentliche Datei ersetzt. Stirbt der Prozess hart
         dazwischen (SIGKILL, Stromausfall, OOM-Killer), laeuft das eigene
-        `finally` nie — die Temp-Datei bleibt mit vollem Inhalt liegen,
-        unbegrenzt, bis jemand sie von Hand findet. Vor dieser Nacharbeit
-        raeumte diese Methode nur die `_save`-Familie auf; ein SIGKILL
-        waehrend `_sichere_vor_schemasprung` liess seine eigene Temp-Datei
-        dauerhaft liegen (KLEIN-Befund, `probe_sigkill.py`).
+        `finally` nie — die Temp-Datei bleibt mit vollem Inhalt liegen, bis
+        entweder ein spaeterer Lauf dieser Methode sie erfasst oder jemand sie
+        von Hand findet.
 
         NUR Dateien, die EXAKT dem eigenen, NEUEN Namensmuster entsprechen
         (`_eigenes_temp_muster`, Kennung `_TEMP_KENNUNG`), werden entfernt —
         und auch dann nur, wenn sie REGULAERE Dateien sind (kein Symlink,
-        kein Verzeichnis: ein Symlink mit passendem Namen koennte sonst auf
-        die echte Konfiguration zeigen und deren ZIEL loeschen,
-        `posix_probe.py` R2/R3) UND ihre Aenderungszeit mindestens
+        kein Verzeichnis) UND ihre Aenderungszeit mindestens
         `_TEMP_MINDESTALTER_SEKUNDEN` zurueckliegt (schuetzt die Temp-Datei
         einer GERADE laufenden zweiten Instanz auf demselben Verzeichnis vor
-        vorzeitigem Loeschen, siehe Begruendung dort, `probe_linux.py` P5).
+        vorzeitigem Loeschen, siehe Begruendung dort). Ein Symlink wird nicht
+        angefasst — NICHT weil `unlink()` sein Ziel loeschen wuerde (tut es
+        nie: `unlink()` entfernt immer nur den Verzeichniseintrag selbst,
+        gemessen), sondern weil ein Betreiber-Symlink mit zufaellig
+        passendem Namen sonst wortlos verschwaende, ohne dass irgendein
+        Nutzen dem gegenuebersteht.
 
-        RESTE IM ALTEN MUSTER (ohne Kennung, aus Versionen vor dieser
-        Nacharbeit — `_altes_temp_muster`) werden NICHT geloescht, weil sie
+        Ein Fund, der (noch) NICHT geloescht wird, weil er juenger als die
+        Altersgrenze ist ODER eine Aenderungszeit in der Zukunft traegt, wird
+        trotzdem gemeldet (WARNUNG mit Pfad) — nichts verschwindet still, aber
+        auch nichts wird beim ersten Anblick schon geloescht: Genau dieser
+        Fund ist es, den der zweite Durchlauf spaeter erneut sieht und dann,
+        sobald er die Altersgrenze ueberschritten hat, entfernt.
+
+        RESTE IM ALTEN MUSTER (ohne Kennung, aus Versionen vor der Einfuehrung
+        der Kennung — `_altes_temp_muster`) werden NICHT geloescht, weil sie
         nicht mehr sicher von einer Handkopie mit zufaellig gleicher Laenge
-        zu unterscheiden sind (genau das war der Fehler, den diese
-        Nacharbeit behebt: Handkopien wie `.accounts.json.20260930` oder
+        zu unterscheiden sind (genau das war der urspruengliche Fehler:
+        Handkopien wie `.accounts.json.20260930` oder
         `.accounts.json.original` wurden vorher geloescht). Sie werden
         stattdessen einmal je Fund als Warnung mit Pfad gemeldet. Eine
         fremde Datei, die zu KEINEM der beiden Muster passt, bleibt
@@ -320,7 +359,21 @@ class ConfigStore:
                 if alter_sekunden < _TEMP_MINDESTALTER_SEKUNDEN:
                     # Vermutlich eine gerade laufende `_save`/`_sichere_vor_
                     # schemasprung` (dieser oder einer zweiten Instanz auf
-                    # demselben Verzeichnis) — noch nicht anfassen.
+                    # demselben Verzeichnis) — noch nicht anfassen. NICHT
+                    # STILL: Ein Absturz mit sofortigem Neustart (`restart:
+                    # unless-stopped`) hinterlaesst hier genau denselben
+                    # Befund wie eine echte laufende Instanz — von aussen
+                    # ununterscheidbar. Also wird gemeldet, mit Pfad, auch
+                    # wenn (noch) nichts geloescht wird; der zweite Durchlauf
+                    # (`zweiter_aufraeum_durchlauf`) sieht denselben Kandidaten
+                    # spaeter erneut, wenn die Altersgrenze ueberschritten ist.
+                    logger.warning(
+                        "Traegt die eigene Temp-Datei-Kennung, ist aber "
+                        "juenger als die Altersgrenze (%.0fs) oder traegt "
+                        "eine Aenderungszeit in der Zukunft — noch nicht "
+                        "entfernt: %s",
+                        _TEMP_MINDESTALTER_SEKUNDEN, kandidat,
+                    )
                     continue
                 try:
                     kandidat.unlink()
@@ -340,31 +393,107 @@ class ConfigStore:
                     kandidat,
                 )
 
-    def _ziehe_eigene_rechte_an(self) -> None:
-        """#106 NACHARBEIT 1: `accounts.json` selbst zieht beim Laden auf
-        `0600` an, wenn sie noch fuer Gruppe oder Welt lesbar ist — genau wie
-        `_save()` es bei jedem eigenen Schreibvorgang ohnehin tut (siehe
-        dort). Vorher stand in `docs/BACKUP_RESTORE.md` faelschlich, dies
-        loese eine WARNUNG aus (`test_rechte_warnung_ignoriert_die_
-        konfiguration_selbst` zeigt: es geschah gar nichts). Diese Methode
-        macht die Doku-Aussage wahr, statt sie nur zu korrigieren: Die
-        Konfiguration bleibt nicht mehr offen liegen, bis der naechste
-        `_save()` zufaellig kommt.
+    async def zweiter_aufraeum_durchlauf(self, *, verzoegerung_sekunden: Optional[float] = None) -> None:
+        """Genau EIN verzoegerter zweiter Aufraeumdurchlauf im laufenden
+        Betrieb — schliesst die Luecke, die der reine Start-Scan offen laesst:
+        Ein Absturz mit sofortigem Neustart (`restart: unless-stopped` faehrt
+        in Sekunden wieder hoch) hinterlaesst einen Rest, der beim Start noch
+        juenger als `_TEMP_MINDESTALTER_SEKUNDEN` ist — er wird gemeldet
+        (siehe `_raeume_verwaiste_temp_dateien`), aber nicht entfernt, und
+        blieb vor dieser Aenderung bis zum NAECHSTEN vollen Neustart liegen,
+        der je nach Betrieb Stunden oder Tage entfernt sein kann.
 
-        BEWUSST NUR EINE INFO-ZEILE, KEINE ZUSAETZLICHE WARNUNG: Andere Tests
-        zaehlen WARNUNG-Zeilen exakt (`test_rechte_warnung_bei_zu_weit_
-        lesbarer_geschwisterdatei` u. a.), und diese Stelle behebt das
-        Problem selbst, statt nur darauf hinzuweisen — eine WARNUNG waere
-        hier ein Fund ohne Gegenstand.
+        Wartet einmalig `verzoegerung_sekunden` (Vorgabe: dieselbe
+        Altersgrenze wie der Start-Scan, `_TEMP_MINDESTALTER_SEKUNDEN`) und
+        fuehrt dann GENAU EINMAL denselben Scan wie beim Start erneut aus.
+        Kein wiederkehrender Zeitplan: Ein Rest, der auch nach diesem zweiten
+        Durchlauf noch juenger als die Grenze waere, ist kein plausibler
+        Absturzrest mehr, sondern eine tatsaechlich laufende zweite Instanz —
+        und genau die soll dieser Code nicht anfassen (siehe Begruendung bei
+        `_TEMP_MINDESTALTER_SEKUNDEN`).
+
+        `verzoegerung_sekunden` ist ausschliesslich fuer Tests da: Kein Test
+        wartet 300 echte Sekunden — die Probe setzt hier eine kurze Wartezeit
+        und arbeitet mit einer zurueckdatierten `mtime`, um denselben
+        Ablaufzustand zu erzwingen, den eine echte Wartezeit erzeugen wuerde.
+
+        FEHLER BRECHEN NICHTS: Diese Koroutine laeuft als eigene
+        Hintergrundaufgabe (`main.py`, Start), nicht im Anfrage-Pfad. Ein
+        Fehler im Scan selbst (`_raeume_verwaiste_temp_dateien` faengt
+        `OSError` bereits selbst ab) wird zusaetzlich hier abgefangen, damit
+        eine unerwartete Ausnahme nicht als unbehandelte Task-Exception
+        endet. `asyncio.CancelledError` wird NICHT abgefangen — sie muss beim
+        Herunterfahren (`main.py`, Shutdown) ungehindert durchlaufen, damit
+        die Aufgabe als sauber abgebrochen gilt, nicht als beendet.
+        """
+        warte = _TEMP_MINDESTALTER_SEKUNDEN if verzoegerung_sekunden is None else verzoegerung_sekunden
+        await asyncio.sleep(warte)
+        try:
+            self._raeume_verwaiste_temp_dateien()
+        except Exception:
+            logger.exception(
+                "Zweiter Aufraeum-Durchlauf ist fehlgeschlagen — der naechste "
+                "reguläre Start raeumt spaetestens dann auf."
+            )
+
+    def _ziehe_eigene_rechte_an(self) -> None:
+        """`accounts.json` selbst zieht beim Laden auf `0600` an, wenn sie
+        noch fuer Gruppe oder Welt lesbar ist — genau wie `_save()` es bei
+        jedem eigenen Schreibvorgang ohnehin tut (siehe dort). Vorher stand in
+        `docs/BACKUP_RESTORE.md` faelschlich, dies loese eine WARNUNG aus —
+        es geschah gar nichts. Diese Methode macht die Doku-Aussage wahr,
+        statt sie nur zu korrigieren: Die Konfiguration bleibt nicht mehr
+        offen liegen, bis der naechste `_save()` zufaellig kommt.
+
+        LAEUFT ERST NACH ERFOLGREICHEM PARSEN (Aufrufstelle: `_load`, NACH dem
+        Schema-Check, VOR `_migrate`) — eine fruehere Fassung zog die Rechte
+        VOR dem Parsen an, aus `_warne_bei_offenen_rechten` heraus. Das
+        widersprach der eigenen Fehlermeldung eine Handvoll Zeilen weiter
+        unten ("was left untouched"): Ein Verzeichnis oder eine kaputte
+        Konfiguration an dieser Stelle bekam trotzdem schon `chmod 0600`,
+        bevor `_load` sie ueberhaupt als ungueltig verwarf (Gegenpruefer,
+        gemessen an einem Verzeichnis und an kaputtem JSON mit `0644`).
+
+        SYMLINKS WERDEN NICHT ANGEZOGEN, nur gemeldet — und zwar aus zwei
+        Gruenden, nicht nur einem: Erstens waere `os.chmod(pfad, ...,
+        follow_symlinks=False)` die naheliegende "richtige" Absicherung gegen
+        das Folgen des Links, aber sie ist unter Linux fuer Symlinks NICHT
+        implementiert (`NotImplementedError`, KEINE `OSError` — ein
+        ungefangener Absturz beim Start, gemessen), also wird `is_symlink()`
+        VOR jedem `chmod`-Versuch geprueft, nie `follow_symlinks=False`
+        benutzt. Zweitens waere selbst ein gewoehnliches `chmod` (das dem Link
+        folgt) kein Datenschutz-Loch im eigentlichen Sinne — es zieht die
+        Rechte des ZIELS an, nicht die eines fremden Dritten —, aber es ist
+        eine Nebenwirkung auf eine Datei AUSSERHALB des Datenordners, die der
+        Betreiber bewusst so verlinkt haben kann; das gehoert gemeldet, nicht
+        stillschweigend veraendert. NUR REGULAERE Dateien werden angezogen
+        (`stat.S_ISREG`) — ein Verzeichnis an dieser Stelle, das `_load`
+        ohnehin gleich als ungueltige Konfiguration verwirft, wird nicht mehr
+        angefasst, seit die Reihenfolge oben korrigiert ist.
 
         Laeuft NICHT, wenn die Datei noch gar nicht existiert (erster Start,
         `stat()` wirft dann `OSError`) — dort gibt es nichts anzuziehen, das
-        erledigt der erste `_save()`.
+        erledigt der erste `_save()`. Laeuft ebenfalls nicht auf Systemen ohne
+        verlaessliche POSIX-Rechte (siehe `_verlaessliche_posix_rechte`) — sie
+        wird nicht mehr nur ueber die Aufrufreihenfolge in `_warne_bei_
+        offenen_rechten` davor geschuetzt, sondern prueft das jetzt selbst,
+        weil sie seit dieser Fassung unabhaengig von dort aufgerufen wird.
         """
+        if not _verlaessliche_posix_rechte():
+            return
+        if self._path.is_symlink():
+            logger.warning(
+                "Eigene Konfiguration ist ein Symlink — Rechte werden NICHT "
+                "automatisch angezogen: %s", self._path,
+            )
+            return
         try:
-            modus = stat.S_IMODE(self._path.stat().st_mode)
+            st = self._path.stat()
         except OSError:
             return
+        if not stat.S_ISREG(st.st_mode):
+            return
+        modus = stat.S_IMODE(st.st_mode)
         if not (modus & _GRUPPE_ODER_WELT_LESBAR):
             return
         try:
@@ -401,9 +530,11 @@ class ConfigStore:
         die erste Fassung dieser Pruefung fand solche Dateien gar nicht,
         weil ihr Name nicht mit `accounts.json` beginnt, sondern mit einem
         Punkt (KLEIN-Befund) — sowie das Verzeichnis selbst. `accounts.json`
-        selbst bewusst NICHT hier: siehe `_ziehe_eigene_rechte_an` oben,
-        die diesen Fall seit dieser Nacharbeit selbst behebt statt nur zu
-        warnen.
+        selbst bewusst NICHT hier: siehe `_ziehe_eigene_rechte_an`, die
+        diesen Fall selbst behebt statt nur zu warnen — und die seit dieser
+        Fassung NICHT mehr von HIER aus aufgerufen wird, sondern von `_load`,
+        NACH erfolgreichem Parsen (siehe dort und die eigene Begruendung bei
+        `_ziehe_eigene_rechte_an`).
 
         AUF SYSTEMEN OHNE VERLAESSLICHE POSIX-RECHTE WIRD GESCHWIEGEN — aber
         sichtbar, nicht stumm: `os.name != "posix"` ist der Test (nicht nur
@@ -422,7 +553,6 @@ class ConfigStore:
                 self._path.name, os.name,
             )
             return
-        self._ziehe_eigene_rechte_an()
         name = self._path.name
         praefixe = (f"{name}.", f".{name}.")
         try:
@@ -459,6 +589,11 @@ class ConfigStore:
                     raise ValueError("invalid configuration schema")
                 self._data.setdefault("managed_albums", [])
                 logger.info("Config loaded from %s", self._path)
+                # ERST NACH erfolgreichem Parsen (siehe `_ziehe_eigene_
+                # rechte_an`s eigene Begruendung): Eine Konfiguration, die
+                # gleich darunter als ungueltig verworfen wird, bleibt jetzt
+                # WIRKLICH unangetastet, auch in ihren Rechten.
+                self._ziehe_eigene_rechte_an()
                 self._migrate()
             except Exception as exc:
                 raise RuntimeError(

@@ -1633,6 +1633,14 @@ def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_
 
     ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
     ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
+    # Enge Rechte auf dem TEST-Geschwister, NICHT auf `path` oder `tmp_path`:
+    # das faengt scheitert an TYP (Verzeichnis), nicht an Rechten -- ein enges
+    # `ziel` aendert diesen Fall nicht. Ohne diese Zeile loest `ziel` unter
+    # echten POSIX-Rechten (Standardmodus eines `mkdir()`, meist 0o755) seit
+    # S7 zusaetzlich die UNABHAENGIGE, korrekte Geschwister-Rechte-Warnung aus
+    # (`_warne_bei_offenen_rechten`) -- diese Probe zaehlt ausschliesslich
+    # Rueckweg-Zeilen und war darauf nie angelegt (S8, vor S7 gebaut).
+    os.chmod(ziel, 0o700)
     erwartet = f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {ziel}"
 
     with caplog.at_level("INFO"):
@@ -1681,6 +1689,11 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
 
     ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
     ziel.mkdir()
+    # Siehe Begruendung bei der Schemasprung-Scheitern-Probe oben: enge Rechte
+    # auf dem TEST-Geschwister isolieren gegen die unabhaengige, korrekte
+    # Geschwister-Rechte-Warnung (seit S7), ohne den Scheitern-Fall zu aendern
+    # (der scheitert am TYP Verzeichnis, nicht an dessen Rechten).
+    os.chmod(ziel, 0o700)
     erwartet = f"Rueckweg vor Kennungsvergabe nicht moeglich: {ziel}"
 
     with caplog.at_level("INFO"):
@@ -1776,6 +1789,13 @@ def test_mischfall_beide_rueckwege_scheitern_melden_beide_warnungen(tmp_path, ca
     kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
     schema_ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
     kennung_ziel.mkdir()
+    # Siehe Begruendung bei den isolierten Scheitern-Proben oben: enge Rechte
+    # auf BEIDEN TEST-Geschwistern isolieren gegen die unabhaengige, korrekte
+    # Geschwister-Rechte-Warnung (seit S7) -- hier besonders wichtig, weil
+    # sonst ZWEI zusaetzliche Warnungen die exakte Zweier-Menge unten sprengen
+    # wuerden, ohne dass eine echte dritte/vierte Rueckweg-Meldung vorliegt.
+    os.chmod(schema_ziel, 0o700)
+    os.chmod(kennung_ziel, 0o700)
 
     with caplog.at_level("INFO"):
         store = ConfigStore(str(path))  # darf nicht werfen
@@ -1872,6 +1892,14 @@ def test_kennungsvergabe_scheitert_trotz_vorhandenem_brauchbarem_schema_rueckweg
     schema_ziel.write_text(
         json.dumps({"accounts": LEGACY_ACCOUNTS}), encoding="utf-8"
     )  # brauchbarer Alt-Rueckweg aus einer frueheren Migration
+    # 0600, wie die echte `_sichere_vor_schemasprung` ihn auch selbst setzen
+    # wuerde (siehe dort) -- nicht nur ein Test-Kunstgriff, sondern der
+    # realistische Modus fuer eine Datei mit Immich-API-Schluesseln. Isoliert
+    # zugleich gegen die unabhaengige, korrekte Geschwister-Rechte-Warnung
+    # (seit S7): der Standardmodus von `write_text()` (meist 0o644) waere
+    # gruppen-/weltlesbar und loeste sie zusaetzlich aus. Bleibt fuer den
+    # eigenen Prozess weiterhin lesbar (`_rueckweg_brauchbar` liest sie).
+    os.chmod(schema_ziel, 0o600)
     kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
 
     echtes_mkstemp = tempfile.mkstemp

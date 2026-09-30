@@ -106,7 +106,7 @@ tag=$(git fetch --tags && git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
 sortiert damit über `v1.4.4` — heute latent, da wir keine solchen Tags
 führen.)
 
-**`commit` deckt die Lücke, die der Versionsvergleich allein laesst:** Ein
+**`commit` deckt die Lücke, die der Versionsvergleich allein lässt:** Ein
 Commit NACH dem Tag ohne Versionsbump meldet weiterhin die alte, getaggte
 Nummer — der Versionsvergleich oben bliebe dann still grün, obwohl der
 laufende Stand nicht mehr der getaggte ist. Wer Commit gegen Commit

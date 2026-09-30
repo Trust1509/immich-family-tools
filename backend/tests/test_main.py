@@ -621,3 +621,22 @@ async def test_anlegen_folgt_der_ausdruecklichen_wahl(tmp_path, monkeypatch):
                          album_name="Testalbum", force_new_group=True), request)
     eigen = {a.match_id: a.group_id for a in store.get_managed_albums()}["match-neu"]
     assert eigen != bestehend, "force_new_group muss den Namenstreffer schlagen"
+
+
+@pytest.mark.asyncio
+async def test_lifespan_startet_und_stoppt_zweiten_aufraeumdurchlauf_sauber(tmp_path, monkeypatch):
+    """Echter Startpfad (`app.router.lifespan_context`, das FastAPI aus den
+    `on_event`-Handlern baut), nicht nur die einzelne Koroutine in Isolation:
+    Der Start plant den einmaligen zweiten Aufraeumdurchlauf als
+    Hintergrundaufgabe ein, und das Herunterfahren bricht sie sauber ab —
+    `cancelled()`, nicht `done()` durch normales Beenden oder eine
+    unbehandelte Ausnahme."""
+    monkeypatch.setattr(main.settings, "secret", "test-geheimnis-kein-echtes-produktivgeheimnis")
+    monkeypatch.setattr(main.settings, "config_path", str(tmp_path / "accounts.json"))
+
+    async with main.app.router.lifespan_context(main.app):
+        aufgabe = main.app.state.zweiter_aufraeum_task
+        assert aufgabe is not None
+        assert not aufgabe.done()
+
+    assert aufgabe.cancelled(), "die Aufgabe haette beim Herunterfahren abgebrochen werden muessen"

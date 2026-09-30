@@ -15,17 +15,22 @@
 4. Treat every backup as a secret because it contains Immich API keys. This
    applies to the `vor-schema-*` files too — and to them for longer, because
    nothing overwrites or removes them (see _Schema migrations_ below).
-5. Since Slice S7, the application checks this itself on every start
+5. The application checks this itself on every start
    (`backend/services/config_store.py`), where POSIX permission bits are
    reliable at all (skipped, with a reason logged, on Windows and similar
-   filesystems): for `accounts.json` itself, it does not merely warn — since
-   Nacharbeit 1 it **tightens the permission to `0600` right there** (the
+   filesystems), and only once the file has parsed successfully as a valid
+   configuration — an invalid one is left untouched in every sense,
+   including its permissions: for `accounts.json` itself, it does not merely
+   warn — it **tightens the permission to `0600` right there** (the
    same it already enforces on every write) and logs one INFO line naming
-   the previous mode. For everything **else** it only warns, once, naming
+   the previous mode, unless `accounts.json` is itself a symlink, in which
+   case this is skipped and logged as a warning instead (the symlink's
+   target is outside the app's own data, and an operator may have arranged
+   it deliberately). For everything **else** it only warns, once, naming
    the offending path and mode, and does not touch it: a sibling whose name
    starts with `accounts.json.` (including a **hidden** one starting with
-   `.accounts.json.` — added in Nacharbeit 1, an earlier version of this
-   check missed those), or the data directory. This is a safety net, not a
+   `.accounts.json.` — an earlier version of this check missed those), or
+   the data directory. This is a safety net, not a
    substitute for point 3 for anything other than `accounts.json` itself.
 
 ## Schema migrations

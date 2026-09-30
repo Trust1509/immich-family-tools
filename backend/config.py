@@ -36,10 +36,20 @@ class Settings(BaseSettings):
     # Validator liefert `Settings(git_sha="")` `git_sha == ""`). `mode="before"`
     # laeuft VOR der Typpruefung, damit eine leere Zeichenkette denselben Weg
     # nimmt wie ein ganz fehlender Wert.
+    #
+    # NACHARBEIT 2 (KLEIN): `.strip()` VOR dem Leer-Vergleich, nicht nur
+    # `wert == ""` — eine Umgebungsvariable, die nur aus Leerraum besteht
+    # (`IMMICH_FAMILY_TOOLS_GIT_SHA=" "`, z. B. durch ein Shell-Quoting-
+    # Versehen im Baubefehl), bestand den blossen Gleichheitsvergleich nicht
+    # und lief ungeprueft durch — `/api/health` haette `"commit":" "`
+    # ausgegeben, kein Absturz, aber auch keine ehrliche Aussage. Nur bei
+    # einem String ueberhaupt geprueft: ein Nicht-String (z. B. ein versehentlich
+    # als Zahl gesetzter Wert) faellt der Typpruefung DANACH zu, nicht dieser
+    # Stelle.
     @field_validator("git_sha", mode="before")
     @classmethod
     def _leerer_git_sha_wird_unknown(cls, wert: object) -> object:
-        if wert == "":
+        if isinstance(wert, str) and wert.strip() == "":
             return "unknown"
         return wert
 

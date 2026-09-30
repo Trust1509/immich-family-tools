@@ -231,6 +231,30 @@ async def startup():
     # Backfill user_ids for accounts added before this feature (runs in background)
     asyncio.create_task(_backfill_user_ids(app.state.store, app.state.client_pool))
     asyncio.create_task(_auto_sync_loop(app.state))
+    # Genau EIN verzoegerter zweiter Aufraeumdurchlauf fuer liegengebliebene
+    # Temp-Dateien (siehe `ConfigStore.zweiter_aufraeum_durchlauf`): Der
+    # Start-Scan meldet einen zu jungen Rest nur, entfernt ihn aber nicht —
+    # dieser Durchlauf holt genau den Fall spaeter, in DERSELBEN laufenden
+    # Instanz, statt auf den naechsten vollen Neustart zu warten. Referenz auf
+    # `app.state`, damit `shutdown` unten die Aufgabe sauber abbrechen kann.
+    app.state.zweiter_aufraeum_task = asyncio.create_task(
+        app.state.store.zweiter_aufraeum_durchlauf()
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    # Sauberer Abbruch des zweiten Aufraeumdurchlaufs (siehe `startup` oben):
+    # Ein Fehler oder eine haengende Aufgabe hier darf das Herunterfahren
+    # nicht verzoegern oder mit einer Ausnahme quittieren — `CancelledError`
+    # aus dem `await` ist der ERWARTETE, nicht der Fehler-Fall.
+    task = getattr(app.state, "zweiter_aufraeum_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 # ------------------------------------------------------------------

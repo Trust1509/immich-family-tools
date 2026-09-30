@@ -44,9 +44,9 @@ RUN mkdir -p /app/data && chown -R appuser:appgroup /app
 # Schicht, deren Instruktion sich geaendert hat, UND ALLEN danach — auch wenn
 # deren eigener Inhalt (Paketliste, `requirements.txt`) gleich blieb. Jeder
 # neue Commit baute dadurch `apt-get` UND `pip install` komplett neu, mit
-# vollem Netzbedarf (gemessen, `dockerprobe/Dockerfile`: mit `ARG` vor
-# `apt-get` bleibt dessen Schicht bei einem SHA-Wechsel nicht `CACHED`; mit
-# `ARG` hier am Ende, nach der teuren Schicht, bleibt sie es). Das ist der
+# vollem Netzbedarf (gemessen: mit `ARG` vor `apt-get` bleibt dessen Schicht
+# bei einem SHA-Wechsel nicht `CACHED`; mit `ARG` hier am Ende, nach der
+# teuren Schicht, bleibt sie es). Das ist der
 # Unterschied zwischen einem Rollout, der ohne Netz klappt, und einem, der
 # genau dann scheitert, wenn man es am wenigsten brauchen kann.
 ARG GIT_SHA=unknown
