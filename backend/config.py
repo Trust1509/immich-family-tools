@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -23,6 +24,24 @@ class Settings(BaseSettings):
     # Vorgabewert — die App startet trotzdem, `/api/health` zeigt dann
     # ehrlich "unknown" statt eine falsche Zahl zu erfinden.
     git_sha: str = "unknown"
+
+    # NACHARBEIT 1 zu #68 (H1, Mutationsluecke): `docker build --build-arg
+    # GIT_SHA=` OHNE Wert (Direktbau ohne die Owner-Freigabe-Zeile aus dem
+    # Release-Ritual) setzt das Docker-`ARG` auf eine LEERE Zeichenkette,
+    # nicht auf "unknown" — `ENV IMMICH_FAMILY_TOOLS_GIT_SHA=` wird dann
+    # ebenfalls leer, und `pydantic-settings` behandelt eine GESETZTE, aber
+    # leere Umgebungsvariable als Wert (nicht als "fehlt") und liefert `""`
+    # statt des Vorgabewerts. `/api/health` haette dann `"commit":""`
+    # ausgegeben statt ehrlich `"unknown"` zu sagen (gemessen: ohne diesen
+    # Validator liefert `Settings(git_sha="")` `git_sha == ""`). `mode="before"`
+    # laeuft VOR der Typpruefung, damit eine leere Zeichenkette denselben Weg
+    # nimmt wie ein ganz fehlender Wert.
+    @field_validator("git_sha", mode="before")
+    @classmethod
+    def _leerer_git_sha_wird_unknown(cls, wert: object) -> object:
+        if wert == "":
+            return "unknown"
+        return wert
 
     class Config:
         env_prefix = "IMMICH_FAMILY_TOOLS_"

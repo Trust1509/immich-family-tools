@@ -11,6 +11,7 @@ import re
 import shutil
 import stat
 import tempfile
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -116,20 +117,85 @@ _gruppen_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 # Problem — es ist nur keines, das jemand geprueft haette.
 _treffer_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 
-# #124 B10: `_save` und `_sichere_vor_schemasprung` legen ihre Temp-Dateien
-# per `tempfile.mkstemp(prefix=f".<Dateiname>.", dir=...)` OHNE eigenen
-# `suffix` an. Ohne `suffix` haengt `mkstemp` an den Praefix genau eine
-# Zufallsfolge aus `tempfile._RandomNameSequence.characters`
-# (Buchstaben/Ziffern/Unterstrich) fester Laenge (8) — KEIN weiterer Punkt.
-# Das unterscheidet den Rest einer `_save`-Temp-Datei (".accounts.json.a1B2c3D4",
-# Rest ohne Punkt) von einer `_sichere_vor_schemasprung`-Temp-Datei
-# (".accounts.json.vor-schema-3.bak.a1B2c3D4", Rest MIT Punkt, hat ihr eigenes
-# `finally`, wird hier nicht angefasst) und von einer Handkopie mit aehnlichem
-# Namen (".accounts.json.alt", falsche Laenge). Aendert eine kuenftige
-# Python-Version die Laenge oder das Alphabet, wird das Muster zu eng — dann
-# bleibt eine echte Temp-Datei liegen (sicherer Fehler: nichts geloescht, was
-# nicht sollte) statt eine fremde zu treffen.
-_TEMP_REST_MUSTER = re.compile(r"^[A-Za-z0-9_]{8}$")
+# #124 B10 NACHARBEIT 1: `_save` und `_sichere_vor_schemasprung` legen ihre
+# Temp-Dateien mit einer UNVERWECHSELBAREN KENNUNG an: Praefix
+# `.<Dateiname>.speichern-tmp-`, danach der `mkstemp`-eigene Rest (Buchstaben/
+# Ziffern/Unterstrich, Alphabet und Laenge kommen aus
+# `tempfile._RandomNameSequence`, heute 8 Zeichen). Vor dieser Nacharbeit war
+# der Praefix nur `.<Dateiname>.` OHNE Kennung — und genau das war der Fehler
+# (Blind- und Gegenpruefer, a1c6ae8): Eine Handkopie mit zufaellig gleicher
+# Laenge (".accounts.json.20260930", ".accounts.json.original",
+# ".accounts.json.backup01" — acht Zeichen aus demselben Alphabet) sah fuer
+# die alte Aufraeumroutine WIE die eigene Temp-Datei aus und wurde geloescht.
+# Die Kennung macht diese Verwechslung strukturell unmoeglich: Eine
+# Handkopie, die zufaellig auch noch ".speichern-tmp-" plus acht Zeichen
+# traegt, ist so unwahrscheinlich, dass sie nicht mehr die Sorge dieses
+# Codes ist (der Betreiber waehlt seine eigenen Dateinamen).
+#
+# RESTE IM ALTEN MUSTER (aus Versionen vor dieser Nacharbeit, ohne Kennung)
+# werden NICHT mehr geloescht — sie koennten ebenso gut eine Handkopie sein,
+# und genau diese Verwechslung ist der Fehler, den diese Nacharbeit behebt.
+# Sie werden stattdessen einmal je Start als WARNUNG mit Pfad gemeldet:
+# „moeglicherweise liegengebliebene Temp-Datei einer aelteren Version —
+# pruefen und von Hand loeschen." Nichts verschwindet still (Projektgrundsatz,
+# siehe `docs/agents/lehren.md`), aber auch nichts wird mehr geraten.
+_TEMP_KENNUNG = "speichern-tmp-"
+# Exaktes `mkstemp`-Alphabet/-Laenge — EINE Quelle, von beiden Mustern unten
+# per `.pattern` wiederverwendet (kein zweites, driftfaehiges Literal).
+_TEMP_REST_MUSTER = re.compile(r"[A-Za-z0-9_]{8}")
+
+
+def _temp_praefix(name: str) -> str:
+    """Der `mkstemp`-Praefix fuer EIGENE Temp-Dateien zu `name` — gemeinsam
+    fuer `_save` (name=`self._path.name`) und `_sichere_vor_schemasprung`
+    (name=`ziel.name`, also z. B. `accounts.json.vor-schema-3.bak`)."""
+    return f".{name}.{_TEMP_KENNUNG}"
+
+
+def _eigenes_temp_muster(name: str) -> re.Pattern:
+    """Erkennt NUR die eigene, neue Temp-Datei-Kennung zu `name` — beide
+    Familien (`_save` UND `_sichere_vor_schemasprung`) in einem Muster, weil
+    der Zwischenteil bei Letzterer selbst Punkte traegt
+    (`vor-schema-<N>.bak` bzw. `vor-kennungsvergabe.bak`): `(?:\\..+)?`
+    deckt einen beliebigen, aber vollstaendig mit einem Punkt beginnenden
+    Zwischenteil ab, verankert (`fullmatch`) an Anfang und Ende, damit kein
+    Rest davor oder danach durchrutscht."""
+    return re.compile(
+        r"^\." + re.escape(name) + r"(?:\..+)?\." + re.escape(_TEMP_KENNUNG)
+        + _TEMP_REST_MUSTER.pattern + r"$"
+    )
+
+
+def _altes_temp_muster(name: str) -> re.Pattern:
+    """Erkennt, was VOR dieser Nacharbeit als eigene Temp-Datei zu `name`
+    galt — ohne die neue Kennung, also nicht mehr sicher von einer Handkopie
+    zu unterscheiden. Dient NUR der Warnung, nie mehr dem Loeschen (siehe
+    Kopf-Kommentar oben)."""
+    return re.compile(r"^\." + re.escape(name) + r"(?:\..+)?\." + _TEMP_REST_MUSTER.pattern + r"$")
+
+
+# Grosszuegige Altersgrenze fuer die Loeschung EIGENER, NEU erkannter
+# Temp-Dateien beim Start (Gegenpruefer K3 / Fremdpruefer WICHTIG 1,
+# `probe_linux.py` P5): Eine zweite `ConfigStore`-Instanz auf demselben
+# Verzeichnis darf die gerade aktive Temp-Datei einer laufenden `_save`
+# NICHT loeschen, waehrend diese zwischen `mkstemp` und `os.replace` haengt.
+# Zwei Instanzen auf demselben Verzeichnis sind fuer diese Anwendung kein
+# unterstuetztes Betriebsmodell (ein Container faehrt einen Prozess mit
+# einem Store, siehe Kopf-Kommentar zu `_gruppen_schloesser`) — aber ein
+# Start ist trotzdem kein Ort, an dem man sich auf diese Annahme VERLASSEN
+# sollte, wenn eine einzige Zeile sie auch ohne Verlass absichert. Eine
+# Altersgrenze ist einfacher und lokaler als eine Umstellung auf
+# Ein-Instanz-Erzwingung (z. B. eine Lock-Datei) und deckt denselben
+# gemessenen Fall ab. Gewaehlt: 300 Sekunden — der eigentliche Schreibvorgang
+# (JSON serialisieren, `fsync`, `chmod`, `os.replace`) braucht Millisekunden
+# bis niedrige Sekunden, auch auf langsamem Speicher; 300 s liegt zwei
+# Groessenordnungen darueber und bleibt trotzdem klein genug, dass eine
+# ECHTE Leiche (Prozess hart beendet) beim naechsten realistischen Neustart
+# (typischerweise Minuten bis Stunden spaeter) zuverlaessig erfasst wird.
+# Kein Test misst 300 s selbst (zu langsam) — die Proben pruefen stattdessen
+# die BEIDEN Enden: eine gerade erst angelegte Temp-Datei (Alter ~0 s) bleibt
+# liegen, eine kuenstlich zurueckdatierte (Alter > Schwelle) wird entfernt.
+_TEMP_MINDESTALTER_SEKUNDEN = 300.0
 
 # #106: Gruppe ODER Welt darf eine Sicherung/Konfiguration nicht lesen
 # koennen. Nur diese beiden Bits zaehlen — Schreibrechte fuer Gruppe/Welt
@@ -192,22 +258,39 @@ class ConfigStore:
     # ------------------------------------------------------------------
 
     def _raeume_verwaiste_temp_dateien(self) -> None:
-        """#124 B10: liegengebliebene `_save`-Temp-Dateien beim Start entfernen.
+        """#124 B10 NACHARBEIT 1: liegengebliebene Temp-Dateien von `_save`
+        UND von `_sichere_vor_schemasprung` beim Start entfernen.
 
-        `_save` schreibt erst in eine Temp-Datei (`tempfile.mkstemp`), dann
-        `os.replace` — der volle Inhalt, inklusive Immich-API-Schluesseln,
-        liegt also kurz auf der Platte, BEVOR er die eigentliche Konfiguration
-        ersetzt. Stirbt der Prozess hart dazwischen (SIGKILL, Stromausfall,
-        OOM-Killer), laeuft das eigene `finally` von `_save` nie — die
-        Temp-Datei bleibt mit vollem Inhalt liegen, unbegrenzt, bis jemand sie
-        von Hand findet.
+        Beide Methoden schreiben erst in eine Temp-Datei (`tempfile.mkstemp`,
+        Praefix ueber `_temp_praefix`), dann `os.replace` — der volle Inhalt,
+        inklusive Immich-API-Schluesseln, liegt also kurz auf der Platte,
+        BEVOR er die eigentliche Datei ersetzt. Stirbt der Prozess hart
+        dazwischen (SIGKILL, Stromausfall, OOM-Killer), laeuft das eigene
+        `finally` nie — die Temp-Datei bleibt mit vollem Inhalt liegen,
+        unbegrenzt, bis jemand sie von Hand findet. Vor dieser Nacharbeit
+        raeumte diese Methode nur die `_save`-Familie auf; ein SIGKILL
+        waehrend `_sichere_vor_schemasprung` liess seine eigene Temp-Datei
+        dauerhaft liegen (KLEIN-Befund, `probe_sigkill.py`).
 
-        NUR Dateien, die EXAKT dem eigenen Namensmuster entsprechen, werden
-        entfernt (Begruendung des Musters: siehe `_TEMP_REST_MUSTER` oben).
-        Eine `_sichere_vor_schemasprung`-Temp-Datei hat ihr eigenes `finally`
-        und wird hier nicht angefasst; eine fremde Datei mit aehnlichem Namen
-        (falsche Laenge oder ein Punkt im Rest) bleibt liegen — nur warnen und
-        aufraeumen, was zweifelsfrei das eigene Muster ist, nichts raten.
+        NUR Dateien, die EXAKT dem eigenen, NEUEN Namensmuster entsprechen
+        (`_eigenes_temp_muster`, Kennung `_TEMP_KENNUNG`), werden entfernt —
+        und auch dann nur, wenn sie REGULAERE Dateien sind (kein Symlink,
+        kein Verzeichnis: ein Symlink mit passendem Namen koennte sonst auf
+        die echte Konfiguration zeigen und deren ZIEL loeschen,
+        `posix_probe.py` R2/R3) UND ihre Aenderungszeit mindestens
+        `_TEMP_MINDESTALTER_SEKUNDEN` zurueckliegt (schuetzt die Temp-Datei
+        einer GERADE laufenden zweiten Instanz auf demselben Verzeichnis vor
+        vorzeitigem Loeschen, siehe Begruendung dort, `probe_linux.py` P5).
+
+        RESTE IM ALTEN MUSTER (ohne Kennung, aus Versionen vor dieser
+        Nacharbeit — `_altes_temp_muster`) werden NICHT geloescht, weil sie
+        nicht mehr sicher von einer Handkopie mit zufaellig gleicher Laenge
+        zu unterscheiden sind (genau das war der Fehler, den diese
+        Nacharbeit behebt: Handkopien wie `.accounts.json.20260930` oder
+        `.accounts.json.original` wurden vorher geloescht). Sie werden
+        stattdessen einmal je Fund als Warnung mit Pfad gemeldet. Eine
+        fremde Datei, die zu KEINEM der beiden Muster passt, bleibt
+        unangetastet und ungemeldet.
 
         Laeuft bei JEDEM Start, unabhaengig davon, ob `self._path` selbst
         existiert (ein Absturz kann die Konfiguration selbst verloren, die
@@ -217,24 +300,84 @@ class ConfigStore:
             geschwister = list(self._path.parent.iterdir())
         except OSError:
             return
-        praefix = f".{self._path.name}."
+        neu_muster = _eigenes_temp_muster(self._path.name)
+        alt_muster = _altes_temp_muster(self._path.name)
+        jetzt = time.time()
         for kandidat in geschwister:
-            if not kandidat.name.startswith(praefix):
-                continue
-            rest = kandidat.name[len(praefix):]
-            if not _TEMP_REST_MUSTER.fullmatch(rest):
-                continue
-            try:
-                kandidat.unlink()
+            name = kandidat.name
+            if neu_muster.fullmatch(name):
+                if kandidat.is_symlink() or not kandidat.is_file():
+                    logger.warning(
+                        "Traegt die eigene Temp-Datei-Kennung, ist aber "
+                        "keine reguläre Datei (Symlink oder Verzeichnis) — "
+                        "unangetastet gelassen: %s", kandidat,
+                    )
+                    continue
+                try:
+                    alter_sekunden = jetzt - kandidat.stat().st_mtime
+                except OSError:
+                    continue
+                if alter_sekunden < _TEMP_MINDESTALTER_SEKUNDEN:
+                    # Vermutlich eine gerade laufende `_save`/`_sichere_vor_
+                    # schemasprung` (dieser oder einer zweiten Instanz auf
+                    # demselben Verzeichnis) — noch nicht anfassen.
+                    continue
+                try:
+                    kandidat.unlink()
+                    logger.warning(
+                        "Liegengebliebene Temp-Datei beim Start entfernt: %s",
+                        kandidat,
+                    )
+                except OSError as exc:
+                    logger.warning(
+                        "Liegengebliebene Temp-Datei konnte nicht entfernt werden: %s (%s)",
+                        kandidat, exc,
+                    )
+            elif alt_muster.fullmatch(name):
                 logger.warning(
-                    "Liegengebliebene Temp-Datei von _save beim Start entfernt: %s",
+                    "Moeglicherweise liegengebliebene Temp-Datei einer "
+                    "aelteren Version — pruefen und von Hand loeschen: %s",
                     kandidat,
                 )
-            except OSError as exc:
-                logger.warning(
-                    "Liegengebliebene Temp-Datei konnte nicht entfernt werden: %s (%s)",
-                    kandidat, exc,
-                )
+
+    def _ziehe_eigene_rechte_an(self) -> None:
+        """#106 NACHARBEIT 1: `accounts.json` selbst zieht beim Laden auf
+        `0600` an, wenn sie noch fuer Gruppe oder Welt lesbar ist — genau wie
+        `_save()` es bei jedem eigenen Schreibvorgang ohnehin tut (siehe
+        dort). Vorher stand in `docs/BACKUP_RESTORE.md` faelschlich, dies
+        loese eine WARNUNG aus (`test_rechte_warnung_ignoriert_die_
+        konfiguration_selbst` zeigt: es geschah gar nichts). Diese Methode
+        macht die Doku-Aussage wahr, statt sie nur zu korrigieren: Die
+        Konfiguration bleibt nicht mehr offen liegen, bis der naechste
+        `_save()` zufaellig kommt.
+
+        BEWUSST NUR EINE INFO-ZEILE, KEINE ZUSAETZLICHE WARNUNG: Andere Tests
+        zaehlen WARNUNG-Zeilen exakt (`test_rechte_warnung_bei_zu_weit_
+        lesbarer_geschwisterdatei` u. a.), und diese Stelle behebt das
+        Problem selbst, statt nur darauf hinzuweisen — eine WARNUNG waere
+        hier ein Fund ohne Gegenstand.
+
+        Laeuft NICHT, wenn die Datei noch gar nicht existiert (erster Start,
+        `stat()` wirft dann `OSError`) — dort gibt es nichts anzuziehen, das
+        erledigt der erste `_save()`.
+        """
+        try:
+            modus = stat.S_IMODE(self._path.stat().st_mode)
+        except OSError:
+            return
+        if not (modus & _GRUPPE_ODER_WELT_LESBAR):
+            return
+        try:
+            os.chmod(self._path, 0o600)
+            logger.info(
+                "Rechte der eigenen Konfiguration beim Laden auf 0600 gezogen (war %s): %s",
+                oct(modus), self._path,
+            )
+        except OSError as exc:
+            logger.warning(
+                "Rechte der eigenen Konfiguration konnten beim Laden nicht auf "
+                "0600 gezogen werden (%s): %s", exc, self._path,
+            )
 
     def _warne_bei_offenen_rechten(self) -> None:
         """#106: beim Start einmal warnen, wenn eine Geschwisterdatei der
@@ -247,15 +390,20 @@ class ConfigStore:
         1.8.0, mit Immich-API-Schluesseln von womoeglich laengst geloeschten
         Konten).
 
-Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
-        Konfiguration beginnt (`accounts.json.bak`,
+        Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem
+        der Konfiguration PLUS TRENNPUNKT beginnt (`accounts.json.bak`,
         `accounts.json.vor-schema-3.bak`, eine Handkopie
-        `accounts.json.pre-v1.2.0`, …) sowie das Verzeichnis selbst —
-        `accounts.json` selbst bewusst NICHT: `_save()` erzwingt darauf
-        bereits `0600` bei jedem eigenen Schreibvorgang (siehe dort); diese
-        Warnung gilt dem, was NEBEN der von der App selbst verwalteten Datei
-        liegt und das niemand prueft (Anlass des Issues: „Was die App selbst
-        schreibt, traegt diese Rechte. Was daneben liegt, prueft niemand.").
+        `accounts.json.pre-v1.2.0`, …) — der Trennpunkt ist Pflicht
+        (NACHARBEIT 1: vorher reichte ein blosser `startswith`, und eine
+        voellig fremde Datei wie `accounts.json2` waere mitgezaehlt worden,
+        Mutationsluecke P8), sowie GENAUSO jede VERSTECKTE Handkopie mit
+        fuehrendem Punkt (`.accounts.json.alt`, `.accounts.json.20260930`) —
+        die erste Fassung dieser Pruefung fand solche Dateien gar nicht,
+        weil ihr Name nicht mit `accounts.json` beginnt, sondern mit einem
+        Punkt (KLEIN-Befund) — sowie das Verzeichnis selbst. `accounts.json`
+        selbst bewusst NICHT hier: siehe `_ziehe_eigene_rechte_an` oben,
+        die diesen Fall seit dieser Nacharbeit selbst behebt statt nur zu
+        warnen.
 
         AUF SYSTEMEN OHNE VERLAESSLICHE POSIX-RECHTE WIRD GESCHWIEGEN — aber
         sichtbar, nicht stumm: `os.name != "posix"` ist der Test (nicht nur
@@ -263,7 +411,9 @@ Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
         wenig sagt. Unter Windows liefert `st_mode` fuer jede Datei denselben
         Wert (`0o666`), unabhaengig vom tatsaechlichen Zugriff (gemessen,
         siehe `test_sicherung_bekommt_enge_rechte`) — eine Warnung darauf
-        waere eine falsche Behauptung, kein Fund.
+        waere eine falsche Behauptung, kein Fund. Aus demselben Grund laeuft
+        `_ziehe_eigene_rechte_an` NUR, wenn diese Methode nicht vorher schon
+        abbricht (Aufrufreihenfolge in `_load`).
         """
         if not _verlaessliche_posix_rechte():
             logger.info(
@@ -272,10 +422,13 @@ Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
                 self._path.name, os.name,
             )
             return
+        self._ziehe_eigene_rechte_an()
+        name = self._path.name
+        praefixe = (f"{name}.", f".{name}.")
         try:
             geschwister = sorted(
                 p for p in self._path.parent.iterdir()
-                if p.name != self._path.name and p.name.startswith(self._path.name)
+                if p.name != name and p.name.startswith(praefixe)
             )
         except OSError as exc:
             logger.warning(
@@ -285,13 +438,14 @@ Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
             return
         for kandidat in [self._path.parent, *geschwister]:
             try:
-                modus = stat.S_IMODE(kandidat.stat().st_mode)
+                st = kandidat.stat()
             except OSError:
                 continue
+            modus = stat.S_IMODE(st.st_mode)
             if modus & _GRUPPE_ODER_WELT_LESBAR:
                 logger.warning(
                     "%s ist fuer Gruppe oder Welt lesbar (Modus %s): %s",
-                    "Verzeichnis" if kandidat.is_dir() else "Datei",
+                    "Verzeichnis" if stat.S_ISDIR(st.st_mode) else "Datei",
                     oct(modus), kandidat,
                 )
 
@@ -404,7 +558,7 @@ Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
         temp_name = None
         try:
             roh = self._path.read_bytes()
-            fd, temp_name = tempfile.mkstemp(prefix=f".{ziel.name}.", dir=ziel.parent)
+            fd, temp_name = tempfile.mkstemp(prefix=_temp_praefix(ziel.name), dir=ziel.parent)
             with os.fdopen(fd, "wb") as handle:
                 handle.write(roh)
                 handle.flush()
@@ -1122,7 +1276,7 @@ Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
         except OSError:
             logger.warning("Could not enforce 0700 on %s", self._path.parent)
         payload = json.dumps(self._data, indent=2, ensure_ascii=False)
-        fd, temp_name = tempfile.mkstemp(prefix=f".{self._path.name}.", dir=self._path.parent)
+        fd, temp_name = tempfile.mkstemp(prefix=_temp_praefix(self._path.name), dir=self._path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(payload)

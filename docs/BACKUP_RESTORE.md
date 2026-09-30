@@ -15,13 +15,18 @@
 4. Treat every backup as a secret because it contains Immich API keys. This
    applies to the `vor-schema-*` files too — and to them for longer, because
    nothing overwrites or removes them (see _Schema migrations_ below).
-5. Since Slice S7, the application itself warns once at every start — in the
-   container log, not by refusing to start — if `accounts.json`, a sibling
-   whose name starts with it, or the data directory is readable by group or
-   world (`backend/services/config_store.py`). This is a safety net, not a
-   substitute for point 3: it only fires where POSIX permission bits are
-   reliable (skipped, with a reason logged, on Windows and similar
-   filesystems), and it never corrects the permission itself.
+5. Since Slice S7, the application checks this itself on every start
+   (`backend/services/config_store.py`), where POSIX permission bits are
+   reliable at all (skipped, with a reason logged, on Windows and similar
+   filesystems): for `accounts.json` itself, it does not merely warn — since
+   Nacharbeit 1 it **tightens the permission to `0600` right there** (the
+   same it already enforces on every write) and logs one INFO line naming
+   the previous mode. For everything **else** it only warns, once, naming
+   the offending path and mode, and does not touch it: a sibling whose name
+   starts with `accounts.json.` (including a **hidden** one starting with
+   `.accounts.json.` — added in Nacharbeit 1, an earlier version of this
+   check missed those), or the data directory. This is a safety net, not a
+   substitute for point 3 for anything other than `accounts.json` itself.
 
 ## Schema migrations
 
@@ -56,18 +61,29 @@ ordinary `.bak` is rewritten on every save — including by the account backfill
 that runs at startup, seconds after the migration. It stops being the
 pre-migration state almost immediately.
 
-**A third kind of start-time write gets no rollback copy at all, and it is
-unrecoverable once it has run.** On every start, `_migrate` also drops any
-managed-album reference to an account that no longer exists (#117/#121/#103)
-— unlike the schema migration and the identifier assignment above, this does
-**not** write a `vor-*.bak` first, regardless of whether it runs together
-with either of them. There is nothing to restore it from except a ZFS
-snapshot or a copy you made yourself before that start: once a dead reference
-is dropped this way, the only place it survives at all is `accounts.json.bak`
+**A third kind of start-time write gets no rollback copy of its OWN, and by
+itself it is unrecoverable once it has run.** On every start, `_migrate`
+also drops any managed-album reference to an account that no longer exists
+(#117/#121/#103) — unlike the schema migration and the identifier assignment
+above, this step does not write a `vor-*.bak` of its own. **An earlier
+version of this paragraph said that held "regardless of whether it runs
+together with either of them" — measured directly, that is wrong.** Both
+rollback writes above happen at the _start_ of `_migrate`, copying whatever
+is on disk _before_ anything in that same run changes it; the dead-reference
+cleanup runs _after_ them, later in the same pass. So if a schema migration
+or an identifier assignment **also** runs in that same start, the rollback
+file it writes for its own reason incidentally still holds the dead
+reference too — the person's name included — simply because it was taken
+before the cleanup ran (measured: an old-format file with both a missing
+schema version and a dead account reference writes `accounts.json.vor-
+schema-<N>.bak` containing that dead reference's name). **Only when the
+dead-reference cleanup runs _alone_ in a start — no schema jump, no missing
+group identifier — is there truly no rollback copy of it beyond the
+ordinary one:** the only place it survives at all is `accounts.json.bak`
 — and only until the _next_ save overwrites that too (`PRIVACY.md`,
 "the ordinary save leaves one more generation behind"). If you need to
-recover a name or account association this way, ZFS snapshot restore is your
-only path — the rollback files above do not cover it.
+recover a name or account association this way and neither rollback file
+happens to carry it, ZFS snapshot restore is your only path.
 
 Two things follow for you as the operator:
 

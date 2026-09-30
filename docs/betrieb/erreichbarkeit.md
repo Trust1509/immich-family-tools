@@ -84,13 +84,18 @@ zweiten Ausführungskontext: einen eigenen Lauf (Cron auf dem Wächter-Host mit
 flachem Klon) **oder** den in Schritt 8 vorhandenen Teil-Ersatz, der nur die
 einzelne Auslieferung selbst prüft (siehe oben).
 
-`GET /api/health` liefert bereits `{"status":"ok","version":APP_VERSION}`
-(`backend/main.py`, `backend/version.py`) — dieselbe Antwort, die der
-Erreichbarkeits-Wächter oben ohnehin abruft. Der Check ist ein Vergleich mit
-Präfix-Normalisierung: `/api/health` liefert die Version als `<x.y.z>` ohne
-führendes „v" (Platzhalter für die jeweils laufende Zahl — der Präfix-Punkt
-gilt unabhängig davon, welche Version das im Einzelfall ist), Tags tragen
-es. Zwei echte Zeilen statt einer Mischung aus Prosa und Shell:
+`GET /api/health` liefert bereits
+`{"status":"ok","version":APP_VERSION,"commit":GIT_SHA}` (`backend/main.py`,
+`backend/version.py`) — dieselbe Antwort, die der Erreichbarkeits-Wächter
+oben ohnehin abruft. `commit` ist seit #68 dabei: `GIT_SHA` kommt aus dem
+Docker-Build-Argument gleichen Namens (`Dockerfile`, `docker-compose.yml`,
+`docs/agents/release-ritual.md`, Schritt 9) und bleibt `"unknown"`, wenn
+dieses Argument beim Bauen fehlte — kein Absturz, keine erfundene Zahl. Der
+Versionsvergleich ist ein Vergleich mit Präfix-Normalisierung: `/api/health`
+liefert die Version als `<x.y.z>` ohne führendes „v" (Platzhalter für die
+jeweils laufende Zahl — der Präfix-Punkt gilt unabhängig davon, welche
+Version das im Einzelfall ist), Tags tragen es. Zwei echte Zeilen statt einer
+Mischung aus Prosa und Shell:
 
 ```
 version="v$(curl -s http://<host>:3100/api/health | jq -r .version)"
@@ -100,6 +105,22 @@ tag=$(git fetch --tags && git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
 (Vorbehalt zu `--sort=-v:refname`: Ein Vorabversions-Tag wie `v1.4.4-rc1`
 sortiert damit über `v1.4.4` — heute latent, da wir keine solchen Tags
 führen.)
+
+**`commit` deckt die Lücke, die der Versionsvergleich allein laesst:** Ein
+Commit NACH dem Tag ohne Versionsbump meldet weiterhin die alte, getaggte
+Nummer — der Versionsvergleich oben bliebe dann still grün, obwohl der
+laufende Stand nicht mehr der getaggte ist. Wer Commit gegen Commit
+vergleichen will statt Version gegen Version:
+
+```
+laufender_commit=$(curl -s http://<host>:3100/api/health | jq -r .commit)
+tag_commit=$(git rev-list -n 1 "$tag")
+```
+
+Ein `laufender_commit` von `"unknown"` bedeutet nicht „Stand unbekannt gleich
+gut", sondern „ohne `GIT_SHA`-Build-Argument gebaut" — dieser Vergleich ist
+dann nicht aussagekräftig, unabhängig davon, ob der tatsächliche Stand
+zufällig passt.
 
 **Nicht `git describe --tags --abbrev=0`:** Das liefert nicht den letzten
 Tag, sondern den letzten von HEAD **erreichbaren** Tag — unabhängig davon,

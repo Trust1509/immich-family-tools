@@ -61,9 +61,20 @@ lock, woken the instant the first holder releases it but not yet resumed
 again, can itself be cancelled before it ever reaches its own body — its own
 end-of-run cleanup then never runs at all for that call. `GET
 /api/sync/albums` keeps showing the removed account's person name for that
-album until the application is restarted, not just until "the remainder of
+album **until something else heals it** — not just until "the remainder of
 its own run" as the sentence above (correctly) promises for the ordinary
-case. This does
+case. An earlier version of this paragraph named exactly one such healing
+path, a restart (`_migrate`, on every `ConfigStore` load); measured directly,
+that is too narrow: `delete_account` cleans up every dead account reference
+it finds, in every managed album whose lock happens to be free at that
+moment — not only references to the account it was actually asked to
+remove, and not only when the request removes a real account at all. The
+very next call to `DELETE /api/accounts/{id}`, for _any_ account, including
+one that no longer exists (measured: it still returns normally and still
+performs this cleanup), heals this stale entry too, provided the album's
+lock is free by then; so does the next ordinary refresh, rename, or match
+extension for that same album, through its own end-of-run cleanup. A
+restart is the _last_ resort, not the only one. This does
 **not** delete photos, people, albums, or users in Immich. Owner decision
 2026-09-28 (#99, #112): several other kinds of
 local data about that account deliberately survive the removal instead of
@@ -130,10 +141,20 @@ API key was not present in `.bak` afterwards"); measured directly (#127)
 against four distinguishable cases, that claim is wrong for two of them:
 
 - **The account is referenced by no managed album at all** at the moment of
-  deletion — the account-row removal is the ONLY save. `.bak` then holds the
+  deletion — the account-row removal is the ONLY save **provided nothing
+  else in the store needs healing at that moment.** `.bak` then holds the
   on-disk state from _before_ that save, i.e. from before the account was
   removed at all: it **does** still carry the removed account's own API key
-  (measured).
+  (measured). **This does not hold if some other, unrelated managed album
+  already carries a dead reference to a different, already-gone account:**
+  `delete_account` heals every dead reference it finds while it runs, not
+  only ones pointing at the account being deleted (see the `GET
+/api/sync/albums` paragraph above) — cleaning up that unrelated dead
+  reference is its own, second save, and `.bak` then reflects the state
+  right _after_ the account row was removed, not before it: the just-removed
+  account's own API key is already gone from `.bak` by the time anything
+  reads it (measured: one unrelated dead reference elsewhere, two saves
+  total for an account with no albums of its own).
 - **A referenced album's lock is free**, so this call cleans that album up
   too — a _further_ save happens, and `.bak` then reflects the state right
   after the account row was removed but before that album's own stale
@@ -199,35 +220,78 @@ anything it cannot undo — a schema migration, an album-identifier assignment �
 the app writes `accounts.json.vor-schema-<N>.bak` or
 `accounts.json.vor-kennungsvergabe.bak`. These hold the full configuration at
 that moment: API keys, including those of accounts removed afterwards, and log
-entries past the retention window. Nothing rotates or deletes them; none of the
+entries past the retention window — and, if a start-time dead-reference
+cleanup (see the `GET /api/sync/albums` paragraph above) happens to run in
+the same start, that reference too, name included, because the rollback
+write happens before the cleanup in the same pass (`docs/BACKUP_RESTORE.md`
+has the measured detail). Nothing rotates or deletes them; none of the
 retention or removal behavior described above applies to them at all — and
 unlike the ordinary `accounts.json.bak` above, they are not overwritten on the
 next unrelated save either. Delete them once an upgrade is confirmed good —
 `docs/BACKUP_RESTORE.md` says where and when.
 
 **A crashed save can leave a third kind of file behind, and the app removes
-it on the next start.** `ConfigStore._save` writes the new state to a
-temporary file first, then atomically replaces `accounts.json` with it. If
-the process is killed hard (SIGKILL, power loss, OOM) between those two
-steps, the temporary file — with the full new state, including any API keys
-it was about to write — stays on disk under a name of the form
-`.accounts.json.<8 random characters>`, unbounded, until someone finds it by
-hand. Since this slice, the application removes any such file — and only a
-file matching exactly that pattern, nothing that merely looks similar — the
-next time it starts (`backend/services/config_store.py`, measured: a
-leftover of this exact shape is gone after the next `ConfigStore` load; a
-hand-placed file with a similar but not identical name is left alone).
+it on the next start — but only a file it can be SURE is its own.**
+`ConfigStore._save` and `ConfigStore._sichere_vor_schemasprung` (the rollback
+writer, see above) both write their new state to a temporary file first,
+then atomically replace the real file with it. If the process is killed hard
+(SIGKILL, power loss, OOM) between those two steps, the temporary file — with
+the full new state, including any API keys it was about to write — stays on
+disk, unbounded, until someone finds it by hand or the application starts
+again.
 
-**Since this slice, the application also warns — once, on every start — if a
-sibling of `accounts.json` (or its directory) is readable by group or world**
-on a filesystem where that distinction is measurable at all
+**Since Slice S7 Nacharbeit 1, that temporary file carries an unmistakable
+marker in its name** (`.accounts.json.speichern-tmp-<8 random characters>`
+for an ordinary save, `.accounts.json.vor-schema-<N>.bak.speichern-tmp-<8
+random characters>` or `.accounts.json.vor-kennungsvergabe.bak.speichern-tmp-
+<8 random characters>` for a rollback write) — before this fix the name
+carried no marker at all, just the same 8-character random suffix a hand
+copy could just as easily have (`.accounts.json.20260930`,
+`.accounts.json.original`), and the app deleted any file that happened to
+match that shape. **That was the bug this fix corrects: an operator's own
+hand copy, dated or named to look like a backup, was deleted on the next
+start if its suffix happened to be 8 characters from the same alphabet.**
+
+The app now removes a file matching its own marked pattern only if it is
+also a **regular file** (never a symlink — which could point at the real
+configuration and delete that instead — and never a directory) and its last
+modification time is **more than five minutes old** — recent enough to be
+almost certainly the current process's own in-flight write (a save takes
+milliseconds), old enough that a genuine crash leftover is still caught well
+before the next realistic restart (measured: `backend/services/
+config_store.py`, a marked leftover older than the threshold is gone after
+the next `ConfigStore` load; one written moments ago survives it). **A file
+matching what the marker pattern would have looked like before this fix
+(the plain 8-character suffix, no marker) is no longer deleted at all** —
+it can no longer be told apart from a hand copy, so the app now only warns
+about it, once, with its path, and leaves it exactly where it is; the
+operator decides. A hand-placed file that matches neither shape is left
+alone and not mentioned in the log at all, as before.
+
+**Since Slice S7, the application also tries to fix, not just report, one
+specific case: its own configuration file being readable by group or
+world.** On load, if `accounts.json` itself is group- or world-readable, the
+app now tightens it to `0600` right there (the same permission `_save`
+already enforces on every write) and logs one INFO line naming the previous
+mode — not a warning, because the app just corrected the condition the
+warning would have been about. This closes a gap an earlier version of this
+document did not have quite right: it described `accounts.json` itself as
+covered by the sibling warning below; measured against the code, it never
+was (see `docs/BACKUP_RESTORE.md`).
+
+**The application also warns — once, on every start — if a _sibling_ of
+`accounts.json` (or its directory) is readable by group or world** on a
+filesystem where that distinction is measurable at all
 (`backend/services/config_store.py`; on Windows and similar filesystems the
 check is skipped and says so in the log, because the underlying permission
-bits are not reliable there — see `docs/BACKUP_RESTORE.md`). It only warns
-and names the offending path and mode; it does not change permissions or
-refuse to start. This does not replace the operator's own responsibility for
-file permissions (see `docs/BACKUP_RESTORE.md`) — a warning that is never
-read is not a control.
+bits are not reliable there — see `docs/BACKUP_RESTORE.md`). "Sibling" now
+also covers a **hidden** file whose name starts with a dot followed by
+`accounts.json.` (`.accounts.json.alt`) — an earlier version of this check
+looked only for names starting with `accounts.json` itself and missed these
+entirely. It only warns and names the offending path and mode; it does not
+change permissions or refuse to start. This does not replace the operator's
+own responsibility for file permissions (see `docs/BACKUP_RESTORE.md`) — a
+warning that is never read is not a control.
 
 ## Operator responsibility
 

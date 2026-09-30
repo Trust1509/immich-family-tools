@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -1970,13 +1971,18 @@ def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
 
 def test_verwaiste_save_temp_datei_wird_beim_start_entfernt(tmp_path, caplog):
     """Stirbt der Prozess hart zwischen `mkstemp` und `os.replace`, bleibt
-    eine Temp-Datei mit vollem Inhalt (API-Schluessel) liegen. Sie traegt
-    genau das Muster, das `tempfile.mkstemp(prefix=f".{name}.")` OHNE
-    eigenen `suffix` erzeugt: Praefix, dann 8 Zeichen aus
-    Buchstaben/Ziffern/Unterstrich, kein weiterer Punkt."""
+    eine Temp-Datei mit vollem Inhalt (API-Schluessel) liegen. Seit
+    Nacharbeit 1 (#124 B10) traegt sie die unverwechselbare Kennung
+    `_TEMP_KENNUNG`; NUR eine ALTE (mehr als `_TEMP_MINDESTALTER_SEKUNDEN`
+    zurueckliegende) Datei mit dieser Kennung wird entfernt — eine ganz
+    frische bleibt liegen, siehe `test_s7_na1_betrieb.py` fuer diesen Fall
+    und fuer die Nacharbeit selbst (neue Kennung, altes Muster wird nur noch
+    gewarnt statt geloescht)."""
     path = tmp_path / "accounts.json"
-    leiche = tmp_path / ".accounts.json.a1B2c3D4"
+    leiche = tmp_path / ".accounts.json.speichern-tmp-a1B2c3D4"
     leiche.write_text('{"accounts": {"x": {"api_key": "schluessel-leiche"}}}', encoding="utf-8")
+    alt = time.time() - 3600
+    os.utime(leiche, (alt, alt))
 
     with caplog.at_level("WARNING"):
         ConfigStore(str(path))  # darf nicht werfen

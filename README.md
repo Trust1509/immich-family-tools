@@ -124,8 +124,12 @@ cp .env.example .env
 ### 3. Start
 
 ```bash
-docker compose up -d --build
+GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
 ```
+
+`GIT_SHA` is optional — without it the build falls back to `unknown` and the
+app starts fine — but setting it lets `GET /api/health` report the exact
+commit it was built from (`docs/betrieb/erreichbarkeit.md`).
 
 Open **http://localhost:3100** and add your Immich accounts.
 
