@@ -414,7 +414,7 @@ def validation_failed(field_names: list[str]) -> AppError:
     eine unbegrenzte Antwort. Deshalb werden nur die ersten
     `_MAX_ANGEZEIGTE_FELDER` einzeln genannt, der Rest als Zahl.
 
-    NEU (Nacharbeit 2 zu #85, K2): Der Rest-Hinweis ("… und N weitere")
+    NEU (Nacharbeit 2 zu #85): Der Rest-Hinweis ("… und N weitere")
     landete bisher als deutscher KLARTEXT mitten in `error_params["fields"]`
     — ein Frontend, das die umgebende Meldung uebersetzt, gab diesen
     Textbaustein trotzdem unuebersetzt aus, egal welche Sprache eingestellt
@@ -426,7 +426,7 @@ def validation_failed(field_names: list[str]) -> AppError:
     `detail` (der deutsche Rueckfall-Klartext) traegt den fertigen Satz
     weiterhin selbst, wie jede andere Meldung dieser Datei.
 
-    NEU (Nacharbeit 2 zu #85, K7): Entdoppelt wird auf den ROHEN Feldnamen,
+    NEU (Nacharbeit 2 zu #85): Entdoppelt wird auf den ROHEN Feldnamen,
     BEVOR gekuerzt wird — nicht mehr umgekehrt. Kuerzung zuerst haette zwei
     verschiedene, je ueber 200 Zeichen lange Feldnamen mit demselben
     200-Zeichen-Anfang faelschlich zu EINEM zusammengefasst: Beide waeren

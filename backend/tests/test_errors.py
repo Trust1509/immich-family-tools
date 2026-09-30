@@ -339,7 +339,7 @@ def test_validation_failed_deckelt_die_angezeigte_feldzahl():
     Deckelung (Anzahl, Resttext); die Laenge/Zeit unter echtem HTTP-Umfang
     prueft `test_schnittstelle_haertung_randbereiche.py`.
 
-    Nacharbeit 2 zu #85, K2: `fields` traegt seit dieser Runde NUR noch die
+    Nacharbeit 2 zu #85: `fields` traegt seit dieser Runde NUR noch die
     Feldnamen — kein "... und N weitere" mehr als deutscher Klartext darin
     (das war das Testluecken-Symptom: `"weitere" in liste` war bisher gruen,
     weil die Uebersetzung diesen Teilsatz nie sah). Der Rest steht jetzt im
@@ -362,9 +362,9 @@ def test_validation_failed_deckelt_die_angezeigte_feldzahl():
     [19, 20, 21, 22],
 )
 def test_validation_failed_deckel_exakt_bei_19_20_21_22(anzahl_felder):
-    """Nacharbeit 2 zu #85, Punkt 2 (Blind M02/M03, Gegen N2/N3/N13): Der
-    Deckel selbst war nie an den GENAUEN Grenzen (19/20/21/22 verschiedene
-    Felder) festgenagelt — ein `>=` statt `>` (zeigt bei genau 20 faelschlich
+    """Nacharbeit 2 zu #85, Punkt 2: Der Deckel selbst war nie an den GENAUEN
+    Grenzen (19/20/21/22 verschiedene Felder) festgenagelt — ein `>=` statt
+    `>` (zeigt bei genau 20 faelschlich
     "und 0 weitere"), ein Deckel von 24 statt 20, oder eine Kuerzung auf der
     ROHEN statt der entduplizierten Liste waeren hier alle unbemerkt
     geblieben.
@@ -384,8 +384,21 @@ def test_validation_failed_deckel_exakt_bei_19_20_21_22(anzahl_felder):
         assert "weitere" in fehler.detail
 
 
+def test_deutscher_singular_bei_genau_einem_rest_exakter_wortlaut():
+    """Nacharbeit 3 zu #85, KLEIN: Die Probe oben (Fall `anzahl_felder=21`,
+    `rest == "1"`) prueft nur `"weitere" in fehler.detail` — das waere auch
+    bei "und 1 weitere" gruen, obwohl die eigene Singularform (`errors.py`,
+    `" und eine weitere" if rest == 1 else ...`) dann entfernt waere. Dieser
+    Test naegelt den EXAKTEN Wortlaut fest.
+    """
+    namen = [f"f{i:03d}" for i in range(21)]
+    fehler = errors.validation_failed(namen)
+    assert "und eine weitere" in fehler.detail, fehler.detail
+    assert "und 1 weitere" not in fehler.detail, fehler.detail
+
+
 def test_validation_failed_entdoppelt_vor_dem_kuerzen_nicht_danach():
-    """Nacharbeit 2 zu #85, K7: Kuerzung VOR der Entdopplung wuerde 40
+    """Nacharbeit 2 zu #85: Kuerzung VOR der Entdopplung wuerde 40
     verschiedene, aber langegleich beginnende Feldnamen faelschlich auf
     weniger als 40 zusammenfassen (alle 40 teilen die ersten 200 Zeichen,
     `_gekuerzt()` liefert fuer alle denselben String). Entdoppelt wird daher
@@ -397,7 +410,7 @@ def test_validation_failed_entdoppelt_vor_dem_kuerzen_nicht_danach():
 
 
 def test_validation_failed_rest_zaehlt_verschiedene_rohnamen_nicht_duplikate():
-    """Nacharbeit 2 zu #85, Punkt 2 (Blind M04/M04b): Der Rest muss die
+    """Nacharbeit 2 zu #85, Punkt 2: Der Rest muss die
     Anzahl der NICHT einzeln genannten, aber VERSCHIEDENEN Rohnamen zaehlen —
     nicht die Gesamtzahl der (moeglicherweise mehrfach vorkommenden)
     Rohnamen. 25 verschiedene Namen, jeder davon zweimal in der Eingabe:
@@ -430,6 +443,11 @@ def _raise_valueerror_texte(quelltext: str) -> list[str]:
     """Jeder `raise ValueError("...")`-Text in einer Python-Quelldatei, per
     AST gelesen (Nacharbeit 2 zu #85, KLEIN) — nicht per Textsuche, damit ein
     mehrzeiliger oder anders eingerueckter `raise` genauso gefunden wird.
+
+    Sieht NUR literale Strings (`ast.Constant`) — ein f-String oder eine per
+    Name uebergebene Konstante liefert hier nichts zurueck. Das ist bewusst
+    (der naechste Test prueft genau diesen Rest), nicht ein Versehen: Siehe
+    `_raise_valueerror_nichtliterale` fuer die Gegenprobe.
     """
     baum = ast.parse(quelltext)
     texte = []
@@ -444,6 +462,68 @@ def _raise_valueerror_texte(quelltext: str) -> list[str]:
         if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
             texte.append(arg.value)
     return texte
+
+
+def _raise_valueerror_nichtliterale(quelltext: str) -> list[str]:
+    """Jeder `raise ValueError(...)`-Aufruf, dessen ERSTES Argument KEIN
+    literaler String ist (Nacharbeit 3 zu #85, WICHTIG).
+
+    `_raise_valueerror_texte` sieht nur `ast.Constant`-Strings — ein
+    f-String (`ast.JoinedStr`) oder eine per Namen uebergebene Konstante
+    (`ast.Name`) rutscht daran vorbei UND kann *nie* einen Eintrag in
+    `EIGENE_VALIDATOR_GRUENDE` haben: Ein f-String aendert sich mit jedem
+    Aufruf (der Text ist nicht wiederholbar, also nicht als Schluessel
+    tauglich), eine per Namen uebergebene Konstante ist im AST nur ein
+    Bezeichner, nicht ihr Wert. Der Grund faellt in BEIDEN Faellen IMMER auf
+    den generischen Pfad zurueck — `_raise_valueerror_texte` allein wuerde
+    das nie sehen, weil es dafuer gar keinen Text gibt, den es vermissen
+    koennte. Jedes solche Argument ist deshalb selbst ein Fund.
+    """
+    baum = ast.parse(quelltext)
+    fundstellen = []
+    for knoten in ast.walk(baum):
+        if not isinstance(knoten, ast.Raise) or not isinstance(knoten.exc, ast.Call):
+            continue
+        func = knoten.exc.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if name != "ValueError" or not knoten.exc.args:
+            continue
+        arg = knoten.exc.args[0]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            continue
+        fundstellen.append(f"Zeile {knoten.lineno}")
+    return fundstellen
+
+
+# Die drei heute bekannten Validator-Texte (`backend/models/account.py`) —
+# eine POSITIVE Kontrolle fuer den Scan unten, nicht nur eine Anwesenheitsprobe
+# der Datei. Getrennt von `errors.EIGENE_VALIDATOR_GRUENDE` gehalten (nicht
+# `set(errors.EIGENE_VALIDATOR_GRUENDE)`), damit ein Waechter, der zufaellig
+# dieselbe (falsche) Quelle wie der Code abfragt, nicht sich selbst bestaetigt.
+_BEKANNTE_VALIDATOR_TEXTE = {
+    "Immich URL must use http:// or https://",
+    "Credentials are not allowed inside the Immich URL",
+    "This network address is not allowed",
+}
+
+
+def test_ast_waechter_scannt_ueberhaupt_dateien_und_findet_die_bekannten_texte():
+    """Nacharbeit 3 zu #85, WICHTIG: `_MODELS_DIR` kann auf einen falschen
+    Ordnernamen zeigen (Tippfehler) — `glob("*.py")` liefert dann `[]`, und
+    `test_jeder_eigene_validator_text_hat_eine_uebersetzung` bleibt GRUEN,
+    OHNE je eine Datei gelesen zu haben ("leer gruen"). Diese Probe verlangt
+    mindestens eine gescannte Datei UND dass die drei heute bekannten
+    Validator-Texte darin tatsaechlich auftauchen — ein Waechter, der nichts
+    sieht, faellt hier durch, bevor er im Nachbartest als "keine Funde"
+    durchgeht.
+    """
+    dateien = sorted(_MODELS_DIR.glob("*.py"))
+    assert dateien, f"{_MODELS_DIR} enthaelt keine .py-Datei — Waechter scannt vermutlich den falschen Ordner"
+    alle_texte: set[str] = set()
+    for datei in dateien:
+        alle_texte.update(_raise_valueerror_texte(datei.read_text("utf-8")))
+    fehlend = _BEKANNTE_VALIDATOR_TEXTE - alle_texte
+    assert fehlend == set(), f"bekannte Validator-Texte nicht gefunden — Scan liest vermutlich die falschen Dateien: {fehlend}"
 
 
 def test_jeder_eigene_validator_text_hat_eine_uebersetzung():
@@ -462,10 +542,51 @@ def test_jeder_eigene_validator_text_hat_eine_uebersetzung():
     assert fehlend == [], f"ValueError-Text ohne Eintrag in EIGENE_VALIDATOR_GRUENDE: {fehlend}"
 
 
+def test_kein_valueerror_mit_nichtliteralem_argument_in_models():
+    """Nacharbeit 3 zu #85, WICHTIG: Ein f-String oder eine per Namen
+    uebergebene Konstante als `ValueError`-Argument entkommt
+    `_raise_valueerror_texte` unbemerkt (siehe Docstring von
+    `_raise_valueerror_nichtliterale`) — jedes Nicht-Literal-Argument von
+    `ValueError` in `backend/models/` ist deshalb selbst ein Fund,
+    unabhaengig davon, ob ein Eintrag in `EIGENE_VALIDATOR_GRUENDE`
+    existiert.
+    """
+    dateien = sorted(_MODELS_DIR.glob("*.py"))
+    assert dateien  # siehe test_ast_waechter_scannt_ueberhaupt_dateien_...
+    fundstellen = []
+    for datei in dateien:
+        for stelle in _raise_valueerror_nichtliterale(datei.read_text("utf-8")):
+            fundstellen.append(f"{datei.name} {stelle}")
+    assert fundstellen == [], f"ValueError mit nicht-literalem Argument in models/: {fundstellen}"
+
+
+def test_selbstprobe_ast_scan_erkennt_falschen_ordner():
+    """Selbstprobe: Ein Ordner ohne `.py`-Dateien liefert eine leere
+    Dateiliste — genau die Bedingung, die
+    `test_ast_waechter_scannt_ueberhaupt_dateien_und_findet_die_bekannten_texte`
+    als Fund werten muss. Ohne echte Datei im Repo zu veraendern.
+    """
+    leer = sorted((WURZEL / "backend" / "kein-solcher-ordner-xyz").glob("*.py"))
+    assert leer == []
+
+
+def test_selbstprobe_ast_scan_erkennt_nichtliterales_valueerror_argument():
+    """Selbstprobe (dieselbe Klasse wie oben): Der Scan muss ein
+    NICHT-literales Argument (f-String, per Namen uebergebene Konstante)
+    tatsaechlich SEHEN — ohne eine echte Datei im Repo zu veraendern.
+    """
+    fstring_quelltext = "def f(value):\n    raise ValueError(f'Zu lang: {len(value)}')\n"
+    konstante_quelltext = "_TEXT = 'Zu lang'\n\n\ndef f(value):\n    raise ValueError(_TEXT)\n"
+    literal_quelltext = "def f(value):\n    raise ValueError('Zu lang')\n"
+    assert _raise_valueerror_nichtliterale(fstring_quelltext) != []
+    assert _raise_valueerror_nichtliterale(konstante_quelltext) != []
+    assert _raise_valueerror_nichtliterale(literal_quelltext) == []
+
+
 def test_selbstprobe_ast_scan_findet_einen_erfundenen_validator_ohne_eintrag():
-    """Selbstprobe (CLAUDE.md, Pruefwerkzeug-Regel): Der Waechter oben ist nur
-    dann einer, wenn der zugrunde liegende AST-Scan einen NEUEN,
-    unabgebildeten Validator-Text ueberhaupt SEHEN kann. Diese Probe erfindet
+    """Selbstprobe: Der Waechter oben ist nur dann einer, wenn der zugrunde
+    liegende AST-Scan einen NEUEN, unabgebildeten Validator-Text ueberhaupt
+    SEHEN kann. Diese Probe erfindet
     einen und prueft die Scan-Funktion direkt — ohne eine echte Datei im Repo
     zu veraendern (das waere Scope-Erweiterung).
     """

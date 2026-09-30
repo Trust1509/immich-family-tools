@@ -935,13 +935,13 @@ describe("ERROR_PARAM_ORDER", () => {
   });
 });
 
-// Nacharbeit 2 zu #85, K2: "... und N weitere" stand bisher als deutscher
+// Nacharbeit 2 zu #85: "... und N weitere" stand bisher als deutscher
 // KLARTEXT in `error_params.fields` — ein uebersetztes Frontend gab diesen
 // Teilsatz trotzdem unuebersetzt aus. Der Rest ist jetzt ein eigener
 // Parameter (`more`), und jede Sprache haengt ihn selbst an: kein Zusatz bei
 // "0", Singularform bei "1", Pluralform sonst. Direkt gegen die
 // Uebersetzungsfunktion, wie die album_rename_skipped_hint-Tests oben.
-describe("err_validation_failed haengt den Rest grammatisch korrekt an (Nacharbeit 2 zu #85, K2)", () => {
+describe("err_validation_failed haengt den Rest grammatisch korrekt an (Nacharbeit 2 zu #85)", () => {
   const faelle: [Lang, string, string, string][] = [
     ["de", "a, b", "0", "Ungültige oder unbekannte Angabe für: a, b"],
     ["de", "a, b", "1", "Ungültige oder unbekannte Angabe für: a, b und eine weitere"],
@@ -965,15 +965,15 @@ describe("err_validation_failed haengt den Rest grammatisch korrekt an (Nacharbe
   }
 });
 
-// K6 (Nacharbeit 2 zu #85): Blind F1 (pt-BR zeigte den DEUTSCHEN Text neben
-// den drei anderen Sprachen) und Blind F2 (en mit einer FALSCHEN Bedeutung)
-// blieben unbemerkt gruen, weil keine bestehende Probe je verglich, ob sich
-// eine neue Uebersetzung ueberhaupt vom Deutschen unterscheidet oder ihre
-// Parameter traegt. Wortgleichheit wird NICHT verlangt — nur, dass keine
-// Sprache zufaellig denselben Text wie die deutsche liefert. Beschraenkt auf
-// die von DIESER Nacharbeit neuen/geaenderten Schluessel (Umfang), nicht auf
-// die gesamte Tabelle.
-describe("neue/geaenderte err_*-Schluessel weichen vom Deutschen ab und tragen ihre Parameter (K6)", () => {
+// Nacharbeit 2 zu #85: zwei gefundene Fehlstellen blieben unbemerkt gruen,
+// weil keine bestehende Probe je verglich, ob sich eine neue Uebersetzung
+// ueberhaupt vom Deutschen unterscheidet oder ihre Parameter traegt — pt-BR
+// zeigte den DEUTSCHEN Text neben den drei anderen Sprachen, und en hatte
+// eine FALSCHE Bedeutung. Wortgleichheit wird NICHT verlangt — nur, dass
+// keine Sprache zufaellig denselben Text wie die deutsche liefert.
+// Beschraenkt auf die von DIESER Nacharbeit neuen/geaenderten Schluessel
+// (Umfang), nicht auf die gesamte Tabelle.
+describe("neue/geaenderte err_*-Schluessel weichen vom Deutschen ab und tragen ihre Parameter", () => {
   const geprueft: Array<{ key: keyof typeof translations; platzhalter: string[] }> = [
     { key: "err_length_required", platzhalter: [] },
     { key: "err_invalid_url_scheme", platzhalter: [] },

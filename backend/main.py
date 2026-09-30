@@ -38,14 +38,22 @@ app = FastAPI(
 UNPROTECTED = {"/api/health", "/api/auth/login"}
 
 
-def _fehler_antwort(fehler: errors.AppError) -> JSONResponse:
+def _fehler_antwort(
+    fehler: errors.AppError, *, headers: dict[str, str] | None = None
+) -> JSONResponse:
     """Die Antwortform fuer Wege, die keine Ausnahme werfen koennen.
 
     Die Middleware laeuft VOR jedem Router und vor dem Exception-Handler; sie
     baut ihre Antworten selbst. Beide Wege holen die Form aus errors.antwort(),
     damit nicht einer von beiden still beim alten Format bleibt.
+
+    `headers` ist der Ausnahmefall (aktuell nur `Connection: close` bei
+    `err_length_required`, siehe `auth_middleware`) — die meisten Aufrufer
+    lassen es weg.
     """
-    return JSONResponse(status_code=fehler.status_code, content=errors.antwort(fehler))
+    return JSONResponse(
+        status_code=fehler.status_code, content=errors.antwort(fehler), headers=headers
+    )
 
 
 @app.exception_handler(errors.AppError)
@@ -128,27 +136,39 @@ async def _validation_error_handler(
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if request.url.path.startswith("/api/"):
-        content_length = request.headers.get("content-length")
-        if content_length:
-            try:
-                if int(content_length) > settings.max_request_bytes:
-                    return _fehler_antwort(errors.request_too_large())
-            except ValueError:
-                return _fehler_antwort(errors.invalid_content_length())
-        elif request.headers.get("transfer-encoding"):
-            # Nacharbeit 2 zu #85, Punkt 1: ERSETZT den fruehreren
-            # chunked-Lesezweig aus Nacharbeit 1 (bytesweise einlesen und bei
-            # Ueberschreiten abbrechen) — der oeffnete selbst eine neue Tuer:
-            # Der Koerper wurde VOR der Anmeldeprüfung und OHNE Zeitgrenze
-            # gelesen, ein anonymer, absichtlich nie endender chunked-Koerper
-            # band also unbegrenzt Speicher und eine Verbindung, ohne dass
-            # jemals eine Antwort kam (Gegenpruefer NA1: 500 solcher
-            # Verbindungen -> +553 MB, keine einzige Antwort; Blindpruefer
-            # NA1: 40 gehaltene Verbindungen -> 43 Tracebacks im Log, vorher
-            # 0). Dieser Fix liest darum GAR NICHTS mehr vom Koerper: Eine
-            # `/api/`-Anfrage mit `Transfer-Encoding`, aber ohne
-            # `Content-Length`, wird SOFORT mit 411 abgelehnt, noch bevor
-            # ein einziges Byte angefragt wird.
+        if "transfer-encoding" in request.headers:
+            # Nacharbeit 3 zu #85, BLOCKER: ERSETZT die Nacharbeit-2-Fassung
+            # (`elif request.headers.get("transfer-encoding"):`) — `.get()`
+            # liefert bei EINER doppelten Kopfzeile nur den ERSTEN Wert
+            # (Starlettes `Headers.__getitem__` durchsucht die rohe Liste und
+            # gibt beim ersten Treffer zurueck, siehe
+            # `starlette.datastructures.Headers`). Eine Anfrage mit
+            # `Transfer-Encoding: \r\nTransfer-Encoding: chunked\r\n` liefert
+            # also `""` — falsch in einem `if`/`elif` — und die 411 blieb aus,
+            # OBWOHL httptools (das Produktionsformat, `uvicorn[standard]`)
+            # den Koerper trotzdem als chunked rahmt: Der Zweig unten wurde
+            # gar nicht erst betreten, die Anfrage lief normal weiter (bei
+            # `/api/auth/login`, also OHNE Anmeldeprüfung davor, geradewegs in
+            # den Router). Geprueft wird deshalb nur noch die ANWESENHEIT der
+            # Kopfzeile (`in request.headers`, Starlettes `__contains__`
+            # vergleicht nur den Namen, nie den Wert) — unabhaengig davon, wie
+            # oft sie vorkommt oder ob der erste Wert leer ist.
+            #
+            # VOR dem Content-Length-Zweig, nicht danach: `Transfer-Encoding`
+            # hat laut RFC 9112 §6.3 Vorrang vor `Content-Length`, auch wenn
+            # BEIDE Kopfzeilen vorliegen und die Content-Length fuer sich
+            # genommen gueltig und unter dem Limit waere — die Middleware
+            # verlaesst sich hier absichtlich nicht auf uvicorns eigenen
+            # HTTP-Parser (der beide Kopfzeilen zusammen mit einem eigenen 400
+            # zurueckweist, gemessen mit echtem uvicorn/httptools), weil diese
+            # Pruefung unabhaengig vom verwendeten HTTP-Server gelten soll.
+            #
+            # Dieser Fix liest weiterhin GAR NICHTS vom Koerper: Eine
+            # `/api/`-Anfrage mit `Transfer-Encoding` wird SOFORT mit 411
+            # abgelehnt, noch bevor ein einziges Byte angefragt wird — der
+            # anonyme, absichtlich nie endende chunked-Koerper aus Nacharbeit
+            # 1 kann damit weiterhin keinen Speicher und keine Verbindung
+            # unbegrenzt binden.
             #
             # Kein Konsument dieser Anwendung sendet jemals chunked: Jeder
             # Aufruf in `frontend/src/api/client.ts` schickt eine fertige
@@ -156,15 +176,28 @@ async def auth_middleware(request: Request, call_next):
             # `Content-Length`. HTTP/1.1 ohne BEIDE Kopfzeilen hat definitionsgemaess
             # keinen Koerper (RFC 9112 §6.3) — ein `GET` ohne Koerper traegt
             # ohnehin keinen der beiden Header und ist von dieser Pruefung
-            # nicht betroffen. Beide Kopfzeilen gleichzeitig weist bereits
-            # uvicorns eigener HTTP-Parser mit 400 zurueck, bevor diese
-            # Middleware ueberhaupt laeuft (gemessen, echter uvicorn).
+            # nicht betroffen.
             #
             # VOR der Anmeldeprüfung, aber nicht WEGEN eines Vorrangs: Weil
             # hier nichts gelesen wird, kostet die Reihenfolge nichts — ein
             # unauthentifizierter UND ein authentifizierter chunked-Aufruf
             # bekommen beide dieselbe sofortige 411-Antwort.
-            return _fehler_antwort(errors.length_required())
+            #
+            # `Connection: close` (Nacharbeit 3, KLEIN): Ohne diese Kopfzeile
+            # bleibt die Verbindung offen, solange der Client weiter Bytes
+            # nachschiebt (Keep-Alive) — der Client bekommt zwar die 411,
+            # koennte die Verbindung aber beliebig lange halten. uvicorns
+            # httptools-Protokoll schliesst nach dem Senden dieser Antwort,
+            # sobald es `connection: close` in den Antwort-Kopfzeilen sieht
+            # (`uvicorn/protocols/http/httptools_impl.py`).
+            return _fehler_antwort(errors.length_required(), headers={"Connection": "close"})
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > settings.max_request_bytes:
+                    return _fehler_antwort(errors.request_too_large())
+            except ValueError:
+                return _fehler_antwort(errors.invalid_content_length())
     if request.url.path not in UNPROTECTED and request.url.path.startswith("/api/"):
         bearer = request.headers.get("Authorization", "")
         bearer_ok = bearer.startswith("Bearer ") and hmac.compare_digest(

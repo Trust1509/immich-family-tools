@@ -1,4 +1,4 @@
-"""Nacharbeit 1 + 2 zu #85 — Testluecken aus Blind-, Gegen- und Fremdpruefer.
+"""Nacharbeit 1 + 2 + 3 zu #85 — Testluecken aus Blind-, Gegen- und Fremdpruefer.
 
 Vier Befunde und eine Reihe von Testluecken, alle ueber die ECHTE Tuer
 (Prueffrage 7):
@@ -16,7 +16,9 @@ Vier Befunde und eine Reihe von Testluecken, alle ueber die ECHTE Tuer
      damit selbst eine neue Tuer (unbegrenzt Speicher/Verbindungen durch
      einen absichtlich nie endenden, anonymen Koerper). Ersetzt durch eine
      sofortige 411-Ablehnung ohne jedes Lesen — siehe die Tests unter
-     "Befund 3" unten.
+     "Befund 3" unten. NACHARBEIT 3: Die 411-Pruefung selbst liess sich mit
+     einer doppelten, zuerst LEEREN `Transfer-Encoding`-Kopfzeile umgehen —
+     siehe "Befund 3, Nacharbeit 3" weiter unten.
   2. `GET /api/sync/autosync-config` antwortete mit 500, sobald die
      gespeicherten Daten ein Zusatzfeld trugen (`AutoSyncConfig` ist
      zugleich `response_model` UND `extra="forbid"`).
@@ -37,6 +39,7 @@ oeffentlich (`http://*.invalid`, Platzhalter-Schluessel).
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -180,8 +183,8 @@ def main_settings_patch(monkeypatch, pfad):
 # geschah aber VOR der Anmeldeprüfung und OHNE Zeitgrenze und oeffnete damit
 # selbst eine neue Tuer: Ein anonymer, absichtlich nie endender chunked-
 # Koerper band unbegrenzt Speicher und eine Verbindung, ohne dass je eine
-# Antwort kam (Gegenpruefer NA1, echter uvicorn: 500 solcher Verbindungen ->
-# +553 MB, keine einzige Antwort; Blindpruefer NA1: 40 gehaltene
+# Antwort kam (gemessen, echter uvicorn: 500 solcher Verbindungen ->
+# +553 MB, keine einzige Antwort; separat gemessen: 40 gehaltene
 # Verbindungen -> 43 Tracebacks "Exception in ASGI application" im Log,
 # vorher 0). Ersetzt durch eine sofortige 411-Ablehnung, OHNE ein einziges
 # Byte des Koerpers zu lesen (`main.py`, `auth_middleware`) — unabhaengig,
@@ -273,17 +276,53 @@ def _freier_port_411() -> int:
         return s.getsockname()[1]
 
 
+def _hat_anwendungstraceback(logtext: str) -> bool:
+    """True nur bei einem Traceback, der aus UNSERER Anwendung oder aus
+    Starlette/FastAPI kommt.
+
+    Nacharbeit 3 zu #85, WICHTIG: Die vorherige Fassung dieser Probe pruefte
+    pauschal `"Traceback" not in logtext` — das flackert unter Windows.
+    ABWEICHUNG vom Bau-Brief: Der Brief vermutet die Health-Poll-Schleife als
+    Ursache; in 20 Einzellaeufen dieser Runde (Beleg im Bericht) trat der
+    Traceback einmal auf (Lauf 11 von 20) und stammte aus einer der
+    ABSICHTLICH mitten im chunked-Koerper abgebrochenen Verbindungen weiter
+    unten in DIESEM Test (Teil b), nicht aus der Health-Poll-Schleife: Ein
+    `ConnectionResetError` in `asyncio\\proactor_events.py`
+    (`_call_connection_lost`), ausgeloest beim endgueltigen Schliessen einer
+    Verbindung, die der Client bereits vorher gekappt hat. Fuer die Probe
+    macht das keinen Unterschied — beide Quellen sind ein clientseitiger
+    Abbruch, den asyncios Proactor-Transport (Windows-spezifisch) erst beim
+    naechsten Aufraeumschritt bemerkt, ausserhalb jeder ASGI-Anwendung, nie
+    als "Exception in ASGI application" geloggt, aber immer noch ein
+    Traceback im Log. Dieser Pfad hat mit dem hier geprueften Verhalten
+    nichts zu tun. Ein WIRKLICHER Fund bleibt erkennbar: entweder ueber die
+    bereits vorhandene, spezifischere Meldung "Exception in ASGI
+    application", oder ueber einen Traceback-Block, der selbst einen Frame
+    aus `main.py`, `starlette` oder `fastapi` nennt.
+    """
+    if "Exception in ASGI application" in logtext:
+        return True
+    bloecke = re.split(r"(?=Traceback \(most recent call last\):)", logtext)
+    for block in bloecke:
+        if "Traceback (most recent call last):" not in block:
+            continue
+        if re.search(r'File "[^"]*[\\/](main\.py|starlette[\\/]|fastapi[\\/])', block):
+            return True
+    return False
+
+
 def test_chunked_koerper_wird_nicht_gelesen_kein_traceback_beim_abbruch(tmp_path):
     """Prueffrage 7/9, echter uvicorn (Nacharbeit 2 zu #85): Eine Probe,
     deren Koerper NIE endet, bekommt trotzdem SOFORT die 411-Antwort — das
     ist nur moeglich, wenn die Middleware wirklich nichts liest (eine reine
     `TestClient`-Probe koennte das nicht unterscheiden, ein haengender
     ASGI-`receive` wuerde dort denselben Event-Loop wie der Test selbst
-    benutzen). Zusaetzlich: kein Traceback im Server-Log, weder bei dieser
-    Probe noch bei einem abgebrochenen chunked-Koerper — anders als unter
-    12e45c4 (Blindpruefer NA1: 43 "Exception in ASGI application" bei 40
-    Abbruechen), weil seit dieser Nacharbeit gar nichts mehr vom Koerper
-    gelesen wird, das ein `ClientDisconnect` werfen koennte.
+    benutzen). Zusaetzlich: kein ANWENDUNGS-Traceback im Server-Log
+    (`_hat_anwendungstraceback`, Nacharbeit 3 zu #85), weder bei dieser Probe
+    noch bei einem abgebrochenen chunked-Koerper — anders als unter 12e45c4
+    (gemessen: 43 "Exception in ASGI application" bei 40 Abbruechen), weil
+    seit dieser Nacharbeit gar nichts mehr vom Koerper gelesen wird, das ein
+    `ClientDisconnect` werfen koennte.
     """
     port = _freier_port_411()
     pfad = tmp_path / "accounts.json"
@@ -350,8 +389,248 @@ def test_chunked_koerper_wird_nicht_gelesen_kein_traceback_beim_abbruch(tmp_path
             prozess.wait(timeout=10)
         log.close()
     logtext = logpfad.read_text(encoding="utf-8", errors="replace")
-    assert "Exception in ASGI application" not in logtext, logtext
-    assert "Traceback" not in logtext, logtext
+    assert not _hat_anwendungstraceback(logtext), logtext
+
+
+# ── Befund 3, Nacharbeit 3: Praesenz statt Wahrheitswert ───────────────────
+#
+# BLOCKER (Nacharbeit 3 zu #85): `elif
+# request.headers.get("transfer-encoding"):` prueft einen WAHRHEITSWERT, kein
+# Vorhandensein. Starlettes `Headers.__getitem__` durchsucht die rohe
+# Kopfzeilenliste und gibt beim ERSTEN Treffer zurueck (siehe
+# `starlette.datastructures.Headers`, gemessen in dieser Runde) — bei einer
+# doppelten Kopfzeile `Transfer-Encoding: \r\nTransfer-Encoding: chunked\r\n`
+# liefert `.get()` also `""`, falsch in einem `if`. httptools (das
+# Produktionsformat, `uvicorn[standard]`) rahmt den Koerper trotzdem als
+# chunked — die 411 blieb aus, obwohl der Koerper nie gelesen wurde und nie
+# endet. Der Fix prueft nur noch die ANWESENHEIT (`in request.headers`) und
+# steht jetzt VOR dem Content-Length-Zweig (RFC 9112 §6.3: Transfer-Encoding
+# hat Vorrang).
+
+
+def _lies_bis_eof(sock: socket.socket, timeout: float) -> tuple[bytes, bool]:
+    """Liest, bis entweder `timeout` Sekunden ohne neue Daten vergehen oder
+    die Gegenseite die Verbindung schliesst (`recv` liefert `b""`).
+
+    Fuer die "Connection: close"-Probe (KLEIN) reicht ein einzelner `recv`
+    nicht: Kopfzeilen und Antwortkoerper koennen in getrennten TCP-Paketen
+    ankommen (gemessen), ein zu frueher `recv` saehe dann nur die Kopfzeilen
+    und wuerde ein offenes Ende faelschlich fuer eine geschlossene Verbindung
+    halten oder umgekehrt.
+    """
+    sock.settimeout(timeout)
+    daten = b""
+    try:
+        while True:
+            teil = sock.recv(65536)
+            if not teil:
+                return daten, True
+            daten += teil
+    except socket.timeout:
+        return daten, False
+
+
+def test_leere_te_kopfzeile_ohne_anmeldung_wird_ueber_praesenz_erkannt(client):
+    """Nacharbeit 3 zu #85, BLOCKER (TestClient-Teil, Prueffrage 7 verlangt
+    zusaetzlich echten uvicorn — siehe
+    `test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn` unten):
+    Eine EINZELNE, aber LEERE `Transfer-Encoding`-Kopfzeile ist der einfachste
+    Fall, der `.get()`-Wahrheit von echter Anwesenheit unterscheidet — anders
+    als bei einer DOPPELTEN Kopfzeile lässt sich dieser Fall auch über
+    `TestClient`/httpx nachstellen (siehe Docstring der echten-uvicorn-Probe
+    unten, warum die doppelte Form dort NICHT geht). Rot unter f17d104
+    (200 statt 411 — gemessen in dieser Runde), gruen seit der
+    Praesenzpruefung.
+    """
+    antwort = client.post(
+        "/api/auth/login",
+        headers={"Content-Type": "application/json", "Transfer-Encoding": ""},
+        content=iter([b'{"token":"x"}']),
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+def test_leere_te_kopfzeile_mit_anmeldung_wird_ebenfalls_erkannt(client):
+    """Prueffrage 1/9: dieselbe Praesenzpruefung, jetzt mit gueltiger
+    Anmeldung — die 411 kommt unabhaengig davon, ob die Anfrage angemeldet
+    ist.
+    """
+    antwort = client.post(
+        "/api/sync/undo",
+        headers={**KOPF, "Content-Type": "application/json", "Transfer-Encoding": ""},
+        content=iter([b'{"log_entry_id":"x"}']),
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+def test_transfer_encoding_hat_vorrang_vor_gueltiger_content_length(client):
+    """Nacharbeit 3 zu #85, Mutation "TE-Pruefung nach dem CL-Zweig": Seit
+    diesem Fix steht die TE-Pruefung VOR dem Content-Length-Zweig — eine
+    Anfrage mit BEIDEN Kopfzeilen bekommt die 411, selbst wenn die
+    Content-Length fuer sich genommen gueltig und unter dem Limit waere.
+
+    Ein echter `uvicorn`/httptools-Prozess weist diese Kombination bereits
+    VOR der Middleware mit einem eigenen 400 zurueck (in dieser Runde
+    gemessen: `HTTP/1.1 400 Bad Request`, `Invalid HTTP request received.`)
+    — die Middleware verlaesst sich darauf aber bewusst nicht, weil das
+    Verhalten dann vom HTTP-Server abhinge, nicht von unserem eigenen Code.
+    `TestClient` erreicht die Middleware ueber den ASGI-Weg, ohne durch
+    diesen Parser zu laufen, und prueft deshalb genau den Fall, den der
+    Parser sonst abfaengt: Ein `elif`, das den Content-Length-Zweig VOR der
+    TE-Pruefung liesse (wie in f17d104), wuerde hier faelschlich mit 200
+    durchgehen — gemessen, mit derselben Anfrage gegen den Elternstand.
+    """
+    antwort = client.post(
+        "/api/auth/login",
+        headers={
+            "Content-Type": "application/json",
+            "Transfer-Encoding": "chunked",
+            "Content-Length": "13",
+        },
+        content=b'{"token":"x"}',
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+@pytest.mark.parametrize("pfad,methode", [("/api/auth/login", "post"), ("/api/health", "get")])
+def test_411_gilt_auch_fuer_die_unprotected_pfade(client, pfad, methode):
+    """Nacharbeit 3 zu #85, WICHTIG: Die bisherigen 411-Proben deckten nur
+    `/api/sync/*` ab — Mutationen, die die 411 auf einzelne Pfade
+    einschraenken (etwa "nur ausserhalb von UNPROTECTED" oder "nur unter
+    /api/sync"), ueberlebten dort unbemerkt gruen. Gerade die
+    UNPROTECTED-Pfade sind aber die eigentliche Tuer des Blocker-Befunds:
+    `/api/auth/login` ist der anonyme Login, `/api/health` der zweite Pfad
+    ganz ohne Anmeldeprüfung.
+
+    `client.request(...)` statt `client.get(...)`/`client.post(...)`: Starlettes
+    `TestClient.get()` nimmt bewusst kein `content` an (anders als `.post()`)
+    — die generische `.request()`-Methode schon, fuer beide Methoden gleich.
+    """
+    antwort = client.request(
+        methode.upper(),
+        pfad,
+        headers={"Content-Type": "application/json", "Transfer-Encoding": "chunked"},
+        content=iter([b"x" * 10]),
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+def test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn(tmp_path):
+    """Nacharbeit 3 zu #85, BLOCKER — Nachweis durch die ECHTE Tuer
+    (Prueffrage 7), der eigentliche Umgehungsfall aus dem Befund:
+    `Transfer-Encoding: \\r\\nTransfer-Encoding: chunked\\r\\n` (zuerst LEER,
+    dann `chunked`). httptools (das Produktionsformat, `uvicorn[standard]`)
+    rahmt den Koerper trotzdem als chunked, waehrend
+    `request.headers.get("transfer-encoding")` unter f17d104 nur den ersten,
+    LEEREN Wert sah und als falsch wertete.
+
+    Dieser Fall ist ueber `TestClient`/httpx NICHT nachstellbar: gemessen (in
+    dieser Runde, per Zwischenschritt in der Middleware selbst beobachtet)
+    fasst httpx beim Zusammenfuehren der Anfrage-Header (`Client._merge_headers`
+    -> `Headers.update` -> `Headers.items()`) mehrere gleichnamige Kopfzeilen
+    zu EINEM kommagetrennten Wert zusammen (hier: `", chunked"` — bereits
+    WAHR), bevor die Anfrage den ASGI-Scope erreicht; der "leere erste Wert"
+    existiert dort also nicht mehr, und `TestClient` kann den Blocker damit
+    nicht reproduzieren (weder unter f17d104 noch unter diesem Fix). Nur ein
+    echter Socket gegen einen echten `uvicorn`-Prozess zeigt das
+    tatsaechliche Verhalten — deshalb diese Probe zusaetzlich zu den
+    `TestClient`-Proben oben.
+
+    Rot unter f17d104 (in dieser Runde gemessen: keine Antwort innerhalb von
+    3 s, waehrend derselbe nie endende Koerper weiterlaeuft), gruen seit der
+    Praesenzpruefung. Deckt in einem Lauf zugleich: Punkt 1 (Login,
+    anonym+angemeldet), das KLEIN-Item "Transfer-Encoding: ohne Leerzeichen"
+    und das KLEIN-Item "Connection: close".
+    """
+    port = _freier_port_411()
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({"accounts": {}, "managed_albums": []}), encoding="utf-8")
+    env = dict(
+        os.environ,
+        IMMICH_FAMILY_TOOLS_SECRET="nur-test-411-blocker-probe",
+        IMMICH_FAMILY_TOOLS_CONFIG_PATH=str(pfad),
+    )
+    backend_dir = Path(__file__).resolve().parents[1]
+    logpfad = tmp_path / "server.log"
+    log = open(logpfad, "w", encoding="utf-8")
+    prozess = subprocess.Popen(
+        [sys.executable, "-B", "-m", "uvicorn", "main:app", "--host", "127.0.0.1",
+         "--port", str(port), "--http", "httptools", "--log-level", "info"],
+        cwd=backend_dir, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+    )
+    try:
+        hoch = False
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1)
+                hoch = True
+                break
+            except Exception:
+                time.sleep(0.2)
+        assert hoch, "uvicorn kam nicht rechtzeitig hoch"
+
+        # a) Anonymer Login, doppelte TE-Kopfzeile (zuerst leer), Koerper
+        # endet nie — die Antwort muss trotzdem SOFORT kommen, und die
+        # Verbindung muss danach WIRKLICH schliessen (KLEIN: Connection:
+        # close), nicht nur die Kopfzeile tragen.
+        kopf = (
+            b"POST /api/auth/login HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Transfer-Encoding: \r\nTransfer-Encoding: chunked\r\n\r\n"
+        )
+        s = socket.create_connection(("127.0.0.1", port))
+        t0 = time.perf_counter()
+        s.sendall(kopf + b"a\r\n" + b"x" * 10 + b"\r\n")  # ein Chunk, KEIN Abschluss
+        antwort, eof = _lies_bis_eof(s, 3.0)
+        dauer = time.perf_counter() - t0
+        s.close()
+        erste_zeile = antwort.split(b"\r\n")[0].decode()
+        assert "411" in erste_zeile, erste_zeile
+        assert dauer < 3.0, f"Antwort kam erst nach {dauer:.2f}s — Koerper wurde vermutlich gelesen"
+        assert b"connection: close" in antwort.lower(), antwort
+        assert eof, "Verbindung blieb trotz 'Connection: close' offen"
+
+        # b) Dieselbe Kopfzeilenfolge, MIT Anmeldung — Prueffrage 1/9:
+        # dieselbe sofortige 411, kein Vorrang der Anmeldeprüfung noetig.
+        s = socket.create_connection(("127.0.0.1", port))
+        s.sendall(
+            b"POST /api/auth/login HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Authorization: Bearer nur-test-411-blocker-probe\r\n"
+            b"Transfer-Encoding: \r\nTransfer-Encoding: chunked\r\n\r\n"
+            + b"a\r\n" + b"x" * 10 + b"\r\n"
+        )
+        antwort, _ = _lies_bis_eof(s, 3.0)
+        assert b"411" in antwort.split(b"\r\n", 1)[0], antwort
+        s.close()
+
+        # c) `Transfer-Encoding:chunked` OHNE Leerzeichen nach dem
+        # Doppelpunkt — die reine Anwesenheitspruefung haengt nicht an
+        # dieser Schreibweise.
+        s = socket.create_connection(("127.0.0.1", port))
+        s.sendall(
+            b"POST /api/auth/login HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\nTransfer-Encoding:chunked\r\n\r\n"
+            + b"a\r\n" + b"x" * 10 + b"\r\n"
+        )
+        antwort, _ = _lies_bis_eof(s, 3.0)
+        assert b"411" in antwort.split(b"\r\n", 1)[0], antwort
+        s.close()
+        time.sleep(0.5)
+    finally:
+        prozess.terminate()
+        try:
+            prozess.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            prozess.kill()
+            prozess.wait(timeout=10)
+        log.close()
+    logtext = logpfad.read_text(encoding="utf-8", errors="replace")
+    assert not _hat_anwendungstraceback(logtext), logtext
 
 
 # ── Befund 4: Eigener Validierungsgrund geht verloren ──────────────────────
@@ -438,7 +717,7 @@ def test_gueltige_url_bleibt_unveraendert_erlaubt(client):
     # ausbleibenden echten Immich-Instanz, nicht an der URL-Form) — die
     # genaue Fehlerart ist fuer diesen Test irrelevant, nur err_credentials_in_url,
     # err_disallowed_network_address und err_invalid_url_scheme duerfen es
-    # NICHT sein. K9: die Antwort muss trotzdem gueltiges JSON sein — ein
+    # NICHT sein. Die Antwort muss trotzdem gueltiges JSON sein — ein
     # Absturz, der stattdessen einen leeren/nicht-JSON-Koerper liefert,
     # waere mit der bisherigen Kulanz (`{}` als Ersatz bei nicht-JSON)
     # unbemerkt geblieben.
@@ -523,7 +802,7 @@ def test_api_health_bleibt_schnell_waehrend_grossem_request(tmp_path):
     Event-Loop wie ein zweiter Thread desselben Prozesses und kann so
     ebenfalls Blockade messen — sie beweist aber nichts ueber einen ECHTEN
     Server unter echter Netzwerk-E/A (Socket, uvicorns eigener Worker-Loop).
-    Gemessen VOR diesem Fix (Gegenpruefer #85, echter uvicorn, N=74000):
+    Gemessen VOR diesem Fix (echter uvicorn, N=74000):
     `/api/health` wartete 29,7 s auf denselben Event-Loop, waehrend der
     grosse Request lief. Diese Probe nutzt ein kleineres N (siehe die
     isolierten Messungen oben) und eine grosszuegige Grenze.
