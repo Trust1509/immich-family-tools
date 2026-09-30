@@ -180,6 +180,7 @@ STATUSCODES = {
     "err_account_id_not_found": 404,
     "err_account_not_found": 404,
     "err_album_name_required": 422,
+    "err_duplicate_query_param": 422,
     "err_group_choice_conflict": 422,
     "err_group_choice_required": 409,
     "err_group_not_found": 404,
@@ -203,6 +204,7 @@ STATUSCODES = {
     "err_too_many_login_attempts": 429,
     "err_unauthorized": 401,
     "err_unsupported_immich_version": 422,
+    "err_validation_failed": 422,
 }
 
 
@@ -268,16 +270,21 @@ def test_der_middleware_pfad_liefert_dieselbe_form(client):
     assert isinstance(koerper["detail"], str) and koerper["detail"]
 
 
-def test_fastapis_eigener_validierungsfehler_bleibt_unveraendert(client):
-    """Nicht jeder Fehler hat einen Schluessel — und das ist in Ordnung.
+def test_fastapis_eigener_validierungsfehler_traegt_jetzt_die_hausform(client):
+    """#85 Punkt 1: bewusst UMGESTELLT, nicht mehr "bleibt unveraendert".
 
-    FastAPI liefert bei Validierungsfehlern eine LISTE unter `detail` und gar
-    keinen Schluessel. Das Frontend muss damit umgehen; hier wird nur
-    festgehalten, dass es diese Form wirklich gibt, damit niemand den
-    Rueckfall im Frontend fuer ueberfluessig haelt.
+    Bis zu diesem Slice lieferte FastAPI bei Validierungsfehlern seine
+    eigene Form: `detail` eine LISTE, gar kein `error_key` — obwohl diese
+    Datei (Kopf-Docstring) zusagt, `detail` bleibe eine Zeichenkette mit
+    Schluessel daneben. Das Frontend zeigte deshalb nur "Unprocessable
+    Content" statt einer uebersetzten Meldung (Issue #85, Punkt 3). Der
+    Name dieses Tests hat sich mit der Zusicherung geaendert — das ist der
+    Punkt, nicht ein Unfall: Ein bestehender Test durfte hier nicht STILL
+    weiterlaufen, sondern musste die Umstellung sichtbar machen.
     """
     antwort = client.post("/api/auth/login", json={})
     assert antwort.status_code == 422
     koerper = antwort.json()
-    assert isinstance(koerper["detail"], list)
-    assert "error_key" not in koerper
+    assert isinstance(koerper["detail"], str) and koerper["detail"]
+    assert koerper["error_key"] == "err_validation_failed"
+    assert "token" in koerper["error_params"]["fields"]

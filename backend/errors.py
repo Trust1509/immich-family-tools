@@ -131,13 +131,14 @@ def manual_match_id_collision(album_name: str) -> AppError:
     Aufrufer will ein Album fuer ANDERE Personen. Hier wird abgelehnt, und
     zwar VOR jedem Schreibvorgang — der Aufrufer soll den Namen aendern.
     """
+    gekuerzt = _gekuerzt(album_name)
     return AppError(
         409,
         "err_manual_match_id_collision",
-        f"Unter diesem Namen gibt es bereits das Album '{album_name}', und es "
+        f"Unter diesem Namen gibt es bereits das Album '{gekuerzt}', und es "
         f"gehört zu einer anderen Personenauswahl. Erweitere dieses Album, "
         f"oder wähle einen anderen Namen.",
-        {"album": str(album_name)},
+        {"album": gekuerzt},
     )
 
 
@@ -174,12 +175,14 @@ def invalid_time_format() -> AppError:
 
 
 def unsupported_immich_version(major: object, minor: object) -> AppError:
+    gekuerzt_major, gekuerzt_minor = _gekuerzt(major), _gekuerzt(minor)
     return AppError(
         422,
         "err_unsupported_immich_version",
-        f"Immich-Version {major}.{minor} wird nicht unterstützt — dieses Tool "
-        "benötigt Immich v3.x (Server meldet Version über /api/server/version).",
-        {"major": str(major), "minor": str(minor)},
+        f"Immich-Version {gekuerzt_major}.{gekuerzt_minor} wird nicht unterstützt — "
+        "dieses Tool benötigt Immich v3.x (Server meldet Version über "
+        "/api/server/version).",
+        {"major": gekuerzt_major, "minor": gekuerzt_minor},
     )
 
 
@@ -189,32 +192,62 @@ def unsupported_immich_version(major: object, minor: object) -> AppError:
 # IDs) und gehen an genau den Nutzer zurueck, dem sie gehoeren. Das ist in
 # Ordnung — aber `params` darf deshalb NICHT unbesehen in ein Log oder eine
 # Fehlersammlung wandern. Wer das je einbaut, entscheidet das bewusst.
+#
+# UND: EIN ZURUECKGESPIEGELTER WERT IST EIN KANAL, KEINE GRENZE (#85 Punkt 4).
+# `group_not_found` reichte eine vom Aufrufer gewaehlte Kennung ungekuerzt in
+# `detail` UND `error_params` zurueck — eine sehr lange Kennung (im Issue
+# gemessen, mehrere tausend Zeichen) kam vollstaendig zurueck. Jede Funktion
+# hier unten, die einen Client-Wert in die Antwort schreibt, kuerzt ihn
+# deshalb ueber `_gekuerzt()` — EINE Stelle, damit eine neue Meldung mit
+# Wert die Kappung automatisch mitbekommt, statt sie an der Fundstelle neu zu
+# erfinden (und dort zu vergessen).
+
+_MAX_GESPIEGELTE_LAENGE = 200
+
+
+def _gekuerzt(wert: object) -> str:
+    """Kappt einen vom Client stammenden, in eine Fehlermeldung
+    zurueckgespiegelten Wert auf `_MAX_GESPIEGELTE_LAENGE` Zeichen.
+
+    Ohne diese Kappung bestimmt der Client die Laenge der Antwort — nicht nur
+    fuer eine gezielt lange Kennung, sondern auch fuer einen Feldnamen aus
+    einem abgelehnten Zusatzfeld (`extra="forbid"` spiegelt den vom Client
+    GEWAEHLTEN Feldnamen zurueck, siehe `validation_failed` unten): Beides
+    ist Text, den der Aufrufer frei waehlt, keiner, den das Schema vorgibt.
+    """
+    text = str(wert)
+    if len(text) <= _MAX_GESPIEGELTE_LAENGE:
+        return text
+    return text[:_MAX_GESPIEGELTE_LAENGE] + "…"
 
 
 def account_id_not_found(account_id: str) -> AppError:
+    gekuerzt = _gekuerzt(account_id)
     return AppError(
         404,
         "err_account_id_not_found",
-        f"Account {account_id} nicht gefunden",
-        {"id": str(account_id)},
+        f"Account {gekuerzt} nicht gefunden",
+        {"id": gekuerzt},
     )
 
 
 def owner_account_id_not_found(owner_id: str) -> AppError:
+    gekuerzt = _gekuerzt(owner_id)
     return AppError(
         404,
         "err_owner_account_id_not_found",
-        f"Owner-Account {owner_id} nicht gefunden",
-        {"id": str(owner_id)},
+        f"Owner-Account {gekuerzt} nicht gefunden",
+        {"id": gekuerzt},
     )
 
 
 def person_validation_failed(account_name: str) -> AppError:
+    gekuerzt = _gekuerzt(account_name)
     return AppError(
         422,
         "err_person_validation_failed",
-        f"Person in Account '{account_name}' konnte nicht validiert werden",
-        {"account": str(account_name)},
+        f"Person in Account '{gekuerzt}' konnte nicht validiert werden",
+        {"account": gekuerzt},
     )
 
 
@@ -260,10 +293,11 @@ def group_choice_conflict() -> AppError:
 
 
 def group_not_found(group_id: str) -> AppError:
+    gekuerzt = _gekuerzt(group_id)
     return AppError(
         404, "err_group_not_found",
-        f"Gruppe {group_id} existiert nicht",
-        {"group_id": group_id},
+        f"Gruppe {gekuerzt} existiert nicht",
+        {"group_id": gekuerzt},
     )
 
 
@@ -278,12 +312,13 @@ def group_choice_required(album_name: str) -> AppError:
     Zustand (mehrere Gruppen), der eine Angabe ERFORDERLICH macht, die noch
     fehlt — dieselbe Familie wie `manual_match_id_collision`.
     """
+    gekuerzt = _gekuerzt(album_name)
     return AppError(
         409,
         "err_group_choice_required",
-        f"Der Name '{album_name}' gehört zu mehreren Gruppen — wähle eine "
+        f"Der Name '{gekuerzt}' gehört zu mehreren Gruppen — wähle eine "
         f"davon oder lege eine eigene Gruppe an.",
-        {"album": str(album_name)},
+        {"album": gekuerzt},
     )
 
 
@@ -296,10 +331,72 @@ def group_situation_changed(album_name: str) -> AppError:
     `group_choice_required`: kein fehlerhaftes Feld, ein Zustand, der sich
     seit der Vorschau des Aufrufers geaendert hat.
     """
+    gekuerzt = _gekuerzt(album_name)
     return AppError(
         409,
         "err_group_situation_changed",
-        f"Die Gruppenlage zu '{album_name}' hat sich seit der Vorschau "
+        f"Die Gruppenlage zu '{gekuerzt}' hat sich seit der Vorschau "
         f"geändert — bitte erneut prüfen.",
-        {"album": str(album_name)},
+        {"album": gekuerzt},
+    )
+
+
+# ── Der house-form-Vertrag fuer FastAPIs EIGENE Validierungsfehler ─────────
+#
+# #85 Punkt 1: FastAPI/Pydantic werfen `RequestValidationError` fuer jeden
+# fehlerhaften Request-Koerper oder -Query-Parameter, BEVOR ein Router
+# ueberhaupt laeuft — das trifft auch `extra="forbid"` (Punkt 2 oben). Ohne
+# diese Funktion antwortete dieser Pfad mit FastAPIs Standardform
+# (`{"detail": [...]}`, eine LISTE, kein `error_key`) und brach damit genau
+# die Zusage, die dieses Modul allen ANDEREN Fehlern gibt. `main.py` registriert
+# den Handler; hier steht nur das Zusammensetzen der Antwortform, aus
+# demselben Grund wie bei jeder anderen Meldung in dieser Datei.
+
+
+def validation_failed(field_names: list[str]) -> AppError:
+    """Baut die Hausform aus den Feldnamen von `RequestValidationError.errors()`.
+
+    JEDER Feldname wird ueber `_gekuerzt()` gekappt (#85 Punkt 4): Bei
+    `extra="forbid"` ist der "Feldname" im Fehler exakt das, was der Client
+    als Schluessel geschickt hat — ein Client kann dort denselben beliebig
+    langen Text unterbringen wie frueher in einer Gruppen-Kennung.
+
+    Die Meldung ist absichtlich ZAHL-INVARIANT formuliert ("... fuer: a, b")
+    statt mit einem Substantiv, das im Singular und Plural verschieden
+    dekliniert werden muesste ("Feld"/"Felder") — dieselbe Konstruktion traegt
+    einen wie mehrere Feldnamen grammatisch korrekt, ohne dass Uebersetzung
+    UND Kappung zusaetzlich eine Anzahl durchreichen muessten.
+    """
+    eindeutig: list[str] = []
+    for roh in field_names:
+        name = _gekuerzt(roh)
+        if name not in eindeutig:
+            eindeutig.append(name)
+    liste = ", ".join(eindeutig) if eindeutig else "?"
+    return AppError(
+        422,
+        "err_validation_failed",
+        f"Ungültiger Wert für: {liste}",
+        {"fields": liste},
+    )
+
+
+def duplicate_query_param(name: str) -> AppError:
+    """Derselbe Query-Parameter kam mehrfach (#85 Punkt 5).
+
+    `?album_name=A&album_name=B` liess bisher still EINEN der beiden Werte
+    gewinnen — welchen, ist eine Eigenschaft der Bibliothek, keine Zusage
+    dieser Schnittstelle. Vorschau und das anschliessende POST konnten so
+    unbemerkt auf verschiedene Namen auflaufen. `name` ist hier immer ein
+    Parametername aus unserem eigenen Schema, kein Client-Freitext — die
+    Kappung laeuft trotzdem mit, aus demselben Grund wie bei jeder anderen
+    Meldung mit Wert: eine Ausnahme waere eine zweite Regel, die man sich
+    merken muesste.
+    """
+    gekuerzt = _gekuerzt(name)
+    return AppError(
+        422,
+        "err_duplicate_query_param",
+        f"Parameter '{gekuerzt}' darf nicht mehrfach angegeben werden",
+        {"name": gekuerzt},
     )

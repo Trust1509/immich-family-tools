@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Request
 
 import errors
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from models.match import (
     ExtendMatchRequest,
@@ -40,7 +40,17 @@ async def album_group_preview(album_name: str, request: Request):
     (`group_candidates_for_name`); hier steht nur der Aufruf und das
     Zusammensetzen der Antwortform, damit es bei EINEM Eigentuemer der Regel
     bleibt.
+
+    ABLEHNUNG BEI DOPPELTEM PARAMETER (#85 Punkt 5): `album_name: str` allein
+    wuerde bei `?album_name=A&album_name=B` still EINEN der beiden Werte
+    binden -- welchen, ist eine Eigenschaft von Starlette/Pydantic, keine
+    Zusage dieser Schnittstelle. Vorschau (dieser Endpunkt) und das
+    anschliessende POST koennten so unbemerkt auf verschiedene Namen
+    auflaufen. Deshalb wird der ROHE Query-String zuerst gegengeprueft, bevor
+    `album_name` ueberhaupt verwendet wird.
     """
+    if len(request.query_params.getlist("album_name")) > 1:
+        raise errors.duplicate_query_param("album_name")
     store = request.app.state.store
     kandidaten = store.group_candidates_for_name(album_name)
     if not kandidaten:
@@ -766,6 +776,8 @@ async def delete_managed_album(managed_album_id: str, request: Request):
 
 
 class UndoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     log_entry_id: str
 
 
@@ -806,6 +818,8 @@ async def clear_sync_log(request: Request):
 # ── Auto-sync config ───────────────────────────────────────────────────────
 
 class AutoSyncConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     enabled: bool
     time: str  # "HH:MM" in server local time
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Callable, Optional
 from enum import Enum
 
@@ -96,16 +96,33 @@ class ManagedAlbumOut(ManagedAlbum):
 
 
 class SyncNamesRequest(BaseModel):
+    # extra="forbid" (#85 Punkt 2): Ein Tippfehler im Feldnamen (`matchId`
+    # statt `match_id`) wurde bisher still ignoriert (Pydantic-Vorgabe
+    # `extra="ignore"`) und das fehlende Pflichtfeld ergaenzte sich mit einem
+    # eigenen 422 -- aber NUR, wenn es kein Pflichtfeld mit Vorgabewert traf.
+    # Ein Feld mit Vorgabewert (siehe `force_new_group` bei den Gruppen-
+    # Modellen unten) wurde beim Tippfehler STILL uebernommen, ohne Fehler.
+    # Jeder Aufrufer aus `frontend/src/api/client.ts` schickt exakt die hier
+    # deklarierten Felder -- keiner ist von der Ablehnung betroffen.
+    model_config = ConfigDict(extra="forbid")
+
     match_id: str
     name: str  # The canonical name to set on both persons
 
 
 class MultiSyncPersonEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     account_id: str
     person_id: str
 
 
 class SyncNamesMultiRequest(BaseModel):
+    # extra="forbid" (#85 Punkt 2) -- Begruendung siehe `SyncNamesRequest`
+    # oben; hier ist es der Endpunkt aus dem Issue selbst (`groupId` statt
+    # `group_id` -> 200, Gruppe nach Namen geraten).
+    model_config = ConfigDict(extra="forbid")
+
     persons: list[MultiSyncPersonEntry]        # one entry per account, min 2
     canonical_name: str
     album_name: Optional[str] = None           # if set, create new shared album
@@ -133,6 +150,8 @@ class SyncNamesMultiRequest(BaseModel):
 
 
 class ExtendMatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     managed_album_id: str     # which ManagedAlbum to extend
     account_id: str           # new account to add
     person_id: str            # person in that account
@@ -141,6 +160,8 @@ class ExtendMatchRequest(BaseModel):
 
 
 class SyncAlbumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     match_id: str
     owner_account_id: str
     album_name: Optional[str] = None        # for new album
@@ -155,6 +176,8 @@ class SyncAlbumRequest(BaseModel):
 
 
 class RenameManagedAlbumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     album_name: str
 
 

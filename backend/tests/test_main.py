@@ -520,12 +520,39 @@ def _store_mit_gruppen(tmp_path):
     return ConfigStore(str(pfad))
 
 
+class _EinzelnerQueryParam:
+    """Attrappe fuer `Request.query_params` bei einem direkten Aufruf.
+
+    Diese Datei ruft `album_group_preview` hier direkt auf, ohne echtes HTTP
+    (Begruendung siehe `test_anlegen_folgt_der_ausdruecklichen_wahl`
+    darunter: die VERDRAHTUNG steht dort auf dem Pruefstand, hier die reine
+    Logik). Seit #85 Punkt 5 liest die Funktion `request.query_params.
+    getlist(...)`, um einen doppelten `album_name`-Parameter abzulehnen —
+    ein `SimpleNamespace` ohne dieses Attribut liesse jeden Direktaufruf mit
+    `AttributeError` scheitern. Die Attrappe liefert immer GENAU EINEN
+    Eintrag: Mehrfachparameter werden ausschliesslich ueber echtes HTTP
+    geprueft (`test_gruppenwahl_schnittstelle.py::
+    test_doppelter_query_parameter_wird_abgelehnt`), wo die Anfrage selbst
+    entscheidet, wie oft ein Parameter vorkommt.
+    """
+
+    def getlist(self, _name):
+        return ["x"]
+
+
+def _fake_request(store):
+    return SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(store=store)),
+        query_params=_EinzelnerQueryParam(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_vorschau_nennt_die_gruppe_und_wem_man_beitritt(tmp_path):
     from routers import albums as albums_router
 
     store = _store_mit_gruppen(tmp_path)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+    request = _fake_request(store)
 
     treffer = await albums_router.album_group_preview("  TESTALBUM ", request)
 
@@ -540,7 +567,7 @@ async def test_vorschau_behauptet_nichts_ohne_treffer(tmp_path):
     from routers import albums as albums_router
 
     store = _store_mit_gruppen(tmp_path)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+    request = _fake_request(store)
 
     assert await albums_router.album_group_preview("Kennt keiner", request) is None
     assert await albums_router.album_group_preview("   ", request) is None

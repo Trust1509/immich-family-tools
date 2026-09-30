@@ -898,6 +898,8 @@ describe("ERROR_PARAM_ORDER", () => {
       err_person_validation_failed: { account: "WERT-C" },
       err_manual_match_id_collision: { album: "WERT-D" },
       err_unsupported_immich_version: { major: "WERT-E", minor: "WERT-F" },
+      err_validation_failed: { fields: "WERT-G" },
+      err_duplicate_query_param: { name: "WERT-H" },
     };
     expect(Object.keys(werte).sort()).toEqual(Object.keys(ERROR_PARAM_ORDER).sort());
     for (const lang of Object.keys(LANG_LABELS) as Lang[]) {

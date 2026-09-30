@@ -1485,6 +1485,28 @@ export const translations = {
     "es-ES": "Cabecera Content-Length no válida",
     "pt-BR": "Cabeçalho Content-Length inválido",
   },
+  // #85 Punkt 1: FastAPIs/Pydantics eigener Validierungsfehler bekommt seit
+  // diesem Slice denselben Schluessel/Klartext-Vertrag wie jede andere
+  // Meldung — vorher lieferte dieser Pfad gar keinen `error_key` (siehe
+  // `backend/main.py`, `_validation_error_handler`). "fuer: a, b" ist
+  // absichtlich zahl-invariant formuliert (kein Substantiv mit
+  // Singular-/Pluralform), damit ein wie mehrere Feldnamen ohne zweite
+  // Formulierung grammatisch korrekt bleiben.
+  err_validation_failed: {
+    de: (felder: string) => `Ungültiger Wert für: ${felder}`,
+    en: (felder: string) => `Invalid value for: ${felder}`,
+    "es-ES": (felder: string) => `Valor no válido para: ${felder}`,
+    "pt-BR": (felder: string) => `Valor inválido para: ${felder}`,
+  },
+  // #85 Punkt 5: `?album_name=A&album_name=B` wurde bisher still auf einen
+  // Wert reduziert. `name` ist hier immer ein Parametername aus unserem
+  // eigenen Schema (z. B. "album_name"), kein Client-Freitext.
+  err_duplicate_query_param: {
+    de: (name: string) => `Parameter '${name}' darf nicht mehrfach angegeben werden`,
+    en: (name: string) => `Parameter '${name}' must not be given more than once`,
+    "es-ES": (name: string) => `El parámetro '${name}' no puede indicarse más de una vez`,
+    "pt-BR": (name: string) => `O parâmetro '${name}' não pode ser informado mais de uma vez`,
+  },
   reason_manual: { de: "Manuell", en: "Manual", "pt-BR": "Manual", "es-ES": "Manual" },
 } as const satisfies Record<string, Record<Lang, Uebersetzungswert>>;
 
@@ -1751,6 +1773,8 @@ export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_person_validation_failed: ["account"],
   err_manual_match_id_collision: ["album"],
   err_unsupported_immich_version: ["major", "minor"],
+  err_validation_failed: ["fields"],
+  err_duplicate_query_param: ["name"],
 };
 
 /** Was der Server ueber einen Fehler mitschickt. Absichtlich strukturell

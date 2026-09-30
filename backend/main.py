@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -55,6 +56,44 @@ async def _app_error_handler(request: Request, fehler: errors.AppError) -> JSONR
     Schnittstelle direkt anspricht, merkt von der Aenderung nichts, und ein
     Frontend, das den Schluessel nicht kennt, hat trotzdem etwas anzuzeigen.
     """
+    return _fehler_antwort(fehler)
+
+
+def _feldnamen_aus_validierungsfehlern(exc: RequestValidationError) -> list[str]:
+    """Ein lesbarer Feldname je Fehler aus `exc.errors()`.
+
+    `loc` ist ein Tupel wie `("body", "group_id")` oder, bei einem
+    abgelehnten Zusatzfeld unter `extra="forbid"`, `("body", "groupId")` —
+    das erste Glied nennt nur die Quelle (Koerper/Query/Pfad), kein Feld.
+    Ein verschachteltes Modell (z. B. `SyncNamesMultiRequest.persons`) liefert
+    mehr als zwei Glieder; die werden mit "." verbunden, damit der Pfad
+    lesbar bleibt, statt nur das letzte (moeglicherweise mehrdeutige) Glied
+    zu nennen.
+    """
+    namen = []
+    for fehler in exc.errors():
+        loc = tuple(fehler.get("loc", ()))
+        rest = loc[1:] if len(loc) > 1 else loc
+        namen.append(".".join(str(teil) for teil in rest) or "?")
+    return namen
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """FastAPIs eigener Validierungsfehler in Hausform (#85 Punkt 1).
+
+    FastAPI wirft `RequestValidationError` fuer jeden fehlerhaften
+    Request-Koerper oder -Query-Parameter, BEVOR ein Router laeuft — das ist
+    keine `errors.AppError` und lief am Handler oben vorbei. Ohne diesen
+    Handler antwortete dieser Pfad mit FastAPIs eigener Form (`detail` als
+    LISTE, kein `error_key`), obwohl diese Datei zusagt: `detail` bleibt eine
+    Zeichenkette. Trifft JEDEN Validierungsfehler, nicht nur die neuen Felder
+    aus #85 — auch ein abgelehntes Zusatzfeld (`extra="forbid"`, Punkt 2)
+    laeuft hier durch, weil Pydantic es als denselben Fehlertyp meldet.
+    """
+    fehler = errors.validation_failed(_feldnamen_aus_validierungsfehlern(exc))
     return _fehler_antwort(fehler)
 
 

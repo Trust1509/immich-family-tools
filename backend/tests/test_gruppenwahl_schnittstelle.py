@@ -1319,3 +1319,104 @@ async def test_119_erzwungenes_fenster_lehnt_nach_der_ersten_anlage_ab(tmp_path,
     alben = store.get_managed_albums()
     assert len(alben) == 1, "nur Karte Eins darf angelegt haben"
     assert alben[0].match_id == "manual_karte_eins_konto-1"
+
+
+# ── #85 Schnittstelle an den Raendern ────────────────────────────────────
+#
+# Der Gegenpruefer zum Panel dieser Datei (#81) hat diese fuenf Punkte am
+# LAUFENDEN Code gemessen, nicht an der Absicht — alles ueber echtes HTTP,
+# derselbe Massstab wie der Rest dieser Datei.
+
+
+def test_unbekanntes_feld_wird_abgelehnt_und_nichts_angelegt(client):
+    """#85 Punkt 2: `{"groupId": "gruppe-1"}` statt `group_id` lief bisher
+    STILL durch (Pydantic-Vorgabe `extra="ignore"`) — der Aufruf verhielt
+    sich wie "keine Wahl getroffen" und die Namensregel griff unbemerkt.
+    `extra="forbid"` lehnt das jetzt ab, BEVOR irgendetwas geschrieben wird.
+    """
+    antwort = _anlegen(client, groupId="gruppe-1")
+
+    assert antwort.status_code == 422
+    assert antwort.json().get("error_key") == "err_validation_failed"
+
+    alben = client.get("/api/sync/albums", headers=KOPF).json()
+    assert [a["id"] for a in alben] == ["a1", "a2", "a3", "a4"]
+
+
+def test_typfehler_liefert_die_hausform_mit_schluessel(client):
+    """#85 Punkt 1: `group_id: 42` lieferte FastAPIs Standardform — `detail`
+    als LISTE, kein `error_key` — obwohl `backend/main.py` zusagt, `detail`
+    bleibe eine Zeichenkette mit Schluessel daneben.
+    """
+    antwort = _anlegen(client, group_id=42)
+
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert isinstance(koerper["detail"], str) and koerper["detail"]
+    assert koerper["error_key"] == "err_validation_failed"
+    assert "group_id" in koerper["error_params"]["fields"]
+
+
+def test_force_new_group_null_liefert_die_hausform_mit_schluessel(client):
+    """#85 Punkt 1, zweites Beispiel aus dem Issue: `force_new_group: bool =
+    False` ohne `Optional` macht `null` — die naheliegendste JS-Serialisierung
+    eines nicht gesetzten Schalters — zum selben unbeschlüsselten Fehler.
+    """
+    antwort = _anlegen(client, force_new_group=None)
+
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert isinstance(koerper["detail"], str) and koerper["detail"]
+    assert koerper["error_key"] == "err_validation_failed"
+    assert "force_new_group" in koerper["error_params"]["fields"]
+
+
+def test_sehr_lange_kennung_wird_in_der_antwort_gekuerzt(client):
+    """#85 Punkt 4: `errors.group_not_found` spiegelte die Kennung bisher
+    unbegrenzt zurueck — eine sehr lange Kennung kam vollstaendig in
+    `detail` UND `error_params` zurueck. 16 000 Zeichen, wie im Issue.
+    """
+    lang = "x" * 16000
+    antwort = _anlegen(client, group_id=lang)
+
+    assert antwort.status_code == 404
+    koerper = antwort.json()
+    assert koerper.get("error_key") == "err_group_not_found"
+    assert len(koerper["detail"]) < len(lang)
+    assert len(koerper["error_params"]["group_id"]) < len(lang)
+    assert koerper["error_params"]["group_id"] != lang
+
+
+def test_langer_unbekannter_feldname_wird_in_der_antwort_gekuerzt(client):
+    """#85 Punkt 4, zweiter Fall — nicht nur eine lange Kennung spiegelt sich:
+    Bei `extra="forbid"` ist der gemeldete "Feldname" exakt das, was der
+    Client als Schluessel gewaehlt hat. Ohne eigene Kappung an dieser Stelle
+    waere `_gekuerzt()` nur an EINER der beiden Reflexionsstellen wirksam.
+    """
+    langer_name = "x" * 16000
+    antwort = _anlegen(client, **{langer_name: "gruppe-1"})
+
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert len(koerper["detail"]) < len(langer_name)
+    assert len(koerper["error_params"]["fields"]) < len(langer_name)
+
+
+def test_doppelter_query_parameter_wird_abgelehnt(client):
+    """#85 Punkt 5: `?album_name=A&album_name=B` liess bisher still den
+    letzten Wert gewinnen — Vorschau und das anschliessende POST konnten so
+    unbemerkt auf verschiedene Namen auflaufen.
+    """
+    antwort = client.get(
+        "/api/sync/album-group?album_name=Testalbum&album_name=Anders+benannt",
+        headers=KOPF,
+    )
+
+    assert antwort.status_code == 422
+    assert antwort.json().get("error_key") == "err_duplicate_query_param"
+
+    # Gegenprobe: EIN Parameter bleibt weiterhin erlaubt.
+    einzeln = client.get(
+        "/api/sync/album-group?album_name=Testalbum", headers=KOPF,
+    )
+    assert einzeln.status_code == 200
