@@ -171,6 +171,40 @@ jobs:
           context: .
           push: false
           tags: immich-family-tools:ci
+          # `load: true` holt das Abbild in den lokalen Docker-Daemon dieses
+          # Runners — ohne das existiert es nur im Buildx-Cache, und der
+          # naechste Schritt koennte es nicht mit `docker run` starten.
+          load: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+      # #68: `/api/health` muss GENAU den Commit melden, aus dem dieses
+      # Abbild gebaut wurde — Rot-Beweis lokal nachgestellt (falscher/
+      # fehlender GIT_SHA -> dieser Schritt schlaegt fehl, siehe Bau-Bericht).
+      - name: Health meldet den Build-Commit (#68)
+        run: |
+          set -eu
+          docker run -d --name ift-ci -p 3100:3100 \
+            -e IMMICH_FAMILY_TOOLS_SECRET=ci-nur-test-kein-echtes-geheimnis \
+            immich-family-tools:ci
+          antwort=""
+          for _ in $(seq 1 30); do
+            if antwort=$(curl -sf http://127.0.0.1:3100/api/health); then
+              break
+            fi
+            sleep 1
+          done
+          echo "Antwort: $antwort"
+          if [ -z "$antwort" ]; then
+            echo "Container antwortet nicht auf /api/health"
+            docker logs ift-ci
+            exit 1
+          fi
+          if ! printf '%s' "$antwort" | grep -q "\"commit\":\"${{ github.sha }}\""; then
+            echo "Erwarteter Commit ${{ github.sha }} fehlt in /api/health"
+            docker logs ift-ci
+            exit 1
+          fi
+          docker rm -f ift-ci
 
   secrets:
     runs-on: ubuntu-latest

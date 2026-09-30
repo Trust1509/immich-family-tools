@@ -15,10 +15,17 @@ Skript.
 
 **Diese Liste hat hier ihren Eigentümer**, und `scripts/release.sh` führt
 dieselbe Liste ein zweites Mal, weil ein Skript sie nicht erraten kann. Kommt
-eine fünfte Stelle dazu (etwa die Build-Kennung aus Issue #68), gehört sie in
-**beide** — sonst entsteht genau die Zwei-Dateien-Drift aus `lehren.md` §17.
-Das Skript nennt diese Datei in seinem Kopfkommentar, damit die Verbindung von
-beiden Seiten sichtbar ist.
+eine fünfte Stelle dazu, gehört sie in **beide** — sonst entsteht genau die
+Zwei-Dateien-Drift aus `lehren.md` §17. Das Skript nennt diese Datei in seinem
+Kopfkommentar, damit die Verbindung von beiden Seiten sichtbar ist.
+
+**Die Build-Kennung aus Issue #68 ist keine solche fünfte Stelle geworden**
+(gebaut in Slice S7): `/api/health` gibt seither zusätzlich `commit` aus, aber
+der Wert kommt automatisch aus `git rev-parse HEAD` als Docker-Build-Argument
+(`GIT_SHA`, siehe `Dockerfile`, `docker-compose.yml`) — nirgends von Hand
+gepflegt, also auch nirgends drift-fähig wie die vier Versionsdateien. Fehlt
+das Argument, steht dort `"unknown"`; die App startet trotzdem
+(`backend/config.py`, `backend/main.py`).
 
 **Die Notizen führen, die Version folgt.** `bump` weigert sich zu schreiben,
 solange der oberste CHANGELOG-Eintrag nicht bereits die Zielversion trägt.
@@ -216,8 +223,16 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    `CLAUDE.md`):
 
    ```
-   git fetch --tags && git checkout v<version> && docker compose up -d --build
+   git fetch --tags && git checkout v<version> && \
+   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
    ```
+
+   **Neu seit Slice S7 (#68):** `GIT_SHA` muss beim Bauen gesetzt werden, sonst
+   meldet `/api/health` nach diesem Rollout `"commit":"unknown"` — die App
+   startet trotzdem, aber der Rückstands-Check (`docs/betrieb/erreichbarkeit.md`)
+   verliert den exakten Commit-Vergleich. `$(git rev-parse HEAD)` liest nach
+   dem `checkout` oben genau den Commit, auf den der Tag zeigt — nicht den
+   Zweigkopf, aus demselben Grund wie unten beschrieben.
 
    Der Tag wird ausgecheckt, nicht der Zweigkopf: Mit einem Owner-Gate
    zwischen 8 und 9 ist „seit dem Tag ist auf dem Zweig etwas dazugekommen"

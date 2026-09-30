@@ -7,7 +7,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
+import stat
 import tempfile
 import unicodedata
 import uuid
@@ -114,6 +116,38 @@ _gruppen_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 # Problem — es ist nur keines, das jemand geprueft haette.
 _treffer_schloesser: dict[tuple[int, str], asyncio.Lock] = {}
 
+# #124 B10: `_save` und `_sichere_vor_schemasprung` legen ihre Temp-Dateien
+# per `tempfile.mkstemp(prefix=f".<Dateiname>.", dir=...)` OHNE eigenen
+# `suffix` an. Ohne `suffix` haengt `mkstemp` an den Praefix genau eine
+# Zufallsfolge aus `tempfile._RandomNameSequence.characters`
+# (Buchstaben/Ziffern/Unterstrich) fester Laenge (8) — KEIN weiterer Punkt.
+# Das unterscheidet den Rest einer `_save`-Temp-Datei (".accounts.json.a1B2c3D4",
+# Rest ohne Punkt) von einer `_sichere_vor_schemasprung`-Temp-Datei
+# (".accounts.json.vor-schema-3.bak.a1B2c3D4", Rest MIT Punkt, hat ihr eigenes
+# `finally`, wird hier nicht angefasst) und von einer Handkopie mit aehnlichem
+# Namen (".accounts.json.alt", falsche Laenge). Aendert eine kuenftige
+# Python-Version die Laenge oder das Alphabet, wird das Muster zu eng — dann
+# bleibt eine echte Temp-Datei liegen (sicherer Fehler: nichts geloescht, was
+# nicht sollte) statt eine fremde zu treffen.
+_TEMP_REST_MUSTER = re.compile(r"^[A-Za-z0-9_]{8}$")
+
+# #106: Gruppe ODER Welt darf eine Sicherung/Konfiguration nicht lesen
+# koennen. Nur diese beiden Bits zaehlen — Schreibrechte fuer Gruppe/Welt
+# waeren ein eigener, staerkerer Befund, den dieses Issue nicht stellt.
+_GRUPPE_ODER_WELT_LESBAR = stat.S_IRGRP | stat.S_IROTH
+
+
+def _verlaessliche_posix_rechte() -> bool:
+    """Eigene Funktion statt eines direkten `os.name`-Vergleichs an der
+    Aufrufstelle — ausschliesslich, damit ein Test sie gezielt monkeypatchen
+    kann, OHNE `os.name` selbst zu veraendern: `pathlib.Path` entscheidet bei
+    JEDER Instanziierung anhand von `os.name`, ob es eine `WindowsPath` oder
+    `PosixPath` baut, und ein direkt gefaelschtes `os.name` bricht deshalb
+    jeden `Path(...)`-Aufruf, der danach im selben Test noch laeuft (gemessen:
+    `NotImplementedError: cannot instantiate 'WindowsPath' on your system`
+    unter Linux, sobald `os.name` auf `"nt"` steht)."""
+    return os.name == "posix"
+
 
 class ConfigStore:
     SCHEMA_VERSION = 3
@@ -157,7 +191,113 @@ class ConfigStore:
     # Persistence
     # ------------------------------------------------------------------
 
+    def _raeume_verwaiste_temp_dateien(self) -> None:
+        """#124 B10: liegengebliebene `_save`-Temp-Dateien beim Start entfernen.
+
+        `_save` schreibt erst in eine Temp-Datei (`tempfile.mkstemp`), dann
+        `os.replace` — der volle Inhalt, inklusive Immich-API-Schluesseln,
+        liegt also kurz auf der Platte, BEVOR er die eigentliche Konfiguration
+        ersetzt. Stirbt der Prozess hart dazwischen (SIGKILL, Stromausfall,
+        OOM-Killer), laeuft das eigene `finally` von `_save` nie — die
+        Temp-Datei bleibt mit vollem Inhalt liegen, unbegrenzt, bis jemand sie
+        von Hand findet.
+
+        NUR Dateien, die EXAKT dem eigenen Namensmuster entsprechen, werden
+        entfernt (Begruendung des Musters: siehe `_TEMP_REST_MUSTER` oben).
+        Eine `_sichere_vor_schemasprung`-Temp-Datei hat ihr eigenes `finally`
+        und wird hier nicht angefasst; eine fremde Datei mit aehnlichem Namen
+        (falsche Laenge oder ein Punkt im Rest) bleibt liegen — nur warnen und
+        aufraeumen, was zweifelsfrei das eigene Muster ist, nichts raten.
+
+        Laeuft bei JEDEM Start, unabhaengig davon, ob `self._path` selbst
+        existiert (ein Absturz kann die Konfiguration selbst verloren, die
+        Temp-Datei aber ueberlebt haben).
+        """
+        try:
+            geschwister = list(self._path.parent.iterdir())
+        except OSError:
+            return
+        praefix = f".{self._path.name}."
+        for kandidat in geschwister:
+            if not kandidat.name.startswith(praefix):
+                continue
+            rest = kandidat.name[len(praefix):]
+            if not _TEMP_REST_MUSTER.fullmatch(rest):
+                continue
+            try:
+                kandidat.unlink()
+                logger.warning(
+                    "Liegengebliebene Temp-Datei von _save beim Start entfernt: %s",
+                    kandidat,
+                )
+            except OSError as exc:
+                logger.warning(
+                    "Liegengebliebene Temp-Datei konnte nicht entfernt werden: %s (%s)",
+                    kandidat, exc,
+                )
+
+    def _warne_bei_offenen_rechten(self) -> None:
+        """#106: beim Start einmal warnen, wenn eine Geschwisterdatei der
+        Konfiguration — oder ihr Verzeichnis — fuer Gruppe oder Welt lesbar ist.
+
+        NUR WARNEN: nichts aendern, nichts abbrechen. Der Betreiber kann
+        Gruende haben, und ein Start, der an einer Dateirechte-Frage
+        scheitert, ist schlimmer als das Leck, vor dem die Warnung schuetzt
+        (Anlass: eine drei Monate alte Handkopie mit `0644` beim Rollout von
+        1.8.0, mit Immich-API-Schluesseln von womoeglich laengst geloeschten
+        Konten).
+
+Geprueft wird jede DATEI NEBEN der Konfiguration, deren Name mit dem der
+        Konfiguration beginnt (`accounts.json.bak`,
+        `accounts.json.vor-schema-3.bak`, eine Handkopie
+        `accounts.json.pre-v1.2.0`, …) sowie das Verzeichnis selbst —
+        `accounts.json` selbst bewusst NICHT: `_save()` erzwingt darauf
+        bereits `0600` bei jedem eigenen Schreibvorgang (siehe dort); diese
+        Warnung gilt dem, was NEBEN der von der App selbst verwalteten Datei
+        liegt und das niemand prueft (Anlass des Issues: „Was die App selbst
+        schreibt, traegt diese Rechte. Was daneben liegt, prueft niemand.").
+
+        AUF SYSTEMEN OHNE VERLAESSLICHE POSIX-RECHTE WIRD GESCHWIEGEN — aber
+        sichtbar, nicht stumm: `os.name != "posix"` ist der Test (nicht nur
+        `"nt"`), weil `st_mode` auch auf manchen Nicht-POSIX-Dateisystemen
+        wenig sagt. Unter Windows liefert `st_mode` fuer jede Datei denselben
+        Wert (`0o666`), unabhaengig vom tatsaechlichen Zugriff (gemessen,
+        siehe `test_sicherung_bekommt_enge_rechte`) — eine Warnung darauf
+        waere eine falsche Behauptung, kein Fund.
+        """
+        if not _verlaessliche_posix_rechte():
+            logger.info(
+                "Rechte-Warnung fuer %s uebersprungen: keine verlaesslichen "
+                "POSIX-Rechte auf diesem System (os.name=%r).",
+                self._path.name, os.name,
+            )
+            return
+        try:
+            geschwister = sorted(
+                p for p in self._path.parent.iterdir()
+                if p.name != self._path.name and p.name.startswith(self._path.name)
+            )
+        except OSError as exc:
+            logger.warning(
+                "Rechte-Warnung fuer %s konnte Verzeichnis nicht lesen: %s",
+                self._path.name, exc,
+            )
+            return
+        for kandidat in [self._path.parent, *geschwister]:
+            try:
+                modus = stat.S_IMODE(kandidat.stat().st_mode)
+            except OSError:
+                continue
+            if modus & _GRUPPE_ODER_WELT_LESBAR:
+                logger.warning(
+                    "%s ist fuer Gruppe oder Welt lesbar (Modus %s): %s",
+                    "Verzeichnis" if kandidat.is_dir() else "Datei",
+                    oct(modus), kandidat,
+                )
+
     def _load(self) -> None:
+        self._raeume_verwaiste_temp_dateien()
+        self._warne_bei_offenen_rechten()
         if self._path.exists():
             try:
                 self._data = json.loads(self._path.read_text(encoding="utf-8"))

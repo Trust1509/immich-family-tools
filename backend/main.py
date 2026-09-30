@@ -246,9 +246,16 @@ app.include_router(auth.router)
 
 @app.get("/api/health")
 async def health():
+    # #68: `commit` schliesst die Luecke, die `version` allein laesst — ein
+    # Commit NACH dem Tag ohne Versionsbump meldet weiterhin die alte,
+    # getaggte Nummer. Der Rueckstands-Check kann so Commit gegen Commit
+    # vergleichen statt Version gegen Version (docs/betrieb/erreichbarkeit.md).
+    # `settings.git_sha` bleibt "unknown", wenn das Docker-Build-Argument
+    # `GIT_SHA` fehlte — kein Absturz, keine erfundene Zahl.
     return {
         "status": "ok",
         "version": APP_VERSION,
+        "commit": settings.git_sha,
     }
 
 

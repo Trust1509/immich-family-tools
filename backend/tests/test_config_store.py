@@ -8,6 +8,7 @@ import pytest
 
 from models.account import AccountCreate
 from models.match import SyncLogEntry
+from services import config_store as config_store_module
 from services.config_store import ConfigStore
 
 
@@ -1961,3 +1962,181 @@ def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
 
     assert "vor-schema-" in str(fehler.value)
     assert f"{path}.vor-kennungsvergabe.bak" in str(fehler.value)
+
+
+# ---------------------------------------------------------------------------
+# #124 B10: liegengebliebene `_save`-Temp-Dateien werden beim Start entfernt.
+# ---------------------------------------------------------------------------
+
+def test_verwaiste_save_temp_datei_wird_beim_start_entfernt(tmp_path, caplog):
+    """Stirbt der Prozess hart zwischen `mkstemp` und `os.replace`, bleibt
+    eine Temp-Datei mit vollem Inhalt (API-Schluessel) liegen. Sie traegt
+    genau das Muster, das `tempfile.mkstemp(prefix=f".{name}.")` OHNE
+    eigenen `suffix` erzeugt: Praefix, dann 8 Zeichen aus
+    Buchstaben/Ziffern/Unterstrich, kein weiterer Punkt."""
+    path = tmp_path / "accounts.json"
+    leiche = tmp_path / ".accounts.json.a1B2c3D4"
+    leiche.write_text('{"accounts": {"x": {"api_key": "schluessel-leiche"}}}', encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))  # darf nicht werfen
+
+    assert not leiche.exists(), "die Temp-Datei-Leiche wurde nicht entfernt"
+    treffer = [r for r in caplog.records if str(leiche) in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in caplog.records]
+    assert treffer[0].levelname == "WARNING"
+
+
+def test_fremde_datei_aehnlichen_namens_bleibt_liegen(tmp_path):
+    """Nur EXAKT das eigene Muster wird entfernt — eine Handkopie mit
+    aehnlichem Namen (falsche Laenge) und die Temp-Datei eines Rueckwegs
+    (ein weiterer Punkt im Rest, eigenes `finally`) bleiben unangetastet."""
+    path = tmp_path / "accounts.json"
+    handkopie = tmp_path / ".accounts.json.alt"
+    handkopie.write_text("nicht anfassen", encoding="utf-8")
+    rueckweg_temp = tmp_path / ".accounts.json.vor-schema-3.bak.a1B2c3D4"
+    rueckweg_temp.write_text("nicht anfassen", encoding="utf-8")
+    zu_kurz = tmp_path / ".accounts.json.abc"
+    zu_kurz.write_text("nicht anfassen", encoding="utf-8")
+
+    ConfigStore(str(path))
+
+    assert handkopie.exists(), "eine fremde Handkopie wurde geloescht"
+    assert rueckweg_temp.exists(), "die Temp-Datei eines Rueckwegs wurde geloescht"
+    assert zu_kurz.exists(), "eine zu kurze Zeichenkette wurde faelschlich als eigenes Muster erkannt"
+
+
+def test_keine_temp_leiche_bleibt_der_start_stumm(tmp_path, caplog):
+    """Gegenprobe: ohne liegengebliebene Temp-Datei keine Meldung dazu."""
+    path = tmp_path / "accounts.json"
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+    assert not any("Temp-Datei" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #106: Warnung, wenn eine Geschwisterdatei der Konfiguration (oder ihr
+# Verzeichnis) fuer Gruppe oder Welt lesbar ist.
+# ---------------------------------------------------------------------------
+
+def test_rechte_warnung_uebersprungen_ohne_posix(tmp_path, monkeypatch, caplog):
+    """Auf Systemen ohne verlaessliche POSIX-Rechte wird geschwiegen — aber
+    SICHTBAR, mit Begruendung, nicht stumm gruen. `_verlaessliche_posix_
+    rechte()` wird gezielt gefaelscht (NICHT `os.name` selbst — das bricht
+    unter Linux jede weitere `pathlib.Path`-Instanziierung im selben Test,
+    siehe deren Docstring), damit dieser Test unabhaengig vom tatsaechlichen
+    Betriebssystem (hier: Windows) immer denselben Zweig prueft."""
+    monkeypatch.setattr(config_store_module, "_verlaessliche_posix_rechte", lambda: False)
+    path = tmp_path / "accounts.json"
+
+    with caplog.at_level("INFO"):
+        ConfigStore(str(path))  # darf nicht werfen
+
+    treffer = [r for r in caplog.records
+               if "uebersprungen" in r.getMessage() and "POSIX" in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in caplog.records]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar (st_mode liefert "
+           "immer 0o666, siehe test_sicherung_bekommt_enge_rechte) — auf "
+           "diesem System uebersprungen, nicht stumm gruen: CI faehrt den "
+           "Backend-Job auf ubuntu-latest und deckt diesen Fall ab.",
+)
+def test_rechte_warnung_bei_zu_weit_lesbarer_geschwisterdatei(tmp_path, caplog):
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(tmp_path, 0o700)
+    handkopie = tmp_path / "accounts.json.pre-v1.2.0"
+    handkopie.write_text('{"accounts": {}}', encoding="utf-8")
+    os.chmod(handkopie, 0o644)
+    # Fremde, ebenfalls zu weit lesbare Datei OHNE Bezug zur Konfiguration —
+    # nur echte Geschwister zaehlen (Mutante "alle Verzeichniseintraege
+    # pruefen" ohne diese Datei ungefangen: sie ueberlebte die volle Suite).
+    fremd = tmp_path / "irgendwas-anderes.txt"
+    fremd.write_text("nichts mit accounts.json zu tun", encoding="utf-8")
+    os.chmod(fremd, 0o644)
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))  # darf nicht werfen — nur warnen
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    treffer = [r for r in eigene if str(handkopie) in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert treffer[0].levelname == "WARNING"
+    assert "0o644" in treffer[0].getMessage()
+    assert not any(str(fremd) in r.getMessage() for r in eigene), \
+        "eine fremde Datei ohne Namensbezug wurde mitgewarnt"
+    # genau eine Warnung insgesamt — die Konfiguration selbst (0600), das
+    # Verzeichnis (0700) und die fremde Datei loesen keine weitere aus.
+    rechte_warnungen = [r for r in eigene if "lesbar" in r.getMessage()]
+    assert len(rechte_warnungen) == 1, [r.getMessage() for r in rechte_warnungen]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar, siehe oben.",
+)
+def test_rechte_warnung_ignoriert_die_konfiguration_selbst(tmp_path, caplog):
+    """`accounts.json` selbst ist bewusst KEIN eigenes Geschwister: `_save()`
+    erzwingt darauf bereits `0600` bei jedem eigenen Schreibvorgang, und das
+    Issue gilt dem, was DANEBEN liegt (siehe Docstring von
+    `_warne_bei_offenen_rechten`). Ein 0644 an der Konfiguration selbst — z.
+    B. von einer Hand-Reparatur, oder weil sie gerade erst kopiert wurde,
+    bevor die App zum ersten Mal speichert — loest deshalb noch KEINE Warnung
+    aus."""
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o644)
+    os.chmod(tmp_path, 0o700)
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    rechte_warnungen = [r for r in eigene if "lesbar" in r.getMessage()]
+    assert not rechte_warnungen, [r.getMessage() for r in rechte_warnungen]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar, siehe oben.",
+)
+def test_rechte_warnung_gegenprobe_alles_eng_bleibt_still(tmp_path, caplog):
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(tmp_path, 0o700)
+    handkopie = tmp_path / "accounts.json.bak"
+    handkopie.write_text('{"accounts": {}}', encoding="utf-8")
+    os.chmod(handkopie, 0o600)
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    rechte_warnungen = [r for r in eigene if "lesbar" in r.getMessage()]
+    assert not rechte_warnungen, [r.getMessage() for r in rechte_warnungen]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar, siehe oben.",
+)
+def test_rechte_warnung_bei_offenem_verzeichnis(tmp_path, caplog):
+    """#106 verlangt die Warnung auch, wenn das VERZEICHNIS selbst zu weit
+    lesbar ist — nicht nur seine Dateien."""
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(tmp_path, 0o750)  # Gruppe darf lesen
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    treffer = [r for r in eigene if "Verzeichnis" in r.getMessage() and str(tmp_path) in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert "0o750" in treffer[0].getMessage()

@@ -3,6 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # #68: Commit, aus dem gebaut wird — `/api/health` gibt ihn aus.
+      # `GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build` setzen;
+      # ohne den Aufruf bleibt es beim Vorgabewert "unknown" (App startet
+      # trotzdem). Details: docs/agents/release-ritual.md, Schritt 9.
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     image: immich-family-tools:latest
     container_name: immich-family-tools
     restart: unless-stopped

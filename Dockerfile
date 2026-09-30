@@ -13,6 +13,13 @@ RUN npm run build
 # ── Stage 2: Python backend + static files ───────────────────────────────────
 FROM python:3.12-slim
 
+# #68: der Commit, aus dem dieses Abbild gebaut wird — `docker build
+# --build-arg GIT_SHA=$(git rev-parse HEAD)`. Fehlt das Argument, bleibt es
+# beim Vorgabewert "unknown"; `/api/health` gibt genau das aus, und die App
+# startet trotzdem (backend/config.py, backend/main.py).
+ARG GIT_SHA=unknown
+ENV IMMICH_FAMILY_TOOLS_GIT_SHA=${GIT_SHA}
+
 # Timezone support + non-root user matching TrueNAS convention
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
     rm -rf /var/lib/apt/lists/*

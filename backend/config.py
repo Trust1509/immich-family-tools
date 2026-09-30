@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     allow_insecure_no_auth: bool = False
     log_retention_days: int = 90
     max_request_bytes: int = 1024 * 1024
+    # #68: der Commit, aus dem das laufende Abbild gebaut wurde — gesetzt vom
+    # Dockerfile (`ARG GIT_SHA` -> `ENV IMMICH_FAMILY_TOOLS_GIT_SHA`) beim
+    # `docker build --build-arg GIT_SHA=<sha>`. Fehlt das Argument (lokaler
+    # Lauf ohne Docker, alter Baubefehl ohne das Argument), bleibt es beim
+    # Vorgabewert — die App startet trotzdem, `/api/health` zeigt dann
+    # ehrlich "unknown" statt eine falsche Zahl zu erfinden.
+    git_sha: str = "unknown"
 
     class Config:
         env_prefix = "IMMICH_FAMILY_TOOLS_"

@@ -15,6 +15,13 @@
 4. Treat every backup as a secret because it contains Immich API keys. This
    applies to the `vor-schema-*` files too — and to them for longer, because
    nothing overwrites or removes them (see _Schema migrations_ below).
+5. Since Slice S7, the application itself warns once at every start — in the
+   container log, not by refusing to start — if `accounts.json`, a sibling
+   whose name starts with it, or the data directory is readable by group or
+   world (`backend/services/config_store.py`). This is a safety net, not a
+   substitute for point 3: it only fires where POSIX permission bits are
+   reliable (skipped, with a reason logged, on Windows and similar
+   filesystems), and it never corrects the permission itself.
 
 ## Schema migrations
 
@@ -48,6 +55,19 @@ and they behave differently on purpose:
 ordinary `.bak` is rewritten on every save — including by the account backfill
 that runs at startup, seconds after the migration. It stops being the
 pre-migration state almost immediately.
+
+**A third kind of start-time write gets no rollback copy at all, and it is
+unrecoverable once it has run.** On every start, `_migrate` also drops any
+managed-album reference to an account that no longer exists (#117/#121/#103)
+— unlike the schema migration and the identifier assignment above, this does
+**not** write a `vor-*.bak` first, regardless of whether it runs together
+with either of them. There is nothing to restore it from except a ZFS
+snapshot or a copy you made yourself before that start: once a dead reference
+is dropped this way, the only place it survives at all is `accounts.json.bak`
+— and only until the _next_ save overwrites that too (`PRIVACY.md`,
+"the ordinary save leaves one more generation behind"). If you need to
+recover a name or account association this way, ZFS snapshot restore is your
+only path — the rollback files above do not cover it.
 
 Two things follow for you as the operator:
 
