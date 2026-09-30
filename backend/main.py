@@ -135,35 +135,36 @@ async def auth_middleware(request: Request, call_next):
                     return _fehler_antwort(errors.request_too_large())
             except ValueError:
                 return _fehler_antwort(errors.invalid_content_length())
-        else:
-            # Nacharbeit 1 zu #85, Punkt 3, zweiter Teil: OHNE
-            # Content-Length-Header (z. B. chunked transfer encoding) kam
-            # die Pruefung oben nie zum Zug — FastAPI liest den Koerper
-            # trotzdem vollstaendig ein, bevor irgendein Router ihn sieht.
-            # Gemessen (Gegenpruefer #85, vorbestehend): ein 1,25-MB-Koerper
-            # ohne Content-Length kam vollstaendig durch, obwohl
-            # `settings.max_request_bytes` bei 1 MiB liegt. Der Koerper wird
-            # deshalb hier selbst, bytesweise eingelesen und SOFORT
-            # abgebrochen, sobald er das Limit ueberschreitet.
+        elif request.headers.get("transfer-encoding"):
+            # Nacharbeit 2 zu #85, Punkt 1: ERSETZT den fruehreren
+            # chunked-Lesezweig aus Nacharbeit 1 (bytesweise einlesen und bei
+            # Ueberschreiten abbrechen) — der oeffnete selbst eine neue Tuer:
+            # Der Koerper wurde VOR der Anmeldeprüfung und OHNE Zeitgrenze
+            # gelesen, ein anonymer, absichtlich nie endender chunked-Koerper
+            # band also unbegrenzt Speicher und eine Verbindung, ohne dass
+            # jemals eine Antwort kam (Gegenpruefer NA1: 500 solcher
+            # Verbindungen -> +553 MB, keine einzige Antwort; Blindpruefer
+            # NA1: 40 gehaltene Verbindungen -> 43 Tracebacks im Log, vorher
+            # 0). Dieser Fix liest darum GAR NICHTS mehr vom Koerper: Eine
+            # `/api/`-Anfrage mit `Transfer-Encoding`, aber ohne
+            # `Content-Length`, wird SOFORT mit 411 abgelehnt, noch bevor
+            # ein einziges Byte angefragt wird.
             #
-            # `request._body` danach zu setzen ist KEIN Seiteneffekt auf
-            # fremdes Verhalten, sondern der Weg, den Starlettes eigene
-            # `_CachedRequest` (`starlette/middleware/base.py`) fuer genau
-            # diesen Fall vorsieht: `wrapped_receive()` prueft zuerst dieses
-            # Attribut und spiegelt seinen Inhalt an den naechsten Leser
-            # weiter (Router/Pydantic), STATT den (hier schon verbrauchten)
-            # rohen ASGI-Stream erneut zu lesen — sonst saehe der Router
-            # einen leeren Koerper. Das ist derselbe Mechanismus, den
-            # `Request.body()` selbst benutzt, nur mit einer Groessengrenze
-            # WAEHREND des Lesens statt danach.
-            gelesen = 0
-            teile: list[bytes] = []
-            async for teil in request.stream():
-                gelesen += len(teil)
-                if gelesen > settings.max_request_bytes:
-                    return _fehler_antwort(errors.request_too_large())
-                teile.append(teil)
-            request._body = b"".join(teile)
+            # Kein Konsument dieser Anwendung sendet jemals chunked: Jeder
+            # Aufruf in `frontend/src/api/client.ts` schickt eine fertige
+            # `JSON.stringify(...)`-Zeichenkette, `fetch` setzt dafuer selbst
+            # `Content-Length`. HTTP/1.1 ohne BEIDE Kopfzeilen hat definitionsgemaess
+            # keinen Koerper (RFC 9112 §6.3) — ein `GET` ohne Koerper traegt
+            # ohnehin keinen der beiden Header und ist von dieser Pruefung
+            # nicht betroffen. Beide Kopfzeilen gleichzeitig weist bereits
+            # uvicorns eigener HTTP-Parser mit 400 zurueck, bevor diese
+            # Middleware ueberhaupt laeuft (gemessen, echter uvicorn).
+            #
+            # VOR der Anmeldeprüfung, aber nicht WEGEN eines Vorrangs: Weil
+            # hier nichts gelesen wird, kostet die Reihenfolge nichts — ein
+            # unauthentifizierter UND ein authentifizierter chunked-Aufruf
+            # bekommen beide dieselbe sofortige 411-Antwort.
+            return _fehler_antwort(errors.length_required())
     if request.url.path not in UNPROTECTED and request.url.path.startswith("/api/"):
         bearer = request.headers.get("Authorization", "")
         bearer_ok = bearer.startswith("Bearer ") and hmac.compare_digest(

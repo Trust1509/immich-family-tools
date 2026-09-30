@@ -266,7 +266,7 @@ def person_validation_failed(account_name: str) -> AppError:
 # ── Die Middleware-Pfade ───────────────────────────────────────────────────
 #
 # main.py baut seine Fehlerantworten VOR jedem Router von Hand als
-# JSONResponse. Ein Exception-Handler greift dort nicht — die drei Faelle
+# JSONResponse. Ein Exception-Handler greift dort nicht — die Faelle
 # muessen dieselbe Form selbst erzeugen. Deshalb stehen sie hier und nicht
 # als AppError: `antwort()` unten liefert das Woerterbuch, das sie brauchen.
 
@@ -277,6 +277,18 @@ def request_too_large() -> AppError:
 
 def invalid_content_length() -> AppError:
     return AppError(400, "err_invalid_content_length", "Invalid Content-Length")
+
+
+def length_required() -> AppError:
+    """Nacharbeit 2 zu #85: Ersatz fuer den entfernten chunked-Lesezweig.
+
+    Eine `/api/`-Anfrage mit `Transfer-Encoding`, aber OHNE `Content-Length`,
+    wird HIERMIT abgelehnt, BEVOR irgendein Byte des Koerpers gelesen wird —
+    siehe `main.py`, `auth_middleware`. 411 ist der dafuer vorgesehene
+    Statuscode (RFC 9110: der Server verlangt eine `Content-Length`, weil er
+    ohne sie ablehnt, statt den Koerper entgegenzunehmen).
+    """
+    return AppError(411, "err_length_required", "Content-Length erforderlich")
 
 
 def unauthorized() -> AppError:
@@ -401,31 +413,65 @@ def validation_failed(field_names: list[str]) -> AppError:
     weiter mit dem Client-Input — bei vielen tausend eindeutigen Feldnamen
     eine unbegrenzte Antwort. Deshalb werden nur die ersten
     `_MAX_ANGEZEIGTE_FELDER` einzeln genannt, der Rest als Zahl.
+
+    NEU (Nacharbeit 2 zu #85, K2): Der Rest-Hinweis ("… und N weitere")
+    landete bisher als deutscher KLARTEXT mitten in `error_params["fields"]`
+    — ein Frontend, das die umgebende Meldung uebersetzt, gab diesen
+    Textbaustein trotzdem unuebersetzt aus, egal welche Sprache eingestellt
+    war. `fields` traegt jetzt NUR noch die Feldnamen; die Anzahl der
+    weiteren, nicht einzeln genannten Felder steht als eigener,
+    zahl-typischer Parameter `more` daneben ("0", wenn nichts gekuerzt
+    wurde) — die Uebersetzung selbst entscheidet je Sprache, wie sie "0"/"1"/
+    "n weitere" grammatisch korrekt anhaengt (`frontend/src/i18n.tsx`).
+    `detail` (der deutsche Rueckfall-Klartext) traegt den fertigen Satz
+    weiterhin selbst, wie jede andere Meldung dieser Datei.
+
+    NEU (Nacharbeit 2 zu #85, K7): Entdoppelt wird auf den ROHEN Feldnamen,
+    BEVOR gekuerzt wird — nicht mehr umgekehrt. Kuerzung zuerst haette zwei
+    verschiedene, je ueber 200 Zeichen lange Feldnamen mit demselben
+    200-Zeichen-Anfang faelschlich zu EINEM zusammengefasst: Beide waeren
+    nach `_gekuerzt()` byte-identisch, obwohl der Client zwei unterschiedliche
+    Felder gemeint hat — die Anzeigezahl UND der Rest waeren dann zu klein.
     """
     gesehen: set[str] = set()
-    eindeutig: list[str] = []
+    eindeutig_roh: list[str] = []
     for roh in field_names:
-        name = _gekuerzt(roh)
-        if name not in gesehen:
-            gesehen.add(name)
-            eindeutig.append(name)
-    gesamt = len(eindeutig)
+        if roh not in gesehen:
+            gesehen.add(roh)
+            eindeutig_roh.append(roh)
+    gesamt = len(eindeutig_roh)
+    # `>` statt `>=`: bei GENAU `_MAX_ANGEZEIGTE_FELDER` Feldern sind beide
+    # Zweige inzwischen beobachtungsgleich (`rest` wird in BEIDEN Zweigen 0,
+    # `anzuzeigen` in beiden Faellen die volle, ungekuerzte Liste) — anders
+    # als vor Nacharbeit 2, wo der Rest-Text unbedingt im Truncation-Zweig
+    # angehaengt wurde und `>=` dort faelschlich "und 0 weitere" erzeugte.
+    # Gemessen (Mutationslauf `>` -> `>=`, ganze Suite, Nacharbeit 2 zu #85):
+    # 525 von 525 Tests bleiben gruen — eine ECHTE Aequivalenz, keine
+    # Testluecke, weil das `if rest:` unten den Unterschied in JEDEM Zweig
+    # abfaengt.
     if gesamt > _MAX_ANGEZEIGTE_FELDER:
         rest = gesamt - _MAX_ANGEZEIGTE_FELDER
-        liste = ", ".join(eindeutig[:_MAX_ANGEZEIGTE_FELDER]) + f", … und {rest} weitere"
+        anzuzeigen = eindeutig_roh[:_MAX_ANGEZEIGTE_FELDER]
     else:
-        liste = ", ".join(eindeutig) if eindeutig else "?"
-    return AppError(
-        422,
-        "err_validation_failed",
+        rest = 0
+        anzuzeigen = eindeutig_roh
+    liste = ", ".join(_gekuerzt(n) for n in anzuzeigen) if anzuzeigen else "?"
+    text = (
         # "Ungueltiger Wert" traf den Fall "Feld fehlt" oder "unbekanntes
         # Feld" nie wirklich (da liegt kein WERT vor, der ungueltig waere).
         # Genaues Unterscheiden von "unbekannt"/"fehlt"/"falscher Typ" je
         # Fehlerart wurde geprueft und zurueckgestellt (Bericht, KLEIN-Punkt
         # "Unbekanntes Feld/fehlt/falscher Typ") — der neutralere Wortlaut
         # hier ist der im Bau-Brief benannte Ersatz dafuer.
-        f"Ungültige oder unbekannte Angabe für: {liste}",
-        {"fields": liste},
+        f"Ungültige oder unbekannte Angabe für: {liste}"
+    )
+    if rest:
+        text += " und eine weitere" if rest == 1 else f" und {rest} weitere"
+    return AppError(
+        422,
+        "err_validation_failed",
+        text,
+        {"fields": liste, "more": str(rest)},
     )
 
 
@@ -454,11 +500,15 @@ def invalid_json_body() -> AppError:
 # Zuordnung ist bewusst ueber den TEXT der Ausnahme, nicht ueber eine eigene
 # Ausnahmeklasse: `field_validator` erwartet `ValueError`/`AssertionError`/
 # `PydanticCustomError`, keine `AppError` (die ist eine `HTTPException` und
-# wuerde im Pydantic-Validierungslauf nicht sauber behandelt). Nur die ZWEI
-# im Bau-Brief gemessenen Faelle sind hier abgedeckt — ein dritter eigener
-# Validator braucht einen eigenen Eintrag, sonst faellt sein Grund weiterhin
-# auf den generischen Pfad zurueck (kein Absturz, nur wieder der alte
-# Zustand fuer diesen EINEN Fall).
+# wuerde im Pydantic-Validierungslauf nicht sauber behandelt). Jeder eigene
+# Validator-Text in `backend/models/` braucht einen eigenen Eintrag hier,
+# sonst faellt sein Grund auf den generischen Pfad zurueck (kein Absturz,
+# nur der genauere Grund geht fuer diesen EINEN Fall verloren) —
+# `test_jeder_eigene_validator_text_hat_eine_uebersetzung`
+# (`backend/tests/test_errors.py`) liest `backend/models/` per AST und haelt
+# das fest, damit ein VIERTER Text nicht wieder unbemerkt ohne Eintrag bleibt
+# (Nacharbeit 2 zu #85, KLEIN: der dritte, `invalid_url_scheme`, war genau
+# dieser vergessene Fall).
 def credentials_in_url() -> AppError:
     return AppError(
         422, "err_credentials_in_url",
@@ -470,7 +520,21 @@ def disallowed_network_address() -> AppError:
     return AppError(422, "err_disallowed_network_address", "Diese Netzadresse ist nicht erlaubt")
 
 
+def invalid_url_scheme() -> AppError:
+    """Nacharbeit 2 zu #85, KLEIN: der DRITTE eigene Validator-Text
+
+    (`models/account.py`, `validate_immich_url`, "Immich URL must use
+    http:// or https://") hatte bisher KEINEN eigenen Eintrag — sein Grund
+    fiel auf denselben generischen Pfad zurueck wie die beiden anderen vor
+    #85. `test_jeder_eigene_validator_text_hat_eine_uebersetzung` (AST-Scan
+    ueber `backend/models/`) haelt seither fest, dass kein DRITTER, VIERTER
+    usw. Text je wieder unbemerkt ohne Eintrag bleibt.
+    """
+    return AppError(422, "err_invalid_url_scheme", "Die Immich-URL muss mit http:// oder https:// beginnen")
+
+
 EIGENE_VALIDATOR_GRUENDE: dict[str, Callable[[], AppError]] = {
+    "Immich URL must use http:// or https://": invalid_url_scheme,
     "Credentials are not allowed inside the Immich URL": credentials_in_url,
     "This network address is not allowed": disallowed_network_address,
 }

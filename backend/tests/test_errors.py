@@ -7,6 +7,7 @@ verlaesst — und dass die Schluesselmengen von Backend und Frontend
 uebereinstimmen, weil ein Schluessel ohne Gegenstueck genau dorthin fuehrt.
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import main
 
 WURZEL = Path(__file__).resolve().parents[2]
 I18N = WURZEL / "frontend" / "src" / "i18n.tsx"
+_MODELS_DIR = WURZEL / "backend" / "models"
 
 SCHLUESSEL_MUSTER = re.compile(r'"(err_[a-z0-9_]+)"')
 
@@ -184,6 +186,7 @@ STATUSCODES = {
     "err_disallowed_network_address": 422,
     "err_duplicate_query_param": 422,
     "err_invalid_json_body": 422,
+    "err_invalid_url_scheme": 422,
     "err_group_choice_conflict": 422,
     "err_group_choice_required": 409,
     "err_group_not_found": 404,
@@ -193,6 +196,7 @@ STATUSCODES = {
     "err_invalid_content_length": 400,
     "err_invalid_time_format": 422,
     "err_invalid_token": 401,
+    "err_length_required": 411,
     "err_log_entry_not_found": 404,
     "err_managed_album_not_found": 404,
     "err_manual_match_id_collision": 409,
@@ -306,8 +310,7 @@ def test_jede_meldung_mit_zurueckgespiegeltem_wert_kappt_ihn(fabrik):
     hatten schon eine Kappungsprobe (`test_gruppenwahl_schnittstelle.py`) —
     die uebrigen fuenf Funktionen mit `_gekuerzt()` hatten keine EIGENE. Ein
     Tippfehler, der `_gekuerzt()` an einer dieser Stellen durch `str()`
-    ersetzt (vgl. Mutanten M04–M06 im Blind-Bericht), waere hier unbemerkt
-    geblieben.
+    ersetzt, waere hier unbemerkt geblieben.
     """
     lang = "y" * 5000
     fehler = fabrik(lang)
@@ -321,10 +324,12 @@ def test_jede_meldung_mit_zurueckgespiegeltem_wert_kappt_ihn(fabrik):
 def test_validation_failed_dedupliziert_und_erhaelt_reihenfolge():
     """Die eigentliche Fehlfunktion war quadratisch (Liste statt Menge) —
     dieser Test prueft die KORREKTHEIT (Reihenfolge, keine Duplikate); die
-    LAUFZEIT prueft `test_schnittstelle_haertung_na1.py` durch die echte Tuer.
+    LAUFZEIT prueft `test_schnittstelle_haertung_randbereiche.py` durch die
+    echte Tuer.
     """
     fehler = errors.validation_failed(["b", "a", "b", "c", "a"])
     assert fehler.params["fields"] == "b, a, c"
+    assert fehler.params["more"] == "0"
 
 
 def test_validation_failed_deckelt_die_angezeigte_feldzahl():
@@ -332,29 +337,147 @@ def test_validation_failed_deckelt_die_angezeigte_feldzahl():
     vom Client gewaehlten Feldnamen — bei vielen tausend Feldern eine
     unbegrenzte Antwort (Punkt 3). Diese Probe bindet nur die KORREKTHEIT der
     Deckelung (Anzahl, Resttext); die Laenge/Zeit unter echtem HTTP-Umfang
-    prueft `test_schnittstelle_haertung_na1.py`.
+    prueft `test_schnittstelle_haertung_randbereiche.py`.
+
+    Nacharbeit 2 zu #85, K2: `fields` traegt seit dieser Runde NUR noch die
+    Feldnamen — kein "... und N weitere" mehr als deutscher Klartext darin
+    (das war das Testluecken-Symptom: `"weitere" in liste` war bisher gruen,
+    weil die Uebersetzung diesen Teilsatz nie sah). Der Rest steht jetzt im
+    eigenen Parameter `more`.
     """
     namen = [f"f{i:04d}" for i in range(50)]
     fehler = errors.validation_failed(namen)
     liste = fehler.params["fields"]
-    assert liste.count(",") < 25, "mehr als die gedeckelten Felder erscheinen einzeln"
-    assert "weitere" in liste
+    assert liste.count(",") < 20, "mehr als die gedeckelten Felder erscheinen einzeln"
+    assert "weitere" not in liste, "der Rest-Hinweis gehoert nicht mehr in 'fields'"
+    assert fehler.params["more"] == "30"
+    assert "weitere" in fehler.detail  # der deutsche Klartext-Rueckfall bleibt vollstaendig
     for name in namen[:5]:
         assert name in liste
     assert namen[-1] not in liste
 
 
+@pytest.mark.parametrize(
+    "anzahl_felder",
+    [19, 20, 21, 22],
+)
+def test_validation_failed_deckel_exakt_bei_19_20_21_22(anzahl_felder):
+    """Nacharbeit 2 zu #85, Punkt 2 (Blind M02/M03, Gegen N2/N3/N13): Der
+    Deckel selbst war nie an den GENAUEN Grenzen (19/20/21/22 verschiedene
+    Felder) festgenagelt — ein `>=` statt `>` (zeigt bei genau 20 faelschlich
+    "und 0 weitere"), ein Deckel von 24 statt 20, oder eine Kuerzung auf der
+    ROHEN statt der entduplizierten Liste waeren hier alle unbemerkt
+    geblieben.
+    """
+    namen = [f"f{i:03d}" for i in range(anzahl_felder)]
+    fehler = errors.validation_failed(namen)
+    liste = fehler.params["fields"]
+    rest = fehler.params["more"]
+    if anzahl_felder <= 20:
+        assert liste == ", ".join(namen)
+        assert rest == "0"
+        assert "weitere" not in fehler.detail
+    else:
+        assert liste == ", ".join(namen[:20])
+        assert rest == str(anzahl_felder - 20)
+        assert namen[20] not in liste
+        assert "weitere" in fehler.detail
+
+
+def test_validation_failed_entdoppelt_vor_dem_kuerzen_nicht_danach():
+    """Nacharbeit 2 zu #85, K7: Kuerzung VOR der Entdopplung wuerde 40
+    verschiedene, aber langegleich beginnende Feldnamen faelschlich auf
+    weniger als 40 zusammenfassen (alle 40 teilen die ersten 200 Zeichen,
+    `_gekuerzt()` liefert fuer alle denselben String). Entdoppelt wird daher
+    auf dem ROHEN Namen; erst danach wird gekuerzt.
+    """
+    namen = [("L" * 200) + f"{i:05d}" for i in range(40)]  # gleicher 200er-Anfang, 40 verschiedene
+    fehler = errors.validation_failed(namen)
+    assert fehler.params["more"] == "20", fehler.params
+
+
+def test_validation_failed_rest_zaehlt_verschiedene_rohnamen_nicht_duplikate():
+    """Nacharbeit 2 zu #85, Punkt 2 (Blind M04/M04b): Der Rest muss die
+    Anzahl der NICHT einzeln genannten, aber VERSCHIEDENEN Rohnamen zaehlen —
+    nicht die Gesamtzahl der (moeglicherweise mehrfach vorkommenden)
+    Rohnamen. 25 verschiedene Namen, jeder davon zweimal in der Eingabe:
+    20 werden gezeigt, der Rest ist 5 (verschiedene), nicht 30 (= 50 - 20
+    Rohnamen insgesamt).
+    """
+    einzigartige = [f"f{i:03d}" for i in range(25)]
+    namen = einzigartige + einzigartige  # jeder Name kommt zweimal vor
+    fehler = errors.validation_failed(namen)
+    assert fehler.params["more"] == "5"
+    assert fehler.params["fields"] == ", ".join(einzigartige[:20])
+
+
 def test_eigene_validatoren_haben_einen_uebersetzbaren_schluessel():
-    """#85 Nacharbeit 1, KLEIN: Die beiden Faelle aus dem Bau-Brief muessen
-    ERKENNBAR bleiben — nicht mehr im generischen "Ungueltige oder
-    unbekannte Angabe fuer: immich_url" untergehen.
+    """#85 Nacharbeit 1, KLEIN + Nacharbeit 2 (der DRITTE eigene
+    Validator-Text, `models/account.py`, "Immich URL must use http:// or
+    https://") muessen alle ERKENNBAR bleiben — nicht mehr im generischen
+    "Ungueltige oder unbekannte Angabe fuer: immich_url" untergehen.
     """
     a = errors.credentials_in_url()
     b = errors.disallowed_network_address()
-    assert a.key != "err_validation_failed"
-    assert b.key != "err_validation_failed"
-    assert a.detail and b.detail
-    assert a.key != b.key
+    c = errors.invalid_url_scheme()
+    for fehler in (a, b, c):
+        assert fehler.key != "err_validation_failed"
+        assert fehler.detail
+    assert len({a.key, b.key, c.key}) == 3
+
+
+def _raise_valueerror_texte(quelltext: str) -> list[str]:
+    """Jeder `raise ValueError("...")`-Text in einer Python-Quelldatei, per
+    AST gelesen (Nacharbeit 2 zu #85, KLEIN) — nicht per Textsuche, damit ein
+    mehrzeiliger oder anders eingerueckter `raise` genauso gefunden wird.
+    """
+    baum = ast.parse(quelltext)
+    texte = []
+    for knoten in ast.walk(baum):
+        if not isinstance(knoten, ast.Raise) or not isinstance(knoten.exc, ast.Call):
+            continue
+        func = knoten.exc.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if name != "ValueError" or not knoten.exc.args:
+            continue
+        arg = knoten.exc.args[0]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            texte.append(arg.value)
+    return texte
+
+
+def test_jeder_eigene_validator_text_hat_eine_uebersetzung():
+    """Nacharbeit 2 zu #85, KLEIN: Ein Wächter gegen den naechsten
+    unabgebildeten Validator-Text — nicht nur gegen die drei heute bekannten.
+    Liest `backend/models/*.py` per AST und verlangt, dass JEDER
+    `raise ValueError("…")`-Text einen Eintrag in
+    `errors.EIGENE_VALIDATOR_GRUENDE` hat, sonst faellt sein Grund wieder auf
+    den generischen Pfad zurueck (kein Absturz, nur der Grund geht verloren).
+    """
+    fehlend = []
+    for datei in sorted(_MODELS_DIR.glob("*.py")):
+        for text in _raise_valueerror_texte(datei.read_text("utf-8")):
+            if text not in errors.EIGENE_VALIDATOR_GRUENDE:
+                fehlend.append(f"{datei.name}: {text!r}")
+    assert fehlend == [], f"ValueError-Text ohne Eintrag in EIGENE_VALIDATOR_GRUENDE: {fehlend}"
+
+
+def test_selbstprobe_ast_scan_findet_einen_erfundenen_validator_ohne_eintrag():
+    """Selbstprobe (CLAUDE.md, Pruefwerkzeug-Regel): Der Waechter oben ist nur
+    dann einer, wenn der zugrunde liegende AST-Scan einen NEUEN,
+    unabgebildeten Validator-Text ueberhaupt SEHEN kann. Diese Probe erfindet
+    einen und prueft die Scan-Funktion direkt — ohne eine echte Datei im Repo
+    zu veraendern (das waere Scope-Erweiterung).
+    """
+    quelltext = (
+        "def f(value):\n"
+        "    if not value:\n"
+        "        raise ValueError('Ein Validator, den es nirgends gibt')\n"
+        "    return value\n"
+    )
+    gefunden = _raise_valueerror_texte(quelltext)
+    assert "Ein Validator, den es nirgends gibt" in gefunden
+    assert "Ein Validator, den es nirgends gibt" not in errors.EIGENE_VALIDATOR_GRUENDE
 
 
 def test_kaputtes_json_hat_einen_eigenen_schluessel():

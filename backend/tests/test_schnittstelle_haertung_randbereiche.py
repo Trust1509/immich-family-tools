@@ -1,7 +1,7 @@
-"""Nacharbeit 1 zu #85 — Testluecken aus Blind-, Gegen- und Fremdpruefer.
+"""Nacharbeit 1 + 2 zu #85 — Testluecken aus Blind-, Gegen- und Fremdpruefer.
 
-Vier Befunde und eine Reihe von Testluecken (Bau-Brief
-`welle4/S6_na1.md`), alle ueber die ECHTE Tuer (Prueffrage 7):
+Vier Befunde und eine Reihe von Testluecken, alle ueber die ECHTE Tuer
+(Prueffrage 7):
 
   1. `errors.validation_failed` deduplizierte mit einer LISTE statt einer
      MENGE — quadratisch in der Anzahl der Fehler. Siehe
@@ -9,15 +9,23 @@ Vier Befunde und eine Reihe von Testluecken (Bau-Brief
      und `test_api_health_bleibt_schnell_waehrend_grossem_request` (echter
      uvicorn — eine reine `TestClient`-Probe teilt sich zwar denselben
      Event-Loop, beweist aber nichts ueber einen echten Server unter
-     echter Netzwerk-E/A).
+     echter Netzwerk-E/A). NACHARBEIT 2: Ein Request OHNE
+     `Content-Length`-Header (chunked) wurde bis dahin bytesweise
+     eingelesen und bei Ueberschreiten des Limits abgebrochen — das las den
+     Koerper aber VOR der Anmeldeprüfung und ohne Zeitgrenze und oeffnete
+     damit selbst eine neue Tuer (unbegrenzt Speicher/Verbindungen durch
+     einen absichtlich nie endenden, anonymen Koerper). Ersetzt durch eine
+     sofortige 411-Ablehnung ohne jedes Lesen — siehe die Tests unter
+     "Befund 3" unten.
   2. `GET /api/sync/autosync-config` antwortete mit 500, sobald die
      gespeicherten Daten ein Zusatzfeld trugen (`AutoSyncConfig` ist
      zugleich `response_model` UND `extra="forbid"`).
-  3. Ein Request OHNE `Content-Length`-Header (chunked) umging die
-     1-MiB-Pruefung der Middleware vollstaendig.
+  3. (Nacharbeit 1) Ein Request OHNE `Content-Length`-Header (chunked)
+     umging die 1-MiB-Pruefung der Middleware vollstaendig — siehe Punkt 1.
   4. Der Grund eigener Validatoren (Zugangsdaten in der URL, nicht
-     erlaubte Netzadresse) ging im generischen Validierungspfad verloren;
-     kaputtes JSON zeigte eine Byte-Position als "Feldname".
+     erlaubte Netzadresse, ungueltiges URL-Schema) ging im generischen
+     Validierungspfad verloren; kaputtes JSON zeigte eine Byte-Position als
+     "Feldname".
 
 Dazu die benannten Testluecken: `extra="forbid"` an JEDEM betroffenen
 Modell/Endpunkt (vorher nur `SyncNamesMultiRequest` abgedeckt), ein
@@ -65,9 +73,8 @@ def client(tmp_path, monkeypatch):
 #
 # Vorher hatte nur `SyncNamesMultiRequest` eine eigene Probe
 # (`test_gruppenwahl_schnittstelle.py`). Ein Wechsel, der `extra="forbid"`
-# an einem der GESCHWISTER-Modelle verliert (Pruefframge 3), waere an keiner
-# Stelle aufgefallen — die sieben Mutationen M13–M20 im Blind-Bericht zielen
-# genau darauf.
+# an einem der GESCHWISTER-Modelle verliert (Prueffrage 3), waere an keiner
+# Stelle aufgefallen — mehrere gezielte Mutationen zielen genau darauf.
 
 _FORBID_FAELLE = [
     ("UndoRequest", "post", "/api/sync/undo", {"log_entry_id": "x"}),
@@ -92,8 +99,8 @@ def test_unbekanntes_feld_wird_an_jedem_modell_abgelehnt(client, name, methode, 
     assert "foo" in koerper_antwort["error_params"]["fields"], (name, koerper_antwort)
     # Nicht nur `error_params` — auch `detail` (der Rueckfall-Klartext fuer
     # ein Frontend, das den Schluessel nicht kennt) muss den Feldnamen
-    # nennen. Mutation M21 (Blind-Bericht): `detail` ohne Feldliste blieb
-    # unter 6157ff1 unbemerkt gruen, weil kein Test `detail` selbst pruefte.
+    # nennen: `detail` ohne Feldliste blieb unter 6157ff1 unbemerkt gruen,
+    # weil kein Test `detail` selbst pruefte.
     assert "foo" in koerper_antwort["detail"], (name, koerper_antwort)
 
 
@@ -103,9 +110,9 @@ def test_verschachteltes_zusatzfeld_nennt_den_vollen_pfad(client):
     (`test_gruppenwahl_schnittstelle.py`) haengt das Zusatzfeld nur auf die
     OBERSTE Ebene. `main._feldnamen_aus_validierungsfehlern` verbindet
     `loc[1:]` mit '.' — dieser Test bindet das an den tatsaechlichen
-    verschachtelten Pfad, nicht nur das letzte Glied (Mutation M11 im
-    Blind-Bericht: "nur letztes Glied" bliebe sonst unbemerkt gruen, weil
-    "foo" ohnehin im letzten Glied steckt).
+    verschachtelten Pfad, nicht nur das letzte Glied ("nur letztes Glied"
+    bliebe sonst unbemerkt gruen, weil "foo" ohnehin im letzten Glied
+    steckt).
     """
     antwort = client.post("/api/sync/names-multi", headers=KOPF, json={
         "persons": [
@@ -166,53 +173,185 @@ def main_settings_patch(monkeypatch, pfad):
     monkeypatch.setattr(main.settings, "config_path", pfad, raising=False)
 
 
-# ── Befund 3: Chunked ohne Content-Length umgeht die 1-MiB-Grenze ──────────
+# ── Befund 3: Chunked ohne Content-Length ───────────────────────────────────
+#
+# NACHARBEIT 2 zu #85: Der fruehere Fix (Nacharbeit 1) las einen chunked
+# Koerper bytesweise ein und brach beim Ueberschreiten des Limits ab — das
+# geschah aber VOR der Anmeldeprüfung und OHNE Zeitgrenze und oeffnete damit
+# selbst eine neue Tuer: Ein anonymer, absichtlich nie endender chunked-
+# Koerper band unbegrenzt Speicher und eine Verbindung, ohne dass je eine
+# Antwort kam (Gegenpruefer NA1, echter uvicorn: 500 solcher Verbindungen ->
+# +553 MB, keine einzige Antwort; Blindpruefer NA1: 40 gehaltene
+# Verbindungen -> 43 Tracebacks "Exception in ASGI application" im Log,
+# vorher 0). Ersetzt durch eine sofortige 411-Ablehnung, OHNE ein einziges
+# Byte des Koerpers zu lesen (`main.py`, `auth_middleware`) — unabhaengig,
+# ob die Anfrage angemeldet ist oder nicht, weil die Reihenfolge nichts
+# kostet, wenn nichts gelesen wird.
+#
+# Kein Konsument dieser Anwendung sendet chunked (`frontend/src/api/
+# client.ts` schickt ausschliesslich `JSON.stringify(...)`-Zeichenketten,
+# `fetch` setzt dafuer selbst `Content-Length`) — die 411-Antwort trifft
+# also nie einen echten Aufruf dieser Oberflaeche.
 
 
-def test_chunked_ohne_content_length_wird_trotzdem_begrenzt(client):
-    """Rot unter 6157ff1 (200/422 statt 413), gruen danach.
-
-    Gemessen VOR diesem Fix, mit genau diesem Muster (20 * 64 KiB = 1,25 MB
-    ohne Content-Length-Header): Die 1-MiB-Pruefung der Middleware griff
-    nicht, FastAPI las den kompletten Koerper trotzdem ein.
+def test_chunked_ohne_anmeldung_wird_sofort_mit_411_abgelehnt(client):
+    """Rot unter 12e45c4 (200/422/413, je nach Groesse, nach vollstaendigem
+    Einlesen), gruen danach: 411, ohne Anmeldung.
     """
     def strom():
-        for _ in range(20):
-            yield b"x" * 65536  # 20 * 64 KiB > 1 MiB, ohne Content-Length
+        yield b"x" * 10  # ein einzelnes, winziges Stueck reicht
+
+    antwort = client.post(
+        "/api/sync/undo",
+        headers={"Content-Type": "application/json"},  # KEIN Authorization-Header
+        content=strom(),
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+def test_chunked_mit_anmeldung_wird_ebenfalls_mit_411_abgelehnt(client):
+    """Prueffrage 1/9: Die 411-Antwort kommt UNABHAENGIG von der
+    Anmeldeprüfung — ein authentifizierter chunked-Aufruf bekommt dieselbe
+    Antwort wie ein unauthentifizierter, weil in beiden Faellen nichts
+    gelesen wird (kein Vorrang der Anmeldung noetig).
+    """
+    def strom():
+        yield b"x" * 10
 
     antwort = client.post(
         "/api/sync/undo",
         headers={**KOPF, "Content-Type": "application/json"},
         content=strom(),
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+def test_411_gilt_auch_fuer_andere_methoden_als_post(client):
+    """Mutations-Namensgeber "411 nur fuer POST": Die Pruefung in
+    `auth_middleware` haengt NICHT am HTTP-Verb — jede `/api/`-Anfrage mit
+    `Transfer-Encoding` ohne `Content-Length` wird abgelehnt, unabhaengig
+    von der Methode. Eine Einschraenkung auf POST waere fuer diese
+    Anwendung zwar folgenlos (kein Konsument sendet chunked, ueber keine
+    Methode), aber NICHT aequivalent zum jetzigen Verhalten — dieser Test
+    haelt genau das fest, statt es nur zu behaupten.
+    """
+    def strom():
+        yield b"x" * 10
+
+    antwort = client.put(
+        "/api/sync/autosync-config",
+        headers={**KOPF, "Content-Type": "application/json"},
+        content=strom(),
+    )
+    assert antwort.status_code == 411
+    assert antwort.json().get("error_key") == "err_length_required"
+
+
+def test_content_length_ueber_dem_limit_liefert_weiterhin_413(client):
+    """Gegenprobe/Testluecken-Schluss: Die bisherige 413-Probe hing an der
+    ALTEN Chunked-Implementierung (ein Koerper ohne `Content-Length`, der
+    beim Einlesen das Limit ueberschritt) — mit deren Entfernung waere die
+    413-Antwort ueber `Content-Length` sonst UNGEPRUEFT geblieben, obwohl
+    dieser Zweig der Middleware unveraendert ist. Ein echter, expliziter
+    `Content-Length`-Header (kein Generator, kein `Transfer-Encoding`) muss
+    weiterhin bei Ueberschreiten des Limits 413 liefern.
+    """
+    antwort = client.post(
+        "/api/sync/undo",
+        headers={**KOPF, "Content-Type": "application/json"},
+        content=b"x" * (1024 * 1024 + 1),  # > max_request_bytes (1 MiB)
     )
     assert antwort.status_code == 413
     assert antwort.json().get("error_key") == "err_request_too_large"
 
 
-def test_chunked_body_unter_dem_limit_kommt_beim_router_an(client):
-    """Gegenprobe zum Grenzentest oben (Pruefframge 4): Der Fix darf einen
-    GUELTIGEN, bloss ohne Content-Length gesendeten Koerper nicht kaputt
-    machen — sonst waere die Sperre staerker als noetig, und ein echter
-    Client, der zufaellig chunked sendet (z. B. hinter einem Proxy), faende
-    sich blockiert, ohne zu gross zu sein. Das prueft zugleich, dass das
-    Setzen von `request._body` in der Middleware (Pruefframge 1: schreibt
-    dieser Fix an einer Stelle, die vorher nur las?) den Koerper korrekt an
-    den Router WEITERGIBT, statt ihn zu verschlucken.
+def _freier_port_411() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_chunked_koerper_wird_nicht_gelesen_kein_traceback_beim_abbruch(tmp_path):
+    """Prueffrage 7/9, echter uvicorn (Nacharbeit 2 zu #85): Eine Probe,
+    deren Koerper NIE endet, bekommt trotzdem SOFORT die 411-Antwort — das
+    ist nur moeglich, wenn die Middleware wirklich nichts liest (eine reine
+    `TestClient`-Probe koennte das nicht unterscheiden, ein haengender
+    ASGI-`receive` wuerde dort denselben Event-Loop wie der Test selbst
+    benutzen). Zusaetzlich: kein Traceback im Server-Log, weder bei dieser
+    Probe noch bei einem abgebrochenen chunked-Koerper — anders als unter
+    12e45c4 (Blindpruefer NA1: 43 "Exception in ASGI application" bei 40
+    Abbruechen), weil seit dieser Nacharbeit gar nichts mehr vom Koerper
+    gelesen wird, das ein `ClientDisconnect` werfen koennte.
     """
-    body = json.dumps({"log_entry_id": "gibt-es-nicht"}).encode()
-
-    def strom():
-        yield body
-
-    antwort = client.post(
-        "/api/sync/undo",
-        headers={**KOPF, "Content-Type": "application/json"},
-        content=strom(),
+    port = _freier_port_411()
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({"accounts": {}, "managed_albums": []}), encoding="utf-8")
+    env = dict(
+        os.environ,
+        IMMICH_FAMILY_TOOLS_SECRET="nur-test-411-probe",
+        IMMICH_FAMILY_TOOLS_CONFIG_PATH=str(pfad),
     )
-    # 404 (log_entry_not_found), NICHT 413/422 — der Koerper kam vollstaendig
-    # und korrekt geparst beim Router an.
-    assert antwort.status_code == 404
-    assert antwort.json().get("error_key") == "err_log_entry_not_found"
+    backend_dir = Path(__file__).resolve().parents[1]
+    logpfad = tmp_path / "server.log"
+    log = open(logpfad, "w", encoding="utf-8")
+    prozess = subprocess.Popen(
+        [sys.executable, "-B", "-m", "uvicorn", "main:app", "--port", str(port),
+         "--log-level", "info"],
+        cwd=backend_dir, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+    )
+    try:
+        hoch = False
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1)
+                hoch = True
+                break
+            except Exception:
+                time.sleep(0.2)
+        assert hoch, "uvicorn kam nicht rechtzeitig hoch"
+
+        # a) Koerper, der nie endet: Header senden, dann NUR EIN winziges
+        # Chunk, danach absichtlich nichts mehr — die Antwort muss trotzdem
+        # sofort kommen, nicht erst nach einem Timeout.
+        kopf = (
+            "POST /api/sync/undo HTTP/1.1\r\nHost: x\r\n"
+            "Content-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n"
+        ).encode()
+        s = socket.create_connection(("127.0.0.1", port))
+        t0 = time.perf_counter()
+        s.sendall(kopf + b"a\r\n" + b"x" * 10 + b"\r\n")  # ein Chunk, KEIN Abschluss
+        s.settimeout(5.0)
+        antwort = s.recv(4096)
+        dauer = time.perf_counter() - t0
+        s.close()
+        erste_zeile = antwort.split(b"\r\n")[0].decode()
+        assert "411" in erste_zeile, erste_zeile
+        assert dauer < 3.0, f"Antwort kam erst nach {dauer:.2f}s — Koerper wurde vermutlich gelesen"
+
+        # b) Verbindung mitten im chunked-Koerper abbrechen (unauth und auth)
+        for auth_kopf in (b"", b"Authorization: Bearer nur-test-411-probe\r\n"):
+            s = socket.create_connection(("127.0.0.1", port))
+            s.sendall(
+                b"POST /api/sync/undo HTTP/1.1\r\nHost: x\r\n"
+                b"Content-Type: application/json\r\nTransfer-Encoding: chunked\r\n"
+                + auth_kopf + b"\r\n" + b"5\r\n{\"log\r\n"
+            )
+            time.sleep(0.3)
+            s.close()
+        time.sleep(1.0)
+    finally:
+        prozess.terminate()
+        try:
+            prozess.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            prozess.kill()
+            prozess.wait(timeout=10)
+        log.close()
+    logtext = logpfad.read_text(encoding="utf-8", errors="replace")
+    assert "Exception in ASGI application" not in logtext, logtext
+    assert "Traceback" not in logtext, logtext
 
 
 # ── Befund 4: Eigener Validierungsgrund geht verloren ──────────────────────
@@ -239,6 +378,55 @@ def test_nicht_erlaubte_netzadresse_bleibt_als_eigener_fehler_erkennbar(client):
     assert koerper["error_key"] != "err_validation_failed"
 
 
+def test_ungueltiges_url_schema_bleibt_als_eigener_fehler_erkennbar(client):
+    """Nacharbeit 2 zu #85, KLEIN: der DRITTE eigene Validator-Text
+    (`models/account.py` ~14, "Immich URL must use http:// or https://")
+    war bisher NICHT abgebildet und fiel auf den generischen Pfad zurueck.
+    """
+    antwort = client.post("/api/accounts", headers=KOPF, json={
+        "name": "Testkonto", "immich_url": "ftp://beispiel.invalid", "api_key": "platzhalter",
+    })
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert koerper.get("error_key") == "err_invalid_url_scheme", koerper
+    assert koerper["error_key"] != "err_validation_failed"
+
+
+@pytest.mark.parametrize(
+    "immich_url",
+    [
+        "http://nutzer:geheim@beispiel.invalid",  # credentials_in_url
+        "http://127.0.0.1",  # disallowed_network_address
+    ],
+)
+def test_zwei_fehler_darunter_ein_bekannter_value_error_bleibt_generisch(client, immich_url):
+    """Nacharbeit 2 zu #85, Punkt 2: Der Sonderfall in
+    `main._validation_error_handler` erkennt einen eigenen Validator-Grund
+    NUR, wenn GENAU EIN Fehler vorliegt (`len(rohe_fehler) == 1`). Ein
+    zweiter, unabhaengiger Fehler (hier: das Pflichtfeld `api_key` fehlt)
+    schaltet fuer BEIDE eigenen Validator-Faelle auf den generischen Pfad
+    zurueck — kein Absturz, nur der genauere Grund geht dann verloren
+    (dokumentiertes, bewusstes Verhalten, kein neuer Fehler).
+
+    `api_key` (nicht `name`) fehlt bewusst: `AccountCreate` deklariert die
+    Felder in der Reihenfolge `name, immich_url, api_key`, Pydantic meldet
+    Fehler in dieser Reihenfolge — mit `api_key` fehlend steht der bekannte
+    `value_error` von `immich_url` an ERSTER Stelle in `exc.errors()`. Genau
+    das ist die Stelle, an der eine Mutation `len(rohe_fehler) == 1` durch
+    `>= 1` ersetzt und trotzdem (faelschlich) den Validator-Grund liefert,
+    weil sie nur `rohe_fehler[0]` ansieht — mit `name` fehlend (Feld VOR
+    `immich_url`) stuende der bekannte Fehler an zweiter Stelle, und dieselbe
+    Mutation bliebe hier unbemerkt gruen.
+    """
+    antwort = client.post("/api/accounts", headers=KOPF, json={
+        "name": "Testkonto", "immich_url": immich_url,
+    })
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert koerper.get("error_key") == "err_validation_failed", koerper
+    assert "api_key" in koerper["error_params"]["fields"]
+
+
 def test_gueltige_url_bleibt_unveraendert_erlaubt(client):
     """Gegenprobe: Die Zuordnung ueber den ValueError-Text darf keine
     gueltige URL treffen.
@@ -248,10 +436,17 @@ def test_gueltige_url_bleibt_unveraendert_erlaubt(client):
     })
     # Kein 422 mehr wegen der URL selbst (das Konto scheitert hier an der
     # ausbleibenden echten Immich-Instanz, nicht an der URL-Form) — die
-    # genaue Fehlerart ist fuer diesen Test irrelevant, nur err_credentials_in_url
-    # und err_disallowed_network_address duerfen es NICHT sein.
-    koerper = antwort.json() if antwort.headers.get("content-type", "").startswith("application/json") else {}
-    assert koerper.get("error_key") not in ("err_credentials_in_url", "err_disallowed_network_address")
+    # genaue Fehlerart ist fuer diesen Test irrelevant, nur err_credentials_in_url,
+    # err_disallowed_network_address und err_invalid_url_scheme duerfen es
+    # NICHT sein. K9: die Antwort muss trotzdem gueltiges JSON sein — ein
+    # Absturz, der stattdessen einen leeren/nicht-JSON-Koerper liefert,
+    # waere mit der bisherigen Kulanz (`{}` als Ersatz bei nicht-JSON)
+    # unbemerkt geblieben.
+    assert antwort.headers.get("content-type", "").startswith("application/json"), antwort.headers
+    koerper = antwort.json()
+    assert koerper.get("error_key") not in (
+        "err_credentials_in_url", "err_disallowed_network_address", "err_invalid_url_scheme",
+    )
 
 
 def test_kaputtes_json_bekommt_einen_eigenen_wortlaut(client):

@@ -898,7 +898,7 @@ describe("ERROR_PARAM_ORDER", () => {
       err_person_validation_failed: { account: "WERT-C" },
       err_manual_match_id_collision: { album: "WERT-D" },
       err_unsupported_immich_version: { major: "WERT-E", minor: "WERT-F" },
-      err_validation_failed: { fields: "WERT-G" },
+      err_validation_failed: { fields: "WERT-G", more: "3" },
       err_duplicate_query_param: { name: "WERT-H" },
     };
     expect(Object.keys(werte).sort()).toEqual(Object.keys(ERROR_PARAM_ORDER).sort());
@@ -932,5 +932,73 @@ describe("ERROR_PARAM_ORDER", () => {
     expect(
       capturedContext(fakeStorage("de")).errorText({ message: "RUECKFALL", key: "nav_accounts" })
     ).toBe("RUECKFALL");
+  });
+});
+
+// Nacharbeit 2 zu #85, K2: "... und N weitere" stand bisher als deutscher
+// KLARTEXT in `error_params.fields` — ein uebersetztes Frontend gab diesen
+// Teilsatz trotzdem unuebersetzt aus. Der Rest ist jetzt ein eigener
+// Parameter (`more`), und jede Sprache haengt ihn selbst an: kein Zusatz bei
+// "0", Singularform bei "1", Pluralform sonst. Direkt gegen die
+// Uebersetzungsfunktion, wie die album_rename_skipped_hint-Tests oben.
+describe("err_validation_failed haengt den Rest grammatisch korrekt an (Nacharbeit 2 zu #85, K2)", () => {
+  const faelle: [Lang, string, string, string][] = [
+    ["de", "a, b", "0", "Ungültige oder unbekannte Angabe für: a, b"],
+    ["de", "a, b", "1", "Ungültige oder unbekannte Angabe für: a, b und eine weitere"],
+    ["de", "a, b", "3", "Ungültige oder unbekannte Angabe für: a, b und 3 weitere"],
+    ["en", "a, b", "0", "Invalid or unknown value for: a, b"],
+    ["en", "a, b", "1", "Invalid or unknown value for: a, b and one more"],
+    ["en", "a, b", "3", "Invalid or unknown value for: a, b and 3 more"],
+    ["es-ES", "a, b", "0", "Valor no válido o desconocido para: a, b"],
+    ["es-ES", "a, b", "1", "Valor no válido o desconocido para: a, b y uno más"],
+    ["es-ES", "a, b", "3", "Valor no válido o desconocido para: a, b y 3 más"],
+    ["pt-BR", "a, b", "0", "Valor inválido ou desconhecido para: a, b"],
+    ["pt-BR", "a, b", "1", "Valor inválido ou desconhecido para: a, b e mais um"],
+    ["pt-BR", "a, b", "3", "Valor inválido ou desconhecido para: a, b e mais 3"],
+  ];
+
+  for (const [lang, felder, more, erwartet] of faelle) {
+    it(`${lang}, more=${more}`, () => {
+      const fn = translations.err_validation_failed[lang] as (a: string, b: string) => string;
+      expect(fn(felder, more)).toBe(erwartet);
+    });
+  }
+});
+
+// K6 (Nacharbeit 2 zu #85): Blind F1 (pt-BR zeigte den DEUTSCHEN Text neben
+// den drei anderen Sprachen) und Blind F2 (en mit einer FALSCHEN Bedeutung)
+// blieben unbemerkt gruen, weil keine bestehende Probe je verglich, ob sich
+// eine neue Uebersetzung ueberhaupt vom Deutschen unterscheidet oder ihre
+// Parameter traegt. Wortgleichheit wird NICHT verlangt — nur, dass keine
+// Sprache zufaellig denselben Text wie die deutsche liefert. Beschraenkt auf
+// die von DIESER Nacharbeit neuen/geaenderten Schluessel (Umfang), nicht auf
+// die gesamte Tabelle.
+describe("neue/geaenderte err_*-Schluessel weichen vom Deutschen ab und tragen ihre Parameter (K6)", () => {
+  const geprueft: Array<{ key: keyof typeof translations; platzhalter: string[] }> = [
+    { key: "err_length_required", platzhalter: [] },
+    { key: "err_invalid_url_scheme", platzhalter: [] },
+    { key: "err_validation_failed", platzhalter: ["a, b", "3"] },
+  ];
+
+  it("jede Sprache liefert einen eigenen Text, verschieden vom deutschen, mit den Parametern darin", () => {
+    for (const { key, platzhalter } of geprueft) {
+      const eintrag = translations[key] as Record<Lang, unknown>;
+      const werteDe = eintrag.de;
+      const textDe =
+        typeof werteDe === "function"
+          ? (werteDe as (...a: string[]) => string)(...platzhalter)
+          : (werteDe as string);
+      for (const lang of ["en", "es-ES", "pt-BR"] as Lang[]) {
+        const wertLang = eintrag[lang];
+        const textLang =
+          typeof wertLang === "function"
+            ? (wertLang as (...a: string[]) => string)(...platzhalter)
+            : (wertLang as string);
+        expect(textLang, `${String(key)}/${lang}`).not.toBe(textDe);
+        for (const p of platzhalter) {
+          expect(textLang, `${String(key)}/${lang} enthaelt "${p}" nicht`).toContain(p);
+        }
+      }
+    }
   });
 });

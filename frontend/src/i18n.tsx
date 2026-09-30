@@ -1485,6 +1485,15 @@ export const translations = {
     "es-ES": "Cabecera Content-Length no válida",
     "pt-BR": "Cabeçalho Content-Length inválido",
   },
+  // Nacharbeit 2 zu #85, Punkt 1: Ersatz fuer den entfernten
+  // chunked-Lesezweig — eine `/api/`-Anfrage mit `Transfer-Encoding`, aber
+  // ohne `Content-Length`, wird abgelehnt, OHNE den Koerper zu lesen.
+  err_length_required: {
+    de: "Content-Length erforderlich",
+    en: "Content-Length required",
+    "es-ES": "Se requiere Content-Length",
+    "pt-BR": "Content-Length obrigatório",
+  },
   // #85 Punkt 1: FastAPIs/Pydantics eigener Validierungsfehler bekommt seit
   // diesem Slice denselben Schluessel/Klartext-Vertrag wie jede andere
   // Meldung — vorher lieferte dieser Pfad gar keinen `error_key` (siehe
@@ -1492,14 +1501,41 @@ export const translations = {
   // absichtlich zahl-invariant formuliert (kein Substantiv mit
   // Singular-/Pluralform), damit ein wie mehrere Feldnamen ohne zweite
   // Formulierung grammatisch korrekt bleiben.
+  //
+  // Nacharbeit 2 zu #85, K2: Der zweite Parameter `more` traegt die Anzahl
+  // der NICHT einzeln genannten Felder ("0" ohne Kuerzung). Vorher stand
+  // "... und N weitere" als deutscher KLARTEXT in `error_params.fields` —
+  // ein uebersetztes Frontend gab diesen Teilsatz trotzdem unuebersetzt
+  // aus. Jede Sprache haengt den Rest jetzt SELBST an, grammatisch korrekt
+  // fuer "0" (kein Zusatz), "1" (Singular) und "n" (Plural).
   err_validation_failed: {
     // Nacharbeit 1 zu #85: "Ungueltiger Wert" traf den Fall "Feld fehlt"
     // oder "unbekanntes Feld" nie wirklich (da liegt kein WERT vor, der
     // ungueltig waere) — neutraler formuliert, deckt alle Faelle ab.
-    de: (felder: string) => `Ungültige oder unbekannte Angabe für: ${felder}`,
-    en: (felder: string) => `Invalid or unknown value for: ${felder}`,
-    "es-ES": (felder: string) => `Valor no válido o desconocido para: ${felder}`,
-    "pt-BR": (felder: string) => `Valor inválido ou desconhecido para: ${felder}`,
+    de: (felder: string, more: string) => {
+      const basis = `Ungültige oder unbekannte Angabe für: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} und ${rest === 1 ? "eine weitere" : `${rest} weitere`}`;
+    },
+    en: (felder: string, more: string) => {
+      const basis = `Invalid or unknown value for: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} and ${rest === 1 ? "one more" : `${rest} more`}`;
+    },
+    "es-ES": (felder: string, more: string) => {
+      const basis = `Valor no válido o desconocido para: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} y ${rest === 1 ? "uno más" : `${rest} más`}`;
+    },
+    "pt-BR": (felder: string, more: string) => {
+      const basis = `Valor inválido ou desconhecido para: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} e ${rest === 1 ? "mais um" : `mais ${rest}`}`;
+    },
   },
   // Nacharbeit 1 zu #85, KLEIN: Kaputtes JSON lief vorher durch
   // `err_validation_failed` mit einer Byte-Position als "Feldname"
@@ -1525,6 +1561,15 @@ export const translations = {
     en: "This network address is not allowed",
     "es-ES": "Esta dirección de red no está permitida",
     "pt-BR": "Este endereço de rede não é permitido",
+  },
+  // Nacharbeit 2 zu #85, KLEIN: der DRITTE eigene Validator-Text
+  // (`models/account.py`, `validate_immich_url`) hatte bisher keinen
+  // eigenen Schluessel und fiel auf den generischen Pfad zurueck.
+  err_invalid_url_scheme: {
+    de: "Die Immich-URL muss mit http:// oder https:// beginnen",
+    en: "The Immich URL must start with http:// or https://",
+    "es-ES": "La URL de Immich debe comenzar con http:// o https://",
+    "pt-BR": "A URL do Immich deve começar com http:// ou https://",
   },
   // #85 Punkt 5: `?album_name=A&album_name=B` wurde bisher still auf einen
   // Wert reduziert. `name` ist hier immer ein Parametername aus unserem
@@ -1803,7 +1848,7 @@ export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_person_validation_failed: ["account"],
   err_manual_match_id_collision: ["album"],
   err_unsupported_immich_version: ["major", "minor"],
-  err_validation_failed: ["fields"],
+  err_validation_failed: ["fields", "more"],
   err_duplicate_query_param: ["name"],
 };
 
