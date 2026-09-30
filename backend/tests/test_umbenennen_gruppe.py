@@ -325,6 +325,14 @@ FREI_GEWORDEN = [
     ("\u1fb3\u0342", "\u1fbc\u0342"),  # Übergabe nur über Stufe 2
 ]
 
+# Laufzeit-Zaehlung fuer den Skip-Waechter weiter unten
+# (`test_jede_frei_gewordene_schreibweise_lief_wirklich_bis_zum_ende`, S8
+# Nacharbeit 2, KLEIN): Der parametrisierte Test traegt sich hier erst nach
+# seiner LETZTEN Zusicherung ein — ein Skip (Marke oder Aufruf im Rumpf), ein
+# Xfail oder eine gebrochene Zusicherung unterbricht ihn vorher, egal welche
+# Form die Unterbrechung hat.
+_TATSAECHLICH_BESTANDENE_FAELLE: list[tuple[str, str]] = []
+
 
 def test_die_festhalte_probe_deckt_beide_stufen():
     """Hält die Parameterliste darunter lebendig.
@@ -413,4 +421,31 @@ def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(
 
     nachher = c.get("/api/sync/album-group", params={"album_name": alter_name}).json()
     assert nachher and nachher["group_id"] == "gruppe-2", nachher
+    _TATSAECHLICH_BESTANDENE_FAELLE.append((alter_name, fremde_schreibweise))
+
+
+def test_jede_frei_gewordene_schreibweise_lief_wirklich_bis_zum_ende():
+    """Skip-Wächter, Ergänzung (S8 Nacharbeit 2, KLEIN): Der Dekorator-Wächter
+    oben (`test_der_dekorator_verwendet_wirklich_ganz_frei_geworden`) liest nur
+    STATISCH die am Testobjekt hinterlegten Marken — eine zusätzliche
+    `@pytest.mark.xfail(...)`-Marke ÜBER `parametrize` (Sonde S8, C2) oder ein
+    `pytest.skip(...)`-Aufruf MITTEN IM RUMPF der parametrisierten Funktion
+    (C3, gar keine Marke, also für eine Markenliste unsichtbar) blieben damit
+    unbemerkt grün: C2 ändert zusätzlich die Erwartung auf eine falsche
+    Gruppe, aber `xfail` verwandelt den daraus folgenden Fehlschlag in ein
+    erwartetes XFAIL statt in ein rotes FAILED; C3 überspringt den
+    Testkörper komplett, ohne je eine Marke zu setzen — eine Markenliste
+    hätte C3 grundsätzlich nie gesehen, gleich wie vollständig sie ist.
+
+    Deshalb hier eine LAUFZEIT-Zählung statt einer weiteren Markenprüfung:
+    Der eigentliche Test trägt sich selbst erst NACH seiner letzten
+    Zusicherung in `_TATSAECHLICH_BESTANDENE_FAELLE` ein. Ein Skip (Marke
+    oder Aufruf), ein Xfail oder eine gebrochene Zusicherung unterbricht die
+    Ausführung VOR dieser Zeile — die Liste bleibt dann unvollständig, egal
+    welche Form die Unterbrechung hatte. Dieser Wächter hier läuft — weil er
+    in der Datei NACH der parametrisierten Funktion steht und pytest ohne
+    Zufalls-Plugin (keins in `backend/requirements.txt`) die Reihenfolge der
+    Datei einhält — garantiert erst NACH allen parametrisierten Fällen und
+    verlangt die volle, geordnete Liste (Anzahl UND Wertfolge)."""
+    assert _TATSAECHLICH_BESTANDENE_FAELLE == FREI_GEWORDEN, _TATSAECHLICH_BESTANDENE_FAELLE
 

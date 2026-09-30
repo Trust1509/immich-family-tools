@@ -24,7 +24,12 @@ and they behave differently on purpose:
 - **`accounts.json.vor-schema-<N>.bak`** — written **once** before a schema
   migration and never overwritten while it is usable. `<N>` is the schema
   version it is migrating **to**; the file holds the state from _before_ that
-  migration.
+  migration. **Exception (#120):** if a _usable_ copy already sits at the
+  target, only writing **this rollback copy** is skipped — the schema
+  migration itself still runs in full; the existing copy already holds the
+  state from before the migration, so a second write would just duplicate
+  it. You land in exactly this situation by following _Undoing a
+  migration_ below and then upgrading again.
 - **`accounts.json.vor-kennungsvergabe.bak`** — written before the app
   assigns any album group identifiers that are still missing. That happens
   when an older version created an album without one — **independently of
@@ -32,15 +37,12 @@ and they behave differently on purpose:
   old-format file (no `schema_version` key) with such an album writes
   **both** rollback files and logs **both** lines in a single run (#105);
   the two cases are not mutually exclusive, only worded and tested
-  separately. **Exception (#120):** if a _usable_ `vor-schema-<N>.bak`
-  already sits at the target, the schema-migration branch returns early
-  without writing or logging anything, so only the identifier-assignment
-  line (if that branch also triggers) appears — you land in exactly this
-  situation by following _Undoing a migration_ below and then upgrading
-  again. **One generation only:** it is replaced on each such run, so
-  it always holds the state from before the _most recent_ one. That is the
-  state you would want back; a months-old copy would throw away everything
-  since.
+  separately — this holds even when the Exception above skips the
+  schema-migration copy: the identifier-assignment line (and file) still
+  appears whenever an identifier is actually missing. **One generation
+  only:** it is replaced on each such run, so it always holds the state
+  from before the _most recent_ one. That is the state you would want
+  back; a months-old copy would throw away everything since.
 
 **This is the file you want after a migration, not `accounts.json.bak`.** The
 ordinary `.bak` is rewritten on every save — including by the account backfill

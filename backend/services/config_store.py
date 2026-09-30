@@ -211,8 +211,9 @@ class ConfigStore:
         Reihenfolge sei „bedeutungslos" — eine Mutation, die die beiden Aufrufe
         vertauscht (D2), blieb damals unter der ALTEN, mengenbasierten Fassung
         von `test_mischfall_schemasprung_und_kennungsvergabe_bekommen_beide_
-        rueckwege` unbemerkt gruen. Seit die drei Nacharbeit-Funde D1/D4/D5/D7
-        (verdoppelte Zeile, falsche Stufe, zusaetzliche Warnung) diesen Test auf
+        rueckwege` unbemerkt gruen. Seit die drei Nacharbeit-Funde D1/D7, D4, D5
+        (verdoppelte Zeile — zwei Mutationen fuer denselben Fund —, falsche
+        Stufe, zusaetzliche Warnung; vier Kennungen fuer drei Funde) diesen Test auf
         eine LISTE in fester Reihenfolge umgestellt haben, faengt genau dieselbe
         Probe auch D2 — selbst GEMESSEN, nicht aus einer fruehen Sonden-Notiz
         uebernommen: eine Vertauschung macht `test_mischfall_...` jetzt rot,

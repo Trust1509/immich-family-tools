@@ -1794,6 +1794,153 @@ def test_mischfall_beide_rueckwege_scheitern_melden_beide_warnungen(tmp_path, ca
     assert len(warnungen) == 2, [r.getMessage() for r in eigene]
 
 
+def test_mischfall_kennungsvergabe_scheitert_trotz_erfolgreichem_schemasprung_meldet_warnung(
+    tmp_path, monkeypatch, caplog
+):
+    """S8 Nacharbeit 2, WICHTIG (D14): Scheitert im Mischfall NUR der
+    Kennungsvergabe-Rueckweg, waehrend der Schemasprung-Rueckweg im selben
+    Lauf gelingt, darf das den Scheitern-Hinweis nicht verschlucken. Anders
+    als `test_mischfall_beide_rueckwege_scheitern_melden_beide_warnungen`
+    oben (BEIDE Ziele scheitern) faengt EIN gescheitertes Ziel neben einem
+    gelungenen eine andere Mutationsklasse: Gemessen (Sonde S8, D14), ein
+    Umbau, der sich nach einem gelungenen Schemasprung-Rueckweg ein Flag
+    merkt (`self._schema_rueckweg_ok = True`) und die
+    Kennungsvergabe-Warnung dann daran knuepft (`elif not getattr(self,
+    "_schema_rueckweg_ok", False):`), blieb hier unbemerkt gruen. Ein echter
+    `OSError` (Monkeypatch auf `tempfile.mkstemp`, gefiltert auf den
+    Kennungsvergabe-Praefix) statt einer Attrappe, damit nur DIESES eine
+    Ziel scheitert."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)  # kein schema_version, album-1 ohne group_id -> Mischfall
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert_nur_bei_kennungsvergabe(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-kennungsvergabe"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert_nur_bei_kennungsvergabe)
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    assert schema_ziel.exists(), "der Schemasprung-Rueckweg gelang wirklich"
+    assert not kennung_ziel.exists(), "der Kennungsvergabe-Rueckweg scheiterte wirklich"
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    warnungen = [r.getMessage() for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [
+        f"Rueckweg vor Kennungsvergabe nicht moeglich: {kennung_ziel}"
+    ], warnungen
+    infos = [r.getMessage() for r in eigene
+             if r.levelno == logging.INFO and r.getMessage().startswith("Rueckweg vor")]
+    assert infos == [
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION}: {schema_ziel}"
+    ], infos
+
+
+def test_kennungsvergabe_scheitert_trotz_vorhandenem_brauchbarem_schema_rueckweg_meldet_warnung(
+    tmp_path, monkeypatch, caplog
+):
+    """S8 Nacharbeit 2, WICHTIG (D14b, genau der #120-Fall): Liegt schon ein
+    brauchbarer `vor-schema-*.bak` am Ziel — aus einem FRUEHEREN Lauf, KEIN
+    Schemasprung in DIESEM Lauf —, darf das eine unabhaengig scheiternde
+    Kennungsvergabe-Sicherung nicht verschweigen. Gemessen (Sonde S8, D14b):
+    ein Umbau, der die Warnung an `not self._rueckweg_brauchbar(<vor-schema-
+    Pfad>)` knuepft, blieb hier unbemerkt gruen — ein Altbestand traegt
+    zufaellig einen brauchbaren Rueckweg aus einer VORHERIGEN Migration, mit
+    dem die aktuelle Kennungsvergabe nichts zu tun hat. `schema_version`
+    steht hier schon auf dem aktuellen Stand (kein Sprung in diesem Lauf,
+    `_sichere_vor_schemasprung(einmalig=True)` wird also gar nicht erst
+    aufgerufen), nur ein Album ohne `group_id` loest die Kennungsvergabe
+    aus."""
+    path = tmp_path / "accounts.json"
+    ohne_kennung = _album("a1", "Testalbum", ["p1"])
+    path.write_text(json.dumps({
+        "schema_version": ConfigStore.SCHEMA_VERSION,  # KEIN Sprung in diesem Lauf
+        "accounts": LEGACY_ACCOUNTS,
+        "managed_albums": [ohne_kennung],
+    }, indent=2), encoding="utf-8")
+
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    schema_ziel.write_text(
+        json.dumps({"accounts": LEGACY_ACCOUNTS}), encoding="utf-8"
+    )  # brauchbarer Alt-Rueckweg aus einer frueheren Migration
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert_bei_kennungsvergabe(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-kennungsvergabe"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert_bei_kennungsvergabe)
+
+    with caplog.at_level("WARNING"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    assert not kennung_ziel.exists(), "der Kennungsvergabe-Rueckweg scheiterte wirklich"
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    warnungen = [r.getMessage() for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [
+        f"Rueckweg vor Kennungsvergabe nicht moeglich: {kennung_ziel}"
+    ], warnungen
+
+
+def test_mischfall_schemasprung_scheitert_kennungsvergabe_gelingt_meldet_erfolg(
+    tmp_path, monkeypatch, caplog
+):
+    """S8 Nacharbeit 2, WICHTIG (D13, Spiegelbild zu D14): Scheitert im
+    Mischfall NUR der Schemasprung-Rueckweg, waehrend die Kennungsvergabe im
+    selben Lauf gelingt, muss deren Erfolgszeile trotzdem stehen. Gemessen
+    (Sonde S8, D13): ein Umbau, der sich das gescheiterte
+    Schemasprung-Rueckweg als Flag merkt (`self._schema_rueckweg_gescheitert
+    = True`) und die Kennungsvergabe-Erfolgszeile dann daran knuepft (`if
+    not getattr(self, "_schema_rueckweg_gescheitert", False):
+    logger.info(...)`), blieb hier unbemerkt gruen. Echter `OSError`
+    (Monkeypatch auf `tempfile.mkstemp`, gefiltert auf den
+    Schemasprung-Praefix) statt einer Attrappe, damit nur DIESES eine Ziel
+    scheitert."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert_nur_beim_schemasprung(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-schema"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert_nur_beim_schemasprung)
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    assert not schema_ziel.exists(), "der Schemasprung-Rueckweg scheiterte wirklich"
+    assert kennung_ziel.exists(), "der Kennungsvergabe-Rueckweg gelang wirklich"
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    warnungen = [r.getMessage() for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {schema_ziel}"
+    ], warnungen
+    infos = [r.getMessage() for r in eigene
+             if r.levelno == logging.INFO and r.getMessage().startswith("Rueckweg vor")]
+    assert infos == [
+        f"Rueckweg vor Kennungsvergabe: {kennung_ziel}"
+    ], infos
+
+
 def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
     """Die Fehlermeldung in `_load` nannte nur `vor-schema-*.bak` und
     verschwieg `vor-kennungsvergabe.bak` — beide Saetze waren einzeln
