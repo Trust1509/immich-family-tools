@@ -186,8 +186,12 @@ describe("Fehler-Schluessel aus der Antwort", () => {
   });
 
   it("kommt ohne Schluessel aus und behaelt den Klartext", async () => {
-    // Die Form von FastAPIs eigenen Validierungsfehlern: `detail` ist eine
-    // Liste, ein Schluessel fehlt ganz. Gemessen an der laufenden API.
+    // Frueher (vor #85) die Form von FastAPIs eigenen Validierungsfehlern:
+    // `detail` war eine Liste, ein Schluessel fehlte ganz. Seit #85 traegt
+    // auch dieser Pfad `error_key` + einen Zeichenketten-`detail`
+    // (`backend/main.py`, `_validation_error_handler`) — diese Probe bleibt
+    // als generische Robustheitspruefung fuer eine schluessel-lose Antwort
+    // stehen, ohne aktuelle reale Entsprechung an der laufenden API.
     const err = await antwort(422, { detail: [{ msg: "Field required" }] });
     expect(err.key).toBeUndefined();
     expect(err.message.length).toBeGreaterThan(0);

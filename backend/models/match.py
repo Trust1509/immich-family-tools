@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, model_validator
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Callable, Optional
 from enum import Enum
 
 
@@ -90,21 +90,43 @@ class ManagedAlbumOut(ManagedAlbum):
 
     `owner_account_missing`: das Besitzerkonto (`owner_account_id`) existiert
     nicht mehr im Kontenbestand — das verwaiste Album aus `CONTEXT.md`.
-    `too_few_people`: weniger als zwei Personen stehen noch in
-    `person_refs` — kann unabhaengig vom Besitzerkonto eintreten (ein
-    Teilnehmer, nicht der Besitzer, wurde geloescht) und blockiert fuer sich
-    allein weder Umbenennen noch Abgleichen.
+    `too_few_people`: weniger als zwei Referenzen in `person_refs` zeigen auf
+    ein NOCH LEBENDES Konto (Nacharbeit 1, #117/#121/#103) — kann unabhaengig
+    vom Besitzerkonto eintreten (ein Teilnehmer, nicht der Besitzer, wurde
+    geloescht) und blockiert fuer sich allein weder Umbenennen noch
+    Abgleichen. Eine Referenz auf ein bereits geloeschtes Konto zaehlt NICHT
+    mit — sie kann liegen bleiben, bis zum ENDE DER GERADE LAUFENDEN
+    BEARBEITUNG dieses Albums (ihr Album war beim Loeschen gerade durch ein
+    anderes Schloss belegt), spaetestens aber bis zum naechsten Start
+    (Nacharbeit 2, #117/#121/#103 — `sync_service._raeume_tote_referenzen_
+    synchron` raeumt sie im `finally` jedes Schloss-Wrappers, unabhaengig
+    davon, wie dieser endet; `ConfigStore._migrate` raeumt beim Start, falls
+    zwischenzeitlich keine dieser Bearbeitungen mehr lief).
     """
     owner_account_missing: bool = False
     too_few_people: bool = False
 
 
 class SyncNamesRequest(BaseModel):
+    # extra="forbid" (#85 Punkt 2): Ein Tippfehler im Feldnamen (`matchId`
+    # statt `match_id`) wurde bisher still ignoriert (Pydantic-Vorgabe
+    # `extra="ignore"`) und das fehlende Pflichtfeld ergaenzte sich mit einem
+    # eigenen 422 -- aber NUR, wenn es kein Feld mit Vorgabewert traf
+    # (Nacharbeit 1: "Pflichtfeld mit Vorgabewert" war ein Widerspruch in
+    # sich -- ein Feld MIT Vorgabewert ist per Definition kein Pflichtfeld).
+    # Ein Feld mit Vorgabewert (siehe `force_new_group` bei den Gruppen-
+    # Modellen unten) wurde beim Tippfehler STILL uebernommen, ohne Fehler.
+    # Jeder Aufrufer aus `frontend/src/api/client.ts` schickt exakt die hier
+    # deklarierten Felder -- keiner ist von der Ablehnung betroffen.
+    model_config = ConfigDict(extra="forbid")
+
     match_id: str
     name: str  # The canonical name to set on both persons
 
 
 class MultiSyncPersonEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     account_id: str
     person_id: str
 
@@ -132,6 +154,11 @@ class ConditionalAlbumRequest(BaseModel):
 
 
 class SyncNamesMultiRequest(BaseModel):
+    # extra="forbid" (#85 Punkt 2) -- Begruendung siehe `SyncNamesRequest`
+    # oben; hier ist es der Endpunkt aus dem Issue selbst (`groupId` statt
+    # `group_id` -> 200, Gruppe nach Namen geraten).
+    model_config = ConfigDict(extra="forbid")
+
     persons: list[MultiSyncPersonEntry]        # one entry per account, min 2
     canonical_name: str
     album_name: Optional[str] = None           # if set, create new shared album
@@ -142,9 +169,25 @@ class SyncNamesMultiRequest(BaseModel):
     # erzwingt eine eigene. Beides zugleich wird abgelehnt.
     group_id: Optional[str] = None
     force_new_group: bool = False
+    # #119: Der Client bestaetigt hiermit, dass SEINE Vorschau zu diesem
+    # Namen "keine Gruppe" zeigte. Vorgabe `False` — die rohe API und ein
+    # Client ohne dieses Feld behalten fuer den EINDEUTIGEN Fall das
+    # bisherige Verhalten: existiert inzwischen GENAU EINE Gruppe zu diesem
+    # Namen, tritt die Anfrage ihr still bei (das ist der Fall aus #86, zwei
+    # GLEICHZEITIGE Anlagen desselben neuen Namens sollen in EINER Gruppe
+    # landen, nicht mit einer Ablehnung enden). Ein MEHRDEUTIGER Name wird
+    # seit #113 immer abgelehnt, unabhaengig von diesem Feld. Wer
+    # `expected_no_group=true` setzt, bekommt zusaetzlich die schaerfere
+    # Pruefung: existiert jetzt doch GENAU EINE Gruppe, wird auch das
+    # abgelehnt statt still beizutreten — die Oberflaeche laedt die Vorschau
+    # dann neu, statt den Nutzer ungefragt einer Gruppe beitreten zu lassen,
+    # die er nie gesehen hat.
+    expected_no_group: bool = False
 
 
 class ExtendMatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     managed_album_id: str     # which ManagedAlbum to extend
     account_id: str           # new account to add
     person_id: str            # person in that account
@@ -153,6 +196,8 @@ class ExtendMatchRequest(BaseModel):
 
 
 class SyncAlbumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     match_id: str
     owner_account_id: str
     album_name: Optional[str] = None        # for new album
@@ -162,10 +207,35 @@ class SyncAlbumRequest(BaseModel):
     # erzwingt eine eigene. Beides zugleich wird abgelehnt.
     group_id: Optional[str] = None
     force_new_group: bool = False
+    # #119, dieselbe Bedeutung wie bei `SyncNamesMultiRequest` — siehe dort.
+    expected_no_group: bool = False
 
 
 class RenameManagedAlbumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
     album_name: str
+
+
+# Test-only Erweiterungspunkt fuer die Laufzeitpruefung des Sync-Log-Vertrags
+# (#115, Nacharbeit 2 -- siehe `backend/tests/conftest.py`). Ausserhalb von
+# Tests bleibt dieser Name IMMER `None`, und `SyncLogEntry.model_post_init`
+# tut dann buchstaeblich nichts -- das Produktionsverhalten aendert sich
+# dadurch NICHT: kein Log, kein Abbruch eines Abgleichs wegen eines
+# Uebersetzungsfehlers, kein sonstiger Seiteneffekt, solange kein Test den
+# Haken einhaengt. Die Fixture in `conftest.py` haengt sich NUR fuer die
+# Dauer eines einzelnen Tests ein und haengt sich in ihrem `finally` wieder
+# aus -- dieser Name traegt also nie Zustand ueber einen Test hinaus.
+#
+# Warum hier und nicht ausschliesslich in den Tests: Eine reine Testfixture
+# kann `__init__` monkeypatchen, sieht damit aber `model_validate`/
+# `model_construct`/den `response_model`-Weg von FastAPI nicht (Pydantic v2
+# ruft dafuer nicht `__init__`, sondern validiert ueber den generierten
+# Validator, der `model_post_init` unabhaengig vom Konstruktionsweg aufruft).
+# Diese eine Zeile Produktionscode ist damit die einzige Stelle, die ALLE
+# Konstruktionswege einheitlich sieht, ohne fuer jeden einzeln einen eigenen
+# Monkeypatch zu brauchen.
+_SYNC_LOG_LAUFZEIT_HAKEN: Optional[Callable[["SyncLogEntry"], None]] = None
 
 
 class SyncLogEntry(BaseModel):
@@ -182,3 +252,15 @@ class SyncLogEntry(BaseModel):
     # remains the fallback for entries persisted before this was introduced.
     message_key: Optional[str] = None
     message_params: Optional[dict] = None
+
+    def model_post_init(self, __context) -> None:
+        """Test-only Erweiterungspunkt (#115, Nacharbeit 2) -- siehe
+        `_SYNC_LOG_LAUFZEIT_HAKEN` oben und `backend/tests/conftest.py`.
+        Ausserhalb von Tests ist der Haken `None` und diese Methode ist ein
+        reines No-Op; Pydantic ruft sie nach JEDER erfolgreichen
+        Konstruktion auf, unabhaengig vom Weg (`__init__`, `model_validate`,
+        `model_construct`, der `response_model`-Validierungspfad von
+        FastAPI) -- deckt damit auch Unterklassen ab, da sie diese Methode
+        erben, sofern sie sie nicht selbst ueberschreiben."""
+        if _SYNC_LOG_LAUFZEIT_HAKEN is not None:
+            _SYNC_LOG_LAUFZEIT_HAKEN(self)

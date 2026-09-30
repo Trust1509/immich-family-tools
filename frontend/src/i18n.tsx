@@ -421,6 +421,14 @@ export const translations = {
     "pt-BR": "— Selecionar álbum —",
     "es-ES": "— Selecciona un álbum —",
   },
+  // #119, Punkt 4 (KLEIN): ein gewaehltes Immich-Album ohne Namen sperrte
+  // bisher OHNE Hinweis — der Nutzer sah nur einen toten Knopf.
+  album_existing_unnamed_hint: {
+    de: "Dieses Album hat in Immich keinen Namen — bitte dort erst einen Namen vergeben.",
+    en: "This album has no name in Immich — please name it there first.",
+    "es-ES": "Este álbum no tiene nombre en Immich — asígnale uno allí primero.",
+    "pt-BR": "Este álbum não tem nome no Immich — dê um nome a ele lá primeiro.",
+  },
   group_joins: {
     de: "Tritt der bestehenden Gruppe bei",
     en: "Joins the existing group",
@@ -456,6 +464,35 @@ export const translations = {
     en: "Retry",
     "es-ES": "Reintentar",
     "pt-BR": "Tentar novamente",
+  },
+  // #113: der Name ist mehrdeutig — mehrere Gruppen tragen ihn, keine ist
+  // vorausgewaehlt. Die Ueberschrift ueber der Auswahlliste.
+  group_choice_needed: {
+    de: "Mehrere Gruppen tragen diesen Namen — welche ist gemeint?",
+    en: "Several groups carry this name — which one is meant?",
+    "es-ES": "Varios grupos tienen este nombre — ¿cuál es el correcto?",
+    "pt-BR": "Vários grupos têm esse nome — qual é o certo?",
+  },
+  // #124 B9: Markierungen in der Gruppenvorschau — je EINE Gruppe, egal ob
+  // eindeutiger Treffer oder ein Kandidat unter mehreren.
+  group_marker_owner_missing: {
+    de: "Ein Album dieser Gruppe ist verwaist (Besitzerkonto fehlt).",
+    en: "An album in this group is orphaned (owner account is missing).",
+    "es-ES": "Un álbum de este grupo está huérfano (falta la cuenta propietaria).",
+    "pt-BR": "Um álbum deste grupo está órfão (falta a conta proprietária).",
+  },
+  // Nacharbeit 2 zu #113/#119/#124 (Blind W5): `too_few_people` ist seit
+  // Nacharbeit 1 ein ODER ueber die Alben DIESER Gruppe (mindestens EIN
+  // Album hat < 2 Personen), nicht die Personenzahl der ganzen Gruppe — die
+  // Anzeige darueber zeigt aber die Personen der GESAMTEN Gruppe (z. B. 3),
+  // und der alte Text "Diese Gruppe hat weniger als zwei Personen" hat dem
+  // widersprochen. Text jetzt wie `group_marker_owner_missing` auf "ein
+  // Album dieser Gruppe" bezogen.
+  group_marker_too_few_people: {
+    de: "Ein Album dieser Gruppe hat weniger als zwei Personen.",
+    en: "An album in this group has fewer than two people.",
+    "es-ES": "Un álbum de este grupo tiene menos de dos personas.",
+    "pt-BR": "Um álbum deste grupo tem menos de duas pessoas.",
   },
   album_new_desc: {
     de: "Neues Album wird erstellt, mit den beteiligten Accounts geteilt und Fotos automatisch hinzugefügt.",
@@ -753,19 +790,23 @@ export const translations = {
     "pt-BR": "Nenhuma pessoa mais vinculada",
     "es-ES": "Ya no hay ninguna persona vinculada",
   },
-  // Nur noch das UMBENENNEN wird gesperrt (Nacharbeit 1) — der Abgleich
-  // ueberspringt verwaiste Alben nur noch, siehe `album_sync_skips_orphaned_hint`.
+  // Der Knopf sperrt nur noch, wenn KEIN gesundes Album mehr uebrig ist
+  // (Owner-Entscheid 29.09.2026, #123) — eine gemischte Gruppe benennt die
+  // gesunden Alben um und ueberspringt die verwaisten, siehe
+  // `album_sync_skips_orphaned_hint`.
   album_locked_owner_missing_hint: {
     de: "Umbenennen ist gesperrt: Besitzerkonto gelöscht.",
     en: "Renaming is locked: owner account deleted.",
     "pt-BR": "Renomear está bloqueado: conta proprietária excluída.",
     "es-ES": "Cambiar el nombre está bloqueado: cuenta propietaria eliminada.",
   },
+  // Owner-Entscheid 29.09.2026 (#123): Der Hinweis galt bisher nur dem
+  // Abgleich; seither ueberspringt das UMBENENNEN verwaiste Alben ebenso.
   album_sync_skips_orphaned_hint: {
-    de: "Verwaiste Alben werden beim Abgleich übersprungen.",
-    en: "Orphaned albums are skipped during sync.",
-    "pt-BR": "Álbuns órfãos são ignorados durante a sincronização.",
-    "es-ES": "Los álbumes huérfanos se omiten durante la sincronización.",
+    de: "Verwaiste Alben werden beim Abgleichen und Umbenennen übersprungen.",
+    en: "Orphaned albums are skipped when syncing and renaming.",
+    "pt-BR": "Álbuns órfãos são ignorados ao sincronizar e ao renomear.",
+    "es-ES": "Los álbumes huérfanos se omiten al sincronizar y al cambiar el nombre.",
   },
   // Nacharbeit 2 (Blindpruefer, kleiner Fund): eine GANZ verwaiste Gruppe
   // deaktivierte "Jetzt synchronisieren" ohne jeden Grund im Titel.
@@ -774,6 +815,215 @@ export const translations = {
     en: "No album in this group still has a living owner account.",
     "pt-BR": "Nenhum álbum deste grupo ainda tem uma conta proprietária ativa.",
     "es-ES": "Ningún álbum de este grupo tiene ya una cuenta propietaria activa.",
+  },
+  // Einzelentfernung eines verwaisten Albums (Owner-Entscheid 29.09.2026,
+  // #123) — bisher nahm "Entfernen" immer die ganze Gruppe.
+  album_remove_single_action: {
+    de: "Dieses verwaiste Album entfernen",
+    en: "Remove this orphaned album",
+    "pt-BR": "Remover este álbum órfão",
+    "es-ES": "Eliminar este álbum huérfano",
+  },
+  album_remove_single_confirm: {
+    de: (name: string) =>
+      `Eintrag für das verwaiste Album "${name}" entfernen?\n\nDas Album in Immich bleibt erhalten. Die übrigen Alben dieser Gruppe bleiben verwaltet.`,
+    en: (name: string) =>
+      `Remove the entry for the orphaned album "${name}"?\n\nThe album in Immich will be kept. The other albums in this group stay managed.`,
+    "pt-BR": (name: string) =>
+      `Remover o registro do álbum órfão "${name}"?\n\nO álbum no Immich será mantido. Os demais álbuns deste grupo continuam gerenciados.`,
+    "es-ES": (name: string) =>
+      `¿Eliminar la entrada del álbum huérfano "${name}"?\n\nEl álbum se conservará en Immich. Los demás álbumes de este grupo siguen gestionados.`,
+  },
+  // Nacharbeit 1 (#123, Gegenpruefer G3): Die Liste im Tab kann veraltet
+  // sein — ein Konto wird in einem anderen Tab geloescht, WAEHREND das
+  // Umbenennen schon laeuft. Der Server lehnt dann nur das EINE betroffene
+  // Album ab; die Schleife laeuft mit den uebrigen weiter, statt
+  // abzubrechen, und dieser Text macht sichtbar, dass etwas uebersprungen
+  // wurde (kein `log_*`-Schluessel: das ist kein Protokolleintrag, sondern
+  // ein reiner UI-Hinweis auf der Karte).
+  //
+  // Nacharbeit 2 (#123, Blindpruefer K8, Gegenpruefer K6): Bis hierher
+  // nannte der Text die NAMEN der uebersprungenen Alben, durch Komma
+  // getrennt. Albumnamen innerhalb EINER Gruppe sind aber praktisch immer
+  // gleich (dieselbe Karte zeigt nur EINEN Gruppennamen) — "A, A" sagt dem
+  // Nutzer nichts ausser wie viele Kommas es gab. Jetzt eine Anzahl: wie
+  // viele von den in diesem Durchlauf angefahrenen (gesunden) Alben
+  // uebersprungen wurden.
+  // Nacharbeit zu #124 (Fund A4): "das Besitzerkonto" im SINGULAR war auch
+  // dann fest im Text, wenn MEHRERE Alben uebersprungen wurden — jedes
+  // uebersprungene Album einer Gruppe hat aber sein EIGENES Konto (die
+  // Alben einer Gruppe gehoeren verschiedenen Konten, #78). "das
+  // Besitzerkonto" bei n>1 suggeriert faelschlich ein einziges gemeinsames
+  // Konto. Die Grammatik haengt jetzt an `uebersprungen` (wie viele Alben
+  // DIESES Ergebnis betrifft), nicht an `gesamt` (wie viele insgesamt
+  // angefahren wurden) — PT/ES aendern zusaetzlich das Partizip
+  // ("Ignorado"/"Ignorados", "Omitido"/"Omitidos"), das bis hierher fest im
+  // Singular stand.
+  album_rename_skipped_hint: {
+    de: (uebersprungen: number, gesamt: number) => {
+      const wort = gesamt === 1 ? "Album" : "Alben";
+      const grund =
+        uebersprungen === 1
+          ? "weil das Besitzerkonto inzwischen gelöscht ist"
+          : "weil die zugehörigen Besitzerkonten inzwischen gelöscht sind";
+      return `Übersprungen, ${grund}: ${uebersprungen} von ${gesamt} ${wort}.`;
+    },
+    en: (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "album" : "albums";
+      const reason =
+        uebersprungen === 1
+          ? "because its owner account has since been deleted"
+          : "because their owner accounts have since been deleted";
+      return `Skipped ${reason}: ${uebersprungen} of ${gesamt} ${noun}.`;
+    },
+    "pt-BR": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbuns";
+      const participio = uebersprungen === 1 ? "Ignorado" : "Ignorados";
+      const motivo =
+        uebersprungen === 1
+          ? "porque a conta proprietária foi excluída nesse meio tempo"
+          : "porque as respectivas contas proprietárias foram excluídas nesse meio tempo";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+    "es-ES": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbumes";
+      const participio = uebersprungen === 1 ? "Omitido" : "Omitidos";
+      const motivo =
+        uebersprungen === 1
+          ? "porque la cuenta propietaria se eliminó mientras tanto"
+          : "porque las respectivas cuentas propietarias se eliminaron mientras tanto";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+  },
+  // #124 Fund A7: Ein Album kann waehrend des Umbenennens auch verschwinden,
+  // weil ein ANDERER Tab es (oder die ganze Gruppe) bereits entfernt hat —
+  // der Server lehnt das mit `err_managed_album_not_found` (404) ab, nicht
+  // mit `err_owner_account_not_found`. Beides ist ein Ueberspringen statt
+  // eines Abbruchs, aber mit VERSCHIEDENEM Grund — dieser Text bekommt
+  // deshalb einen eigenen Schluessel statt denselben Satz mit dem falschen
+  // Grund zu zeigen.
+  album_rename_skipped_removed_hint: {
+    de: (uebersprungen: number, gesamt: number) => {
+      const wort = gesamt === 1 ? "Album" : "Alben";
+      const grund =
+        uebersprungen === 1
+          ? "weil es inzwischen entfernt wurde"
+          : "weil sie inzwischen entfernt wurden";
+      return `Übersprungen, ${grund}: ${uebersprungen} von ${gesamt} ${wort}.`;
+    },
+    en: (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "album" : "albums";
+      const reason =
+        uebersprungen === 1
+          ? "because it has since been removed"
+          : "because they have since been removed";
+      return `Skipped ${reason}: ${uebersprungen} of ${gesamt} ${noun}.`;
+    },
+    "pt-BR": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbuns";
+      const participio = uebersprungen === 1 ? "Ignorado" : "Ignorados";
+      const motivo =
+        uebersprungen === 1
+          ? "porque foi removido nesse meio tempo"
+          : "porque foram removidos nesse meio tempo";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+    "es-ES": (uebersprungen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "álbum" : "álbumes";
+      const participio = uebersprungen === 1 ? "Omitido" : "Omitidos";
+      const motivo =
+        uebersprungen === 1
+          ? "porque se eliminó mientras tanto"
+          : "porque se eliminaron mientras tanto";
+      return `${participio} ${motivo}: ${uebersprungen} de ${gesamt} ${noun}.`;
+    },
+  },
+  // W3/K3 (Sonde Q6, Welle 4 S1 Nacharbeit 2, LETZTE Runde, Mutation M28):
+  // Nach einem bereits gelaufenen ECHTEN Umbenennen-Versuch schliesst ein
+  // Enter auf einem leeren/nur aus Leerzeichen bestehenden Feld nicht mehr
+  // still — dieser Hinweis macht sichtbar, dass nichts an den Server ging.
+  // Kein Zahlwort, keine Grammatikverzweigung noetig.
+  album_rename_empty_hint: {
+    de: "Bitte einen Namen eingeben.",
+    en: "Please enter a name.",
+    "pt-BR": "Por favor, informe um nome.",
+    "es-ES": "Por favor, introduce un nombre.",
+  },
+  // #102: Ein Abgleich (Einzel- oder Sammellauf), der fuer eine Gruppe TEIL-
+  // oder VOLLSTAENDIG scheitert, bekommt eine EIGENE Zeile auf der Karte,
+  // getrennt vom Protokoll (`SyncLogDisplay`) — das Protokoll ist der
+  // Verlauf des SERVERS, ein Client-seitig geschluckter Fehlschlag gehoert
+  // nicht hinein. Grammatik wie `album_remove_partial_failed`: das VERB haengt
+  // an `fehlgeschlagen`, das NOMEN an `gesamt`.
+  album_refresh_failed_hint: {
+    de: (fehlgeschlagen: number, gesamt: number) => {
+      const wort = gesamt === 1 ? "Album" : "Alben";
+      const verb = fehlgeschlagen === 1 ? "konnte" : "konnten";
+      return `${fehlgeschlagen} von ${gesamt} ${wort} ${verb} nicht abgeglichen werden.`;
+    },
+    en: (fehlgeschlagen: number, gesamt: number) => {
+      const noun = gesamt === 1 ? "album" : "albums";
+      return `${fehlgeschlagen} of ${gesamt} ${noun} could not be synced.`;
+    },
+    "pt-BR": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "álbum" : "álbuns";
+      const verbo = fehlgeschlagen === 1 ? "não pôde" : "não puderam";
+      const particip = fehlgeschlagen === 1 ? "sincronizado" : "sincronizados";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} ser ${particip}.`;
+    },
+    "es-ES": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "álbum" : "álbumes";
+      const verbo = fehlgeschlagen === 1 ? "no se pudo" : "no se pudieron";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} sincronizar.`;
+    },
+  },
+  // Nacharbeit 1 (#123, alle drei Stimmen): `handleDelete`/`handleDeleteSingle`
+  // verschluckten einen Fehlschlag bislang stumm (`.catch(() => {})`). Diese
+  // beiden Texte machen ihn sichtbar.
+  //
+  // Nacharbeit 2 (#123, Blindpruefer K9): Grammatik fuer 1 UND n gefordert.
+  // Zwei Zahlen, zwei unabhaengige Stellen: `fehlgeschlagen` entscheidet das
+  // VERB (Singular "konnte" bei 1, sonst Plural "konnten" — DE; die
+  // PT-Verbform "pôde"/"puderam" und das ES-"pudo"/"pudieron" ebenso), und
+  // `gesamt` entscheidet das NOMEN ("Eintrag"/"Einträgen",
+  // "entry"/"entries", "registro"/"registros", "entrada"/"entradas"). Bei
+  // `handleDelete` heisst "entfernt" der VERWALTUNGSEINTRAG, nicht das
+  // Immich-Album (siehe `album_remove_confirm`/`album_remove_single_confirm`
+  // oben) — deshalb "Eintrag", nicht "Album".
+  album_remove_partial_failed: {
+    de: (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "Eintrag" : "Einträgen";
+      const verb = fehlgeschlagen === 1 ? "konnte" : "konnten";
+      return `${fehlgeschlagen} von ${gesamt} ${nomen} ${verb} nicht entfernt werden.`;
+    },
+    en: (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "entry" : "entries";
+      return `${fehlgeschlagen} of ${gesamt} ${nomen} could not be removed.`;
+    },
+    "pt-BR": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "registro" : "registros";
+      const verbo = fehlgeschlagen === 1 ? "não pôde" : "não puderam";
+      const particip = fehlgeschlagen === 1 ? "removido" : "removidos";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} ser ${particip}.`;
+    },
+    "es-ES": (fehlgeschlagen: number, gesamt: number) => {
+      const nomen = gesamt === 1 ? "entrada" : "entradas";
+      const verbo = fehlgeschlagen === 1 ? "no se pudo" : "no se pudieron";
+      return `${fehlgeschlagen} de ${gesamt} ${nomen} ${verbo} eliminar.`;
+    },
+  },
+  // Nacharbeit 2 (#123, Blindpruefer K9): Die Einzelentfernung nimmt nur den
+  // VERWALTUNGSEINTRAG weg, nie das Immich-Album selbst — der Text sprach
+  // bis hierher trotzdem vom "Album", inkonsistent zu
+  // `album_remove_single_confirm` oben ("Eintrag für das verwaiste Album").
+  // `handleDeleteSingle` ruft diesen Text ausschliesslich fuer ein
+  // VERWAISTES Album auf (siehe die Zeile im Kartenkoerper), daher hier
+  // ebenfalls "verwaist".
+  album_remove_single_failed: {
+    de: (name: string) => `Eintrag für das verwaiste Album "${name}" konnte nicht entfernt werden.`,
+    en: (name: string) => `The entry for the orphaned album "${name}" could not be removed.`,
+    "pt-BR": (name: string) => `O registro do álbum órfão "${name}" não pôde ser removido.`,
+    "es-ES": (name: string) => `La entrada del álbum huérfano "${name}" no se pudo eliminar.`,
   },
 
   conditional_album_new: {
@@ -1019,6 +1269,16 @@ export const translations = {
     "pt-BR": "Clique em um álbum para selecioná-lo.",
     "es-ES": "Haz clic en un álbum para seleccionarlo.",
   },
+  // #124 B8: das zuletzt abgeglichene Album der Gruppe ist verwaist
+  // (Besitzerkonto fehlt) — Erweitern wuerde ohnehin an dieser Pruefung in
+  // `sync_service._extend_match_unlocked` scheitern (`log_owner_account_
+  // missing`); die Karte bleibt deshalb sichtbar, aber sichtbar gesperrt.
+  extend_group_locked_hint: {
+    de: "Dieses Album ist verwaist (Besitzerkonto fehlt) — kann nicht erweitert werden.",
+    en: "This album is orphaned (owner account is missing) — it cannot be extended.",
+    "es-ES": "Este álbum está huérfano (falta la cuenta propietaria) — no se puede ampliar.",
+    "pt-BR": "Este álbum está órfão (falta a conta proprietária) — não é possível ampliá-lo.",
+  },
   extend_new_account: {
     de: "Neuer Account",
     en: "New account",
@@ -1217,14 +1477,6 @@ export const translations = {
     "es-ES": (id: string) => `Cuenta propietaria ${id} no encontrada`,
     "pt-BR": (id: string) => `Conta proprietária ${id} não encontrada`,
   },
-  err_group_member_owner_missing: {
-    de: "Ein Album dieser Gruppe hat kein lebendes Besitzerkonto mehr — Umbenennen ist für die ganze Gruppe gesperrt.",
-    en: "One album in this group no longer has a living owner account — renaming is locked for the whole group.",
-    "es-ES":
-      "Un álbum de este grupo ya no tiene una cuenta propietaria activa — cambiar el nombre está bloqueado para todo el grupo.",
-    "pt-BR":
-      "Um álbum deste grupo não tem mais uma conta proprietária ativa — renomear está bloqueado para o grupo inteiro.",
-  },
   err_match_not_found: {
     de: "Match nicht gefunden",
     en: "Match not found",
@@ -1282,6 +1534,18 @@ export const translations = {
     en: "That album group no longer exists",
     "es-ES": "Ese grupo de álbumes ya no existe",
     "pt-BR": "Esse grupo de álbuns não existe mais",
+  },
+  err_group_choice_required: {
+    de: "Dieser Name gehört zu mehreren Gruppen — bitte eine davon wählen oder eine eigene anlegen",
+    en: "This name belongs to several groups — please choose one, or start your own",
+    "es-ES": "Este nombre pertenece a varios grupos — elige uno o crea uno propio",
+    "pt-BR": "Esse nome pertence a vários grupos — escolha um ou crie um próprio",
+  },
+  err_group_situation_changed: {
+    de: "Die Gruppenlage hat sich seit der Vorschau geändert — bitte erneut prüfen",
+    en: "The group situation has changed since the preview — please check again",
+    "es-ES": "La situación del grupo cambió desde la vista previa — vuelve a comprobarlo",
+    "pt-BR": "A situação do grupo mudou desde a pré-visualização — verifique novamente",
   },
   err_album_name_required: {
     // Neutral formuliert, weil dieselbe Meldung seit #79 auch beim UMBENENNEN
@@ -1408,6 +1672,101 @@ export const translations = {
     en: "Invalid Content-Length header",
     "es-ES": "Cabecera Content-Length no válida",
     "pt-BR": "Cabeçalho Content-Length inválido",
+  },
+  // Nacharbeit 2 zu #85, Punkt 1: Ersatz fuer den entfernten
+  // chunked-Lesezweig — eine `/api/`-Anfrage mit `Transfer-Encoding`, aber
+  // ohne `Content-Length`, wird abgelehnt, OHNE den Koerper zu lesen.
+  err_length_required: {
+    de: "Content-Length erforderlich",
+    en: "Content-Length required",
+    "es-ES": "Se requiere Content-Length",
+    "pt-BR": "Content-Length obrigatório",
+  },
+  // #85 Punkt 1: FastAPIs/Pydantics eigener Validierungsfehler bekommt seit
+  // diesem Slice denselben Schluessel/Klartext-Vertrag wie jede andere
+  // Meldung — vorher lieferte dieser Pfad gar keinen `error_key` (siehe
+  // `backend/main.py`, `_validation_error_handler`). "fuer: a, b" ist
+  // absichtlich zahl-invariant formuliert (kein Substantiv mit
+  // Singular-/Pluralform), damit ein wie mehrere Feldnamen ohne zweite
+  // Formulierung grammatisch korrekt bleiben.
+  //
+  // Nacharbeit 2 zu #85, K2: Der zweite Parameter `more` traegt die Anzahl
+  // der NICHT einzeln genannten Felder ("0" ohne Kuerzung). Vorher stand
+  // "... und N weitere" als deutscher KLARTEXT in `error_params.fields` —
+  // ein uebersetztes Frontend gab diesen Teilsatz trotzdem unuebersetzt
+  // aus. Jede Sprache haengt den Rest jetzt SELBST an, grammatisch korrekt
+  // fuer "0" (kein Zusatz), "1" (Singular) und "n" (Plural).
+  err_validation_failed: {
+    // Nacharbeit 1 zu #85: "Ungueltiger Wert" traf den Fall "Feld fehlt"
+    // oder "unbekanntes Feld" nie wirklich (da liegt kein WERT vor, der
+    // ungueltig waere) — neutraler formuliert, deckt alle Faelle ab.
+    de: (felder: string, more: string) => {
+      const basis = `Ungültige oder unbekannte Angabe für: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} und ${rest === 1 ? "eine weitere" : `${rest} weitere`}`;
+    },
+    en: (felder: string, more: string) => {
+      const basis = `Invalid or unknown value for: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} and ${rest === 1 ? "one more" : `${rest} more`}`;
+    },
+    "es-ES": (felder: string, more: string) => {
+      const basis = `Valor no válido o desconocido para: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} y ${rest === 1 ? "uno más" : `${rest} más`}`;
+    },
+    "pt-BR": (felder: string, more: string) => {
+      const basis = `Valor inválido ou desconhecido para: ${felder}`;
+      const rest = Number(more);
+      if (!rest) return basis;
+      return `${basis} e ${rest === 1 ? "mais um" : `mais ${rest}`}`;
+    },
+  },
+  // Nacharbeit 1 zu #85, KLEIN: Kaputtes JSON lief vorher durch
+  // `err_validation_failed` mit einer Byte-Position als "Feldname"
+  // (`backend/main.py`, `_validation_error_handler`).
+  err_invalid_json_body: {
+    de: "Anfrage ist kein gültiges JSON",
+    en: "Request is not valid JSON",
+    "es-ES": "La solicitud no es JSON válido",
+    "pt-BR": "A solicitação não é um JSON válido",
+  },
+  // Nacharbeit 1 zu #85, KLEIN: Der Grund eigener Validatoren
+  // (`models/account.py`, `validate_immich_url`) ging vorher im
+  // generischen `err_validation_failed` unter — beide Faelle sahen dort
+  // gleich aus ("Ungültige oder unbekannte Angabe für: immich_url").
+  err_credentials_in_url: {
+    de: "Zugangsdaten sind in der Immich-URL nicht erlaubt",
+    en: "Credentials are not allowed inside the Immich URL",
+    "es-ES": "No se permiten credenciales dentro de la URL de Immich",
+    "pt-BR": "Não são permitidas credenciais dentro da URL do Immich",
+  },
+  err_disallowed_network_address: {
+    de: "Diese Netzadresse ist nicht erlaubt",
+    en: "This network address is not allowed",
+    "es-ES": "Esta dirección de red no está permitida",
+    "pt-BR": "Este endereço de rede não é permitido",
+  },
+  // Nacharbeit 2 zu #85, KLEIN: der DRITTE eigene Validator-Text
+  // (`models/account.py`, `validate_immich_url`) hatte bisher keinen
+  // eigenen Schluessel und fiel auf den generischen Pfad zurueck.
+  err_invalid_url_scheme: {
+    de: "Die Immich-URL muss mit http:// oder https:// beginnen",
+    en: "The Immich URL must start with http:// or https://",
+    "es-ES": "La URL de Immich debe comenzar con http:// o https://",
+    "pt-BR": "A URL do Immich deve começar com http:// ou https://",
+  },
+  // #85 Punkt 5: `?album_name=A&album_name=B` wurde bisher still auf einen
+  // Wert reduziert. `name` ist hier immer ein Parametername aus unserem
+  // eigenen Schema (z. B. "album_name"), kein Client-Freitext.
+  err_duplicate_query_param: {
+    de: (name: string) => `Parameter '${name}' darf nicht mehrfach angegeben werden`,
+    en: (name: string) => `Parameter '${name}' must not be given more than once`,
+    "es-ES": (name: string) => `El parámetro '${name}' no puede indicarse más de una vez`,
+    "pt-BR": (name: string) => `O parâmetro '${name}' não pode ser informado mais de uma vez`,
   },
   reason_manual: { de: "Manuell", en: "Manual", "pt-BR": "Manual", "es-ES": "Manual" },
 } as const satisfies Record<string, Record<Lang, Uebersetzungswert>>;
@@ -1575,16 +1934,6 @@ export const logMessages: Record<string, Record<Lang, LogMessageFn>> = {
     "es-ES": (p) =>
       `El álbum '${p.album}' ya existía para esta coincidencia — no se ha creado nada`,
   },
-  log_manual_match_collision: {
-    de: (p) =>
-      `Album '${p.album}' gehört unter diesem Namen zu ANDEREN Personen — es wurde keines angelegt`,
-    en: (p) =>
-      `Album '${p.album}' belongs to DIFFERENT people under this name — nothing was created`,
-    "pt-BR": (p) =>
-      `O álbum '${p.album}' pertence a OUTRAS pessoas com este nome — nada foi criado`,
-    "es-ES": (p) =>
-      `El álbum '${p.album}' pertenece a OTRAS personas con este nombre — no se ha creado nada`,
-  },
   log_album_create_failed: {
     de: (p) => `Album '${p.album}' konnte nicht erstellt werden`,
     en: (p) => `Album '${p.album}' could not be created`,
@@ -1673,11 +2022,13 @@ function renderLogMessage(lang: Lang, entry: LogLikeEntry): string {
  *
  *  Der Server schickt ein WOERTERBUCH (`{"id": "a1"}`), die Uebersetzungen
  *  nehmen POSITIONELLE Argumente. Diese Tabelle ist die Brücke. Sie ist
- *  bewusst klein: Nur die fuenf Schluessel mit Werten stehen darin; alle
+ *  bewusst klein: Nur die sieben Schluessel mit Werten stehen darin (Stand
+ *  Nacharbeit 1 zu #85 — die drei dort neu hinzugekommenen Fehlerschluessel
+ *  tragen KEINE Werte und brauchen deshalb keinen Eintrag hier); alle
  *  anderen brauchen sie nicht.
  *
  *  Warum nicht die Uebersetzungen auf ein Woerterbuch umstellen? Weil dann
- *  jede der 189 uebrigen Zeilen mitgeaendert werden muesste, um fuenf
+ *  jede der 189 uebrigen Zeilen mitgeaendert werden muesste, um sieben
  *  Faelle zu bedienen. */
 export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_account_id_not_found: ["id"],
@@ -1685,6 +2036,8 @@ export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_person_validation_failed: ["account"],
   err_manual_match_id_collision: ["album"],
   err_unsupported_immich_version: ["major", "minor"],
+  err_validation_failed: ["fields", "more"],
+  err_duplicate_query_param: ["name"],
 };
 
 /** Was der Server ueber einen Fehler mitschickt. Absichtlich strukturell
@@ -1700,8 +2053,10 @@ function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
   const key = fehler.key;
   // DER RUECKFALL IST DER ZWECK, nicht die Notloesung: Kennt das Frontend
   // den Schluessel nicht — eine neue Meldung, ein Tippfehler, ein aelterer
-  // Stand, oder gar kein Schluessel wie bei FastAPIs eigenen
-  // Validierungsfehlern —, dann zeigt es den deutschen Klartext des Servers.
+  // Frontend-Stand, oder (seltener seit Nacharbeit 1 zu #85: FastAPIs
+  // eigene Validierungsfehler tragen inzwischen selbst einen Schluessel,
+  // `backend/main.py`, `_validation_error_handler`) ein Backend-Schluessel,
+  // den es noch nicht kennt —, dann zeigt es den deutschen Klartext des Servers.
   // Der teuerste Fehler dieses Pfades waere "Error:" gefolgt von Leere.
   // NUR err_*-Schluessel. Ohne die Schranke schlaegt ein Schluessel im
   // GESAMTEN Woerterbuch nach — auch in den 189 Oberflaechen-Texten. Ein
@@ -1717,7 +2072,7 @@ function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
     // Kein Eintrag in ERROR_PARAM_ORDER, oder ein Wert fehlt: Rueckfall auf
     // den Klartext des Servers statt eines Satzes mit Luecke. Die erste
     // Fassung fuellte "" ein und zeigte «» bzw. "undefined" — lesbar war das
-    // nicht, und rot wurde nichts. Der Test unten deckt jeden der fuenf
+    // nicht, und rot wurde nichts. Der Test unten deckt jeden der sieben
     // Schluessel mit Werten ab, nicht nur zwei.
     if (!reihenfolge) return fehler.message;
     const werte = reihenfolge.map((name) => fehler.params?.[name]);

@@ -21,6 +21,24 @@ das sie selbst hält. Die Probe wartet aktiv, bis das Löschen wirklich als
 Warteschlangen-Eintrag am Schloss hängt (`asyncio.Lock._waiters`), bevor sie
 den Immich-Haken zurückkehren lässt — ohne dieses Warten wäre nicht bewiesen,
 dass ein Fenster überhaupt entstanden ist.
+
+NACHLESE #121 PUNKT 2: Die Mutation „erst löschen, dann Schloss nehmen und
+sofort freigeben" (eine Fassung, die das Löschen VOR dem Warten ausführt und
+das Schloss nur noch pro forma anfasst) blieb an dieser Probe grün — aus zwei
+Gründen, beide unten behoben:
+
+1. Die Probe prüfte nur, DASS gewartet wird (`schloss._waiters`), nicht, was
+   in diesem Warten WAHR bleiben muss: dass das Album zu diesem Zeitpunkt
+   noch existiert. Deshalb hier zusätzlich `store.get_managed_album(...) is
+   not None`, während die laufende Operation ihr Schloss noch hält.
+2. Ein `assert` direkt im Immich-Haken läuft INNERHALB des `try`/`except
+   Exception`, mit dem die drei Wrapper (`_refresh_managed_album_unlocked`
+   u. a.) einen Immich-Fehler abfangen — eine dort ausgelöste
+   `AssertionError` wird als „Immich nicht erreichbar" geschluckt und wird
+   NIE als Testfehlschlag sichtbar (gemessen: das ursprüngliche `assert
+   schloss._waiters, ...` direkt im Haken lief so). Deshalb zeichnet der
+   Haken jetzt nur noch AUF (zwei Listen im äußeren Testrahmen); geprüft wird
+   NACH dem `async with`-Block, ausserhalb jedes Fangs der Produktionsseite.
 """
 import asyncio
 import json
@@ -119,6 +137,13 @@ async def test_loeschen_wartet_auf_eine_laufende_operation_im_schloss(tmp_path, 
     client_ref: dict = {}
     delete_task_ref: dict = {}
     ausgeloest = []
+    store_ref: dict = {}
+    # AUSSERHALB des Immich-Hakens gefuellt und AUSSERHALB des `async with`
+    # geprueft — ein `assert` IM Haken liefe innerhalb des `except
+    # Exception`, mit dem die Wrapper einen Immich-Fehler abfangen, und
+    # wuerde dort verschluckt (#121 Punkt 2, siehe Modul-Docstring).
+    fenster_erzwungen: list[bool] = []
+    album_beim_warten_noch_da: list[bool] = []
 
     async def haken(_m, _a):
         if "task" in delete_task_ref:
@@ -134,12 +159,20 @@ async def test_loeschen_wartet_auf_eine_laufende_operation_im_schloss(tmp_path, 
             await asyncio.sleep(0.005)
             if schloss._waiters:
                 break
-        assert schloss._waiters, "Loeschen wartet nicht am Schloss - kein Fenster erzwungen"
+        fenster_erzwungen.append(bool(schloss._waiters))
+        # Die eigentliche Probe fuer #121 Punkt 2: Eine Fassung, die "erst
+        # loeschen, dann Schloss nehmen und sofort freigeben" tut, waere an
+        # DIESER Stelle schon fertig - das Album muesste weg sein, obwohl die
+        # laufende Operation ihr Schloss noch haelt.
+        album_beim_warten_noch_da.append(
+            store_ref["store"].get_managed_album("a1") is not None
+        )
 
     _attrappe(monkeypatch, haken)
 
     async with main.app.router.lifespan_context(main.app):
         store = main.app.state.store
+        store_ref["store"] = store
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),
                                      base_url="http://test") as c:
             client_ref["c"] = c
@@ -153,9 +186,50 @@ async def test_loeschen_wartet_auf_eine_laufende_operation_im_schloss(tmp_path, 
 
         assert r_op.status_code == 200, r_op.text
         assert r_del.status_code == 204, r_del.text
+        assert fenster_erzwungen and fenster_erzwungen[0], (
+            "Loeschen wartet nicht am Schloss - kein Fenster erzwungen")
+        assert album_beim_warten_noch_da and album_beim_warten_noch_da[0], (
+            "Album war schon weg, waehrend die laufende Operation ihr "
+            "Schloss noch hielt - Loeschen laeuft nicht wirklich unter dem Schloss")
 
         # Die laufende Operation ist normal zu Ende gelaufen (Erfolg im
         # Protokoll), UND das Album ist danach weg.
         log_status = [e.status for e in store.get_log()]
         assert "success" in log_status, log_status
         assert store.get_managed_album("a1") is None
+
+
+@pytest.mark.asyncio
+async def test_loeschen_unbekannter_kennungen_laesst_die_schlossablage_nicht_wachsen(
+    tmp_path, monkeypatch
+):
+    """#121 Punkt 3: `_album_locks` waechst mit jeder Kennung, fuer die je
+    ein `_album_schloss` genommen wurde, und wird nie geleert. Vorher nahm
+    der Router dieses Schloss auch fuer eine voellig unbekannte Kennung, VOR
+    der Existenzpruefung — viele DELETEs auf unbekannte Kennungen liessen die
+    Ablage entsprechend wachsen. Jetzt prueft der Router die Existenz VOR
+    dem Schloss (siehe Docstring bei `routers/albums.py::delete_managed_album`).
+    """
+    import main
+    from services import sync_service
+
+    pfad = _datei(tmp_path)
+    monkeypatch.setattr(main.settings, "secret", "nur-fuer-den-test-121-p3", raising=False)
+    monkeypatch.setattr(main.settings, "config_path", str(pfad), raising=False)
+
+    async with main.app.router.lifespan_context(main.app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),
+                                     base_url="http://test") as c:
+            r_login = await c.post("/api/auth/login", json={"token": main.settings.secret})
+            assert r_login.status_code == 200, r_login.text
+
+            vorher = len(sync_service._album_locks)
+            for i in range(50):
+                r = await c.delete(f"/api/sync/albums/gibt-es-nicht-{i}")
+                assert r.status_code == 404, r.text
+            nachher = len(sync_service._album_locks)
+
+    assert nachher == vorher, (
+        f"_album_locks ist um {nachher - vorher} Eintraege gewachsen, "
+        f"obwohl keine der 50 Kennungen existierte"
+    )

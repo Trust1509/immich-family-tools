@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import errors
 import main
 from models.match import ManagedAlbum
 from services import sync_service
@@ -96,6 +97,69 @@ async def test_auto_sync_ueberspringt_album_ohne_lebenden_besitzer(monkeypatch):
     # Fuer das verwaiste Album entsteht KEIN Protokolleintrag — es wurde nie
     # an refresh_managed_album uebergeben.
     assert geloggt == [[]], geloggt
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_unterscheidet_fehlerart_nicht_statuscode(monkeypatch, caplog):
+    """Nacharbeit 1 (#117/#121/#103), Fund „KLEIN": der `except errors.AppError`-
+    Zweig in `_run_auto_sync` unterscheidet den „Album weg, kein Fehler"-Fall
+    von einem ECHTEN Fehler ueber `exc.key` (`err_managed_album_not_found`),
+    nicht ueber `exc.status_code` — beide Fehlerarten hier tragen zufaellig
+    denselben Code 404 (`errors.managed_album_not_found()` und
+    `errors.owner_account_not_found()`).
+
+    Vor dieser Nacharbeit war dieser Zweig UNERREICHT: `refresh_managed_album`
+    wirft im Auto-Sync-Pfad nie eine andere `AppError`-Art als
+    `err_managed_album_not_found`, also lief kein Test je durch das `else`.
+    Drei Mutationen ueberlebten deshalb die volle Suite (Blind-Sonde S3
+    M9/M10/M15, Gegenpruefer-Probe M8/M9/M10): `exc.status_code == 404` statt
+    `exc.key == ...`, die Fehlerzeile mit `album.album_name` statt
+    `album.id`, und ein Zweig, der IMMER uebersprungen wird. Dieser Test
+    macht ihn erreichbar, ohne Produktionscode zu aendern — er stubbt
+    `refresh_managed_album` so, dass es eine ANDERE `AppError`-Art wirft, wie
+    es reale Schwesterfunktionen (`rename_managed_album`, `extend_match`)
+    schon heute tun.
+    """
+    album = ManagedAlbum(
+        id="alb-x", match_id="m-x", album_id="immich-x",
+        album_name="Anderer Name", group_id="gruppe-x",
+        owner_account_id="lebt", person_refs=[],
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+
+    async def refresh(_album, _accounts, _store):
+        # Statuscode 404, aber eine ANDERE Fehlerart als
+        # `err_managed_album_not_found` — genau die Unterscheidung, die
+        # `exc.key` treffen muss und `exc.status_code` nicht treffen kann.
+        raise errors.owner_account_not_found()
+
+    class Store:
+        def get_managed_albums(self):
+            return [album]
+
+        def list_accounts(self):
+            return [SimpleNamespace(id="lebt")]
+
+        def append_log(self, _logs):
+            pass
+
+    monkeypatch.setattr(sync_service, "refresh_managed_album", refresh)
+
+    with caplog.at_level("INFO"):
+        await main._run_auto_sync(SimpleNamespace(store=Store()))
+
+    fehlerzeilen = [r.message for r in caplog.records if r.levelname == "ERROR"]
+    info_zeilen = [r.message for r in caplog.records if r.levelname == "INFO"
+                   and "removed, skipped" in r.message]
+
+    assert any("alb-x" in z for z in fehlerzeilen), (
+        "kein Fehler mit der Album-KENNUNG geloggt", fehlerzeilen)
+    assert not any("Anderer Name" in z for z in fehlerzeilen), (
+        "Fehlerzeile nennt den (womoeglich veralteten) NAMEN statt der Kennung",
+        fehlerzeilen)
+    assert info_zeilen == [], (
+        "ein echter Fehler wurde als 'Album entfernt, uebersprungen' behandelt",
+        info_zeilen)
 
 
 @pytest.mark.asyncio
@@ -437,11 +501,50 @@ def _store_mit_gruppen(tmp_path):
         }
 
     pfad = tmp_path / "accounts.json"
-    pfad.write_text(json.dumps({"accounts": {}, "managed_albums": [
-        album("a1", "Testalbum", "gruppe-1", ["p1", "p2"]),
-        album("a2", "Anders benannt", "gruppe-1", ["p2", "p3"]),
-    ]}), encoding="utf-8")
+    pfad.write_text(json.dumps({
+        # `konto-1` MUSS im Bestand stehen (Nacharbeit 2, #117/#121/#103):
+        # `ConfigStore._migrate` raeumt seit dieser Nacharbeit beim Start
+        # Referenzen auf Konten, die es nicht (mehr) gibt — ohne diesen
+        # Eintrag waeren ALLE `person_refs` unten schon beim Laden verworfen,
+        # obwohl dieser Test gar nicht die Kontoloeschung prueft.
+        "accounts": {"konto-1": {
+            "id": "konto-1", "name": "Konto Eins",
+            "immich_url": "http://konto1.invalid", "api_key": "platzhalter",
+            "color": "#111111", "user_id": "u1",
+        }},
+        "managed_albums": [
+            album("a1", "Testalbum", "gruppe-1", ["p1", "p2"]),
+            album("a2", "Anders benannt", "gruppe-1", ["p2", "p3"]),
+        ],
+    }), encoding="utf-8")
     return ConfigStore(str(pfad))
+
+
+class _EinzelnerQueryParam:
+    """Attrappe fuer `Request.query_params` bei einem direkten Aufruf.
+
+    Diese Datei ruft `album_group_preview` hier direkt auf, ohne echtes HTTP
+    (Begruendung siehe `test_anlegen_folgt_der_ausdruecklichen_wahl`
+    darunter: die VERDRAHTUNG steht dort auf dem Pruefstand, hier die reine
+    Logik). Seit #85 Punkt 5 liest die Funktion `request.query_params.
+    getlist(...)`, um einen doppelten `album_name`-Parameter abzulehnen —
+    ein `SimpleNamespace` ohne dieses Attribut liesse jeden Direktaufruf mit
+    `AttributeError` scheitern. Die Attrappe liefert immer GENAU EINEN
+    Eintrag: Mehrfachparameter werden ausschliesslich ueber echtes HTTP
+    geprueft (`test_gruppenwahl_schnittstelle.py::
+    test_doppelter_query_parameter_wird_abgelehnt`), wo die Anfrage selbst
+    entscheidet, wie oft ein Parameter vorkommt.
+    """
+
+    def getlist(self, _name):
+        return ["x"]
+
+
+def _fake_request(store):
+    return SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(store=store)),
+        query_params=_EinzelnerQueryParam(),
+    )
 
 
 @pytest.mark.asyncio
@@ -449,7 +552,7 @@ async def test_vorschau_nennt_die_gruppe_und_wem_man_beitritt(tmp_path):
     from routers import albums as albums_router
 
     store = _store_mit_gruppen(tmp_path)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+    request = _fake_request(store)
 
     treffer = await albums_router.album_group_preview("  TESTALBUM ", request)
 
@@ -464,7 +567,7 @@ async def test_vorschau_behauptet_nichts_ohne_treffer(tmp_path):
     from routers import albums as albums_router
 
     store = _store_mit_gruppen(tmp_path)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(store=store)))
+    request = _fake_request(store)
 
     assert await albums_router.album_group_preview("Kennt keiner", request) is None
     assert await albums_router.album_group_preview("   ", request) is None
@@ -545,3 +648,22 @@ async def test_anlegen_folgt_der_ausdruecklichen_wahl(tmp_path, monkeypatch):
                          album_name="Testalbum", force_new_group=True), request)
     eigen = {a.match_id: a.group_id for a in store.get_managed_albums()}["match-neu"]
     assert eigen != bestehend, "force_new_group muss den Namenstreffer schlagen"
+
+
+@pytest.mark.asyncio
+async def test_lifespan_startet_und_stoppt_zweiten_aufraeumdurchlauf_sauber(tmp_path, monkeypatch):
+    """Echter Startpfad (`app.router.lifespan_context`, das FastAPI aus den
+    `on_event`-Handlern baut), nicht nur die einzelne Koroutine in Isolation:
+    Der Start plant den einmaligen zweiten Aufraeumdurchlauf als
+    Hintergrundaufgabe ein, und das Herunterfahren bricht sie sauber ab —
+    `cancelled()`, nicht `done()` durch normales Beenden oder eine
+    unbehandelte Ausnahme."""
+    monkeypatch.setattr(main.settings, "secret", "test-geheimnis-kein-echtes-produktivgeheimnis")
+    monkeypatch.setattr(main.settings, "config_path", str(tmp_path / "accounts.json"))
+
+    async with main.app.router.lifespan_context(main.app):
+        aufgabe = main.app.state.zweiter_aufraeum_task
+        assert aufgabe is not None
+        assert not aufgabe.done()
+
+    assert aufgabe.cancelled(), "die Aufgabe haette beim Herunterfahren abgebrochen werden muessen"

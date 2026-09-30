@@ -373,17 +373,26 @@ async def test_gleiche_kennung_andere_personen_gleichzeitig(tmp_path, monkeypatc
 
     Beide Aufrufe kommen an der Vorabpruefung vorbei, weil zu dem Zeitpunkt
     noch kein Album existiert. Der zweite darf dann NICHT „gab es schon"
-    melden — das waere dieselbe Luege, nur seltener. Ablehnen kann er auch
-    nicht mehr, weil da bereits umbenannt wurde; also meldet er einen
-    FEHLEREINTRAG im Protokoll.
+    melden — das waere dieselbe Luege, nur seltener.
+
+    NACHARBEIT 2 zu #113/#119/#124 (Blind/Gegen NA1): Vorher stand hier, der
+    zweite Aufruf koenne „nicht mehr ablehnen, weil da bereits umbenannt
+    wurde" und melde deshalb nur einen FEHLEREINTRAG im Protokoll. Das war
+    seit Nacharbeit 1 falsch: Die Kollisionspruefung lief unter dem Schloss
+    schon VOR `sync_service.sync_names_multi`, nur nutzte der Aufrufer das
+    Ergebnis nicht, um den Schreibvorgang zu verhindern — der zweite Aufruf
+    wurde TROTZ erkannter Kollision umbenannt. Jetzt WIRFT die Aufloesung
+    unter dem Schloss `errors.manual_match_id_collision` (409), BEVOR
+    irgendetwas fuer diesen Aufruf geschrieben wird.
     """
     from models.match import SyncNamesMultiRequest
     from routers import albums as albums_router
+    import errors
 
     store = _store(tmp_path)
     angelegte: list = []
     _immich_attrappe(monkeypatch, angelegte)
-    request, _ = _manuelle_umgebung(monkeypatch, store)
+    request, umbenannt = _manuelle_umgebung(monkeypatch, store)
 
     def anfrage(a, b):
         return SyncNamesMultiRequest(
@@ -399,12 +408,22 @@ async def test_gleiche_kennung_andere_personen_gleichzeitig(tmp_path, monkeypatc
     assert len(store.get_managed_albums()) == 1
     assert len(angelegte) == 1
 
-    eintraege = [e for r in ergebnisse if isinstance(r, list) for e in r
-                 if e.action == "create_album"]
+    erfolge = [r for r in ergebnisse if isinstance(r, list)]
+    fehlschlaege = [r for r in ergebnisse if isinstance(r, BaseException)]
+    assert len(erfolge) == 1, ergebnisse
+    assert len(fehlschlaege) == 1, ergebnisse
+    assert isinstance(fehlschlaege[0], errors.AppError), fehlschlaege[0]
+    assert fehlschlaege[0].status_code == 409, fehlschlaege[0].status_code
+    assert fehlschlaege[0].key == "err_manual_match_id_collision", fehlschlaege[0].key
+
+    eintraege = [e for r in erfolge for e in r if e.action == "create_album"]
     assert not any(e.message_key == "log_album_already_exists" for e in eintraege), (
         "ein fremdes Paar wurde als „gab es schon“ abgetan")
-    assert any(e.status == "error" and e.message_key == "log_manual_match_collision"
-               for e in eintraege), [(e.status, e.message_key) for e in eintraege]
+
+    # Der Kern: Der abgelehnte Aufruf hat NICHTS geschrieben — nur der
+    # Gewinner hat sein eigenes Paar umbenannt.
+    assert umbenannt == ["Alex"], (
+        f"erwartet genau EINE Umbenennung (nur der Gewinner), gemessen {umbenannt}")
 
 
 # ------------------------------------------------------ der Verknuepfungsweg

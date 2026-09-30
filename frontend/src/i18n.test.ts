@@ -669,6 +669,105 @@ describe("translations shape", () => {
   });
 });
 
+// #124 Fund A4: "das Besitzerkonto" (DE, Singular) und das feste Partizip
+// "Ignorado"/"Omitido" (PT/ES) standen bis hierher fest, auch wenn MEHRERE
+// Alben uebersprungen wurden — jedes uebersprungene Album einer Gruppe hat
+// aber sein EIGENES Konto (#78). Je Sprache mindestens ein Fall fuer 1 UND
+// fuer n (Bau-Brief, Block 5), direkt gegen die Uebersetzungsfunktion, ohne
+// die volle Karte zu rendern.
+describe("album_rename_skipped_hint (#124, Fund A4: Grammatik haengt an `uebersprungen`, nicht an `gesamt`)", () => {
+  const faelle: [Lang, number, number, string][] = [
+    ["de", 1, 1, "Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: 1 von 1 Album."],
+    ["de", 1, 3, "Übersprungen, weil das Besitzerkonto inzwischen gelöscht ist: 1 von 3 Alben."],
+    [
+      "de",
+      2,
+      2,
+      "Übersprungen, weil die zugehörigen Besitzerkonten inzwischen gelöscht sind: 2 von 2 Alben.",
+    ],
+    ["en", 1, 3, "Skipped because its owner account has since been deleted: 1 of 3 albums."],
+    ["en", 2, 2, "Skipped because their owner accounts have since been deleted: 2 of 2 albums."],
+    [
+      "pt-BR",
+      1,
+      3,
+      "Ignorado porque a conta proprietária foi excluída nesse meio tempo: 1 de 3 álbuns.",
+    ],
+    [
+      "pt-BR",
+      2,
+      2,
+      "Ignorados porque as respectivas contas proprietárias foram excluídas nesse meio tempo: 2 de 2 álbuns.",
+    ],
+    [
+      "es-ES",
+      1,
+      3,
+      "Omitido porque la cuenta propietaria se eliminó mientras tanto: 1 de 3 álbumes.",
+    ],
+    [
+      "es-ES",
+      2,
+      2,
+      "Omitidos porque las respectivas cuentas propietarias se eliminaron mientras tanto: 2 de 2 álbumes.",
+    ],
+  ];
+
+  for (const [lang, uebersprungen, gesamt, erwartet] of faelle) {
+    it(`${lang}, ${uebersprungen} von ${gesamt}`, () => {
+      const fn = translations.album_rename_skipped_hint[lang] as (a: number, b: number) => string;
+      expect(fn(uebersprungen, gesamt)).toBe(erwartet);
+    });
+  }
+});
+
+// #124 Fund A7: eigener Hinweis fuer ein inzwischen ENTFERNTES Album, nicht
+// derselbe Satz wie fuer ein geloeschtes Besitzerkonto.
+describe("album_rename_skipped_removed_hint (#124, Fund A7)", () => {
+  const faelle: [Lang, number, number, string][] = [
+    ["de", 1, 3, "Übersprungen, weil es inzwischen entfernt wurde: 1 von 3 Alben."],
+    ["de", 2, 2, "Übersprungen, weil sie inzwischen entfernt wurden: 2 von 2 Alben."],
+    ["en", 1, 3, "Skipped because it has since been removed: 1 of 3 albums."],
+    ["en", 2, 2, "Skipped because they have since been removed: 2 of 2 albums."],
+    ["pt-BR", 1, 3, "Ignorado porque foi removido nesse meio tempo: 1 de 3 álbuns."],
+    ["pt-BR", 2, 2, "Ignorados porque foram removidos nesse meio tempo: 2 de 2 álbuns."],
+    ["es-ES", 1, 3, "Omitido porque se eliminó mientras tanto: 1 de 3 álbumes."],
+    ["es-ES", 2, 2, "Omitidos porque se eliminaron mientras tanto: 2 de 2 álbumes."],
+  ];
+
+  for (const [lang, uebersprungen, gesamt, erwartet] of faelle) {
+    it(`${lang}, ${uebersprungen} von ${gesamt}`, () => {
+      const fn = translations.album_rename_skipped_removed_hint[lang] as (
+        a: number,
+        b: number
+      ) => string;
+      expect(fn(uebersprungen, gesamt)).toBe(erwartet);
+    });
+  }
+});
+
+// #102: eigene Fehlerzeile fuer einen (teilweise) gescheiterten Abgleich.
+describe("album_refresh_failed_hint (#102)", () => {
+  const faelle: [Lang, number, number, string][] = [
+    ["de", 1, 1, "1 von 1 Album konnte nicht abgeglichen werden."],
+    ["de", 1, 3, "1 von 3 Alben konnte nicht abgeglichen werden."],
+    ["de", 2, 3, "2 von 3 Alben konnten nicht abgeglichen werden."],
+    ["en", 1, 3, "1 of 3 albums could not be synced."],
+    ["en", 2, 3, "2 of 3 albums could not be synced."],
+    ["pt-BR", 1, 3, "1 de 3 álbuns não pôde ser sincronizado."],
+    ["pt-BR", 2, 3, "2 de 3 álbuns não puderam ser sincronizados."],
+    ["es-ES", 1, 3, "1 de 3 álbumes no se pudo sincronizar."],
+    ["es-ES", 2, 3, "2 de 3 álbumes no se pudieron sincronizar."],
+  ];
+
+  for (const [lang, fehlgeschlagen, gesamt, erwartet] of faelle) {
+    it(`${lang}, ${fehlgeschlagen} von ${gesamt}`, () => {
+      const fn = translations.album_refresh_failed_hint[lang] as (a: number, b: number) => string;
+      expect(fn(fehlgeschlagen, gesamt)).toBe(erwartet);
+    });
+  }
+});
+
 describe("errorText", () => {
   // Der Server schickt Schluessel UND deutschen Klartext. Diese Gruppe
   // prueft vor allem den RUECKFALL — den Fall, in dem das Frontend den
@@ -790,15 +889,17 @@ describe("ERROR_PARAM_ORDER", () => {
   });
 
   it("renders every parameterised error with its values, in every language", () => {
-    // Alle fuenf, nicht zwei. Je Schluessel wird geprueft, dass JEDER Wert
-    // im Ergebnis auftaucht — ein vertauschtes oder verschlucktes Argument
-    // faellt damit auf.
+    // Alle sieben (Stand Nacharbeit 1 zu #85), nicht zwei. Je Schluessel
+    // wird geprueft, dass JEDER Wert im Ergebnis auftaucht — ein
+    // vertauschtes oder verschlucktes Argument faellt damit auf.
     const werte: Record<string, Record<string, string>> = {
       err_account_id_not_found: { id: "WERT-A" },
       err_owner_account_id_not_found: { id: "WERT-B" },
       err_person_validation_failed: { account: "WERT-C" },
       err_manual_match_id_collision: { album: "WERT-D" },
       err_unsupported_immich_version: { major: "WERT-E", minor: "WERT-F" },
+      err_validation_failed: { fields: "WERT-G", more: "3" },
+      err_duplicate_query_param: { name: "WERT-H" },
     };
     expect(Object.keys(werte).sort()).toEqual(Object.keys(ERROR_PARAM_ORDER).sort());
     for (const lang of Object.keys(LANG_LABELS) as Lang[]) {
@@ -831,5 +932,73 @@ describe("ERROR_PARAM_ORDER", () => {
     expect(
       capturedContext(fakeStorage("de")).errorText({ message: "RUECKFALL", key: "nav_accounts" })
     ).toBe("RUECKFALL");
+  });
+});
+
+// Nacharbeit 2 zu #85: "... und N weitere" stand bisher als deutscher
+// KLARTEXT in `error_params.fields` — ein uebersetztes Frontend gab diesen
+// Teilsatz trotzdem unuebersetzt aus. Der Rest ist jetzt ein eigener
+// Parameter (`more`), und jede Sprache haengt ihn selbst an: kein Zusatz bei
+// "0", Singularform bei "1", Pluralform sonst. Direkt gegen die
+// Uebersetzungsfunktion, wie die album_rename_skipped_hint-Tests oben.
+describe("err_validation_failed haengt den Rest grammatisch korrekt an (Nacharbeit 2 zu #85)", () => {
+  const faelle: [Lang, string, string, string][] = [
+    ["de", "a, b", "0", "Ungültige oder unbekannte Angabe für: a, b"],
+    ["de", "a, b", "1", "Ungültige oder unbekannte Angabe für: a, b und eine weitere"],
+    ["de", "a, b", "3", "Ungültige oder unbekannte Angabe für: a, b und 3 weitere"],
+    ["en", "a, b", "0", "Invalid or unknown value for: a, b"],
+    ["en", "a, b", "1", "Invalid or unknown value for: a, b and one more"],
+    ["en", "a, b", "3", "Invalid or unknown value for: a, b and 3 more"],
+    ["es-ES", "a, b", "0", "Valor no válido o desconocido para: a, b"],
+    ["es-ES", "a, b", "1", "Valor no válido o desconocido para: a, b y uno más"],
+    ["es-ES", "a, b", "3", "Valor no válido o desconocido para: a, b y 3 más"],
+    ["pt-BR", "a, b", "0", "Valor inválido ou desconhecido para: a, b"],
+    ["pt-BR", "a, b", "1", "Valor inválido ou desconhecido para: a, b e mais um"],
+    ["pt-BR", "a, b", "3", "Valor inválido ou desconhecido para: a, b e mais 3"],
+  ];
+
+  for (const [lang, felder, more, erwartet] of faelle) {
+    it(`${lang}, more=${more}`, () => {
+      const fn = translations.err_validation_failed[lang] as (a: string, b: string) => string;
+      expect(fn(felder, more)).toBe(erwartet);
+    });
+  }
+});
+
+// Nacharbeit 2 zu #85: zwei gefundene Fehlstellen blieben unbemerkt gruen,
+// weil keine bestehende Probe je verglich, ob sich eine neue Uebersetzung
+// ueberhaupt vom Deutschen unterscheidet oder ihre Parameter traegt — pt-BR
+// zeigte den DEUTSCHEN Text neben den drei anderen Sprachen, und en hatte
+// eine FALSCHE Bedeutung. Wortgleichheit wird NICHT verlangt — nur, dass
+// keine Sprache zufaellig denselben Text wie die deutsche liefert.
+// Beschraenkt auf die von DIESER Nacharbeit neuen/geaenderten Schluessel
+// (Umfang), nicht auf die gesamte Tabelle.
+describe("neue/geaenderte err_*-Schluessel weichen vom Deutschen ab und tragen ihre Parameter", () => {
+  const geprueft: Array<{ key: keyof typeof translations; platzhalter: string[] }> = [
+    { key: "err_length_required", platzhalter: [] },
+    { key: "err_invalid_url_scheme", platzhalter: [] },
+    { key: "err_validation_failed", platzhalter: ["a, b", "3"] },
+  ];
+
+  it("jede Sprache liefert einen eigenen Text, verschieden vom deutschen, mit den Parametern darin", () => {
+    for (const { key, platzhalter } of geprueft) {
+      const eintrag = translations[key] as Record<Lang, unknown>;
+      const werteDe = eintrag.de;
+      const textDe =
+        typeof werteDe === "function"
+          ? (werteDe as (...a: string[]) => string)(...platzhalter)
+          : (werteDe as string);
+      for (const lang of ["en", "es-ES", "pt-BR"] as Lang[]) {
+        const wertLang = eintrag[lang];
+        const textLang =
+          typeof wertLang === "function"
+            ? (wertLang as (...a: string[]) => string)(...platzhalter)
+            : (wertLang as string);
+        expect(textLang, `${String(key)}/${lang}`).not.toBe(textDe);
+        for (const p of platzhalter) {
+          expect(textLang, `${String(key)}/${lang} enthaelt "${p}" nicht`).toContain(p);
+        }
+      }
+    }
   });
 });

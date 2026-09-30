@@ -27,7 +27,10 @@ older than the window stays in `accounts.json` on disk until the next
 successful write to the log; measured directly against the store: a 200-day-old
 entry was still present on disk right after removing its account, because
 removing an account does not itself write a log entry. Clearing the log in the
-UI removes it immediately, regardless of age.
+UI removes it from `accounts.json` immediately, regardless of age — but, as
+with any write, the pre-clear state (including the log it just replaced)
+lands in `accounts.json.bak` and stays readable there until the next save;
+see the `.bak` paragraphs below.
 
 **Container logs are a separate channel this file does not cover.** Several
 operations log account and album names to the container's standard output —
@@ -37,42 +40,285 @@ These lines are not part of `accounts.json`; they persist according to
 whatever log driver and retention the container runtime is configured with,
 outside this application's control.
 
-Removing an account deletes the account record itself, removes that account's
-entries from every managed album's linked-people list, and clears its face
-thumbnail/embedding caches. It does **not** delete photos, people, albums, or
-users in Immich. Owner decision 2026-09-28 (#99, #112): several other kinds of
+Removing an account deletes the account record itself and clears its face
+thumbnail/embedding caches immediately. Its entries in every managed album's
+linked-people list — including the person's name — follow, but not always in
+the same instant: an album not currently being synced/renamed/extended loses
+the entry right away; an album that IS in the middle of one of those
+operations at that moment keeps it until that operation's own end (win or
+lose — it is removed regardless of whether that operation itself succeeds),
+because a concurrent write to the same album record would otherwise be able
+to overwrite the removal with a stale copy of its own; and if the process is
+killed before that end is ever reached (crash, forced restart), the entry is
+removed at the very latest the next time the application starts
+(`backend/services/config_store.py`, `_migrate`). This delay is not
+observable through the affected album's own actions in the _ordinary_ case —
+a sync or rename in progress at the moment of removal still completes
+normally, it only carries the stale entry for the remainder of its own run.
+**One case makes it observable for longer than "the remainder of one run",**
+measured directly (#127): a second caller already queued behind that album's
+lock, woken the instant the first holder releases it but not yet resumed
+again, can itself be cancelled before it ever reaches its own body — its own
+end-of-run cleanup then never runs at all for that call. `GET
+/api/sync/albums` keeps showing the removed account's person name for that
+album **until something else heals it** — not just until "the remainder of
+its own run" as the sentence above (correctly) promises for the ordinary
+case. An earlier version of this paragraph named exactly one such healing
+path, a restart (`_migrate`, on every `ConfigStore` load); measured directly,
+that is too narrow: `delete_account` cleans up every dead account reference
+it finds, in every managed album whose lock happens to be free at that
+moment — not only references to the account it was actually asked to
+remove, and not only when the request removes a real account at all. The
+very next call to `DELETE /api/accounts/{id}`, for _any_ account, including
+one that no longer exists (measured: the HTTP response for that call is a
+404 — the account named in the URL is not found — but the cleanup of OTHER
+accounts' dead references still runs regardless, before that 404 is
+returned), heals this stale entry too, provided the album's
+lock is free by then; so does the next ordinary refresh, rename, or match
+extension for that same album, through its own end-of-run cleanup. A
+restart is the _last_ resort, not the only one. This does
+**not** delete photos, people, albums, or users in Immich. Owner decision
+2026-09-28 (#99, #112): several other kinds of
 local data about that account deliberately survive the removal instead of
-disappearing silently — and for two of them, there is currently **no removal
-path at all**, not merely a delay:
+disappearing silently. One of the three below now has a precise removal path,
+but **only for orphaned albums specifically, not for managed albums in
+general** (updated 2026-09-29, #123 — see the first bullet); one still only a
+**blunt** one — it removes more than just the traces of this one account, and
+nothing lets you target just those traces; and the third, updated 2026-09-29
+(#123) to say so plainly, has currently **no removal path at all**, blunt or
+otherwise:
 
 - Its managed albums stay in the tool, marked as orphaned (owner account
-  missing) or as having too few linked people. Removing the album entry itself
-  (not just the account) is the only way to clear it — and even that removes
-  only the tool's record, never the album or its photos in Immich. A re-added
-  account never heals an orphaned album either: this tool assigns a fresh
-  random identifier to every added account, which can never match the
-  identifier already stored on the old album.
+  missing) or as having too few linked people. Since 2026-09-29 (#123), an
+  orphaned album can be removed **individually** — even out of a mixed group
+  that still has a healthy sibling album — not only as part of removing the
+  whole group at once; either way, removal clears only the tool's record,
+  never the album or its photos in Immich. A re-added account never heals an
+  orphaned album either: this tool assigns a fresh random identifier to every
+  added account, which can never match the identifier already stored on the
+  old album.
 - The synchronization log is untouched, including entries whose text mentions
   the account by name or whose undo data points at the removed account
   (attempting to undo such an entry is refused instead of silently allowed).
-  This one does eventually age out — see the retention paragraph above.
+  This one does eventually age out — see the retention paragraph above — and
+  clearing the log in the UI removes it (and every other entry) from
+  `accounts.json` immediately, at any age, subject to the same `.bak` caveat
+  as above; neither path lets you remove just the entries about one account.
 - Dismissed-match and name-sync markers are untouched — and unlike the two
-  above, **nothing in this application currently removes them**, at any age.
-  The code path to unmark a dismissed match exists
+  above, **nothing in this application currently removes them**, at any age,
+  in bulk or individually. The code path to unmark a dismissed match exists
   (`ConfigStore.undismiss_match`) but no API endpoint or UI action calls it;
   there is no "clear all markers for this account" action either. A marker
   set today persists in `accounts.json` indefinitely, independent of whether
   the account it originally concerned still exists.
+
+**The ordinary save leaves one more generation behind, and it is not the
+rollback copy described below.** Every write to `accounts.json` —
+`ConfigStore._save` — copies the file's _current on-disk content_ to
+`accounts.json.bak` before writing the new state, but **only if
+`accounts.json` already exists at that point**
+(`backend/services/config_store.py`, `_save`: `if self._path.exists():
+shutil.copy2(...)`). Read directly against that code, this cuts both ways:
+the very first save of a fresh instance creates **no** `.bak` at all — there
+is nothing on disk yet to copy. From the second save onward, the backup
+always lags by exactly one save, because it holds whatever was on disk right
+before the write that just happened. Concretely — `clear_log()` sets the
+in-memory log to empty and then calls `_save()`; since the file on disk still
+carries the old log at that point (and, ordinarily, already exists), `_save()`
+copies it into `accounts.json.bak` before writing the now-empty log to
+`accounts.json` itself. The old log stays readable in `.bak` until the _next_
+write to `accounts.json` (any write, not only another log change) overwrites
+the backup with a newer snapshot. The same mechanism applies to
+`delete_account()`, but **not with a single `_save()` call** — that was true
+before 2026-09-29 and is corrected here (#117/#121/#103): removing the
+account row is always exactly one `_save()`; each managed album whose lock is
+free at that moment and therefore gets its dead references cleaned up in the
+same request is a **further** `_save()` of its own (measured: three total for
+two affected, unlocked albums — one for the account row, one per album).
+Since each `_save()` re-copies whatever is _currently_ on disk into
+`accounts.json.bak` before writing, **what ends up in `.bak` depends on how
+many saves happened and in what order — there is no single answer.** An
+earlier version of this paragraph claimed one anyway ("the removed account's
+API key was not present in `.bak` afterwards"); measured directly (#127)
+against four distinguishable cases, that claim is wrong for two of them:
+
+- **The account is referenced by no managed album at all** at the moment of
+  deletion — the account-row removal is the ONLY save **provided nothing
+  else in the store needs healing at that moment.** `.bak` then holds the
+  on-disk state from _before_ that save, i.e. from before the account was
+  removed at all: it **does** still carry the removed account's own API key
+  (measured). **This does not hold if some other, unrelated managed album
+  already carries a dead reference to a different, already-gone account:**
+  `delete_account` heals every dead reference it finds while it runs, not
+  only ones pointing at the account being deleted (see the `GET
+/api/sync/albums` paragraph above) — cleaning up that unrelated dead
+  reference is its own, second save, and `.bak` then reflects the state
+  right _after_ the account row was removed, not before it: the just-removed
+  account's own API key is already gone from `.bak` by the time anything
+  reads it (measured: one unrelated dead reference elsewhere, two saves
+  total for an account with no albums of its own).
+- **A referenced album's lock is free**, so this call cleans that album up
+  too — a _further_ save happens, and `.bak` then reflects the state right
+  after the account row was removed but before that album's own stale
+  reference was cleaned: the API key is already gone, but the removed
+  person's name is still there (measured: one affected, unlocked album, two
+  saves total). With more than one such album, `.bak` reflects the state
+  right before the very LAST of these cleanup saves — an EARLIER-cleaned
+  album's own stale person name can already be gone from `.bak` by then,
+  while a LATER one's is still there (measured: two affected, unlocked
+  albums, three saves total — `.bak` still carried the removed account's
+  person name from the second album's not-yet-cleaned reference).
+- **A referenced album's lock is held** by another operation at that moment —
+  this call skips it entirely (see the paragraph above), and if that is the
+  only affected album, the account-row removal remains the SOLE save: `.bak`
+  then reflects the full pre-deletion state, exactly like the no-albums case
+  above — **both** the API key **and** the stale person name are present
+  (measured). Once that album's own holder finishes and performs its own
+  end-of-run cleanup, `.bak` is exchanged again for the state right before
+  THAT save: the API key is gone by then (it was removed earlier), the stale
+  person name is still there (measured).
+
+An album whose lock stays held **beyond** the `DELETE` request's own
+lifetime keeps its stale reference in memory across many further, unrelated
+saves — see the case above and the account-removal paragraph earlier — until
+that lock's holder finishes or the application restarts; `.bak` at any later
+point in time simply reflects whichever on-disk state preceded whatever save
+most recently ran, by the same rule as everywhere else in this section.
+`accounts.json.bak` is written with the same restrictive
+permissions as the primary file, but it is a second file on disk carrying the
+same secrets. **Its lifetime is bounded by the _next save_, not by elapsed
+time — calling it "short" would be wrong.** A dormant instance (auto-sync
+disabled, nobody acting on it) may go a long time between saves, during which
+`.bak` — and anything it captured, such as a just-removed account's API key —
+stays exactly as it was. Read-only access (browsing accounts, matches, the
+log) does not write to `accounts.json` and therefore does not touch `.bak`
+either — but **starting the application can**, and this is not hypothetical:
+`ConfigStore._migrate()` calls `_save()` on load whenever it changes
+anything — and it does that for **two** independent reasons, not only one.
+The one this paragraph used to name is backfilling a field it finds missing
+(`backend/services/config_store.py`, `_migrate`, the `if changed: ...
+self._save()` near the end of the method). The other, added afterwards
+(#117/#121/#103) and just as capable of triggering this save on its own, is
+clearing out dead account references from every managed album — the same
+healing that closes the observability gap described above for an aborted,
+already-woken waiter. A dead reference removed this way carries the same
+kind of data an ordinary removal does, including the person's name: it stops
+being live data at that point, but it does **not** stop being readable —
+`.bak` still holds the pre-healing on-disk state (which had the reference)
+until the _next_ save, exactly like every other `.bak` snapshot in this
+document (measured: a fresh load that heals one dead reference does exactly
+one save, and the healed-away person's name is in `.bak` right after that
+load, gone again only once something saves a second time). Separately,
+`main.py`'s startup schedules `_backfill_user_ids()` in the background,
+which calls `update_account()` — and therefore `_save()` — for every account
+still missing a `user_id`. Any of these three paths exchanges `.bak` for the
+pre-start snapshot exactly like any other save; only a run with nothing left
+to backfill, no dead reference to clear, and no account missing a `user_id`
+leaves `.bak` untouched. This is easy to mistake for "already gone" precisely
+because it looks stale, not because it is.
 
 **Rollback copies are the exception, and the operator has to act on it.** Before
 anything it cannot undo — a schema migration, an album-identifier assignment —
 the app writes `accounts.json.vor-schema-<N>.bak` or
 `accounts.json.vor-kennungsvergabe.bak`. These hold the full configuration at
 that moment: API keys, including those of accounts removed afterwards, and log
-entries past the retention window. Nothing rotates or deletes them; none of the
-retention or removal behavior described above applies to them at all. Delete
-them once an upgrade is confirmed good — `docs/BACKUP_RESTORE.md` says where
-and when.
+entries past the retention window — and, if a start-time dead-reference
+cleanup (see the `GET /api/sync/albums` paragraph above) happens to run in
+the same start, that reference too, name included, because the rollback
+write happens before the cleanup in the same pass (`docs/BACKUP_RESTORE.md`
+has the measured detail). Nothing rotates or deletes them; none of the
+retention or removal behavior described above applies to them at all — and
+unlike the ordinary `accounts.json.bak` above, they are not overwritten on the
+next unrelated save either. Delete them once an upgrade is confirmed good —
+`docs/BACKUP_RESTORE.md` says where and when.
+
+**A crashed save can leave a third kind of file behind, and the app removes
+it on the next start — but only a file it can be SURE is its own.**
+`ConfigStore._save` and `ConfigStore._sichere_vor_schemasprung` (the rollback
+writer, see above) both write their new state to a temporary file first,
+then atomically replace the real file with it. If the process is killed hard
+(SIGKILL, power loss, OOM) between those two steps, the temporary file — with
+the full new state, including any API keys it was about to write — stays on
+disk, unbounded, until someone finds it by hand or the application starts
+again.
+
+**That temporary file carries an unmistakable marker in its name**
+(`.accounts.json.speichern-tmp-<8 random characters>` for an ordinary save,
+`.accounts.json.vor-schema-<N>.bak.speichern-tmp-<8 random characters>` or
+`.accounts.json.vor-kennungsvergabe.bak.speichern-tmp-<8 random characters>`
+for a rollback write) — an earlier version carried no marker at all, just the
+same 8-character random suffix a hand copy could just as easily have
+(`.accounts.json.20260930`, `.accounts.json.original`), and the app deleted
+any file that happened to match that shape. **That was the bug this fix
+corrects: an operator's own hand copy, dated or named to look like a backup,
+was deleted on the next start if its suffix happened to be 8 characters from
+the same alphabet.** The marker also only ever covers the exact rollback
+suffixes the app itself writes (`vor-schema-<N>.bak`,
+`vor-kennungsvergabe.bak`) — an earlier version of the pattern accepted any
+text in that middle position and, measured directly, deleted the leftover
+temporary file of a **completely different** configuration file sitting in
+the same directory (`accounts.json.test`, say) merely because its name also
+started with `accounts.json` and ended with the marker.
+
+The app now removes a file matching its own marked pattern only if it is
+also a **regular file** (never a symlink — deleting a symlink never touches
+what it points at, `unlink` does not follow one, but an operator's own
+symlink with a matching name should not vanish silently either — and never a
+directory) and its last modification time is **more than five minutes
+old** — old enough that a genuine crash leftover is reliably distinguished
+from a **second, concurrently running instance** on the same directory whose
+own save is still between writing the temporary file and replacing the real
+one (this application supports exactly one running instance per data
+directory, but a start is not a place to simply assume that holds). A file
+younger than that threshold — or one whose modification time is in the
+future — is **not silently left alone**: the app logs a warning naming its
+path, every time it is seen, for as long as it stays too young to remove.
+And it does not have to wait for the _next_ restart to actually go away: the
+running application schedules exactly one delayed second pass, timed to the
+same five-minute threshold, that repeats this same check once more within
+the _same_ run — closing the gap a quick crash-and-restart cycle
+(`restart: unless-stopped` typically comes back within seconds) used to
+leave open: the leftover was too young at the first check and then stayed
+untouched, silently, until whatever restart happened to come next, possibly
+hours or days later. **A file matching what the marker pattern would have
+looked like before the marker existed (the plain 8-character suffix, no
+marker) is not deleted at all** — it can no longer be told apart from a hand
+copy, so the app only warns about it, once per start, with its path, and
+leaves it exactly where it is; the operator decides. A hand-placed file that
+matches neither shape is left alone and not mentioned in the log at all, as
+before.
+
+**The application also tries to fix, not just report, one specific case: its
+own configuration file being readable by group or world.** On load, once the
+file has parsed successfully as a valid configuration — an invalid one is
+left untouched in every sense, including its permissions, matching the error
+it reports in that case — if `accounts.json` itself is group- or
+world-readable, the
+app now tightens it to `0600` right there (the same permission `_save`
+already enforces on every write) and logs one INFO line naming the previous
+mode — not a warning, because the app just corrected the condition the
+warning would have been about. If `accounts.json` is itself a symlink, this
+tightening is skipped and logged as a warning instead: changing the mode of
+a symlink's target is a change to a file outside the app's own control, one
+the operator may have deliberately arranged, so it is reported rather than
+made silently. This closes a gap an earlier version of this
+document did not have quite right: it described `accounts.json` itself as
+covered by the sibling warning below; measured against the code, it never
+was (see `docs/BACKUP_RESTORE.md`).
+
+**The application also warns — once, on every start — if a _sibling_ of
+`accounts.json` (or its directory) is readable by group or world** on a
+filesystem where that distinction is measurable at all
+(`backend/services/config_store.py`; on Windows and similar filesystems the
+check is skipped and says so in the log, because the underlying permission
+bits are not reliable there — see `docs/BACKUP_RESTORE.md`). "Sibling" now
+also covers a **hidden** file whose name starts with a dot followed by
+`accounts.json.` (`.accounts.json.alt`) — an earlier version of this check
+looked only for names starting with `accounts.json` itself and missed these
+entirely. It only warns and names the offending path and mode; it does not
+change permissions or refuse to start. This does not replace the operator's
+own responsibility for file permissions (see `docs/BACKUP_RESTORE.md`) — a
+warning that is never read is not a control.
 
 ## Operator responsibility
 

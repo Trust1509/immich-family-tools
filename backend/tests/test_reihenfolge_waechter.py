@@ -256,6 +256,107 @@ def test_die_schreibflaeche_des_stores_ist_die_erwartete():
     assert _schreibende_store_methoden() == STORE_SCHREIBT
 
 
+def _ablehnende_store_methoden() -> set:
+    """Die OEFFENTLICHEN ConfigStore-Methoden, die SELBST ablehnen koennen.
+
+    Das Gegenstueck zu `_schreibende_store_methoden` — und ohne es sieht die
+    Ablehnungs-SAAT der modulübergreifenden Huelle (`_stand_bauen`) nur ein
+    direktes `raise` in der aufrufenden Funktion selbst. `resolve_group_id`
+    wirft `errors.*` direkt in seinem eigenen Rumpf, aber der ROUTER ruft ihn
+    nur als `store.resolve_group_id(...)` — ein Attributzugriff auf eine
+    Instanz, die aus `request.app.state.store` kommt, nicht aus einem
+    Projekt-Konstruktor. Der Aufrufgraph (`ziele`) kann diese Kante deshalb
+    nicht ziehen, und ohne diese Menge blieb `resolve_group_id` unsichtbar:
+    Eine Funktion, die NUR `store.resolve_group_id(...)` aufruft und sonst
+    nichts wirft, landete nicht in `stand["lehnt"]` — gemessen an
+    `_manuelles_album_unter_dem_schloss` in `routers/albums.py` (Nacharbeit 1
+    zu #113/#119/#124, BLOCKER Blind B-1/Gegen F7): Die Funktion stand in
+    `stand["schreibt"]`, aber nicht in `stand["lehnt"]`, obwohl ihr Rumpf
+    `store.resolve_group_id(...)` aufruft — und blieb deshalb aus den
+    Kandidaten dieses Waechters aussen vor.
+    """
+    baum = _baum("services/config_store.py")
+    fns = _funktionen(baum)
+    fehlernamen = _fehlernamen(baum)
+    direkt = {name for name, k in fns.items() if _lehnt_direkt_ab(k, fehlernamen)}
+    return {n for n in _erreichbar(fns, direkt) if not n.startswith("_")}
+
+
+# Die Ablehnungsflaeche des Stores, ausgeschrieben — analog zu STORE_SCHREIBT
+# und aus demselben Grund: Faellt eine Methode aus der Ableitung, soll das
+# HIER rot werden, nicht lautlos in der Huelle verschwinden.
+STORE_LEHNT_AB = {"resolve_group_id"}
+
+
+def test_die_ablehnungsflaeche_des_stores_ist_die_erwartete():
+    """Faellt eine Methode aus der Ableitung, ist das hier rot statt lautlos."""
+    assert _ablehnende_store_methoden() == STORE_LEHNT_AB
+
+
+def test_die_store_saat_hat_eine_eigene_probe(tmp_path):
+    """Selbstprobe der Ablehnungs-Saat (Nacharbeit 2 zu #113/#119/#124, Blind
+    W4/Gegen F3): M9 und M10 des Mutationslaufs der Blindpruefung liessen die
+    Klausel `or (genannt & lehnt_store)` in `_stand_bauen` bzw. die
+    Weitergabe von `_ablehnende_store_methoden()` an `_projekt_stand`
+    unbemerkt verschwinden — diese Datei (Waechter allein) blieb GRUEN,
+    weil keine ihrer Proben eine Funktion enthaelt, die NUR ueber die Saat
+    als Ablehnerin gilt.
+
+    Das ist kein Zufall, sondern strukturell: JEDE reale Funktion, die heute
+    `store.resolve_group_id` ruft, wirft in ihrem eigenen Rumpf inzwischen
+    AUCH direkt `errors.*` (`_gruppe_fuer_manuellen_weg_unter_dem_schloss`
+    seit Nacharbeit 2 selbst, `_album_anlegen_unter_dem_schloss` schon
+    laenger ueber `errors.album_name_required()`) — die Saat ist dort also
+    nur HINREICHEND, nie NOTWENDIG, und keine Probe gegen den echten Baum
+    kann zeigen, dass sie ueberhaupt etwas TUT. Diese Probe zeigt es gegen
+    eine ERFUNDENE Quelle: eine Funktion, die AUSSCHLIESSLICH einen
+    Store-Aufruf taetigt und nirgends selbst `raise errors.*` schreibt.
+    """
+    ziel = tmp_path / "nur_saat.py"
+    ziel.write_text(
+        "def nur_ueber_die_store_saat(store):\n"
+        "    store.lehnt_ab_seed()\n",
+        encoding="utf-8",
+    )
+
+    mit_saat = _stand_bauen(tmp_path, set(), set(), {"lehnt_ab_seed"})
+    ohne_saat = _stand_bauen(tmp_path, set(), set())
+
+    schluessel = (ziel, "nur_ueber_die_store_saat")
+    assert schluessel in mit_saat["lehnt"], (
+        "mit gesetzter Saat MUSS diese Funktion als Ablehnerin gelten — "
+        "sonst wirkt die Klausel `or (genannt & lehnt_store)` nicht mehr "
+        "(M9)")
+    assert schluessel not in ohne_saat["lehnt"], (
+        "ohne die Saat darf sie NICHT als Ablehnerin gelten — sonst beweist "
+        "der erste Teil dieser Probe nichts ueber die Saat selbst")
+
+
+def test_der_projektstand_uebergibt_die_ablehnungs_saat():
+    """Verdrahtungs-Selbstprobe fuer M10: `_projekt_stand` MUSS
+    `_ablehnende_store_methoden()` an `_stand_bauen` weiterreichen.
+
+    Die Probe oben zeigt, dass die Saat in `_stand_bauen` SELBST wirkt —
+    sie beweist nichts darueber, ob `_projekt_stand` (die Huelle, die das
+    ECHTE Projekt analysiert) sie auch WEITERGIBT. Genau das vierte Argument
+    hat M10 im Mutationslauf der Blindpruefung entfernt, und die Suite blieb
+    gruen, weil keine Probe die Verdrahtung selbst anschaut statt nur ihr
+    Ergebnis. Diese Probe liest den Quelltext von `_projekt_stand` und
+    verlangt einen Aufruf von `_ablehnende_store_methoden` als Argument des
+    Aufrufs von `_stand_bauen` — woertlich, nicht nur zufaellig gleich.
+    """
+    quelle = textwrap.dedent(inspect.getsource(_projekt_stand))
+    baum = ast.parse(quelle)
+    aufrufe = [k for k in ast.walk(baum) if isinstance(k, ast.Call)
+               and isinstance(k.func, ast.Name) and k.func.id == "_stand_bauen"]
+    assert len(aufrufe) == 1, aufrufe
+    argnamen = {a.func.id for a in aufrufe[0].args
+                if isinstance(a, ast.Call) and isinstance(a.func, ast.Name)}
+    assert "_ablehnende_store_methoden" in argnamen, (
+        "`_stand_bauen` wird nicht mehr mit der Ablehnungs-Saat aufgerufen "
+        f"— gefundene Argumentaufrufe: {sorted(argnamen)}")
+
+
 # ---------------------------------------------------------------------------
 # Der Aufrufgraph ueber MODULGRENZEN (#90)
 # ---------------------------------------------------------------------------
@@ -430,11 +531,12 @@ def _projekt_stand() -> dict:
     """Einmal je Lauf, fuer das echte Projekt."""
     if not _stand_puffer:
         _stand_puffer.update(_stand_bauen(
-            WURZEL, _schreibende_store_methoden(), _immich_schreibsenken()))
+            WURZEL, _schreibende_store_methoden(), _immich_schreibsenken(),
+            _ablehnende_store_methoden()))
     return _stand_puffer
 
 
-def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
+def _stand_bauen(wurzel, schreibt_store, schreibt_immich, lehnt_store=frozenset()) -> dict:
     """Baeume, Funktionen, Importe und die beiden Huellen — fuer EINE Wurzel.
 
     Die Wurzel ist ein Parameter, damit `test_der_aufrufgraph_folgt_den_importen`
@@ -554,7 +656,18 @@ def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
     for pfad, d in dateien.items():
         for name, knoten in d["fns"].items():
             kanten[(pfad, name)] = ziele(pfad, name, knoten)
-            if _lehnt_direkt_ab(knoten, d["fehlernamen"]):
+            genannt = _gerufene_namen(knoten)
+            # Eine Ablehnung ist: ein direktes `raise` ODER der Aufruf einer
+            # Store-Methode, die selbst ablehnen kann (`store.resolve_group_id`
+            # z. B.). Ohne die zweite Haelfte sah die Huelle nur ein Attribut
+            # namens `resolve_group_id`, aber nicht, DASS die aufrufende
+            # Funktion dadurch selbst zur Ablehnerin wird — symmetrisch zur
+            # Schreib-Saat direkt darunter, die genau denselben Fehler schon
+            # fuer `schreibt_store`/`schreibt_immich` vermeidet. Gemessen an
+            # `_manuelles_album_unter_dem_schloss` (Nacharbeit 1 zu
+            # #113/#119/#124, BLOCKER Blind B-1/Gegen F7): stand in
+            # `stand["schreibt"]`, fehlte aber in `stand["lehnt"]`.
+            if _lehnt_direkt_ab(knoten, d["fehlernamen"]) or (genannt & lehnt_store):
                 saat_lehnt.add((pfad, name))
             # Ein Schreibvorgang ist: eine schreibende ConfigStore-Methode
             # ODER eine veraendernde ImmichClient-Methode. Die zweite Haelfte
@@ -566,8 +679,7 @@ def _stand_bauen(wurzel, schreibt_store, schreibt_immich) -> dict:
             # ConfigStore-intern. Ohne es hier waere keine einzige
             # ConfigStore-Methode ein Schreibvorgang — und durch die
             # laeuft jeder Schreibvorgang dieser Anwendung.
-            if _gerufene_namen(knoten) & (schreibt_store | schreibt_immich
-                                          | {"_save"}):
+            if genannt & (schreibt_store | schreibt_immich | {"_save"}):
                 saat_schreibt.add((pfad, name))
 
     # Rueckwaertsgraph einmal aufbauen, dann EINE Breitensuche je Saat. Die
@@ -2384,6 +2496,41 @@ def test_bis_zur_ablehnung_wird_nichts_geschrieben(
 #   * `fehler = errors.x(); raise fehler`, `raise _fabrik()` und eine
 #     Ablehnung als `JSONResponse` erkennt Teil A nicht. Teil B faengt sie,
 #     sofern der Endpunkt einen Tabellenfall hat, der die Stelle erreicht.
+#
+# STORE-SAAT (Nacharbeit 2 zu #113/#119/#124, Blind W4/Gegen F3)
+#   Die Ablehnungs-Saat (`STORE_LEHNT_AB`/`_ablehnende_store_methoden`,
+#   `genannt & lehnt_store` in `_stand_bauen`) hat seit dieser Runde eine
+#   eigene Selbstprobe (`test_die_store_saat_hat_eine_eigene_probe`,
+#   `test_der_projektstand_uebergibt_die_ablehnungs_saat`) — sie erkennt
+#   trotzdem NICHT jede Form, in der ein Router eine ablehnende
+#   Store-Methode ruft:
+#   * Lokaler Alias — `aufloesen = store.resolve_group_id; aufloesen(...)`:
+#     `_gerufene_namen` traegt hier "aufloesen" ein, nicht
+#     "resolve_group_id"; die Saat trifft nicht.
+#   * `getattr(store, "resolve_group_id")(...)`: derselbe Grund wie beim
+#     `getattr`-Fall unter "TEIL A — grundsaetzlich" unten — der Aufruf
+#     steht auf dem RUECKGABEWERT von `getattr(...)`, keinem `ast.Attribute`
+#     oder `ast.Name`, und `_gerufene_namen` sieht ihn gar nicht.
+#   * Ein vorgebautes Fehlerobjekt — `fehler = errors.x(); raise fehler`:
+#     steht schon oben unter ABLEHNUNGSFORMEN (#92); es gilt hier
+#     unveraendert weiter, wenn der Store selbst so schriebe.
+#   * Ein FEHLEREINTRAG statt einer echten Ablehnung — eine Funktion, die
+#     bei einer Kollision einen Protokolleintrag mit `status="error"`
+#     zurueckgibt, statt `raise errors.*` zu werfen: Das ist gar kein
+#     `ast.Raise`-Knoten, also fuer Teil A grundsaetzlich unsichtbar — UND
+#     fuer Teil B, wenn der Aufrufer die 2xx-Antwort trotzdem mit
+#     Status 200 beantwortet (gemessen: genau dieser Fall war die
+#     Kollision-im-Rennen aus Nacharbeit 1/2, Punkt 2 dieser Runde).
+#   * `raise ValueError(...)` (oder ein anderer eingebauter Fehlertyp): Die
+#     Ablehnungsformen der Store-Saat pruefen nur `errors.*`,
+#     `HTTPException`/`AppError` und direkt aus `errors` importierte Namen
+#     (`ABLEHNUNGS_TYPEN`, `_fehlernamen`) — ein `ValueError` zaehlt nirgends
+#     als Ablehnung, weder direkt noch ueber die Saat.
+#   * Eine PRIVATE Store-Methode (`_irgendwas`): `_ablehnende_store_methoden`
+#     filtert `if not n.startswith("_")` (aus demselben Grund wie
+#     `_schreibende_store_methoden` fuer Schreibvorgaenge) — eine private
+#     Methode kann also nie in `STORE_LEHNT_AB` stehen, selbst wenn sie
+#     selbst direkt ablehnt.
 #
 # TEIL A — grundsaetzlich
 #   * Er kennt nur NAMEN. `getattr(store, "clear_log")()` ist unsichtbar.

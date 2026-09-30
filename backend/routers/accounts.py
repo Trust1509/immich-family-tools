@@ -85,11 +85,33 @@ async def update_account(account_id: str, data: AccountUpdate, request: Request)
 
 @router.delete("/{account_id}", status_code=204)
 async def delete_account(account_id: str, request: Request):
-    ok = request.app.state.store.delete_account(account_id)
+    # `ConfigStore.delete_account` ist seit #117 async: Es nimmt je
+    # betroffenem Album dessen `_album_schloss`, damit ein laufender
+    # Refresh/Umbenennen/Erweitern diese Loeschung nicht mit einer alten
+    # Kopie zurueckdrehen kann (siehe Docstring dort).
+    #
+    # EXISTENZ VOR DEM AUFRUF GEMERKT (Nacharbeit 2, WICHTIG 1, Blind W1):
+    # `ok` (204 vs. 404) haengt seit dieser Nacharbeit an DIESER Kennung
+    # (siehe `ConfigStore.delete_account`, „EIGENE RESTE, NICHT IRGENDWELCHE")
+    # und kann deshalb auch dann `True` sein, wenn `account_id` NIE ein
+    # echtes Konto war (nur eigene Reste in einem gesperrten Album). Die
+    # Caches unten sind aber PRO ECHTEM KONTO gefuehrt
+    # (`ClientPool`/`ThumbnailCache`) — sie fuer eine Kennung zu leeren, die
+    # nie ein Konto war, ist keine Sicherheitsluecke (leert nur, was ohnehin
+    # nie belegt war), aber eine falsche Behauptung im Ablauf. Deshalb wird
+    # `existierte` VOR dem Aufruf gelesen (das Konto kann sich zwischen
+    # diesem `get_account` und `delete_account` nicht mehr aendern — dieser
+    # Request-Handler laeuft nicht nebenlaeufig zu sich selbst) und die
+    # beiden kontobezogenen Caches nur bei einem echten Treffer geleert.
+    # `match_cache` ist dagegen GLOBAL, kennt keine Kontokennung und bleibt
+    # deshalb unbedingt.
+    existierte = request.app.state.store.get_account(account_id) is not None
+    ok = await request.app.state.store.delete_account(account_id)
     if not ok:
         raise errors.account_not_found()
-    request.app.state.thumbnail_cache.clear_account(account_id)
-    request.app.state.client_pool.invalidate(account_id)
+    if existierte:
+        request.app.state.thumbnail_cache.clear_account(account_id)
+        request.app.state.client_pool.invalidate(account_id)
     request.app.state.match_cache.invalidate()
 
 

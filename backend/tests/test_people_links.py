@@ -70,7 +70,8 @@ def test_store_reuses_compatible_link_and_rejects_account_collision(tmp_path):
         ])
 
 
-def test_deleting_account_removes_links_that_no_longer_span_two_accounts(tmp_path):
+@pytest.mark.asyncio
+async def test_deleting_account_removes_links_that_no_longer_span_two_accounts(tmp_path):
     store = ConfigStore(str(tmp_path / "accounts.json"))
     for key in ("a", "b"):
         store._data["accounts"][key] = account(key).model_dump()
@@ -79,7 +80,7 @@ def test_deleting_account_removes_links_that_no_longer_span_two_accounts(tmp_pat
         {"account_id": "b", "person_id": "pb"},
     ])
 
-    assert store.delete_account("a") is True
+    assert await store.delete_account("a") is True
     assert store.get_linked_person(linked.id) is None
 
 
