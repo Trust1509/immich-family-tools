@@ -189,8 +189,12 @@ class ConfigStore:
         DIE ZWEI FAELLE SCHLIESSEN EINANDER NICHT AUS: Ein Altbestand ohne
         `schema_version` UND mit einem Album ohne `group_id` loest in EINEM
         einzigen `_migrate()`-Lauf BEIDE Zweige aus — erst `einmalig=True`,
-        dann `einmalig=False` — und schreibt entsprechend beide Rueckweg-
+        dann `einmalig=False` — und schreibt in diesem Fall beide Rueckweg-
         Dateien und beide Protokollzeilen (gemessen, Nacharbeit 2 zu #105).
+        DAS GILT NICHT IMMER (#120): Liegt am Schemasprung-Ziel schon ein
+        BRAUCHBARER `vor-schema-*.bak`, kehrt der `einmalig=True`-Zweig ganz
+        oben in dieser Methode fruehzeitig zurueck, ohne zu schreiben und
+        ohne zu protokollieren — dann entsteht nur die Kennungsvergabe-Zeile.
         „Kennungsvergabe ohne Schemaaenderung" beschreibt deshalb nur den
         AUSLOESER dieses Zweigs (eine fehlende Kennung, unabhaengig von der
         Schemaversion), nicht eine Garantie, dass kein Schemasprung im
@@ -534,9 +538,15 @@ class ConfigStore:
         `U+1FB7` (kleines Alpha mit Iota subscriptum plus Perispomeni,
         VORKOMPONIERT), `gB` traegt `U+1FBC U+0342` (Grossbuchstabe, PLUS
         Perispomeni als eigenes Zeichen). Eine Anfrage mit `U+1FB3 U+0342`
-        (dieselbe Glyphe wie `gA`s Name, aber ZERLEGT) antwortet heute mit
-        `gA` — mit Stufe 2 allein (also „vor #83") waere die Antwort `gB`
-        gewesen.
+        (dieselbe Glyphe wie `gA`s Name, aber nur TEILZERLEGT — `U+1FB3`
+        selbst ist noch VORKOMPONIERT, nur die Perispomeni haengt als
+        eigenes Zeichen daneben; kanonisch aequivalent zu `gA`s Namen,
+        gemessen: NFC(`U+1FB3 U+0342`) == `U+1FB7`) antwortet heute mit `gA`
+        — mit Stufe 2 allein (also „vor #83") waere die Antwort `gB`
+        gewesen. Das ist eine ANDERE Antwort, keine SCHLECHTERE (siehe
+        „KEINE ALLGEMEINE BESSER-REGEL" oben) — sie ist hier eher die
+        naheliegendere, weil die Anfrage kanonisch mit `gA`s Namen
+        uebereinstimmt.
         """
         if album_name is None:
             return ""
@@ -555,9 +565,10 @@ class ConfigStore:
         * MEHRDEUTIG (mehr als ein Kandidat): zwei Schreibweisen, die Stufe 2
           noch trennte, fallen unter der groeberen Stufe 1 zusammen (Beispiel
           „Strassenfest"/„Straßenfest" in zwei Gruppen — dort loest Stufe 2
-          auf). Seit #98 ist der HAEUFIGERE Fall ein BYTEGLEICHER Name in
-          zwei Gruppen (absichtlich erlaubt, kein Tippfehler) — dort hilft
-          Stufe 2 NICHT: Beide Stufen sehen dieselben zwei Kandidaten, die
+          auf). Seit #98 kommt ZUSAETZLICH vor (Haeufigkeit unbemessen,
+          #116): ein BYTEGLEICHER Name in zwei Gruppen (absichtlich erlaubt,
+          kein Tippfehler) — dort hilft Stufe 2 NICHT: Beide Stufen sehen
+          dieselben zwei Kandidaten, die
           Antwort bleibt `None` (gemessen: „Herbstfest" in `gruppe-1` UND
           `gruppe-2`).
         * LEER (kein Kandidat, gemessen #111): Stufe 1 ist fuer bestimmte

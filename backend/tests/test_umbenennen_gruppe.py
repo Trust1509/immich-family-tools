@@ -107,6 +107,10 @@ def _namen(client):
     return {a["id"]: a["album_name"] for a in client.get("/api/sync/albums").json()}
 
 
+def _gruppen(client):
+    return {a["id"]: a["group_id"] for a in client.get("/api/sync/albums").json()}
+
+
 def test_beide_alben_einer_gruppe_lassen_sich_umbenennen(mit_bestand):
     """Der normale Weg der Oberfläche — und er hatte keine Backend-Probe.
 
@@ -154,14 +158,39 @@ def test_die_eigene_gruppe_darf_eine_zweite_schreibweise_bekommen(mit_bestand):
     Namens abgelehnt); diese Probe hält zusätzlich fest, dass sich an der
     Gruppenzuordnung nichts verschiebt: Vor und nach dem Vorgang zeigt
     „Strassenfest" auf `gruppe-1`, und „Straßenfest" jetzt ebenfalls — beide
-    Schreibweisen bleiben bei
-    derselben Gruppe.
+    Schreibweisen bleiben bei derselben Gruppe.
+
+    NACHTRAG #116 (Nachlese #98, Punkt 2): Die vorige Fassung prüfte dafür
+    nur `_namen` (Status und Namen) — `managed.group_id = "verschoben"` VOR
+    dem Speichern in `_rename_managed_album_unlocked` blieb dabei unbemerkt
+    grün (Blindprüfer, gemessen). Diese Probe liest jetzt `group_id` BEIDER
+    Alben aus `/api/sync/albums` UND die Gruppenvorschau (`/api/sync/
+    album-group`) vor und nach dem Umbenennen und verlangt für beide
+    dieselbe, unveränderte Gruppe.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
+    vorher_gruppen = _gruppen(c)
+    vorher_vorschau = c.get("/api/sync/album-group",
+                            params={"album_name": "Strassenfest"}).json()
+    assert vorher_vorschau and vorher_vorschau["group_id"] == "gruppe-1", vorher_vorschau
+
     antwort = c.patch("/api/sync/albums/a2", json={"album_name": "Straßenfest"})
     assert antwort.status_code == 200, antwort.text
     assert _namen(c) == {"a1": "Strassenfest", "a2": "Straßenfest"}
+
+    nachher_gruppen = _gruppen(c)
+    assert nachher_gruppen == vorher_gruppen == {"a1": "gruppe-1", "a2": "gruppe-1"}, (
+        vorher_gruppen, nachher_gruppen,
+    )
+    nachher_vorschau_alt = c.get("/api/sync/album-group",
+                                 params={"album_name": "Strassenfest"}).json()
+    nachher_vorschau_neu = c.get("/api/sync/album-group",
+                                 params={"album_name": "Straßenfest"}).json()
+    assert nachher_vorschau_alt and nachher_vorschau_alt["group_id"] == "gruppe-1", \
+        nachher_vorschau_alt
+    assert nachher_vorschau_neu and nachher_vorschau_neu["group_id"] == "gruppe-1", \
+        nachher_vorschau_neu
 
 
 def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand):
@@ -240,12 +269,19 @@ def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
     Das ist der Zweck des Vorgangs. In anderen Beständen kann er danach auf
     eine andere Gruppe zeigen — das misst die Probe darunter.
 
-    In einem Bestand wie diesem verliert der alte Name seine Gruppe
-    zwangsläufig — das ist keine Ablehnung mehr wert, seit #98 sowieso nicht,
-    aber auch die Vorschau (`GET /api/sync/album-group`) hält das fest: Sie
-    antwortet für den alten Namen danach mit `null`, weil ihn niemand mehr
-    trägt. Der Fall, in dem er stattdessen an eine ANDERE Gruppe geht, misst
-    die Probe darunter.
+    In einem Bestand wie diesem verliert der alte Name seine Gruppe — das ist
+    keine Ablehnung mehr wert, seit #98 sowieso nicht, aber auch die Vorschau
+    (`GET /api/sync/album-group`) hält das fest: Sie antwortet für den alten
+    Namen danach mit `null`, weil ihn niemand mehr trägt. Der Fall, in dem er
+    stattdessen an eine ANDERE Gruppe geht, misst die Probe darunter.
+
+    NACHTRAG #111 (Nachlese #108, Klein 3): „zwangsläufig" traf nicht zu —
+    hier gilt der Verlust, weil „Herbstfest" in eine ANDERE Faltungsklasse
+    fällt als „Sommerfest". Ein Umbenennen INNERHALB derselben Klasse (z. B.
+    „Sommerfest" -> „SOMMERFEST") verliert den alten Namen nicht: Beide
+    Schreibweisen falten auf denselben Schlüssel, die Gruppe bleibt über
+    ihn auffindbar (siehe `test_die_eigene_gruppe_darf_eine_zweite_
+    schreibweise_bekommen` für dasselbe Prinzip innerhalb einer Gruppe).
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1")])
     vorher = c.get("/api/sync/album-group",
@@ -278,6 +314,31 @@ def test_die_festhalte_probe_deckt_beide_stufen():
     nur_stufe2 = [(a, b) for a, b in FREI_GEWORDEN if k1(a) != k1(b) and k2(a) == k2(b)]
     assert len(FREI_GEWORDEN) == 2, FREI_GEWORDEN
     assert len(stufe1) == 1 and len(nur_stufe2) == 1, (stufe1, nur_stufe2)
+
+
+def test_der_dekorator_verwendet_wirklich_ganz_frei_geworden():
+    """Wächter für den DEKORATOR selbst, nicht nur für die Liste (#111,
+    WICHTIG 2).
+
+    `test_die_festhalte_probe_deckt_beide_stufen` sichert nur Eigenschaften
+    von `FREI_GEWORDEN` — sie liest die Liste, nicht das, was tatsächlich am
+    `@pytest.mark.parametrize`-Dekorator darunter hängt. Ein Dekorator mit
+    `FREI_GEWORDEN[:1]` oder `FREI_GEWORDEN[:1] * 2` blieb deshalb unbemerkt
+    grün (Blindprüfung an Nacharbeit 2 zu #108: 254 bzw. 255 grün — bei der
+    zweiten Mutation blieb sogar die PROBENZAHL gleich, weil zwei Fälle drin
+    stecken, nur beide derselbe). Diese Probe liest die am Testobjekt
+    tatsächlich hinterlegten Parameter-Werte aus `pytestmark` und verlangt
+    Gleichheit mit `FREI_GEWORDEN` selbst — eine gekürzte oder eine
+    vervielfältigte Kopie hat eine andere Wertfolge und fällt durch.
+    """
+    marken = [
+        m for m in test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin.pytestmark
+        if m.name == "parametrize"
+    ]
+    assert len(marken) == 1, marken
+    [marke] = marken
+    _argnamen, argwerte = marke.args
+    assert argwerte == FREI_GEWORDEN, argwerte
 
 
 @pytest.mark.parametrize("alter_name, fremde_schreibweise", FREI_GEWORDEN)

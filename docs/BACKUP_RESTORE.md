@@ -8,9 +8,10 @@
 
 1. Snapshot the ZFS dataset containing `/app/data`.
 2. Replicate snapshots to a protected second target.
-3. Ensure `accounts.json`, `accounts.json.bak` **and any
-   `accounts.json.vor-schema-*.bak`** remain readable only by UID/GID 3006
-   (`0600`; directory `0700`).
+3. Ensure `accounts.json`, `accounts.json.bak`, any
+   `accounts.json.vor-schema-*.bak` **and `accounts.json.vor-kennungsvergabe.bak`**
+   remain readable only by UID/GID 3006 (`0600`; directory `0700`). Both
+   rollback kinds carry the same Immich API keys as `accounts.json` itself.
 4. Treat every backup as a secret because it contains Immich API keys. This
    applies to the `vor-schema-*` files too — and to them for longer, because
    nothing overwrites or removes them (see _Schema migrations_ below).
@@ -49,18 +50,26 @@ Two things follow for you as the operator:
   from the app, and log entries past the 90-day retention window. `PRIVACY.md`
   points here for that reason.
 - If the file is missing after an upgrade, the migration still ran. Every
-  line the app logs is formatted `LEVEL  services.config_store  message`
-  (`backend/main.py`'s log format) — the line does not start with the
-  message text quoted below, that text is what to look for **inside** the
-  line. What it says depends on which version wrote it:
+  line the `services.config_store` logger writes — the one that logs these
+  rollback lines — is formatted `LEVEL  services.config_store  message`
+  (`backend/main.py`'s log format); this is not a claim about every line the
+  app logs overall, other loggers (e.g. the sync service) use their own
+  name in that slot. The line does not start with the message text quoted
+  below, that text is what to look for **inside** the line. What it says
+  depends on which version wrote it:
   - **1.9.0 and later:** a failed schema-migration backup logs a WARNING
     line containing `Rueckweg vor Schemasprung auf Version`, with the
     schema version next and then `nicht moeglich:` followed by the target
     path (the path comes **after** `nicht moeglich:`, not between the two
-    search terms). A failed identifier-assignment backup logs a different
-    WARNING line instead, containing `Rueckweg vor Kennungsvergabe` and
-    `nicht moeglich:`, also followed by its own target path. The two are
-    worded differently on purpose since #105.
+    search terms). A failed identifier-assignment backup logs its own,
+    differently worded WARNING line instead — the words "Rueckweg vor
+    Kennungsvergabe" plus `nicht moeglich:` — also followed by its own
+    target path; worded differently from the schema-migration line on
+    purpose since #105, but **not mutually exclusive**: if both a schema
+    migration and an identifier assignment run in the same start and both
+    backups fail, both WARNING lines appear together (the same "not
+    exclusive" point the _Schema migrations_ section above makes for the
+    success lines).
   - **In 1.8.0** — the release that introduced both rollback files; earlier
     releases do not have this code path at all, see the 1.8.0 and 1.7.0
     entries in `CHANGELOG.md` — both cases logged the _same_ text regardless

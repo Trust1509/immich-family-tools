@@ -895,15 +895,22 @@ async def _rename_managed_album_unlocked(
     # Schreiben ist also gerade erst gescheitert. Der Aufrufer bekommt 500.
     #
     # Seit #97 (Nacharbeit 2, PRAEZISIERT — die Fassung aus Nacharbeit 1
-    # nannte den falschen Mechanismus): `ConfigStore.update_managed_album`
+    # nannte den falschen Mechanismus; seit #114 NOCHMALS praezisiert, die
+    # Nacharbeit-2-Fassung war noch zu eng): `ConfigStore.update_managed_album`
     # aendert `self._data` VOR dem Aufruf von `_save()` (siehe dort) — der
     # Speicher haelt "Neu" also schon, bevor je geschrieben wurde. Im
     # LAUFENDEN Prozess heilt deshalb NICHT `_uebernimm_immich_namen`,
-    # sondern das naechste erfolgreiche Speichern eines beliebigen Refreshs:
-    # `_frisch` liest "Neu" aus dem Speicher, Immich meldet ebenfalls "Neu",
-    # beide sind gleich, und der Refresh schreibt die Platte einfach nach —
-    # ohne je durch die Namensuebernahme zu laufen (die Meldung ist dann nur
-    # `log_no_new_assets`). Der Weg ueber `_uebernimm_immich_namen`/
+    # sondern JEDES naechste erfolgreiche `_save()` — nicht nur das eines
+    # Refreshs (gemessen: auch `set_auto_sync_config`, das die GESAMTEN
+    # `self._data` speichert, schreibt "Neu" auf die Platte, ganz ohne dass
+    # ein Refresh dazwischen lief). Ein Refresh ist dabei nur der
+    # naheliegende, nicht der einzige Fall: `_frisch` liest "Neu" aus dem
+    # Speicher, Immich meldet ebenfalls "Neu", beide sind gleich, und der
+    # Refresh schreibt die Platte einfach nach — ohne je durch die
+    # Namensuebernahme zu laufen. Die Meldung ist in DIESEM Fall (Refresh
+    # ohne neue Assets UND ohne Teilen-Ereignis) nur `log_no_new_assets` —
+    # ein `_save()` aus einer anderen Quelle wie `set_auto_sync_config`
+    # erzeugt gar keine Protokollzeile. Der Weg ueber `_uebernimm_immich_namen`/
     # `log_album_name_adopted` greift erst nach einem NEUSTART des Prozesses,
     # wenn der Speicher wieder von der Platte ("Alt") geladen wurde. Der
     # Auto-Sync ist dafuer kein Heilungspfad mit fester Frist: Er laeuft zu

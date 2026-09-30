@@ -2,7 +2,7 @@ import pytest
 
 import errors
 from models.account import Account
-from models.match import ManagedAlbum
+from models.match import ManagedAlbum, SyncLogEntry
 from services import sync_service
 from services.config_store import ConfigStore
 from services.immich_client import AlbumNotFoundError
@@ -414,6 +414,43 @@ async def test_refresh_zeigt_namensuebernahme_und_neue_assets_nebeneinander(monk
 
 
 @pytest.mark.asyncio
+async def test_refresh_zeigt_teilen_und_namensuebernahme_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114, Punkt 1): Ein Teilen- ODER Fehler-Eintrag deckt
+    zusammen mit dem Namens-Eintrag bereits ab, dass „etwas geschah" — ohne
+    eigenen Test blieb ein Umbau zu `if new_total == 0:` (oder `... or
+    (name_entry is not None and new_total == 0)`) unbemerkt gruen: Beide
+    Umbauten haetten in genau dieser Kombination zusaetzlich faelschlich
+    `log_no_new_assets` gemeldet, obwohl weder das Teilen noch der
+    Namenswechsel etwas mit fehlenden Assets zu tun haben (gemessen im
+    Issue: Original `['log_album_shared', 'log_album_name_adopted']`, beide
+    Umbauten zusaetzlich `log_no_new_assets`). Diese Probe haelt die
+    Originalfassung fest: genau zwei Eintraege, keinen dritten."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    async def fake_share(*_args, **_kwargs):
+        return [SyncLogEntry(
+            id="share-1", timestamp="2026-01-01T00:00:00+00:00", action="refresh_album",
+            details="geteilt", status="success",
+            message_key="log_album_shared",
+            message_params={"album": managed.album_name, "names": "Konto Zwei"},
+        )]
+
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
+    _immich_client_mit_namen(monkeypatch, "Neu in Immich")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_album_shared", "log_album_name_adopted",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
 async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkeypatch):
     """Nachweis 2 (#97): Gleicher Name -> kein Namens-Eintrag, Name unverändert."""
     owner = _konto_eins()
@@ -454,9 +491,11 @@ def _leerraum_zeichen() -> list[str]:
     """Alle Codepunkte, die Python `str.strip()` als Leerraum faltet.
 
     Selbst gemessen (Owner-Vorgabe: keine Zahl abschreiben), nicht die vom
-    Panel genannte Zahl uebernommen — 29 Zeichen zum Zeitpunkt dieses Baus.
-    Kein Import einer fremden Liste: Aendert Python diese Menge je, aendert
-    sich auch diese Liste automatisch mit.
+    Panel genannte Zahl uebernommen. Absichtlich OHNE die genaue Anzahl hier
+    im Text (#114, Nachlese #97): Eine hart hingeschriebene Zahl veraltet
+    STUMM, sobald Python die Menge je aendert, waehrend diese Funktion sie
+    weiterhin zur LAUFZEIT berechnet — kein Import einer fremden Liste, die
+    Anzahl ist also automatisch aktuell, der Text darueber war es nicht.
     """
     return [chr(i) for i in range(0x110000) if chr(i).strip() == ""]
 
@@ -470,8 +509,9 @@ async def test_refresh_behaelt_den_namen_wenn_immich_keinen_liefert(monkeypatch,
     """Nachweis 3 (#97, erweitert in Nacharbeit 1 und 2): Kein, ein leerer
     oder ein NUR aus Leerraum bestehender Name aus Immich leert den Bestand
     nicht — parametrisiert ueber JEDEN Codepunkt, den Python als Leerraum
-    faltet (siehe `_leerraum_zeichen`), plus alle 29 zusammen in einem
-    String.
+    faltet (siehe `_leerraum_zeichen`), plus ALLE davon zusammen in einem
+    String (#114: keine hart hingeschriebene Zahl hier — siehe
+    `_leerraum_zeichen`).
 
     Gemessen ohne den `.strip()`-Schutz (Fund von Blind- und Fremdpruefer):
     Ein Name aus reinem Leerraum ist in Python truthy und ungleich dem

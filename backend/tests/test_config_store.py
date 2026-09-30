@@ -1538,7 +1538,15 @@ def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_pat
     """Isolierter Schemasprung (die Alben tragen bereits eine Kennung, nur
     die Schemaversion fehlt) — die Erfolgsmeldung ist ZEICHENGENAU 'Rueckweg
     vor Schemasprung auf Version <N>: <Zielpfad>', auf INFO-Niveau, und es
-    gibt ueberhaupt keine Zeile >= WARNING von diesem Logger."""
+    gibt ueberhaupt keine Zeile >= WARNING von diesem Logger.
+
+    NACHTRAG #120 (Nachlese #105): Nacharbeit 2 hatte die Pruefung aus
+    Nacharbeit 1 verloren, dass KEINE Zeile das Stichwort der GEGENSEITE
+    traegt — eine zusaetzliche `logger.info("Rueckweg vor Kennungsvergabe:
+    %s", <anderer Pfad>)` blieb dadurch unbemerkt gruen, weil `treffer` nur
+    nach dem SCHEMA-Pfad filtert und die Gegenseite einen anderen Pfad
+    nennt. Die Probe unten schliesst das jetzt aus.
+    """
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     stand = json.loads(path.read_text(encoding="utf-8"))
@@ -1553,6 +1561,13 @@ def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_pat
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
     assert not any(r.levelno >= logging.WARNING for r in eigene), \
         [(r.levelname, r.getMessage()) for r in eigene]
+    assert not any("Kennungsvergabe" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite im isolierten Schemasprung-Erfolg"
+    # ALLE "Rueckweg vor"-Zeilen zaehlen, nicht nur die mit dem erwarteten
+    # Pfad -- eine zusaetzliche Zeile mit demselben Stichwort, aber einem
+    # FALSCHEN Pfad (z. B. `self._path` statt `ziel`), blieb sonst unbemerkt.
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(erwarteter_pfad) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1565,7 +1580,11 @@ def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung
     """Isolierte Kennungsvergabe (Schemaversion ist bereits aktuell, ein Album
     hat noch keine Kennung) — die Erfolgsmeldung ist ZEICHENGENAU 'Rueckweg
     vor Kennungsvergabe: <Zielpfad>', auf INFO-Niveau, und es gibt ueberhaupt
-    keine Zeile >= WARNING von diesem Logger."""
+    keine Zeile >= WARNING von diesem Logger.
+
+    NACHTRAG #120 (Nachlese #105, Spiegelbild der Schemasprung-Probe
+    darueber): keine Zeile darf das Stichwort der GEGENSEITE tragen.
+    """
     path = tmp_path / "accounts.json"
     ohne_kennung = _album("a1", "Testalbum", ["p1"])
     path.write_text(json.dumps({
@@ -1582,6 +1601,12 @@ def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
     assert not any(r.levelno >= logging.WARNING for r in eigene), \
         [(r.levelname, r.getMessage()) for r in eigene]
+    assert not any("Schemasprung" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite in der isolierten Kennungsvergabe-Erfolg"
+    # Spiegelbild der Schemasprung-Erfolg-Probe: ALLE "Rueckweg vor"-Zeilen
+    # zaehlen, nicht nur die mit dem erwarteten Pfad.
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(erwarteter_pfad) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1612,6 +1637,23 @@ def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_
         ConfigStore(str(path))  # darf nicht werfen
 
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    assert not any("Kennungsvergabe" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite im isolierten Schemasprung-Scheitern"
+    # NACHTRAG #120: ALLE "Rueckweg vor"-Zeilen zaehlen, nicht nur die mit dem
+    # erwarteten (Schema-)Pfad -- eine zusaetzliche Kennungsvergabe-Fehlzeile
+    # mit ihrem EIGENEN (anderen) Pfad blieb sonst unbemerkt, weil sie nicht
+    # auf `str(ziel)` passt (Nacharbeit 1 hatte das geschlossen, Nacharbeit 2
+    # hat es wieder verloren).
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
+    # Auch ALLE WARNUNGEN zaehlen (nicht nur "Rueckweg vor"-Zeilen), damit eine
+    # zusaetzliche WARNUNG ganz OHNE Pfad (M07 im Issue) ebenfalls auffaellt --
+    # ausser der unabhaengigen "Unbrauchbarer Rueckweg wird ersetzt"-Warnung,
+    # die ihr eigener Test deckt (siehe Modul-Kommentar oben).
+    warnungen = [r for r in eigene
+                 if r.levelno >= logging.WARNING
+                 and not r.getMessage().startswith("Unbrauchbarer Rueckweg wird ersetzt")]
+    assert len(warnungen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(ziel) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1644,6 +1686,19 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
 
     assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    assert not any("Schemasprung" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite im isolierten Kennungsvergabe-Scheitern"
+    # NACHTRAG #120, Spiegelbild der Schemasprung-Scheitern-Probe darueber.
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
+    # Auch ALLE WARNUNGEN zaehlen (nicht nur "Rueckweg vor"-Zeilen), damit eine
+    # zusaetzliche WARNUNG ganz OHNE Pfad (M07 im Issue) ebenfalls auffaellt --
+    # ausser der unabhaengigen "Unbrauchbarer Rueckweg wird ersetzt"-Warnung,
+    # die ihr eigener Test deckt (siehe Modul-Kommentar oben).
+    warnungen = [r for r in eigene
+                 if r.levelno >= logging.WARNING
+                 and not r.getMessage().startswith("Unbrauchbarer Rueckweg wird ersetzt")]
+    assert len(warnungen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(ziel) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1652,13 +1707,49 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
     assert treffer[0].getMessage() == erwartet, treffer[0].getMessage()
 
 
+def test_mischfall_schemasprung_und_kennungsvergabe_bekommen_beide_rueckwege(tmp_path, caplog):
+    """Der Mischfall war durch keinen Test gesichert (#120, Klein 2): Ein
+    Altbestand ohne `schema_version` UND mit einem Album ohne `group_id`
+    loest laut Docstring von `_sichere_vor_schemasprung` BEIDE Zweige in
+    einem einzigen Lauf aus — `if kennungen_fehlen and not sprung:` (oder
+    eine sonstige Verknuepfung, die beide Zweige gegenseitig ausschliesst)
+    blieb dabei ungeprueft gruen. `_write_legacy_config` traegt schon beide
+    Ausloeser (kein `schema_version`-Schluessel, `album-1` ohne
+    `group_id`); diese Probe verlangt BEIDE Rueckweg-Dateien mit dem Stand
+    VOR der Migration UND BEIDE Protokollzeilen nebeneinander."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    original = path.read_text(encoding="utf-8")
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wurde vergeben"
+    assert schema_ziel.read_text(encoding="utf-8") == original
+    assert kennung_ziel.read_text(encoding="utf-8") == original
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    rueckweg_zeilen = {r.getMessage() for r in eigene if r.getMessage().startswith("Rueckweg vor")}
+    assert rueckweg_zeilen == {
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION}: {schema_ziel}",
+        f"Rueckweg vor Kennungsvergabe: {kennung_ziel}",
+    }, rueckweg_zeilen
+
+
 def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
     """Die Fehlermeldung in `_load` nannte nur `vor-schema-*.bak` und
     verschwieg `vor-kennungsvergabe.bak` — beide Saetze waren einzeln
     entfernbar, ohne dass die volle Suite es bemerkte (Blindpruefer,
     Nacharbeit 2 zu #105). `test_fehlermeldung_nennt_den_versionierten_
     rueckweg` deckt nur den ersten Satz; dieser Test verlangt beide
-    Dateinamen."""
+    Dateinamen.
+
+    NACHTRAG #120: Der bisherige Teilstring `vor-kennungsvergabe.bak` passt
+    auch auf einen falschen Pfad (z. B. ein hartkodiertes Verzeichnis statt
+    `self._path`). Verlangt wird deshalb der VOLLE erwartete Pfad.
+    """
     path = tmp_path / "accounts.json"
     path.write_text("{kaputt", encoding="utf-8")
 
@@ -1666,4 +1757,4 @@ def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
         ConfigStore(str(path))
 
     assert "vor-schema-" in str(fehler.value)
-    assert "vor-kennungsvergabe.bak" in str(fehler.value)
+    assert f"{path}.vor-kennungsvergabe.bak" in str(fehler.value)
