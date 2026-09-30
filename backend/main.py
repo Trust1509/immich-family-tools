@@ -92,7 +92,35 @@ async def _validation_error_handler(
     Zeichenkette. Trifft JEDEN Validierungsfehler, nicht nur die neuen Felder
     aus #85 — auch ein abgelehntes Zusatzfeld (`extra="forbid"`, Punkt 2)
     laeuft hier durch, weil Pydantic es als denselben Fehlertyp meldet.
+
+    NEU (Nacharbeit 1 zu #85, KLEIN): Zwei Sonderfaelle werden VOR dem
+    generischen Pfad erkannt, weil `errors.validation_failed()` fuer beide
+    die falsche Antwort waere:
+
+      - `json_invalid` (kaputtes JSON): `loc` ist dort `("body", <Byte-
+        Position>)` — eine ZAHL, kein Feldname. Der generische Pfad zeigte
+        vorher "Ungültige oder unbekannte Angabe für: 15".
+      - GENAU EIN `value_error` mit einem BEKANNTEN Text aus einem eigenen
+        `field_validator` (`models/account.py`): Der generische Pfad kennt
+        nur den FELDNAMEN, nicht den GRUND — "Zugangsdaten in der URL" und
+        "nicht erlaubte Netzadresse" sahen beide gleich aus ("Ungültige oder
+        unbekannte Angabe für: immich_url"). `errors.EIGENE_VALIDATOR_GRUENDE`
+        bildet den bekannten `ValueError`-Text auf eine eigene, uebersetzbare
+        Meldung ab. Bei MEHR als einem Fehler oder einem unbekannten Text
+        faellt das auf den generischen Pfad zurueck — kein Absturz, nur der
+        Grund bleibt dann (wie vorher) auf den Feldnamen begrenzt.
+
+    Beide Sonderfaelle bleiben — wie jede andere Meldung — mehrsprachig
+    (`frontend/src/i18n.tsx`), keine deutsche Klartext-Ausnahme.
     """
+    rohe_fehler = exc.errors()
+    if any(f.get("type") == "json_invalid" for f in rohe_fehler):
+        return _fehler_antwort(errors.invalid_json_body())
+    if len(rohe_fehler) == 1 and rohe_fehler[0].get("type") == "value_error":
+        grund = str((rohe_fehler[0].get("ctx") or {}).get("error", ""))
+        fabrik = errors.EIGENE_VALIDATOR_GRUENDE.get(grund)
+        if fabrik is not None:
+            return _fehler_antwort(fabrik())
     fehler = errors.validation_failed(_feldnamen_aus_validierungsfehlern(exc))
     return _fehler_antwort(fehler)
 
@@ -107,6 +135,35 @@ async def auth_middleware(request: Request, call_next):
                     return _fehler_antwort(errors.request_too_large())
             except ValueError:
                 return _fehler_antwort(errors.invalid_content_length())
+        else:
+            # Nacharbeit 1 zu #85, Punkt 3, zweiter Teil: OHNE
+            # Content-Length-Header (z. B. chunked transfer encoding) kam
+            # die Pruefung oben nie zum Zug — FastAPI liest den Koerper
+            # trotzdem vollstaendig ein, bevor irgendein Router ihn sieht.
+            # Gemessen (Gegenpruefer #85, vorbestehend): ein 1,25-MB-Koerper
+            # ohne Content-Length kam vollstaendig durch, obwohl
+            # `settings.max_request_bytes` bei 1 MiB liegt. Der Koerper wird
+            # deshalb hier selbst, bytesweise eingelesen und SOFORT
+            # abgebrochen, sobald er das Limit ueberschreitet.
+            #
+            # `request._body` danach zu setzen ist KEIN Seiteneffekt auf
+            # fremdes Verhalten, sondern der Weg, den Starlettes eigene
+            # `_CachedRequest` (`starlette/middleware/base.py`) fuer genau
+            # diesen Fall vorsieht: `wrapped_receive()` prueft zuerst dieses
+            # Attribut und spiegelt seinen Inhalt an den naechsten Leser
+            # weiter (Router/Pydantic), STATT den (hier schon verbrauchten)
+            # rohen ASGI-Stream erneut zu lesen — sonst saehe der Router
+            # einen leeren Koerper. Das ist derselbe Mechanismus, den
+            # `Request.body()` selbst benutzt, nur mit einer Groessengrenze
+            # WAEHREND des Lesens statt danach.
+            gelesen = 0
+            teile: list[bytes] = []
+            async for teil in request.stream():
+                gelesen += len(teil)
+                if gelesen > settings.max_request_bytes:
+                    return _fehler_antwort(errors.request_too_large())
+                teile.append(teil)
+            request._body = b"".join(teile)
     if request.url.path not in UNPROTECTED and request.url.path.startswith("/api/"):
         bearer = request.headers.get("Authorization", "")
         bearer_ok = bearer.startswith("Bearer ") and hmac.compare_digest(

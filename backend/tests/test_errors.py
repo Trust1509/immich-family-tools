@@ -180,7 +180,10 @@ STATUSCODES = {
     "err_account_id_not_found": 404,
     "err_account_not_found": 404,
     "err_album_name_required": 422,
+    "err_credentials_in_url": 422,
+    "err_disallowed_network_address": 422,
     "err_duplicate_query_param": 422,
+    "err_invalid_json_body": 422,
     "err_group_choice_conflict": 422,
     "err_group_choice_required": 409,
     "err_group_not_found": 404,
@@ -268,6 +271,98 @@ def test_der_middleware_pfad_liefert_dieselbe_form(client):
     koerper = antwort.json()
     assert koerper["error_key"] == "err_unauthorized"
     assert isinstance(koerper["detail"], str) and koerper["detail"]
+
+
+def test_gekuerzt_kappt_exakt_bei_200_zeichen_plus_ellipse():
+    """#85 Nacharbeit 1, KLEIN: Die Kappung liefert bei Ueberlaenge 201
+    Zeichen (200 gehaltene plus die Ellipse) — nicht genau 200. Bisherige
+    Tests pruefen nur `< len(original)`, das waere auch bei einer falschen
+    Grenze (z. B. 50 oder 500) gruen. Dieser Test naegelt den EXAKTEN Wert
+    fest, wie im Bau-Brief gefordert.
+    """
+    lang = "x" * 300
+    assert errors._gekuerzt(lang) == "x" * 200 + "…"
+    assert len(errors._gekuerzt(lang)) == 201
+
+
+def test_gekuerzt_laesst_kurze_werte_unveraendert():
+    kurz = "x" * 200
+    assert errors._gekuerzt(kurz) == kurz
+
+
+@pytest.mark.parametrize(
+    "fabrik",
+    [
+        errors.account_id_not_found,
+        errors.owner_account_id_not_found,
+        errors.person_validation_failed,
+        errors.manual_match_id_collision,
+        errors.group_choice_required,
+        errors.group_situation_changed,
+    ],
+)
+def test_jede_meldung_mit_zurueckgespiegeltem_wert_kappt_ihn(fabrik):
+    """#85 Nacharbeit 1, Testluecke: `group_not_found` und `validation_failed`
+    hatten schon eine Kappungsprobe (`test_gruppenwahl_schnittstelle.py`) —
+    die uebrigen fuenf Funktionen mit `_gekuerzt()` hatten keine EIGENE. Ein
+    Tippfehler, der `_gekuerzt()` an einer dieser Stellen durch `str()`
+    ersetzt (vgl. Mutanten M04–M06 im Blind-Bericht), waere hier unbemerkt
+    geblieben.
+    """
+    lang = "y" * 5000
+    fehler = fabrik(lang)
+    erwartet = "y" * 200 + "…"
+    assert lang not in fehler.detail
+    assert erwartet in fehler.detail
+    for wert in fehler.params.values():
+        assert wert == erwartet, (fabrik.__name__, fehler.params)
+
+
+def test_validation_failed_dedupliziert_und_erhaelt_reihenfolge():
+    """Die eigentliche Fehlfunktion war quadratisch (Liste statt Menge) —
+    dieser Test prueft die KORREKTHEIT (Reihenfolge, keine Duplikate); die
+    LAUFZEIT prueft `test_schnittstelle_haertung_na1.py` durch die echte Tuer.
+    """
+    fehler = errors.validation_failed(["b", "a", "b", "c", "a"])
+    assert fehler.params["fields"] == "b, a, c"
+
+
+def test_validation_failed_deckelt_die_angezeigte_feldzahl():
+    """#85 Nacharbeit 1 Punkt 1/3: Ohne Deckel waechst `detail` mit jedem
+    vom Client gewaehlten Feldnamen — bei vielen tausend Feldern eine
+    unbegrenzte Antwort (Punkt 3). Diese Probe bindet nur die KORREKTHEIT der
+    Deckelung (Anzahl, Resttext); die Laenge/Zeit unter echtem HTTP-Umfang
+    prueft `test_schnittstelle_haertung_na1.py`.
+    """
+    namen = [f"f{i:04d}" for i in range(50)]
+    fehler = errors.validation_failed(namen)
+    liste = fehler.params["fields"]
+    assert liste.count(",") < 25, "mehr als die gedeckelten Felder erscheinen einzeln"
+    assert "weitere" in liste
+    for name in namen[:5]:
+        assert name in liste
+    assert namen[-1] not in liste
+
+
+def test_eigene_validatoren_haben_einen_uebersetzbaren_schluessel():
+    """#85 Nacharbeit 1, KLEIN: Die beiden Faelle aus dem Bau-Brief muessen
+    ERKENNBAR bleiben — nicht mehr im generischen "Ungueltige oder
+    unbekannte Angabe fuer: immich_url" untergehen.
+    """
+    a = errors.credentials_in_url()
+    b = errors.disallowed_network_address()
+    assert a.key != "err_validation_failed"
+    assert b.key != "err_validation_failed"
+    assert a.detail and b.detail
+    assert a.key != b.key
+
+
+def test_kaputtes_json_hat_einen_eigenen_schluessel():
+    fehler = errors.invalid_json_body()
+    assert fehler.key != "err_validation_failed"
+    assert fehler.detail
+    # Keine Ziffernfolge, die wie eine Byte-Position aussieht.
+    assert not any(ch.isdigit() for ch in fehler.detail)
 
 
 def test_fastapis_eigener_validierungsfehler_traegt_jetzt_die_hausform(client):

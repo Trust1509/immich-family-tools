@@ -1493,10 +1493,38 @@ export const translations = {
   // Singular-/Pluralform), damit ein wie mehrere Feldnamen ohne zweite
   // Formulierung grammatisch korrekt bleiben.
   err_validation_failed: {
-    de: (felder: string) => `Ungültiger Wert für: ${felder}`,
-    en: (felder: string) => `Invalid value for: ${felder}`,
-    "es-ES": (felder: string) => `Valor no válido para: ${felder}`,
-    "pt-BR": (felder: string) => `Valor inválido para: ${felder}`,
+    // Nacharbeit 1 zu #85: "Ungueltiger Wert" traf den Fall "Feld fehlt"
+    // oder "unbekanntes Feld" nie wirklich (da liegt kein WERT vor, der
+    // ungueltig waere) — neutraler formuliert, deckt alle Faelle ab.
+    de: (felder: string) => `Ungültige oder unbekannte Angabe für: ${felder}`,
+    en: (felder: string) => `Invalid or unknown value for: ${felder}`,
+    "es-ES": (felder: string) => `Valor no válido o desconocido para: ${felder}`,
+    "pt-BR": (felder: string) => `Valor inválido ou desconhecido para: ${felder}`,
+  },
+  // Nacharbeit 1 zu #85, KLEIN: Kaputtes JSON lief vorher durch
+  // `err_validation_failed` mit einer Byte-Position als "Feldname"
+  // (`backend/main.py`, `_validation_error_handler`).
+  err_invalid_json_body: {
+    de: "Anfrage ist kein gültiges JSON",
+    en: "Request is not valid JSON",
+    "es-ES": "La solicitud no es JSON válido",
+    "pt-BR": "A solicitação não é um JSON válido",
+  },
+  // Nacharbeit 1 zu #85, KLEIN: Der Grund eigener Validatoren
+  // (`models/account.py`, `validate_immich_url`) ging vorher im
+  // generischen `err_validation_failed` unter — beide Faelle sahen dort
+  // gleich aus ("Ungültige oder unbekannte Angabe für: immich_url").
+  err_credentials_in_url: {
+    de: "Zugangsdaten sind in der Immich-URL nicht erlaubt",
+    en: "Credentials are not allowed inside the Immich URL",
+    "es-ES": "No se permiten credenciales dentro de la URL de Immich",
+    "pt-BR": "Não são permitidas credenciais dentro da URL do Immich",
+  },
+  err_disallowed_network_address: {
+    de: "Diese Netzadresse ist nicht erlaubt",
+    en: "This network address is not allowed",
+    "es-ES": "Esta dirección de red no está permitida",
+    "pt-BR": "Este endereço de rede não é permitido",
   },
   // #85 Punkt 5: `?album_name=A&album_name=B` wurde bisher still auf einen
   // Wert reduziert. `name` ist hier immer ein Parametername aus unserem
@@ -1761,11 +1789,13 @@ function renderLogMessage(lang: Lang, entry: LogLikeEntry): string {
  *
  *  Der Server schickt ein WOERTERBUCH (`{"id": "a1"}`), die Uebersetzungen
  *  nehmen POSITIONELLE Argumente. Diese Tabelle ist die Brücke. Sie ist
- *  bewusst klein: Nur die fuenf Schluessel mit Werten stehen darin; alle
+ *  bewusst klein: Nur die sieben Schluessel mit Werten stehen darin (Stand
+ *  Nacharbeit 1 zu #85 — die drei dort neu hinzugekommenen Fehlerschluessel
+ *  tragen KEINE Werte und brauchen deshalb keinen Eintrag hier); alle
  *  anderen brauchen sie nicht.
  *
  *  Warum nicht die Uebersetzungen auf ein Woerterbuch umstellen? Weil dann
- *  jede der 189 uebrigen Zeilen mitgeaendert werden muesste, um fuenf
+ *  jede der 189 uebrigen Zeilen mitgeaendert werden muesste, um sieben
  *  Faelle zu bedienen. */
 export const ERROR_PARAM_ORDER: Record<string, readonly string[]> = {
   err_account_id_not_found: ["id"],
@@ -1790,8 +1820,10 @@ function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
   const key = fehler.key;
   // DER RUECKFALL IST DER ZWECK, nicht die Notloesung: Kennt das Frontend
   // den Schluessel nicht — eine neue Meldung, ein Tippfehler, ein aelterer
-  // Stand, oder gar kein Schluessel wie bei FastAPIs eigenen
-  // Validierungsfehlern —, dann zeigt es den deutschen Klartext des Servers.
+  // Frontend-Stand, oder (seltener seit Nacharbeit 1 zu #85: FastAPIs
+  // eigene Validierungsfehler tragen inzwischen selbst einen Schluessel,
+  // `backend/main.py`, `_validation_error_handler`) ein Backend-Schluessel,
+  // den es noch nicht kennt —, dann zeigt es den deutschen Klartext des Servers.
   // Der teuerste Fehler dieses Pfades waere "Error:" gefolgt von Leere.
   // NUR err_*-Schluessel. Ohne die Schranke schlaegt ein Schluessel im
   // GESAMTEN Woerterbuch nach — auch in den 189 Oberflaechen-Texten. Ein
@@ -1807,7 +1839,7 @@ function renderErrorText(lang: Lang, fehler: ServerErrorLike): string {
     // Kein Eintrag in ERROR_PARAM_ORDER, oder ein Wert fehlt: Rueckfall auf
     // den Klartext des Servers statt eines Satzes mit Luecke. Die erste
     // Fassung fuellte "" ein und zeigte «» bzw. "undefined" — lesbar war das
-    // nicht, und rot wurde nichts. Der Test unten deckt jeden der fuenf
+    // nicht, und rot wurde nichts. Der Test unten deckt jeden der sieben
     // Schluessel mit Werten ab, nicht nur zwei.
     if (!reihenfolge) return fehler.message;
     const werte = reihenfolge.map((name) => fehler.params?.[name]);

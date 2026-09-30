@@ -13,8 +13,15 @@ Die Antwort traegt beides — den Schluessel UND den Klartext:
 `detail` bleibt eine Zeichenkette und bleibt deutsch. Das ist Absicht und
 keine Bequemlichkeit:
 
-  - Wer die Schnittstelle direkt anspricht, merkt von der Aenderung nichts.
-    Ein Objekt unter `detail` waere eine echte Bruchstelle gewesen.
+  - Wer eine Meldung schon vorher ueber `AppError` bekam, merkt von der
+    Erweiterung um `error_key`/`error_params` nichts — `detail` aendert sich
+    fuer sie nicht. EINE Ausnahme, ehrlich benannt (Nacharbeit 1 zu #85):
+    FastAPIs eigene Validierungsfehler (`RequestValidationError`) lieferten
+    VORHER `detail` als LISTE, kein `error_key`. Seit #85 liefert auch dieser
+    Pfad einen Zeichenketten-`detail` in derselben Form
+    (`backend/main.py`, `_validation_error_handler`) — das IST eine
+    sichtbare Aenderung fuer jeden, der die Schnittstelle direkt anspricht
+    und bisher FastAPIs Listenform las.
   - Der Rueckfall steckt in der Antwort SELBST. Ein Frontend, das den
     Schluessel nicht kennt — eine aeltere Fassung, eine neue Meldung, ein
     Tippfehler — zeigt den deutschen Satz statt gar nichts. Der teuerste
@@ -31,7 +38,7 @@ ein. Die beiden Mengen werden von einem Test verglichen
 Regel, die nur als Kommentar existiert, ist keine.
 """
 
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import HTTPException
 
@@ -207,7 +214,12 @@ _MAX_GESPIEGELTE_LAENGE = 200
 
 def _gekuerzt(wert: object) -> str:
     """Kappt einen vom Client stammenden, in eine Fehlermeldung
-    zurueckgespiegelten Wert auf `_MAX_GESPIEGELTE_LAENGE` Zeichen.
+    zurueckgespiegelten Wert auf `_MAX_GESPIEGELTE_LAENGE` Zeichen —
+    genauer: Wird gekuerzt, kommt zusaetzlich EIN Ellipsis-Zeichen dazu, das
+    Ergebnis ist dann `_MAX_GESPIEGELTE_LAENGE + 1` Zeichen lang, nicht
+    exakt `_MAX_GESPIEGELTE_LAENGE` (Nacharbeit 1 zu #85 — vorher stand hier
+    die ungenaue Behauptung "auf N Zeichen", tatsaechlich sind es bis zu
+    N + 1).
 
     Ohne diese Kappung bestimmt der Client die Laenge der Antwort — nicht nur
     fuer eine gezielt lange Kennung, sondern auch fuer einen Feldnamen aus
@@ -353,6 +365,16 @@ def group_situation_changed(album_name: str) -> AppError:
 # demselben Grund wie bei jeder anderen Meldung in dieser Datei.
 
 
+# Wie viele eindeutige Feldnamen die Meldung EINZELN nennt, bevor der Rest
+# in einem "... und N weitere" zusammengefasst wird (Nacharbeit 1 zu #85,
+# Punkt 1/3). Eine reine Lesbarkeits-/Groessenentscheidung, KEINE Messung —
+# nicht mit den Zeitangaben im Docstring unten verwechseln, die sind
+# gemessen. 20 haelt `detail`/`error_params` auch bei einer riesigen Anzahl
+# Client-Feldnamen auf wenige tausend Zeichen begrenzt, unabhaengig von der
+# Kappung je einzelnem Namen.
+_MAX_ANGEZEIGTE_FELDER = 20
+
+
 def validation_failed(field_names: list[str]) -> AppError:
     """Baut die Hausform aus den Feldnamen von `RequestValidationError.errors()`.
 
@@ -366,19 +388,92 @@ def validation_failed(field_names: list[str]) -> AppError:
     dekliniert werden muesste ("Feld"/"Felder") — dieselbe Konstruktion traegt
     einen wie mehrere Feldnamen grammatisch korrekt, ohne dass Uebersetzung
     UND Kappung zusaetzlich eine Anzahl durchreichen muessten.
+
+    NEU (Nacharbeit 1 zu #85, Punkt 1): Die Dedopplung prueft ueber eine
+    MENGE (`gesehen`), nicht mehr ueber `name not in eindeutig` auf einer
+    LISTE — Letzteres war quadratisch in der Anzahl der Fehler. Gemessen,
+    isoliert (diese Funktion direkt aufgerufen, ausserhalb der Testsuite,
+    Entwicklungsrechner, vor diesem Fix): 10 000 Feldnamen 0,31 s, 30 000
+    Feldnamen 2,70 s, 50 000 Feldnamen 8,23 s — deutlich mehr als linear.
+    Nach dem Fix, dieselbe Messung: 50 000 Feldnamen 0,005 s.
+
+    NEU (Punkt 3): Selbst mit O(n) waechst `detail`/`error_params` sonst
+    weiter mit dem Client-Input — bei vielen tausend eindeutigen Feldnamen
+    eine unbegrenzte Antwort. Deshalb werden nur die ersten
+    `_MAX_ANGEZEIGTE_FELDER` einzeln genannt, der Rest als Zahl.
     """
+    gesehen: set[str] = set()
     eindeutig: list[str] = []
     for roh in field_names:
         name = _gekuerzt(roh)
-        if name not in eindeutig:
+        if name not in gesehen:
+            gesehen.add(name)
             eindeutig.append(name)
-    liste = ", ".join(eindeutig) if eindeutig else "?"
+    gesamt = len(eindeutig)
+    if gesamt > _MAX_ANGEZEIGTE_FELDER:
+        rest = gesamt - _MAX_ANGEZEIGTE_FELDER
+        liste = ", ".join(eindeutig[:_MAX_ANGEZEIGTE_FELDER]) + f", … und {rest} weitere"
+    else:
+        liste = ", ".join(eindeutig) if eindeutig else "?"
     return AppError(
         422,
         "err_validation_failed",
-        f"Ungültiger Wert für: {liste}",
+        # "Ungueltiger Wert" traf den Fall "Feld fehlt" oder "unbekanntes
+        # Feld" nie wirklich (da liegt kein WERT vor, der ungueltig waere).
+        # Genaues Unterscheiden von "unbekannt"/"fehlt"/"falscher Typ" je
+        # Fehlerart wurde geprueft und zurueckgestellt (Bericht, KLEIN-Punkt
+        # "Unbekanntes Feld/fehlt/falscher Typ") — der neutralere Wortlaut
+        # hier ist der im Bau-Brief benannte Ersatz dafuer.
+        f"Ungültige oder unbekannte Angabe für: {liste}",
         {"fields": liste},
     )
+
+
+def invalid_json_body() -> AppError:
+    """Kaputtes JSON bekommt einen eigenen Wortlaut (Nacharbeit 1 zu #85,
+    KLEIN).
+
+    Pydantic meldet einen kaputten Anfrage-Koerper als `type: "json_invalid"`
+    mit `loc: ("body", <Byte-Position>)` — eine ZAHL, kein Feldname. Lief das
+    durch `validation_failed()` (der generische Pfad), lautete `detail`
+    "Ungültige oder unbekannte Angabe für: 15" — eine Byte-Position, die
+    niemand als Feldname liest. `main._validation_error_handler` erkennt
+    `json_invalid` VOR dem generischen Pfad und ruft stattdessen hier an.
+    """
+    return AppError(422, "err_invalid_json_body", "Anfrage ist kein gültiges JSON")
+
+
+# Bekannte Texte EIGENER Validatoren (`ValueError` mit fest formuliertem
+# deutschem/englischem Text, geworfen von `models/account.py`), zugeordnet
+# auf eine eigene, uebersetzbare Meldung (Nacharbeit 1 zu #85, KLEIN:
+# "Fehlergrund eigener Validatoren geht verloren"). Ohne diese Zuordnung lief
+# ein `ValueError` aus einem `field_validator` durch denselben generischen
+# Pfad wie jeder andere Validierungsfehler — der eigentliche GRUND (welche
+# Regel genau verletzt wurde) ging verloren, `detail` nannte nur noch den
+# Feldnamen ("Ungültige oder unbekannte Angabe für: immich_url"). Die
+# Zuordnung ist bewusst ueber den TEXT der Ausnahme, nicht ueber eine eigene
+# Ausnahmeklasse: `field_validator` erwartet `ValueError`/`AssertionError`/
+# `PydanticCustomError`, keine `AppError` (die ist eine `HTTPException` und
+# wuerde im Pydantic-Validierungslauf nicht sauber behandelt). Nur die ZWEI
+# im Bau-Brief gemessenen Faelle sind hier abgedeckt — ein dritter eigener
+# Validator braucht einen eigenen Eintrag, sonst faellt sein Grund weiterhin
+# auf den generischen Pfad zurueck (kein Absturz, nur wieder der alte
+# Zustand fuer diesen EINEN Fall).
+def credentials_in_url() -> AppError:
+    return AppError(
+        422, "err_credentials_in_url",
+        "Zugangsdaten sind in der Immich-URL nicht erlaubt",
+    )
+
+
+def disallowed_network_address() -> AppError:
+    return AppError(422, "err_disallowed_network_address", "Diese Netzadresse ist nicht erlaubt")
+
+
+EIGENE_VALIDATOR_GRUENDE: dict[str, Callable[[], AppError]] = {
+    "Credentials are not allowed inside the Immich URL": credentials_in_url,
+    "This network address is not allowed": disallowed_network_address,
+}
 
 
 def duplicate_query_param(name: str) -> AppError:

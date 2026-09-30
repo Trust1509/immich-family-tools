@@ -99,7 +99,9 @@ class SyncNamesRequest(BaseModel):
     # extra="forbid" (#85 Punkt 2): Ein Tippfehler im Feldnamen (`matchId`
     # statt `match_id`) wurde bisher still ignoriert (Pydantic-Vorgabe
     # `extra="ignore"`) und das fehlende Pflichtfeld ergaenzte sich mit einem
-    # eigenen 422 -- aber NUR, wenn es kein Pflichtfeld mit Vorgabewert traf.
+    # eigenen 422 -- aber NUR, wenn es kein Feld mit Vorgabewert traf
+    # (Nacharbeit 1: "Pflichtfeld mit Vorgabewert" war ein Widerspruch in
+    # sich -- ein Feld MIT Vorgabewert ist per Definition kein Pflichtfeld).
     # Ein Feld mit Vorgabewert (siehe `force_new_group` bei den Gruppen-
     # Modellen unten) wurde beim Tippfehler STILL uebernommen, ohne Fehler.
     # Jeder Aufrufer aus `frontend/src/api/client.ts` schickt exakt die hier

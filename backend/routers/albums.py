@@ -816,21 +816,55 @@ async def clear_sync_log(request: Request):
 
 
 # ── Auto-sync config ───────────────────────────────────────────────────────
+#
+# ZWEI Modelle statt einem (Nacharbeit 1 zu #85, Punkt 2): `AutoSyncConfig`
+# war zugleich ANFRAGE-Modell (PUT-Koerper) UND `response_model` (GET/PUT) —
+# UND trug `extra="forbid"`. Fuer die Anfrage ist das richtig (ein
+# Tippfehler im PUT-Koerper soll abgelehnt werden). Fuer die ANTWORT war es
+# ein Fehler: `get_auto_sync_config()` liefert die gespeicherten Rohdaten
+# unveraendert zurueck (`services/config_store.py`), und FastAPI validiert
+# ein `response_model` GENAUSO wie einen Anfrage-Koerper — ein gespeichertes
+# Zusatzfeld (Handbearbeitung von `accounts.json`, oder ein kuenftiges Feld
+# nach einem Downgrade) loeste dort eine `ResponseValidationError` aus, die
+# FastAPI als 500 beantwortet, bevor unser eigener Handler ueberhaupt zum
+# Zug kommt. `AutoSyncConfigOut` traegt deshalb KEIN `extra="forbid"` — ein
+# unbekanntes gespeichertes Feld wird beim Ausliefern still weggelassen
+# (Pydantics Vorgabe `extra="ignore"`), statt die Anfrage abzulehnen. Das
+# ist bewusst asymmetrisch: Ablehnen ist die richtige Reaktion auf eine
+# FALSCHE ANFRAGE, nicht auf eine gespeicherte Antwort, die die Anwendung
+# selbst erzeugt hat.
+#
+# Geprueft (Bau-Brief, Punkt 2, letzter Satz): Kein anderes `extra="forbid"`-
+# Modell in diesem Projekt dient irgendwo als `response_model` —
+# `UndoRequest` und die fuenf Modelle in `models/match.py` sind ausschliesslich
+# Anfrage-Koerper (siehe `grep -rn "response_model=" backend/routers/`).
 
-class AutoSyncConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # #85 Punkt 2
+
+class AutoSyncConfigIn(BaseModel):
+    """Der PUT-Koerper. `extra="forbid"` bleibt hier — ein Tippfehler im
+    Feldnamen soll weiterhin abgelehnt werden, nicht still ignoriert."""
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool
     time: str  # "HH:MM" in server local time
 
 
-@router.get("/autosync-config", response_model=AutoSyncConfig)
+class AutoSyncConfigOut(BaseModel):
+    """Die Antwort (GET und PUT). Bewusst OHNE `extra="forbid"` — siehe die
+    Erklaerung oben."""
+
+    enabled: bool
+    time: str
+
+
+@router.get("/autosync-config", response_model=AutoSyncConfigOut)
 async def get_autosync_config(request: Request):
     return request.app.state.store.get_auto_sync_config()
 
 
-@router.put("/autosync-config", response_model=AutoSyncConfig)
-async def set_autosync_config(body: AutoSyncConfig, request: Request):
+@router.put("/autosync-config", response_model=AutoSyncConfigOut)
+async def set_autosync_config(body: AutoSyncConfigIn, request: Request):
     # Validate time format
     try:
         h, m = map(int, body.time.split(":"))

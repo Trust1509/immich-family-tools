@@ -889,9 +889,9 @@ describe("ERROR_PARAM_ORDER", () => {
   });
 
   it("renders every parameterised error with its values, in every language", () => {
-    // Alle fuenf, nicht zwei. Je Schluessel wird geprueft, dass JEDER Wert
-    // im Ergebnis auftaucht — ein vertauschtes oder verschlucktes Argument
-    // faellt damit auf.
+    // Alle sieben (Stand Nacharbeit 1 zu #85), nicht zwei. Je Schluessel
+    // wird geprueft, dass JEDER Wert im Ergebnis auftaucht — ein
+    // vertauschtes oder verschlucktes Argument faellt damit auf.
     const werte: Record<string, Record<string, string>> = {
       err_account_id_not_found: { id: "WERT-A" },
       err_owner_account_id_not_found: { id: "WERT-B" },
