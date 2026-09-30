@@ -42,11 +42,13 @@ and they behave differently on purpose:
   migration and never overwritten while it is usable. `<N>` is the schema
   version it is migrating **to**; the file holds the state from _before_ that
   migration. **Exception (#120):** if a _usable_ copy already sits at the
-  target, only writing **this rollback copy** is skipped — the schema
-  migration itself still runs in full; the existing copy already holds the
-  state from before the migration, so a second write would just duplicate
-  it. You land in exactly this situation by following _Undoing a
-  migration_ below and then upgrading again.
+  target, writing **this rollback copy** is skipped (and nothing is logged
+  for it) — the schema migration itself still runs in full. **Known
+  limitation (#130):** the existing copy holds the state from before the
+  _first_ upgrade, not from before this one. You land in exactly this
+  situation by following _Undoing a migration_ below and then upgrading
+  again: anything you did in between is in no rollback copy. See _Undoing a
+  migration_ for what to do instead.
 - **`accounts.json.vor-kennungsvergabe.bak`** — written before the app
   assigns any album group identifiers that are still missing. That happens
   when an older version created an album without one — **independently of
@@ -159,7 +161,8 @@ sequence is not merely useless; it moves the identifiers a second time.
 The order that works:
 
 1. Stop the container.
-2. Deploy the **previous image tag**, the one from before the upgrade.
+2. Switch to the **previous image tag**, the one from before the upgrade, but
+   do not start the container yet (step 5 starts it).
 3. Copy the matching rollback copy over `accounts.json`:
    `accounts.json.vor-schema-<N>.bak` for a schema migration,
    `accounts.json.vor-kennungsvergabe.bak` for an identifier assignment. Only
@@ -169,6 +172,13 @@ The order that works:
 5. Start the old image and verify `/api/health` reports the old version.
 
 Only then decide whether to upgrade again.
+
+**Known limitation (#130): undoing a migration a second time.** If you have
+already undone this migration once, worked with the old version, and upgraded
+again, `accounts.json.vor-schema-<N>.bak` still holds the state from before
+the **first** upgrade. Copying it back would lose everything you did in
+between. In that case restore the ZFS snapshot you took right before the
+latest upgrade instead of step 3. A fix is planned for a later release.
 
 Test restoration after setup and periodically thereafter. An untested backup is
 only a hopeful collection of bytes.

@@ -137,6 +137,13 @@ forms. The nightly auto-sync logs the orphaned albums it skips by id, and its
 album count no longer includes them. Its failure line now names the album by
 id instead of by name.
 
+**Known limitation (#130), documented, not changed in this release:** after
+undoing a schema migration, working with the old version and upgrading again,
+`accounts.json.vor-schema-<N>.bak` still holds the state from before the
+**first** upgrade. `docs/BACKUP_RESTORE.md` ("Undoing a migration") now says
+so and points to the ZFS snapshot for that case. This release contains no
+schema migration.
+
 ### Tighter file permissions and crash leftovers (#106, #68, #124)
 
 - On start, the app warns about files next to `accounts.json` whose name starts
