@@ -189,7 +189,8 @@ class ConfigStore:
         DIE ZWEI FAELLE SCHLIESSEN EINANDER NICHT AUS: Ein Altbestand ohne
         `schema_version` UND mit einem Album ohne `group_id` loest in EINEM
         einzigen `_migrate()`-Lauf BEIDE Zweige aus — erst `einmalig=True`,
-        dann `einmalig=False` — und schreibt in diesem Fall beide Rueckweg-
+        dann `einmalig=False` (die Reihenfolge, in der `_migrate()` beide
+        Aufrufe absetzt) — und schreibt in diesem Fall beide Rueckweg-
         Dateien und beide Protokollzeilen (gemessen, Nacharbeit 2 zu #105).
         DAS GILT NICHT IMMER (#120): Liegt am Schemasprung-Ziel schon ein
         BRAUCHBARER `vor-schema-*.bak`, kehrt der `einmalig=True`-Zweig ganz
@@ -199,6 +200,24 @@ class ConfigStore:
         AUSLOESER dieses Zweigs (eine fehlende Kennung, unabhaengig von der
         Schemaversion), nicht eine Garantie, dass kein Schemasprung im
         selben Lauf mitlaeuft.
+
+        DIE REIHENFOLGE DER BEIDEN AUFRUFE IN `_migrate()` IST JETZT FESTGEHALTEN,
+        nicht mehr nur behauptet (Nacharbeit 1 zu #114/#116/#111/#120, Sonde S8,
+        D2): Jeder Zweig liest und schreibt zwar seine EIGENE Zieldatei — an
+        den beiden Rueckweg-DATEIEN aendert eine Vertauschung nichts —, aber
+        beide Zweige protokollieren ueber denselben Logger, und die REIHENFOLGE
+        der beiden Protokollzeilen folgt sichtbar der Aufrufreihenfolge. Eine
+        erste Fassung dieses Docstrings behauptete deshalb fälschlich, die
+        Reihenfolge sei „bedeutungslos" — eine Mutation, die die beiden Aufrufe
+        vertauscht (D2), blieb damals unter der ALTEN, mengenbasierten Fassung
+        von `test_mischfall_schemasprung_und_kennungsvergabe_bekommen_beide_
+        rueckwege` unbemerkt gruen. Seit die drei Nacharbeit-Funde D1/D4/D5/D7
+        (verdoppelte Zeile, falsche Stufe, zusaetzliche Warnung) diesen Test auf
+        eine LISTE in fester Reihenfolge umgestellt haben, faengt genau dieselbe
+        Probe auch D2 — selbst GEMESSEN, nicht aus einer fruehen Sonden-Notiz
+        uebernommen: eine Vertauschung macht `test_mischfall_...` jetzt rot,
+        weil die beiden Protokollzeilen dann in der falschen Reihenfolge
+        ankommen.
 
         Die gewoehnliche `.bak` traegt den Vor-Zustand nur bis zum naechsten
         Schreibvorgang — und in der laufenden Anwendung ist das das

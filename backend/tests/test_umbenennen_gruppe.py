@@ -120,14 +120,40 @@ def test_beide_alben_einer_gruppe_lassen_sich_umbenennen(mit_bestand):
     daran etwas findet, schafft die Funktion ab, die sie schützen soll — eine
     Gruppe mit zwei oder mehr Alben liesse sich nie mehr umbenennen. Genau
     dieser Fall hatte drei Fassungen lang keine Backend-Probe.
+
+    NACHTRAG (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 2): Diese Probe
+    prüfte bisher NUR die Namen — nicht, ob die Gruppe dabei zusammenbleibt
+    (Sonde S8, gemessen): Eine Mutation, die dem ERSTEN umbenannten Album
+    eine frische `group_id` gibt, sobald (noch) kein anderes Album denselben
+    Namen trägt (B4r), und eine zweite, die dem ZURÜCKGEBLIEBENEN Geschwister
+    sofort eine eigene `group_id` gibt, weil es (noch) eine andere
+    Faltungsklasse trägt (B7r), blieben beide unbemerkt grün — mit dem Erfolg
+    `a1==a2: False` und einer Gruppenvorschau, die danach `many` meldet,
+    statt der einen ursprünglichen Gruppe. Diese Probe liest deshalb jetzt
+    `group_id` NACH JEDEM der beiden Umbenennen-Schritte und danach die
+    Gruppenvorschau.
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
     assert c.patch("/api/sync/albums/a1",
                    json={"album_name": "Herbstfest"}).status_code == 200
+    # Nach dem ERSTEN Umbenennen (a1 trägt jetzt "Herbstfest", a2 noch
+    # "Sommerfest" — eine andere Faltungsklasse): das zurückgebliebene
+    # Geschwister bleibt in DERSELBEN Gruppe (deckt B7r).
+    zwischenstand = _gruppen(c)
+    assert zwischenstand == {"a1": "gruppe-1", "a2": "gruppe-1"}, zwischenstand
+
     zweite = c.patch("/api/sync/albums/a2", json={"album_name": "Herbstfest"})
     assert zweite.status_code == 200, zweite.text
     assert _namen(c) == {"a1": "Herbstfest", "a2": "Herbstfest"}
+    # Nach BEIDEN Umbenennen-Schritten tragen beide Alben denselben Namen und
+    # müssen dieselbe Gruppe behalten (deckt B4r); die Vorschau für den neuen
+    # Namen zeigt genau diese eine, ursprüngliche Gruppe, nicht "many".
+    endstand = _gruppen(c)
+    assert endstand == {"a1": "gruppe-1", "a2": "gruppe-1"}, endstand
+    vorschau = c.get("/api/sync/album-group",
+                     params={"album_name": "Herbstfest"}).json()
+    assert vorschau and vorschau["group_id"] == "gruppe-1", vorschau
 
 
 def test_die_wiederholung_nach_einem_teilausfall_kommt_durch(mit_bestand):
@@ -330,6 +356,16 @@ def test_der_dekorator_verwendet_wirklich_ganz_frei_geworden():
     tatsächlich hinterlegten Parameter-Werte aus `pytestmark` und verlangt
     Gleichheit mit `FREI_GEWORDEN` selbst — eine gekürzte oder eine
     vervielfältigte Kopie hat eine andere Wertfolge und fällt durch.
+
+    NACHTRAG (#114/#116/#111/#120, Nacharbeit 1, KLEIN): Diese Probe prüfte
+    bisher nur den `parametrize`-Dekorator selbst — ein zusätzlicher
+    `@pytest.mark.skip(...)` DARÜBER blieb unbemerkt grün (Sonde S8, C1
+    gemessen): Der Filter oben findet weiterhin genau eine `parametrize`-Marke
+    mit den richtigen Werten, während pytest den ganzen Test wegen der
+    zusätzlichen `skip`-Marke gar nicht mehr ausführt — die Parameterliste
+    bliebe damit ungeprüft, obwohl diese Probe grün meldet. Der Wächter prüft
+    deshalb jetzt zusätzlich, dass am Testobjekt KEINE `skip`/`skipif`-Marke
+    hängt.
     """
     marken = [
         m for m in test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin.pytestmark
@@ -339,6 +375,11 @@ def test_der_dekorator_verwendet_wirklich_ganz_frei_geworden():
     [marke] = marken
     _argnamen, argwerte = marke.args
     assert argwerte == FREI_GEWORDEN, argwerte
+    uebersprungen = [
+        m for m in test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin.pytestmark
+        if m.name in ("skip", "skipif")
+    ]
+    assert uebersprungen == [], uebersprungen
 
 
 @pytest.mark.parametrize("alter_name, fremde_schreibweise", FREI_GEWORDEN)

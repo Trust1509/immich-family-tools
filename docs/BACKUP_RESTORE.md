@@ -32,7 +32,12 @@ and they behave differently on purpose:
   old-format file (no `schema_version` key) with such an album writes
   **both** rollback files and logs **both** lines in a single run (#105);
   the two cases are not mutually exclusive, only worded and tested
-  separately. **One generation only:** it is replaced on each such run, so
+  separately. **Exception (#120):** if a _usable_ `vor-schema-<N>.bak`
+  already sits at the target, the schema-migration branch returns early
+  without writing or logging anything, so only the identifier-assignment
+  line (if that branch also triggers) appears — you land in exactly this
+  situation by following _Undoing a migration_ below and then upgrading
+  again. **One generation only:** it is replaced on each such run, so
   it always holds the state from before the _most recent_ one. That is the
   state you would want back; a months-old copy would throw away everything
   since.
@@ -54,7 +59,10 @@ Two things follow for you as the operator:
   rollback lines — is formatted `LEVEL  services.config_store  message`
   (`backend/main.py`'s log format); this is not a claim about every line the
   app logs overall, other loggers (e.g. the sync service) use their own
-  name in that slot. The line does not start with the message text quoted
+  name in that slot — except uvicorn's own lines (startup banner, access
+  log): uvicorn formats those itself, and they do not follow this
+  `LEVEL  name  message` layout at all, not merely a different name filled
+  into the same slot. The line does not start with the message text quoted
   below, that text is what to look for **inside** the line. What it says
   depends on which version wrote it:
   - **1.9.0 and later:** a failed schema-migration backup logs a WARNING

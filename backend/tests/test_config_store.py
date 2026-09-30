@@ -1716,7 +1716,18 @@ def test_mischfall_schemasprung_und_kennungsvergabe_bekommen_beide_rueckwege(tmp
     blieb dabei ungeprueft gruen. `_write_legacy_config` traegt schon beide
     Ausloeser (kein `schema_version`-Schluessel, `album-1` ohne
     `group_id`); diese Probe verlangt BEIDE Rueckweg-Dateien mit dem Stand
-    VOR der Migration UND BEIDE Protokollzeilen nebeneinander."""
+    VOR der Migration UND BEIDE Protokollzeilen nebeneinander.
+
+    NACHTRAG (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 3): Die vorige
+    Fassung sammelte die Protokollzeilen in einem SET und verglich nur die
+    MENGE der Nachrichten — drei Luecken blieben so unbemerkt gruen
+    (Sonde S8): eine verdoppelte Zeile (D1/D7, ein SET zeigt ein Duplikat
+    nicht), eine Erfolgszeile auf WARNING statt INFO (D4, ein SET traegt
+    keine Stufe) und eine zusaetzliche, unabhaengige WARNUNG (D5, sie
+    beginnt nicht mit "Rueckweg vor" und fiel deshalb durch den Filter).
+    Diese Probe verlangt jetzt eine LISTE in fester Reihenfolge (Anzahl UND
+    Wertfolge), prueft die Stufe jeder Zeile einzeln und verlangt zusaetzlich,
+    dass keine WARNUNG im Mischfall-Erfolg auftritt."""
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     original = path.read_text(encoding="utf-8")
@@ -1731,11 +1742,56 @@ def test_mischfall_schemasprung_und_kennungsvergabe_bekommen_beide_rueckwege(tmp
     assert kennung_ziel.read_text(encoding="utf-8") == original
 
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
-    rueckweg_zeilen = {r.getMessage() for r in eigene if r.getMessage().startswith("Rueckweg vor")}
-    assert rueckweg_zeilen == {
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert [r.getMessage() for r in rueckweg_zeilen] == [
         f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION}: {schema_ziel}",
         f"Rueckweg vor Kennungsvergabe: {kennung_ziel}",
-    }, rueckweg_zeilen
+    ], [r.getMessage() for r in eigene]
+    assert [r.levelname for r in rueckweg_zeilen] == ["INFO", "INFO"], \
+        [(r.levelname, r.getMessage()) for r in rueckweg_zeilen]
+    # Genau diese zwei INFO-Zeilen -- keine zusaetzliche WARNUNG (D5) und
+    # keine dritte, unerwartete Zeile (bereits durch die Listengleichheit
+    # oben ausgeschlossen, hier zusaetzlich ueber ALLE Stufen bewacht).
+    warnungen = [r for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [], [r.getMessage() for r in warnungen]
+
+
+def test_mischfall_beide_rueckwege_scheitern_melden_beide_warnungen(tmp_path, caplog):
+    """#120, KLEIN (Nacharbeit 1 zu #114/#116/#111/#120): `BACKUP_RESTORE.md`
+    ~68-72 sagt es bereits — im Mischfall (Schemasprung UND Kennungsvergabe
+    im selben Lauf) meldet auch ein DOPPELTES Scheitern beide Warnungen
+    nebeneinander, keine unterdrueckt die andere. Gemessen (Sonde S8, D8):
+    Ein Umbau, der die Kennungsvergabe-Scheitern-Warnung an einen zu diesem
+    Zeitpunkt noch nicht gesetzten Schema-Stand knuepft (`if
+    self._data.get("schema_version") == self.SCHEMA_VERSION:` davor), blieb
+    hier unbemerkt gruen und haette die zweite Warnung im Mischfall stumm
+    verschluckt — die bestehenden isolierten Scheitern-Proben treffen diesen
+    Zweig nicht, weil bei ihnen nur EIN Ziel je Lauf ein Verzeichnis ist."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+    schema_ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
+    kennung_ziel.mkdir()
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    # "Unbrauchbarer Rueckweg wird ersetzt" ist die unabhaengige Warnung dafuer,
+    # dass am Ziel schon ein VERZEICHNIS liegt (hier zweimal ausgeloest, weil
+    # BEIDE Ziele als Verzeichnis angelegt sind) -- ihr eigener Test deckt sie
+    # (Modul-Kommentar oben), hier zaehlt sie nicht mit.
+    warnungen = [r for r in eigene
+                 if r.levelno >= logging.WARNING
+                 and not r.getMessage().startswith("Unbrauchbarer Rueckweg wird ersetzt")]
+    assert {r.getMessage() for r in warnungen} == {
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {schema_ziel}",
+        f"Rueckweg vor Kennungsvergabe nicht moeglich: {kennung_ziel}",
+    }, [r.getMessage() for r in eigene]
+    assert len(warnungen) == 2, [r.getMessage() for r in eigene]
 
 
 def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):

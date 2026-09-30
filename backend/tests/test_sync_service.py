@@ -451,6 +451,120 @@ async def test_refresh_zeigt_teilen_und_namensuebernahme_ohne_faelschliche_keine
 
 
 @pytest.mark.asyncio
+async def test_refresh_zeigt_namensuebernahme_und_fehler_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 1a): Ein
+    FEHLER-Eintrag ist ebenso ein „es geschah etwas" wie ein Teilen-Eintrag —
+    der Docstring bei `refresh_managed_album` verspricht ausdruecklich
+    „Teilen- ODER Fehler-Eintrag", aber bisher deckte keine Probe die
+    Kombination aus Namensuebernahme UND einem fehlgeschlagenen
+    Personen-Sync ab. Gemessen (Sonde S8, Mutationen A2/A3b/A7): Ein Umbau,
+    der Fehler-Eintraege beim Zaehlen ausschliesst (`entry.status !=
+    'error'` oder eine Textprobe auf das Wort „fehlgeschlagen" in
+    `entry.details`), blieb hier unbemerkt gruen und haette zusaetzlich
+    faelschlich `log_no_new_assets` gemeldet, obwohl der Fehler-Eintrag
+    bereits zeigt, dass etwas geschah. Der verwandte Fall — ein TEILFEHLER
+    beim Hinzufuegen (`log_assets_partial_failure`, kein kompletter
+    Sync-Fehler) — ist eine andere Mutation (A5b) und steht deshalb in
+    `test_refresh_zeigt_nur_teilfehler_ohne_faelschliche_keine_neuen_assets`
+    weiter unten."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Neu in Immich", ["asset-1"]
+
+        async def get_person_assets(self, _person_id):
+            raise RuntimeError("Immich nicht erreichbar")
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_album_name_adopted", "log_sync_failed",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_nur_fehler_ohne_namenswechsel_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 1b): Dieselbe
+    Luecke wie im Test darueber, aber OHNE Namenswechsel — ein
+    Fehler-Eintrag ALLEIN deckt bereits ab, dass etwas geschah. Ohne diesen
+    Test blieb ein Umbau, der Fehler-Eintraege von der Zaehlung ausnimmt,
+    auch im einfachsten Fall (nur ein Fehler, kein Name, keine neuen Assets)
+    unbemerkt gruen."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Alter Name", ["asset-1"]
+
+        async def get_person_assets(self, _person_id):
+            raise RuntimeError("Immich nicht erreichbar")
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == ["log_sync_failed"], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_nur_teilfehler_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 1c): Ein
+    TEILFEHLER beim Hinzufuegen (`log_assets_partial_failure`, ausgeloest von
+    `_split_add_results`/`_partial_failure_log`, siehe
+    `test_refresh_reports_partial_failures_and_ignores_duplicates`) ist
+    KEIN kompletter Sync-Fehler — eine eigene, dritte Sorte „es geschah
+    etwas". Gemessen (Sonde S8, Mutation A5b): Ein Umbau, der genau diesen
+    Eintrag anhand seines Texts („konnten nicht hinzugefuegt") von der
+    Zaehlung ausnimmt, blieb von den beiden Tests darueber unentdeckt (sie
+    decken nur den kompletten `log_sync_failed`-Fehler ab) und haette hier
+    zusaetzlich faelschlich `log_no_new_assets` gemeldet."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Alter Name", []
+
+        async def get_person_assets(self, _person_id):
+            return [{"id": "asset-1"}]
+
+        async def add_assets_to_album(self, _album_id, _asset_ids):
+            return [{"id": "asset-1", "success": False, "error": "permission"}]
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == ["log_assets_partial_failure"], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
 async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkeypatch):
     """Nachweis 2 (#97): Gleicher Name -> kein Namens-Eintrag, Name unverändert."""
     owner = _konto_eins()

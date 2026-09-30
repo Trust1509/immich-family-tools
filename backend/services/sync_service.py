@@ -908,7 +908,8 @@ async def _rename_managed_album_unlocked(
     # Speicher, Immich meldet ebenfalls "Neu", beide sind gleich, und der
     # Refresh schreibt die Platte einfach nach — ohne je durch die
     # Namensuebernahme zu laufen. Die Meldung ist in DIESEM Fall (Refresh
-    # ohne neue Assets UND ohne Teilen-Ereignis) nur `log_no_new_assets` —
+    # ohne neue Assets, ohne Teilen-Ereignis UND ohne Fehler) nur
+    # `log_no_new_assets` —
     # ein `_save()` aus einer anderen Quelle wie `set_auto_sync_config`
     # erzeugt gar keine Protokollzeile. Der Weg ueber `_uebernimm_immich_namen`/
     # `log_album_name_adopted` greift erst nach einem NEUSTART des Prozesses,
