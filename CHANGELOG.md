@@ -2,7 +2,7 @@
 
 All notable changes to Immich Family Tools are documented here.
 
-## [1.9.0] – 2026-09-29
+## [1.9.0] – 2026-09-30
 
 **Risk: backup**
 
@@ -14,14 +14,41 @@ created them here, the tool adopts those names on the next sync. A snapshot of
 names. Under 1.9.0 the next sync adopts the Immich name again — to keep a name,
 rename the album in Immich.
 
-### Two groups may carry the same name (#98)
+**Rollout:** build with the commit id, so `/api/health` can report it (#68):
+
+```bash
+GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
+```
+
+Without `GIT_SHA` the build still works and `/api/health` reports
+`"commit":"unknown"`. On the first start, the app tightens `accounts.json` to
+`0600` if it was readable by group or world (one INFO line; a WARNING instead
+if the file system refuses the change). The log may also ask you to check and
+delete a file next to `accounts.json` whose last part is eight characters (for
+example `.accounts.json.20260930`):
+
+- If **you** made it, keep it. To stop the warning, rename it so the last part
+  is not eight characters (for example append `.bak`) or move it out of the
+  data directory.
+- If you did not, it is most likely left over from a crash under an older
+  version and holds a full copy of your configuration, including API keys —
+  delete it.
+
+See "Tighter file permissions" below.
+
+### Two groups may carry the same name (#98, #113, #119)
 
 A group name is a label, not an identity. Renaming an album group no longer
 refuses a name because another group already uses it — the message "already
 belongs to a different group" is gone. While two groups share a name, the group
-preview stays silent for that name, and a new album with that name starts its
-own group. To add someone to one of the existing groups, use **Extend** and
-pick the group there.
+preview lists every group with that name plus the option to start a new group,
+with **nothing preselected**; creating or linking an album with that name stays
+disabled until you choose. If the situation changes between the preview and
+your request, the server refuses (`err_group_choice_required`,
+`err_group_situation_changed`) instead of guessing. A name typed with "ß" also
+finds groups spelled with "ss" (and vice versa); if both spellings exist as
+separate groups, each spelling finds its own. **Extend** still lets you pick
+the group directly.
 
 ### The name in Immich wins (#97)
 
@@ -40,17 +67,28 @@ server is briefly unreachable), the button stays disabled and you get a
 group. The preview is fetched fresh for every name you type, and creating,
 linking, renaming, extending or removing an album refreshes it.
 
-### Removing an account no longer makes things disappear (#99, #112, #123)
+### Removing an account no longer makes things disappear (#99, #103, #112, #117, #121, #123)
 
 - Albums stay under management even if only one person — or none — is left,
   and are **marked** ("Owner account deleted", "Only one person left",
-  "No person linked anymore").
+  "No person linked anymore"). The count behind these marks includes only
+  people whose account still exists.
 - Renaming or syncing a group handles the albums whose owner still exists and
   **skips** the others, with a visible note; on rename, the server refuses
   only the orphaned album itself. The nightly auto-sync skips orphaned albums
   too, without an error entry every night.
+- Removing an account does not wait for a sync, rename or extend running on
+  one of its albums. Those operations check again under the album lock that
+  the owner account still exists: a rename stops with "Owner account not
+  found", a sync or extend stops with the log entry "Owner account no longer
+  exists".
+- References to a removed account are dropped from its albums right away; an
+  album that is busy at that moment is cleaned up when its running operation
+  ends, and at the latest on the next start.
 - An orphaned album can be **removed on its own**; the other albums of its
   group stay under management.
+- A group whose most recently synced album is orphaned can no longer be
+  extended; **Extend** says why.
 - **Undo** is disabled for log entries of a removed account.
 - The sync log, dismissed suggestions and synced-name markers are **kept**
   when you remove an account. Previously, removing any account cleared _all_
@@ -61,6 +99,21 @@ linking, renaming, extending or removing an album refreshes it.
   `PRIVACY.md` describes what stays: the log still ages out and can be cleared,
   orphaned albums can be removed one by one, but dismissed-suggestion and
   synced-name markers currently have no removal path at all.
+
+### The album card shows what happened (#102, #124)
+
+- A sync that fails — a card's "Sync now" or the page's "Sync all", for all or
+  only some albums — always shows an error line on the card, also when several
+  actions overlap and an older one finishes last.
+- An album removed (for example in another tab) while its group is being
+  renamed is skipped with its own note instead of stopping the rename for the
+  rest of the group.
+- The note about albums skipped because their owner account was deleted keeps
+  its count when the list reloads, and reads correctly when several albums
+  with different owners are skipped.
+- After a rename attempt, submitting an empty or blank name keeps the field
+  open with "Please enter a name" instead of closing it and hiding the earlier
+  error.
 
 ### Changes to one album no longer undo each other (#101, #123)
 
@@ -81,23 +134,74 @@ The container log now says which rollback copy was written:
 warnings. Version 1.8.0 used `Sicherung vor Schemasprung` for both — if you set
 up log alerts on that text, update them. `docs/BACKUP_RESTORE.md` lists both
 forms. The nightly auto-sync logs the orphaned albums it skips by id, and its
-album count no longer includes them.
+album count no longer includes them. Its failure line now names the album by
+id instead of by name.
+
+### Tighter file permissions and crash leftovers (#106, #68, #124)
+
+- On start, the app warns about files next to `accounts.json` whose name starts
+  with `accounts.json.` or `.accounts.json.` and that are readable by group or
+  world, and about a data directory that is.
+- `accounts.json` itself is tightened to `0600` after it has been read
+  successfully. A symlinked `accounts.json` is left alone and reported.
+- A temporary file left behind by a crash while saving (it carries the app's
+  own `speichern-tmp-` marker) is removed on start once it is older than five
+  minutes; a younger one is reported and removed by a second check about five
+  minutes after start. Files that only look similar are reported, never
+  removed — see the rollout note above for hand-made copies.
+- `GET /api/health` reports `commit`, taken from the `GIT_SHA` build argument
+  (`"unknown"` if it was not set). `docs/betrieb/erreichbarkeit.md` uses it to
+  tell exactly whether the running build is behind.
+
+### Stricter API at the edges (#85)
+
+- Request validation errors (missing field, wrong type, unknown field) now use
+  the same shape as every other error: a string `detail` plus
+  `error_key`/`error_params` (`err_validation_failed`, 422). At most 20 field
+  names are listed; the rest is given as a count (`more`).
+- Request bodies of the `/api/sync/…` endpoints reject unknown fields.
+- Invalid JSON (`err_invalid_json_body`), credentials in the Immich URL
+  (`err_credentials_in_url`), a disallowed network address
+  (`err_disallowed_network_address`) and a URL that is not `http(s)://`
+  (`err_invalid_url_scheme`) each get their own translated message when they
+  are the only problem in the request.
+- `GET /api/sync/album-group` refuses `album_name` given twice
+  (`err_duplicate_query_param`, 422).
+- Any `/api/` request with a `Transfer-Encoding` header is refused with 411
+  (`err_length_required`) and `Connection: close`, without reading its body. A
+  request the HTTP server already rejects (for example with both
+  `Transfer-Encoding` and `Content-Length`) still gets the server's plain 400.
+  The app's own web interface sends its request bodies with a
+  `Content-Length`.
+- Client values echoed back in error responses are shortened.
 
 ### For contributors
 
 - Log messages are now a contract: every `log_*` key the backend sends needs an
   entry in `frontend/src/logMessages.contract.json` and a template in all four
-  languages; a test on each side enforces it (#94).
+  languages; a test on each side enforces it, now also for every log entry
+  built while the backend tests run (#94, #115).
 - The working tree uses LF line endings on every platform (`.gitattributes`),
   guarded in CI; `npx prettier --check .` now also works on Windows checkouts
   with `core.autocrlf=true`. Existing Windows checkouts: see `CLAUDE.md` for the
-  one-time refresh (#104).
+  one-time refresh (#104). Exceptions to the guard are an exact path list in
+  `scripts/zeilenenden-ausnahmen.txt` (#118).
 - API: `GET /api/sync/albums` returns two computed flags per album,
   `owner_account_missing` and `too_few_people`; `err_album_name_in_use` is no
   longer returned. `DELETE /api/sync/albums/{id}` may wait until an operation
-  already running on the same album has finished.
+  already running on the same album has finished. `GET /api/sync/album-group`
+  can return `{"status": "many", "candidates": [...]}` for an ambiguous name.
+  `POST /api/sync/album` and `POST /api/sync/names-multi` without `group_id` or
+  `force_new_group` now answer an ambiguous name with 409
+  `err_group_choice_required` instead of silently starting a new group; with
+  `expected_no_group: true` they answer 409 `err_group_situation_changed` if a
+  group has appeared since the preview. `DELETE /api/accounts/{id}` answers 204
+  instead of 404 for an already removed account that albums still refer to. See
+  "Stricter API at the edges" for the new error keys and the 411.
 - `backend/tests/test_umbenennen_kollision.py` is removed together with the
   collision check it tested (#98).
+- Test and documentation follow-ups without behavior change: #111, #114, #116,
+  #120.
 
 ## [1.8.0] – 2026-09-27
 
