@@ -2003,7 +2003,7 @@ def test_verwaiste_save_temp_datei_wird_beim_start_entfernt(tmp_path, caplog):
     Nacharbeit 1 (#124 B10) traegt sie die unverwechselbare Kennung
     `_TEMP_KENNUNG`; NUR eine ALTE (mehr als `_TEMP_MINDESTALTER_SEKUNDEN`
     zurueckliegende) Datei mit dieser Kennung wird entfernt — eine ganz
-    frische bleibt liegen, siehe `test_s7_na1_betrieb.py` fuer diesen Fall
+    frische bleibt liegen, siehe `test_start_betrieb.py` fuer diesen Fall
     und fuer die Nacharbeit selbst (neue Kennung, altes Muster wird nur noch
     gewarnt statt geloescht)."""
     path = tmp_path / "accounts.json"

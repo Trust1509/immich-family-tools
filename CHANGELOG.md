@@ -199,7 +199,9 @@ id instead of by name.
   instead of 404 for an already removed account that albums still refer to. See
   "Stricter API at the edges" for the new error keys and the 411.
 - `backend/tests/test_umbenennen_kollision.py` is removed together with the
-  collision check it tested (#98).
+  collision check it tested (#98). The start-up tests for file permissions and
+  crash leftovers live in `backend/tests/test_start_betrieb.py`; they were
+  briefly named `backend/tests/test_s7_na1_betrieb.py` during development.
 - Test and documentation follow-ups without behavior change: #111, #114, #116,
   #120.
 
