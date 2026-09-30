@@ -184,10 +184,11 @@ would lose everything you did in between. In that case, instead of step 3,
 restore the ZFS snapshot you took right before the latest upgrade. Without
 one, look at `accounts.json.vor-kennungsvergabe.bak`: if the log of the latest
 upgrade shows a `Rueckweg vor Kennungsvergabe` line, that file holds the state
-from right before that upgrade (for schema 3 it is written whenever at least
-one album had no group identifier yet, which is every album in a schema-2
-file). If neither exists, what you did in between is in no rollback copy. A
-fix is planned for a later release.
+from right before that upgrade (it is written only if at least one album still
+had no group identifier at that upgrade; an upgrade to 1.8.0 logs both copies
+as `Sicherung vor Schemasprung:` instead — see above). If neither exists, what
+you did in between is in no rollback copy. A fix is planned for a later
+release.
 
 Test restoration after setup and periodically thereafter. An untested backup is
 only a hopeful collection of bytes.
