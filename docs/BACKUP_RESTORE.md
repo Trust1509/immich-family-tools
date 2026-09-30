@@ -47,7 +47,7 @@ and they behave differently on purpose:
   limitation (#130):** the existing copy holds the state from before the
   _first_ upgrade, not from before this one. You land in exactly this
   situation by following _Undoing a migration_ below and then upgrading
-  again: anything you did in between is in no rollback copy. See _Undoing a
+  again: anything you did in between is not in that copy. See _Undoing a
   migration_ for what to do instead.
 - **`accounts.json.vor-kennungsvergabe.bak`** — written before the app
   assigns any album group identifiers that are still missing. That happens
@@ -161,24 +161,33 @@ sequence is not merely useless; it moves the identifiers a second time.
 The order that works:
 
 1. Stop the container.
-2. Switch to the **previous image tag**, the one from before the upgrade, but
-   do not start the container yet (step 5 starts it).
+2. Check out the previous release and build it **without starting it**:
+   `git checkout v<old>` and `GIT_SHA=$(git rev-parse HEAD) docker compose build`
+   (not `up` — step 5 starts it).
 3. Copy the matching rollback copy over `accounts.json`:
    `accounts.json.vor-schema-<N>.bak` for a schema migration,
    `accounts.json.vor-kennungsvergabe.bak` for an identifier assignment. Only
    if neither exists, fall back to `accounts.json.bak` — it may already carry
    the migrated state.
 4. Reapply ownership `3006:3006`, directory `0700`, file `0600`.
-5. Start the old image and verify `/api/health` reports the old version.
+5. Start it (`docker compose up -d`) and verify `/api/health` reports the old
+   version.
 
 Only then decide whether to upgrade again.
 
 **Known limitation (#130): undoing a migration a second time.** If you have
 already undone this migration once, worked with the old version, and upgraded
-again, `accounts.json.vor-schema-<N>.bak` still holds the state from before
-the **first** upgrade. Copying it back would lose everything you did in
-between. In that case restore the ZFS snapshot you took right before the
-latest upgrade instead of step 3. A fix is planned for a later release.
+again, the app wrote no new `accounts.json.vor-schema-<N>.bak` on that latest
+upgrade (and logged no `Rueckweg vor Schemasprung` line for it): the file
+still holds the state from before the **first** upgrade, and copying it back
+would lose everything you did in between. In that case, instead of step 3,
+restore the ZFS snapshot you took right before the latest upgrade. Without
+one, look at `accounts.json.vor-kennungsvergabe.bak`: if the log of the latest
+upgrade shows a `Rueckweg vor Kennungsvergabe` line, that file holds the state
+from right before that upgrade (for schema 3 it is written whenever at least
+one album had no group identifier yet, which is every album in a schema-2
+file). If neither exists, what you did in between is in no rollback copy. A
+fix is planned for a later release.
 
 Test restoration after setup and periodically thereafter. An untested backup is
 only a hopeful collection of bytes.

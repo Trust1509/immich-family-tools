@@ -137,12 +137,15 @@ forms. The nightly auto-sync logs the orphaned albums it skips by id, and its
 album count no longer includes them. Its failure line now names the album by
 id instead of by name.
 
-**Known limitation (#130), documented, not changed in this release:** after
-undoing a schema migration, working with the old version and upgrading again,
-`accounts.json.vor-schema-<N>.bak` still holds the state from before the
-**first** upgrade. `docs/BACKUP_RESTORE.md` ("Undoing a migration") now says
-so and points to the ZFS snapshot for that case. This release contains no
-schema migration.
+### Known limitation: undoing a migration a second time (#130)
+
+Documented, not changed in this release (it contains no schema migration).
+After undoing a schema migration, working with the old version and upgrading
+again, `accounts.json.vor-schema-<N>.bak` still holds the state from before the
+**first** upgrade. `docs/BACKUP_RESTORE.md` ("Undoing a migration") now says so
+and points to the ZFS snapshot, or to `accounts.json.vor-kennungsvergabe.bak`
+where it exists, for that case. The same section now builds the old release
+without starting it before the rollback copy is put back.
 
 ### Tighter file permissions and crash leftovers (#106, #68, #124)
 
