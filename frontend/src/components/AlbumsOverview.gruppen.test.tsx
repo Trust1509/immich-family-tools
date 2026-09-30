@@ -59,18 +59,28 @@ const ALBEN = [
   },
 ];
 
-const { albenMock, autoSyncGet, refreshMock } = vi.hoisted(() => ({
+const { albenMock, autoSyncGet, refreshMock, renameMock } = vi.hoisted(() => ({
   albenMock: vi.fn(),
   autoSyncGet: vi.fn(),
   refreshMock: vi.fn(),
+  renameMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
-  api: {
-    sync: { albums: albenMock, refreshAlbum: refreshMock, deleteAlbum: vi.fn() },
-    autoSync: { get: autoSyncGet, set: vi.fn() },
-  },
-}));
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return {
+    ...actual,
+    api: {
+      sync: {
+        albums: albenMock,
+        refreshAlbum: refreshMock,
+        deleteAlbum: vi.fn(),
+        renameAlbum: renameMock,
+      },
+      autoSync: { get: autoSyncGet, set: vi.fn() },
+    },
+  };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -159,7 +169,8 @@ describe("AlbumsOverview", () => {
 });
 
 describe("AlbumsOverview: bedingte Regeln", () => {
-  it("sperrt Umbenennen in allen Regelkarten, wenn ein Album der Gruppe verwaist ist", async () => {
+  it("erlaubt Umbenennen der gesunden Regelkarte und sperrt nur die verwaiste", async () => {
+    renameMock.mockResolvedValue([]);
     albenMock.mockResolvedValue([
       ALBEN[0],
       {
@@ -184,7 +195,16 @@ describe("AlbumsOverview: bedingte Regeln", () => {
     await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
     const renameButtons = screen.getAllByRole("button", { name: /Album umbenennen/i });
     expect(renameButtons).toHaveLength(2);
-    expect(renameButtons.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    // #123: Ein verwaistes Geschwisteralbum sperrt die gesunde Karte nicht.
+    expect((renameButtons[0] as HTMLButtonElement).disabled).toBe(false);
+    expect((renameButtons[1] as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(renameButtons[0]);
+    const field = screen.getByRole("textbox", { name: /Album umbenennen/i });
+    fireEvent.change(field, { target: { value: "Neuer Name" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(renameMock).toHaveBeenCalledWith("album-eins", "Neuer Name"));
+    expect(renameMock).toHaveBeenCalledTimes(1);
   });
 
   it("trennt normale und inkompatible bedingte Alben trotz gleicher Gruppenkennung", async () => {

@@ -8,12 +8,30 @@
 
 1. Snapshot the ZFS dataset containing `/app/data`.
 2. Replicate snapshots to a protected second target.
-3. Ensure `accounts.json`, `accounts.json.bak` **and any
-   `accounts.json.vor-schema-*.bak`** remain readable only by UID/GID 3006
-   (`0600`; directory `0700`).
+3. Ensure `accounts.json`, `accounts.json.bak`, any
+   `accounts.json.vor-schema-*.bak` **and `accounts.json.vor-kennungsvergabe.bak`**
+   remain readable only by UID/GID 3006 (`0600`; directory `0700`). Both
+   rollback kinds carry the same Immich API keys as `accounts.json` itself.
 4. Treat every backup as a secret because it contains Immich API keys. This
    applies to the `vor-schema-*` files too — and to them for longer, because
    nothing overwrites or removes them (see _Schema migrations_ below).
+5. The application checks this itself on every start
+   (`backend/services/config_store.py`), where POSIX permission bits are
+   reliable at all (skipped, with a reason logged, on Windows and similar
+   filesystems), and only once the file has parsed successfully as a valid
+   configuration — an invalid one is left untouched in every sense,
+   including its permissions: for `accounts.json` itself, it does not merely
+   warn — it **tightens the permission to `0600` right there** (the
+   same it already enforces on every write) and logs one INFO line naming
+   the previous mode, unless `accounts.json` is itself a symlink, in which
+   case this is skipped and logged as a warning instead (the symlink's
+   target is outside the app's own data, and an operator may have arranged
+   it deliberately). For everything **else** it only warns, once, naming
+   the offending path and mode, and does not touch it: a sibling whose name
+   starts with `accounts.json.` (including a **hidden** one starting with
+   `.accounts.json.` — an earlier version of this check missed those), or
+   the data directory. This is a safety net, not a
+   substitute for point 3 for anything other than `accounts.json` itself.
 
 ## Schema migrations
 
@@ -23,7 +41,12 @@ and they behave differently on purpose:
 - **`accounts.json.vor-schema-<N>.bak`** — written **once** before a schema
   migration and never overwritten while it is usable. `<N>` is the schema
   version it is migrating **to**; the file holds the state from _before_ that
-  migration.
+  migration. **Exception (#120):** if a _usable_ copy already sits at the
+  target, only writing **this rollback copy** is skipped — the schema
+  migration itself still runs in full; the existing copy already holds the
+  state from before the migration, so a second write would just duplicate
+  it. You land in exactly this situation by following _Undoing a
+  migration_ below and then upgrading again.
 - **`accounts.json.vor-kennungsvergabe.bak`** — written before the app
   assigns any album group identifiers that are still missing. That happens
   when an older version created an album without one — **independently of
@@ -31,15 +54,41 @@ and they behave differently on purpose:
   old-format file (no `schema_version` key) with such an album writes
   **both** rollback files and logs **both** lines in a single run (#105);
   the two cases are not mutually exclusive, only worded and tested
-  separately. **One generation only:** it is replaced on each such run, so
-  it always holds the state from before the _most recent_ one. That is the
-  state you would want back; a months-old copy would throw away everything
-  since.
+  separately — this holds even when the Exception above skips the
+  schema-migration copy: the identifier-assignment line (and file) still
+  appears whenever an identifier is actually missing. **One generation
+  only:** it is replaced on each such run, so it always holds the state
+  from before the _most recent_ one. That is the state you would want
+  back; a months-old copy would throw away everything since.
 
 **This is the file you want after a migration, not `accounts.json.bak`.** The
 ordinary `.bak` is rewritten on every save — including by the account backfill
 that runs at startup, seconds after the migration. It stops being the
 pre-migration state almost immediately.
+
+**A third kind of start-time write gets no rollback copy of its OWN, and by
+itself it is unrecoverable once it has run.** On every start, `_migrate`
+also drops any managed-album reference to an account that no longer exists
+(#117/#121/#103) — unlike the schema migration and the identifier assignment
+above, this step does not write a `vor-*.bak` of its own. **An earlier
+version of this paragraph said that held "regardless of whether it runs
+together with either of them" — measured directly, that is wrong.** Both
+rollback writes above happen at the _start_ of `_migrate`, copying whatever
+is on disk _before_ anything in that same run changes it; the dead-reference
+cleanup runs _after_ them, later in the same pass. So if a schema migration
+or an identifier assignment **also** runs in that same start, the rollback
+file it writes for its own reason incidentally still holds the dead
+reference too — the person's name included — simply because it was taken
+before the cleanup ran (measured: an old-format file with both a missing
+schema version and a dead account reference writes `accounts.json.vor-
+schema-<N>.bak` containing that dead reference's name). **Only when the
+dead-reference cleanup runs _alone_ in a start — no schema jump, no missing
+group identifier — is there truly no rollback copy of it beyond the
+ordinary one:** the only place it survives at all is `accounts.json.bak`
+— and only until the _next_ save overwrites that too (`PRIVACY.md`,
+"the ordinary save leaves one more generation behind"). If you need to
+recover a name or account association this way and neither rollback file
+happens to carry it, ZFS snapshot restore is your only path.
 
 Two things follow for you as the operator:
 
@@ -49,18 +98,29 @@ Two things follow for you as the operator:
   from the app, and log entries past the 90-day retention window. `PRIVACY.md`
   points here for that reason.
 - If the file is missing after an upgrade, the migration still ran. Every
-  line the app logs is formatted `LEVEL  services.config_store  message`
-  (`backend/main.py`'s log format) — the line does not start with the
-  message text quoted below, that text is what to look for **inside** the
-  line. What it says depends on which version wrote it:
+  line the `services.config_store` logger writes — the one that logs these
+  rollback lines — is formatted `LEVEL  services.config_store  message`
+  (`backend/main.py`'s log format); this is not a claim about every line the
+  app logs overall, other loggers (e.g. the sync service) use their own
+  name in that slot — except uvicorn's own lines (startup banner, access
+  log): uvicorn formats those itself, and they do not follow this
+  `LEVEL  name  message` layout at all, not merely a different name filled
+  into the same slot. The line does not start with the message text quoted
+  below, that text is what to look for **inside** the line. What it says
+  depends on which version wrote it:
   - **1.9.0 and later:** a failed schema-migration backup logs a WARNING
     line containing `Rueckweg vor Schemasprung auf Version`, with the
     schema version next and then `nicht moeglich:` followed by the target
     path (the path comes **after** `nicht moeglich:`, not between the two
-    search terms). A failed identifier-assignment backup logs a different
-    WARNING line instead, containing `Rueckweg vor Kennungsvergabe` and
-    `nicht moeglich:`, also followed by its own target path. The two are
-    worded differently on purpose since #105.
+    search terms). A failed identifier-assignment backup logs its own,
+    differently worded WARNING line instead — the words "Rueckweg vor
+    Kennungsvergabe" plus `nicht moeglich:` — also followed by its own
+    target path; worded differently from the schema-migration line on
+    purpose since #105, but **not mutually exclusive**: if both a schema
+    migration and an identifier assignment run in the same start and both
+    backups fail, both WARNING lines appear together (the same "not
+    exclusive" point the _Schema migrations_ section above makes for the
+    success lines).
   - **In 1.8.0** — the release that introduced both rollback files; earlier
     releases do not have this code path at all, see the 1.8.0 and 1.7.0
     entries in `CHANGELOG.md` — both cases logged the _same_ text regardless

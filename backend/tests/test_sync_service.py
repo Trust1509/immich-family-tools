@@ -1,8 +1,10 @@
 import pytest
 
+import errors
 from models.account import Account
-from models.match import ManagedAlbum
+from models.match import ManagedAlbum, SyncLogEntry
 from services import sync_service
+from services.config_store import ConfigStore
 from services.immich_client import AlbumNotFoundError
 
 
@@ -29,11 +31,31 @@ class StoreDoppel:
 
     Wer ein Album nicht mitgibt, doppelt damit den Fall „steht nicht im
     Bestand": Dann greift der Rueckfall auf die uebergebene Kopie.
+
+    TREU BEIM SCHREIBEN, NICHT NUR BEIM LESEN (#103 Punkt 3): Der echte Store
+    friert per `model_dump()`/Wiederaufbau ein — eine nachtraegliche Aenderung
+    am Objekt des Aufrufers erreicht den Bestand danach NICHT mehr — und
+    berechnet `linked_match_ids` immer neu. Diese Klasse legte das Objekt
+    bisher per REFERENZ ab (eine Aenderung danach erreichte den Bestand sehr
+    wohl) und liess `linked_match_ids` unangetastet, wie der Aufrufer es
+    hineinschrieb. Keine heutige Probe fiel darauf herein, aber der
+    Klassen-Docstring versprach „wie der echte Store" — jetzt stimmt das auch
+    fuers Schreiben.
     """
 
-    def __init__(self, *alben):
+    def __init__(self, *alben, geloeschte_konten=()):
         self.alben = {a.id: a for a in alben}
         self.geschrieben = []
+        # #117 Nachtrag: Die drei Locked-Wrapper lesen den BESITZER jetzt
+        # frisch aus dem Store (`store.get_account`), nicht mehr aus der
+        # `all_accounts`-Liste, die ein Aufrufer VOR dem Schloss gebaut hat.
+        # Dieses Doppel fuehrt keine eigene Kontenverwaltung; jede Kennung
+        # gilt als vorhanden (deterministisch ueber `account(id)` oben
+        # nachgebaut — Felder wie Name/URL sind fuer die Existenzpruefung
+        # ohne Belang, echte ImmichClient-Aufrufe sind in diesen Tests
+        # durchweg Attrappen), AUSSER ein Test meldet sie hier gezielt als
+        # geloescht an.
+        self._geloeschte_konten = set(geloeschte_konten)
 
     def get_managed_album(self, album_id):
         # Eine KOPIE, wie der echte Store: `get_managed_albums` baut bei jedem
@@ -44,14 +66,28 @@ class StoreDoppel:
         return album.model_copy(deep=True) if album else None
 
     def update_managed_album(self, album):
-        self.alben[album.id] = album
-        self.geschrieben.append(album)
+        # `model_copy(deep=True)`, nicht die Instanz des Aufrufers: Wie der
+        # echte Store (`ConfigStore.update_managed_album` via
+        # `album.model_dump()`) friert das den Bestand EIN — eine Aenderung,
+        # die der Aufrufer NACH diesem Aufruf am selben Objekt macht, darf
+        # den gespeicherten Stand nicht mehr erreichen.
+        eingefroren = album.model_copy(deep=True)
+        eingefroren.linked_match_ids = ConfigStore.compute_linked_match_ids(
+            eingefroren.person_refs
+        )
+        self.alben[eingefroren.id] = eingefroren
+        self.geschrieben.append(eingefroren)
 
     def add_managed_album(self, album):
         self.alben[album.id] = album
 
     def group_id_for_name(self, _name):
         return "gruppe-testdoppel"
+
+    def get_account(self, account_id):
+        if account_id in self._geloeschte_konten:
+            return None
+        return account(account_id)
 
 
 @pytest.mark.asyncio
@@ -125,6 +161,29 @@ async def test_album_sharing_deduplicates_accounts_and_immich_users():
     )
 
     assert shared_entries == [{"userId": first.user_id, "role": "editor"}]
+
+
+@pytest.mark.asyncio
+async def test_album_sharing_filters_deleted_accounts_after_fetch_before_sharing():
+    shared_entries: list[dict] = []
+    deleted = account("deleted")
+    remaining = account("remaining")
+    store = StoreDoppel()
+
+    class Client:
+        async def get_album_user_ids(self, _album_id):
+            store._geloeschte_konten.add(deleted.id)
+            return set()
+
+        async def share_album_with_users(self, _album_id, entries):
+            shared_entries.extend(entries)
+
+    await sync_service._share_album_if_needed(
+        Client(), "album", "Family", [deleted, deleted, remaining, remaining],
+        "owner", store,
+    )
+
+    assert shared_entries == [{"userId": remaining.user_id, "role": "editor"}]
 
 
 @pytest.mark.asyncio
@@ -300,6 +359,9 @@ async def test_conditional_album_refresh_reapplies_threshold(monkeypatch):
     class Store:
         def get_managed_album(self, _album_id):
             return managed
+
+        def get_account(self, account_id):
+            return owner if account_id == owner.id else None
 
         def update_managed_album(self, _album):
             pass
@@ -653,6 +715,279 @@ async def test_refresh_zeigt_namensuebernahme_und_neue_assets_nebeneinander(monk
 
 
 @pytest.mark.asyncio
+async def test_refresh_zeigt_teilen_und_namensuebernahme_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114, Punkt 1): Ein Teilen- ODER Fehler-Eintrag deckt
+    zusammen mit dem Namens-Eintrag bereits ab, dass „etwas geschah" — ohne
+    eigenen Test blieb ein Umbau zu `if new_total == 0:` (oder `... or
+    (name_entry is not None and new_total == 0)`) unbemerkt gruen: Beide
+    Umbauten haetten in genau dieser Kombination zusaetzlich faelschlich
+    `log_no_new_assets` gemeldet, obwohl weder das Teilen noch der
+    Namenswechsel etwas mit fehlenden Assets zu tun haben (gemessen im
+    Issue: Original `['log_album_shared', 'log_album_name_adopted']`, beide
+    Umbauten zusaetzlich `log_no_new_assets`). Diese Probe haelt die
+    Originalfassung fest: genau zwei Eintraege, keinen dritten.
+
+    RICHTIGGESTELLT (S8 Nacharbeit 2, KLEIN (a)): Der Attrappen-Eintrag trug
+    bisher `action="refresh_album"` — der echte Wert, den
+    `_share_album_if_needed` fuer einen Teilen-Eintrag setzt, ist
+    `action="share_album"` (siehe dort, Erfolgs- UND Fehlerzweig). Ein
+    Zaehl-Umbau, der gezielt auf `action == "refresh_album"` einschraenkt
+    (A_action), waere an dieser falschen Attrappe unbemerkt gruen geblieben."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    async def fake_share(*_args, **_kwargs):
+        return [SyncLogEntry(
+            id="share-1", timestamp="2026-01-01T00:00:00+00:00", action="share_album",
+            details="geteilt", status="success",
+            message_key="log_album_shared",
+            message_params={"album": managed.album_name, "names": "Konto Zwei"},
+        )]
+
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
+    _immich_client_mit_namen(monkeypatch, "Neu in Immich")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_album_shared", "log_album_name_adopted",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_namensuebernahme_und_fehler_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 1a): Ein
+    FEHLER-Eintrag ist ebenso ein „es geschah etwas" wie ein Teilen-Eintrag —
+    RICHTIGGESTELLT (S8 Nacharbeit 2): Diese Zusage steht nirgends als Zitat
+    in einem Docstring, weder bei `refresh_managed_album` noch bei
+    `_refresh_managed_album_unlocked` (beide tragen nur einen knappen
+    Ein-Satz-Docstring); sie folgt allein aus der Pruefung `entry is not
+    name_entry` in Letzterer — jeder Eintrag, der nicht der Namens-Eintrag
+    ist, zaehlt, ganz gleich ob Teilen- oder Fehler-Eintrag. Bisher deckte
+    aber keine Probe die Kombination aus Namensuebernahme UND einem
+    fehlgeschlagenen Personen-Sync ab. Gemessen (Sonde S8, Mutationen A2/A3b/A7): Ein Umbau,
+    der Fehler-Eintraege beim Zaehlen ausschliesst (`entry.status !=
+    'error'` oder eine Textprobe auf das Wort „fehlgeschlagen" in
+    `entry.details`), blieb hier unbemerkt gruen und haette zusaetzlich
+    faelschlich `log_no_new_assets` gemeldet, obwohl der Fehler-Eintrag
+    bereits zeigt, dass etwas geschah. Der verwandte Fall — ein TEILFEHLER
+    beim Hinzufuegen (`log_assets_partial_failure`, kein kompletter
+    Sync-Fehler) — ist eine andere Mutation (A5b) und steht deshalb in
+    `test_refresh_zeigt_nur_teilfehler_ohne_faelschliche_keine_neuen_assets`
+    weiter unten."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Neu in Immich", ["asset-1"]
+
+        async def get_person_assets(self, _person_id):
+            raise RuntimeError("Immich nicht erreichbar")
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_album_name_adopted", "log_sync_failed",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_nur_fehler_ohne_namenswechsel_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 1b): Dieselbe
+    Luecke wie im Test darueber, aber OHNE Namenswechsel — ein
+    Fehler-Eintrag ALLEIN deckt bereits ab, dass etwas geschah. Ohne diesen
+    Test blieb ein Umbau, der Fehler-Eintraege von der Zaehlung ausnimmt,
+    auch im einfachsten Fall (nur ein Fehler, kein Name, keine neuen Assets)
+    unbemerkt gruen."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Alter Name", ["asset-1"]
+
+        async def get_person_assets(self, _person_id):
+            raise RuntimeError("Immich nicht erreichbar")
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == ["log_sync_failed"], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_nur_teilfehler_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """Nachlese #97 (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 1c): Ein
+    TEILFEHLER beim Hinzufuegen (`log_assets_partial_failure`, ausgeloest von
+    `_split_add_results`/`_partial_failure_log`, siehe
+    `test_refresh_reports_partial_failures_and_ignores_duplicates`) ist
+    KEIN kompletter Sync-Fehler — eine eigene, dritte Sorte „es geschah
+    etwas". Gemessen (Sonde S8, Mutation A5b): Ein Umbau, der genau diesen
+    Eintrag anhand seines Texts („konnten nicht hinzugefuegt") von der
+    Zaehlung ausnimmt, blieb von den beiden Tests darueber unentdeckt (sie
+    decken nur den kompletten `log_sync_failed`-Fehler ab) und haette hier
+    zusaetzlich faelschlich `log_no_new_assets` gemeldet."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Alter Name", []
+
+        async def get_person_assets(self, _person_id):
+            return [{"id": "asset-1"}]
+
+        async def add_assets_to_album(self, _album_id, _asset_ids):
+            return [{"id": "asset-1", "success": False, "error": "permission"}]
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == ["log_assets_partial_failure"], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_nur_teilen_fehler_ohne_faelschliche_keine_neuen_assets(monkeypatch):
+    """S8 Nacharbeit 2, KLEIN (a): Ein TEILEN-Fehler (`action="share_album"`,
+    `log_album_members_fetch_failed` oder `log_share_failed`) ist ebenso ein
+    „es geschah etwas" wie ein Sync-Fehler oder ein Teilfehler — die drei
+    Nachbarproben oben decken einen kompletten Sync-Fehler, einen Teilfehler
+    und (weiter oben) ein ERFOLGREICHES Teilen ab, aber keine je einen
+    SCHEITERNDEN Teilen-Versuch. Gemessen (Sonde S8, Mutationen
+    A_share_err2/A_share_err3/A_action): drei verschiedene Umbauten — alle
+    `share_album`-Eintraege von der Zaehlung ausnehmen, nur die FEHLER davon
+    ausnehmen, oder nur `action == "refresh_album"` zaehlen — blieben hier
+    unbemerkt gruen und haetten zusaetzlich faelschlich `log_no_new_assets`
+    gemeldet, obwohl der Teilen-Fehler bereits zeigt, dass etwas geschah."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    async def fake_share(*_args, **_kwargs):
+        return [SyncLogEntry(
+            id="share-err-1", timestamp="2026-01-01T00:00:00+00:00", action="share_album",
+            details="Album-Mitglieder konnten nicht abgerufen werden", status="error",
+            error_message="IMMICH_API_ERROR",
+            message_key="log_album_members_fetch_failed", message_params={},
+        )]
+
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
+    _immich_client_mit_namen(monkeypatch, "Alter Name")  # kein Namenswechsel
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == ["log_album_members_fetch_failed"], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_namensuebernahme_und_teilen_fehler_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """S8 Nacharbeit 2, KLEIN (a), Gegenstueck MIT Namenswechsel zum Test
+    oben: dieselbe Luecke (A_share_err2/A_share_err3/A_action), zusaetzlich
+    kombiniert mit einer Namensuebernahme — deckt die tatsaechliche
+    Reihenfolge ab, in der `_refresh_managed_album_unlocked` die Eintraege
+    erzeugt (Teilen laeuft vor dem Namensabgleich, siehe
+    `test_refresh_zeigt_teilen_und_namensuebernahme_...` oben). Nutzt
+    `log_share_failed` statt `log_album_members_fetch_failed`, damit beide im
+    Brief genannten Teilen-Fehler-Schluessel je einmal geprueft sind."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    async def fake_share(*_args, **_kwargs):
+        return [SyncLogEntry(
+            id="share-err-2", timestamp="2026-01-01T00:00:00+00:00", action="share_album",
+            details="Sharing mit Konto Zwei fehlgeschlagen", status="error",
+            error_message="IMMICH_API_ERROR",
+            message_key="log_share_failed", message_params={"names": "Konto Zwei"},
+        )]
+
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", fake_share)
+    _immich_client_mit_namen(monkeypatch, "Neu in Immich")
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_share_failed", "log_album_name_adopted",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
+async def test_refresh_zeigt_namensuebernahme_und_teilfehler_ohne_faelschliche_keine_neuen_assets(
+    monkeypatch,
+):
+    """S8 Nacharbeit 2, KLEIN (a): Dieselbe Kombination wie bei
+    `test_refresh_zeigt_namensuebernahme_und_fehler_...` oben, aber mit einem
+    TEILFEHLER (`log_assets_partial_failure`) statt einem kompletten
+    Sync-Fehler. Gemessen (Sonde S8, Mutation A_partial_mit_name4): ein
+    Umbau, der einen Teilfehler nur dann von der Zaehlung ausnimmt, wenn
+    ZUGLEICH ein Namenswechsel vorliegt (`entry.details[:1].isdigit()` — die
+    Ziffer am Anfang von `_partial_failure_log`s Text — kombiniert mit
+    `name_entry is not None`), blieb von den bestehenden Proben unbemerkt
+    gruen: `test_refresh_zeigt_nur_teilfehler_...` oben hat keinen
+    Namenswechsel, `test_refresh_zeigt_namensuebernahme_und_fehler_...` hat
+    keinen Teilfehler (nur einen kompletten Sync-Fehler)."""
+    owner = _konto_eins()
+    managed = _album_fuer_namensuebernahme(album_name="Alter Name")
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Neu in Immich", []
+
+        async def get_person_assets(self, _person_id):
+            return [{"id": "asset-1"}]
+
+        async def add_assets_to_album(self, _album_id, _asset_ids):
+            return [{"id": "asset-1", "success": False, "error": "permission"}]
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    store = StoreDoppel(managed)
+    entries = await sync_service.refresh_managed_album(managed, [owner], store)
+
+    assert [e.message_key for e in entries] == [
+        "log_album_name_adopted", "log_assets_partial_failure",
+    ], entries
+    assert not any(e.message_key == "log_no_new_assets" for e in entries), entries
+
+
+@pytest.mark.asyncio
 async def test_refresh_ohne_namensaenderung_schreibt_keinen_namenseintrag(monkeypatch):
     """Nachweis 2 (#97): Gleicher Name -> kein Namens-Eintrag, Name unverändert."""
     owner = _konto_eins()
@@ -693,9 +1028,11 @@ def _leerraum_zeichen() -> list[str]:
     """Alle Codepunkte, die Python `str.strip()` als Leerraum faltet.
 
     Selbst gemessen (Owner-Vorgabe: keine Zahl abschreiben), nicht die vom
-    Panel genannte Zahl uebernommen — 29 Zeichen zum Zeitpunkt dieses Baus.
-    Kein Import einer fremden Liste: Aendert Python diese Menge je, aendert
-    sich auch diese Liste automatisch mit.
+    Panel genannte Zahl uebernommen. Absichtlich OHNE die genaue Anzahl hier
+    im Text (#114, Nachlese #97): Eine hart hingeschriebene Zahl veraltet
+    STUMM, sobald Python die Menge je aendert, waehrend diese Funktion sie
+    weiterhin zur LAUFZEIT berechnet — kein Import einer fremden Liste, die
+    Anzahl ist also automatisch aktuell, der Text darueber war es nicht.
     """
     return [chr(i) for i in range(0x110000) if chr(i).strip() == ""]
 
@@ -709,8 +1046,9 @@ async def test_refresh_behaelt_den_namen_wenn_immich_keinen_liefert(monkeypatch,
     """Nachweis 3 (#97, erweitert in Nacharbeit 1 und 2): Kein, ein leerer
     oder ein NUR aus Leerraum bestehender Name aus Immich leert den Bestand
     nicht — parametrisiert ueber JEDEN Codepunkt, den Python als Leerraum
-    faltet (siehe `_leerraum_zeichen`), plus alle 29 zusammen in einem
-    String.
+    faltet (siehe `_leerraum_zeichen`), plus ALLE davon zusammen in einem
+    String (#114: keine hart hingeschriebene Zahl hier — siehe
+    `_leerraum_zeichen`).
 
     Gemessen ohne den `.strip()`-Schutz (Fund von Blind- und Fremdpruefer):
     Ein Name aus reinem Leerraum ist in Python truthy und ungleich dem
@@ -1118,7 +1456,7 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
 
     store = StoreDoppel(managed)
     logs = await sync_service.rename_managed_album(
-        managed, owner, "New family name", store
+        managed, "New family name", store
     )
 
     assert updates == [("album-1", {"albumName": "New family name"})]
@@ -1130,3 +1468,78 @@ async def test_rename_managed_album_updates_immich_and_persisted_name(monkeypatc
     assert [a.album_name for a in store.geschrieben] == ["New family name"]
     assert logs[0].status == "success"
     assert logs[0].message_key == "log_album_renamed"
+
+
+# --------------------------- #117 Nachtrag: Besitzer wird UNTER dem Schloss
+# frisch aus dem Store gelesen, nicht aus einer Kontenliste, die der
+# Aufrufer VOR dem Schloss gebaut hat.
+
+
+@pytest.mark.asyncio
+async def test_rename_lehnt_ab_wenn_der_besitzer_unter_dem_schloss_fehlt():
+    """Rot-Beweis fuer #117 Nachtrag: Der Besitzer wird NICHT mehr vom
+    Aufrufer uebergeben (die alte Signatur nahm ein `owner_account`-Argument
+    entgegen, das der Router VOR dem Schloss aufgeloest hatte), sondern hier
+    unter dem Schloss aus dem Store gelesen. Ein Store, der das Konto als
+    geloescht fuehrt, muss also ablehnen — unabhaengig davon, was `managed`
+    (die Kopie des Aufrufers) noch ueber den Besitzer zu wissen glaubt.
+    """
+    owner = account("owner")
+    managed = ManagedAlbum(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Alt", group_id="gruppe-1", owner_account_id=owner.id,
+        person_refs=[], created_at="2026-09-10T00:00:00+00:00",
+    )
+    store = StoreDoppel(managed, geloeschte_konten={owner.id})
+
+    with pytest.raises(errors.AppError) as exc_info:
+        await sync_service.rename_managed_album(managed, "Neu", store)
+
+    assert exc_info.value.key == "err_owner_account_not_found"
+
+
+@pytest.mark.asyncio
+async def test_refresh_prueft_den_besitzer_frisch_und_nicht_aus_der_uebergebenen_liste():
+    """Rot-Beweis fuer #117 Nachtrag (Abgleich): `all_accounts` ist ein
+    Schnappschuss, den der Aufrufer VOR dem Albumschloss gebaut hat
+    (`routers/albums.py`, `main._run_auto_sync`) — hier absichtlich mit dem
+    Besitzer DRIN, obwohl der Store ihn schon als geloescht fuehrt. Vor der
+    Nacharbeit fand `_refresh_managed_album_unlocked` den Besitzer trotzdem
+    (ueber `account_map`, aus genau dieser Liste) und haette einen
+    Immich-Aufruf mit dem Schluessel eines geloeschten Kontos gemacht — hier
+    darf gar kein `ImmichClient` gebaut werden, die Attrappe bleibt deshalb
+    absichtlich weg (ein falscher Konstruktoraufruf wuerde mit `NameError`
+    auffallen)."""
+    managed = ManagedAlbum(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Family", group_id="gruppe-family",
+        owner_account_id="owner", person_refs=[],
+        created_at="2026-09-10T00:00:00+00:00",
+    )
+    store = StoreDoppel(managed, geloeschte_konten={"owner"})
+
+    logs = await sync_service.refresh_managed_album(managed, [account("owner")], store)
+
+    assert [e.message_key for e in logs] == ["log_owner_account_missing"]
+
+
+@pytest.mark.asyncio
+async def test_extend_prueft_den_besitzer_frisch_und_nicht_aus_der_uebergebenen_liste():
+    """Dieselbe Probe wie beim Refresh, fuer `extend_match` (#117 Nachtrag,
+    „Erweitern ebenso pruefen")."""
+    owner = account("owner")
+    participant = account("participant")
+    managed = ManagedAlbum(
+        id="managed-1", match_id="match-1", album_id="album-1",
+        album_name="Family", group_id="gruppe-family",
+        owner_account_id=owner.id,
+        person_refs=[{"account_id": owner.id, "person_id": "person-1"}],
+        created_at="2026-09-10T00:00:00+00:00",
+    )
+    store = StoreDoppel(managed, geloeschte_konten={owner.id})
+
+    logs = await sync_service.extend_match(
+        managed, participant, "person-2", "Zwei", None, [owner, participant], store,
+    )
+
+    assert [e.message_key for e in logs] == ["log_owner_account_missing"]

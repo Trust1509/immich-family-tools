@@ -13,6 +13,8 @@ Alle Daten erfunden; das Repo ist oeffentlich.
 """
 from datetime import datetime, timezone
 
+import pytest
+
 from models.account import AccountCreate
 from models.match import ManagedAlbum, SyncLogEntry
 from services.config_store import ConfigStore
@@ -58,7 +60,8 @@ def _album_im_bestand(store: ConfigStore, album_id: str) -> ManagedAlbum | None:
 # --------------------------------------------------------------------------
 
 
-def test_album_mit_einer_verbleibenden_person_bleibt(tmp_path):
+@pytest.mark.asyncio
+async def test_album_mit_einer_verbleibenden_person_bleibt(tmp_path):
     """Besitzer geloescht, EINE fremde Person bleibt: Album bleibt in Verwaltung."""
     store = ConfigStore(str(tmp_path / "accounts.json"))
     besitzer = _konto(store, "Besitzer")
@@ -66,20 +69,21 @@ def test_album_mit_einer_verbleibenden_person_bleibt(tmp_path):
     _album(store, album_id="a1", owner_id=besitzer.id,
            person_refs=[_ref(besitzer), _ref(teilnehmer)])
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     album = _album_im_bestand(store, "a1")
     assert album is not None, "Album mit einer verbleibenden Person ist verschwunden"
     assert [r["account_id"] for r in album.person_refs] == [teilnehmer.id]
 
 
-def test_album_mit_null_verbleibenden_personen_bleibt(tmp_path):
+@pytest.mark.asyncio
+async def test_album_mit_null_verbleibenden_personen_bleibt(tmp_path):
     """Besitzer geloescht, NIEMAND bleibt: Album bleibt trotzdem in Verwaltung."""
     store = ConfigStore(str(tmp_path / "accounts.json"))
     besitzer = _konto(store, "Besitzer")
     _album(store, album_id="a1", owner_id=besitzer.id, person_refs=[_ref(besitzer)])
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     album = _album_im_bestand(store, "a1")
     assert album is not None, "Album mit null verbleibenden Personen ist verschwunden"
@@ -90,7 +94,8 @@ def test_album_mit_null_verbleibenden_personen_bleibt(tmp_path):
     assert album.owner_account_id == besitzer.id
 
 
-def test_album_mit_zwei_verbleibenden_personen_bei_teilnehmer_loeschung_bleibt(tmp_path):
+@pytest.mark.asyncio
+async def test_album_mit_zwei_verbleibenden_personen_bei_teilnehmer_loeschung_bleibt(tmp_path):
     """Ein TEILNEHMER (nicht der Besitzer) wird geloescht: >= 2 bleiben ohnehin."""
     store = ConfigStore(str(tmp_path / "accounts.json"))
     besitzer = _konto(store, "Besitzer")
@@ -99,7 +104,7 @@ def test_album_mit_zwei_verbleibenden_personen_bei_teilnehmer_loeschung_bleibt(t
     _album(store, album_id="a1", owner_id=besitzer.id,
            person_refs=[_ref(besitzer), _ref(a), _ref(b)])
 
-    assert store.delete_account(a.id)
+    assert await store.delete_account(a.id)
 
     album = _album_im_bestand(store, "a1")
     assert album is not None
@@ -107,7 +112,8 @@ def test_album_mit_zwei_verbleibenden_personen_bei_teilnehmer_loeschung_bleibt(t
     assert album.owner_account_id == besitzer.id
 
 
-def test_album_mit_einer_verbleibenden_person_bei_teilnehmer_loeschung_bleibt(tmp_path):
+@pytest.mark.asyncio
+async def test_album_mit_einer_verbleibenden_person_bei_teilnehmer_loeschung_bleibt(tmp_path):
     """Ein Teilnehmer wird geloescht, nur der Besitzer bleibt: bleibt trotzdem."""
     store = ConfigStore(str(tmp_path / "accounts.json"))
     besitzer = _konto(store, "Besitzer")
@@ -115,7 +121,7 @@ def test_album_mit_einer_verbleibenden_person_bei_teilnehmer_loeschung_bleibt(tm
     _album(store, album_id="a1", owner_id=besitzer.id,
            person_refs=[_ref(besitzer), _ref(teilnehmer)])
 
-    assert store.delete_account(teilnehmer.id)
+    assert await store.delete_account(teilnehmer.id)
 
     album = _album_im_bestand(store, "a1")
     assert album is not None
@@ -123,12 +129,13 @@ def test_album_mit_einer_verbleibenden_person_bei_teilnehmer_loeschung_bleibt(tm
     assert album.owner_account_id == besitzer.id
 
 
-def test_konto_ohne_alben_wird_trotzdem_sauber_geloescht(tmp_path):
+@pytest.mark.asyncio
+async def test_konto_ohne_alben_wird_trotzdem_sauber_geloescht(tmp_path):
     """Konto ohne jedes Album: loescht sich normal, ohne Nebenwirkung."""
     store = ConfigStore(str(tmp_path / "accounts.json"))
     konto = _konto(store, "Einsam")
 
-    assert store.delete_account(konto.id)
+    assert await store.delete_account(konto.id)
     assert store.list_accounts() == []
 
 
@@ -137,13 +144,14 @@ def test_konto_ohne_alben_wird_trotzdem_sauber_geloescht(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_ablehnungen_und_namensmerker_bleiben_unveraendert(tmp_path):
+@pytest.mark.asyncio
+async def test_ablehnungen_und_namensmerker_bleiben_unveraendert(tmp_path):
     store = ConfigStore(str(tmp_path / "accounts.json"))
     besitzer = _konto(store, "Besitzer")
     store.dismiss_match("md5-irgendein-paar")
     store.mark_names_synced("md5-anderes-paar")
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     assert store.get_dismissed_ids() == {"md5-irgendein-paar"}
     assert store.get_synced_name_ids() == {"md5-anderes-paar"}
@@ -154,7 +162,8 @@ def test_ablehnungen_und_namensmerker_bleiben_unveraendert(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_protokoll_bleibt_vollstaendig_auch_mit_kontoname_als_teilwort(tmp_path):
+@pytest.mark.asyncio
+async def test_protokoll_bleibt_vollstaendig_auch_mit_kontoname_als_teilwort(tmp_path):
     """Frueher: ein Teilwort-Treffer im `details`-Text loeschte den Eintrag mit.
 
     Gemessen am echten Store (#112): "Name 'Carlas Mama' abgeglichen"
@@ -168,13 +177,14 @@ def test_protokoll_bleibt_vollstaendig_auch_mit_kontoname_als_teilwort(tmp_path)
         status="success",
     )])
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     verlauf = [e.id for e in store.get_log()]
     assert "log-teilwort" in verlauf, "Eintrag mit Kontoname als Teilwort ist verschwunden"
 
 
-def test_protokoll_bleibt_vollstaendig_auch_bei_undo_data_auf_das_konto(tmp_path):
+@pytest.mark.asyncio
+async def test_protokoll_bleibt_vollstaendig_auch_bei_undo_data_auf_das_konto(tmp_path):
     """Frueher: ein Eintrag, dessen `undo_data.account_id` passte, fiel weg."""
     store = ConfigStore(str(tmp_path / "accounts.json"))
     besitzer = _konto(store, "Besitzer")
@@ -185,13 +195,14 @@ def test_protokoll_bleibt_vollstaendig_auch_bei_undo_data_auf_das_konto(tmp_path
         undo_data={"account_id": besitzer.id, "person_id": "p1", "previous_name": "Alt"},
     )])
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     verlauf = [e.id for e in store.get_log()]
     assert "log-undo" in verlauf, "Eintrag mit undo_data auf das geloeschte Konto ist verschwunden"
 
 
-def test_protokoll_bleibt_vollstaendig_im_echten_produktionsformat(tmp_path):
+@pytest.mark.asyncio
+async def test_protokoll_bleibt_vollstaendig_im_echten_produktionsformat(tmp_path):
     """Nacharbeit 1 (Blindpruefer): deckt eine SCHWAECHERE Wiederkehr des
     Teilwort-Filters ab, die die vorige Probe nicht faengt.
 
@@ -213,7 +224,7 @@ def test_protokoll_bleibt_vollstaendig_im_echten_produktionsformat(tmp_path):
         status="success",
     )])
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     verlauf = [e.id for e in store.get_log()]
     assert "log-produktionsformat" in verlauf, (
@@ -221,7 +232,8 @@ def test_protokoll_bleibt_vollstaendig_im_echten_produktionsformat(tmp_path):
     )
 
 
-def test_ablehnungen_und_merker_mit_echten_paar_ids_bleiben(tmp_path):
+@pytest.mark.asyncio
+async def test_ablehnungen_und_merker_mit_echten_paar_ids_bleiben(tmp_path):
     """Nacharbeit 1 (Blindpruefer): deckt eine GEZIELTERE Wiederkehr des alten
     Leerens ab.
 
@@ -245,7 +257,7 @@ def test_ablehnungen_und_merker_mit_echten_paar_ids_bleiben(tmp_path):
     store.dismiss_match(echte_paar_id)
     store.mark_names_synced(echte_paar_id)
 
-    assert store.delete_account(besitzer.id)
+    assert await store.delete_account(besitzer.id)
 
     assert echte_paar_id in store.get_dismissed_ids(), "echte Paar-Ablehnung verschwunden"
     assert echte_paar_id in store.get_synced_name_ids(), "echter Paar-Merker verschwunden"

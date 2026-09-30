@@ -43,17 +43,21 @@ const { albenMock, autoSyncGet, renameMock, refreshMock, deleteMock } = vi.hoist
   deleteMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
-  api: {
-    sync: {
-      albums: albenMock,
-      refreshAlbum: refreshMock,
-      deleteAlbum: deleteMock,
-      renameAlbum: renameMock,
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return {
+    ...actual,
+    api: {
+      sync: {
+        albums: albenMock,
+        refreshAlbum: refreshMock,
+        deleteAlbum: deleteMock,
+        renameAlbum: renameMock,
+      },
+      autoSync: { get: autoSyncGet, set: vi.fn() },
     },
-    autoSync: { get: autoSyncGet, set: vi.fn() },
-  },
-}));
+  };
+});
 
 function zeichne() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -77,6 +81,20 @@ function hatAlbumGroupInvalidiert(spion: { mock: { calls: unknown[][] } }): bool
       typeof call[0] === "object" &&
       "queryKey" in call[0] &&
       (call[0] as { queryKey?: unknown[] }).queryKey?.[0] === "album-group"
+  );
+}
+
+/** Dasselbe, fuer einen beliebigen Abfrageschluessel — Nacharbeit 1 (#123,
+ *  Blindpruefer W4): `handleDeleteSingle` bekam bis hierher keinen eigenen
+ *  Nachweis, dass es ueberhaupt neu laedt; eine Mutation, die alle drei
+ *  `invalidateQueries`-Aufrufe darin entfernt, blieb gruen. */
+function hatQueryInvalidiert(spion: { mock: { calls: unknown[][] } }, key: string): boolean {
+  return spion.mock.calls.some(
+    (call: unknown[]) =>
+      call[0] &&
+      typeof call[0] === "object" &&
+      "queryKey" in call[0] &&
+      (call[0] as { queryKey?: unknown[] }).queryKey?.[0] === key
   );
 }
 
@@ -106,7 +124,10 @@ describe("AlbumsOverview: Gruppen-Cache nach Entfernen", () => {
     const spion = zeichne();
     await waitFor(() => expect(screen.getByText("Testalbum")).toBeTruthy());
 
-    fireEvent.click(screen.getByTitle("Verknüpfung entfernen"));
+    // #124 Fund B12 (Nacharbeit 1 zu #124, KLEIN: Richtung war hier verkehrt
+    // beschrieben): `getByRole`/`name` statt `getByTitle`, wie die neueren
+    // Testdateien (Teststil-Angleichung, keine Verhaltensaenderung).
+    fireEvent.click(screen.getByRole("button", { name: /Verknüpfung entfernen/i }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalled());
     await waitFor(() => expect(hatAlbumGroupInvalidiert(spion)).toBe(true));
@@ -128,7 +149,7 @@ describe("AlbumsOverview: Gruppen-Cache nach Umbenennen", () => {
   });
 
   it("invalidiert die Gruppenvorschau AUCH, wenn das Umbenennen wirft (#110, Nacharbeit 2, KLEIN Fund 4)", async () => {
-    // `handleRename` invalidiert schon seit #79 im `finally`-Block — dieser
+    // `handleRename` invalidiert schon seit #110 im `finally`-Block — dieser
     // Test haelt genau das fest, statt es nur zu behaupten.
     renameMock.mockRejectedValue({ message: "Der Name gehört bereits zu einer anderen Gruppe." });
     const spion = zeichne();
@@ -141,5 +162,33 @@ describe("AlbumsOverview: Gruppen-Cache nach Umbenennen", () => {
 
     await waitFor(() => expect(renameMock).toHaveBeenCalled());
     await waitFor(() => expect(hatAlbumGroupInvalidiert(spion)).toBe(true));
+  });
+});
+
+describe("AlbumsOverview: Cache nach EINZEL-Entfernen eines verwaisten Albums (Nacharbeit 1, #123, Blindpruefer W4)", () => {
+  it("invalidiert managed-albums, matches UND die Gruppenvorschau, nicht nur die Gruppenvorschau allein", async () => {
+    albenMock.mockResolvedValue([
+      { ...ALBUM, id: "gesund", owner_account_id: "konto-1" },
+      {
+        ...ALBUM,
+        id: "verwaist",
+        album_name: "Testalbum (verwaist)",
+        owner_account_id: "konto-tot",
+        owner_account_missing: true,
+      },
+    ]);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true)
+    );
+    const spion = zeichne();
+    await waitFor(() => expect(screen.getByText("Testalbum")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Dieses verwaiste Album entfernen/i }));
+
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("verwaist"));
+    await waitFor(() => expect(hatQueryInvalidiert(spion, "managed-albums")).toBe(true));
+    expect(hatQueryInvalidiert(spion, "matches")).toBe(true);
+    expect(hatAlbumGroupInvalidiert(spion)).toBe(true);
   });
 });

@@ -152,6 +152,67 @@ describe("ManualMatch: Gruppenwahl", () => {
     expect(screen.getByText("Person X")).toBeTruthy();
   });
 
+  it("bei mehrdeutigem Namen ('many') bleibt der Startknopf gesperrt, bis eine Gruppe gewaehlt ist (Nacharbeit 1, Blind W-5)", async () => {
+    // Testluecke, Nacharbeit 1 zu #113/#119/#124 (Blind W-5): Die
+    // "many"-Antwort war nur an der Einzelkomponente `GruppenWahl` geprueft,
+    // nicht end-to-end im manuellen Abgleich — genau der Ort, an dem eine
+    // fehlende Wahl trotzdem eine Anlage anstossen koennte.
+    const MANY = {
+      status: "many" as const,
+      candidates: [
+        {
+          group_id: "gruppe-a",
+          album_names: ["Testalbum"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "p9",
+              person_name: "Person Neun",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+        {
+          group_id: "gruppe-b",
+          album_names: ["Testalbum"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "p10",
+              person_name: "Person Zehn",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+      ],
+    };
+    vorschauMock.mockResolvedValue(MANY);
+
+    await fuelleFormular();
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+
+    await waitFor(() => expect(screen.getByText("Person Neun")).toBeTruthy());
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(namesMultiMock).not.toHaveBeenCalled();
+
+    // Eine Kandidaten-Gruppe waehlen — jetzt darf abgeschickt werden, MIT der
+    // gewaehlten `group_id`.
+    const radio = screen
+      .getByText("Person Neun")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    fireEvent.click(radio);
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    expect(namesMultiMock.mock.calls[0][0].group_id).toBe("gruppe-a");
+  });
+
   it("schickt 'eigene Gruppe' wirklich mit", async () => {
     await fuelleFormular();
     await waitFor(() => expect(screen.getByText("Tritt der bestehenden Gruppe bei")).toBeTruthy());
@@ -180,6 +241,42 @@ describe("ManualMatch: Gruppenwahl beim VERKNUEPFEN", () => {
 
     await waitFor(() => expect(screen.getByText("Tritt der bestehenden Gruppe bei")).toBeTruthy());
     expect(screen.getByText("Person X")).toBeTruthy();
+  });
+
+  it("laedt die Albumliste neu, wenn der Server mit 'err_group_situation_changed' ablehnt (Nacharbeit 1, Gegen F8, KLEIN)", async () => {
+    // Im Modus "Verknuepfen" bestimmt die Albumliste (`account-albums`) den
+    // Namen, den die CLIENT-Vorschau prueft — der Server loest beim
+    // Speichern den Namen frisch aus Immich auf. Aendert sich der
+    // Immich-Name dazwischen, lehnt der Server mit
+    // `err_group_situation_changed` ab; ohne Neuladen der Albumliste zeigt
+    // die Vorschau beim naechsten Versuch denselben veralteten Namen wieder
+    // — eine Ablehnungsschleife.
+    // Enten-Typisierung wie im Komponentencode selbst (siehe Kommentar dort):
+    // ein Objekt mit `key` reicht, eine echte `ApiError`-Instanz ist nicht
+    // noetig — und waere hier ohnehin nicht zu bekommen, weil dieses Modul
+    // komplett gemockt ist.
+    namesMultiMock.mockRejectedValueOnce(
+      Object.assign(new Error("Die Gruppenlage hat sich geaendert."), {
+        key: "err_group_situation_changed",
+      })
+    );
+
+    await fuelleFormular();
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+    await screen.findByText("Testalbum");
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-1" } });
+
+    await waitFor(() => expect(kontoAlbenMock).toHaveBeenCalledTimes(1));
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    // Der eigentliche Fund: Die Albumliste wird nach GENAU dieser Ablehnung
+    // neu geladen — ohne das blieb sie bei EINEM Aufruf stehen.
+    await waitFor(() => expect(kontoAlbenMock.mock.calls.length).toBeGreaterThan(1));
   });
 });
 
@@ -390,6 +487,20 @@ describe("ManualMatch: die angezeigte Gruppe wird auch geschickt", () => {
     expect(namesMultiMock.mock.calls[0][0].group_id).toBe("gruppe-1");
   });
 
+  it("schickt expected_no_group mit, wenn die Vorschau keine Gruppe fand (#119)", async () => {
+    vorschauMock.mockResolvedValue(null);
+    await fuelleFormular();
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    expect(namesMultiMock.mock.calls[0][0].expected_no_group).toBe(true);
+    expect(namesMultiMock.mock.calls[0][0].group_id).toBeUndefined();
+    expect(namesMultiMock.mock.calls[0][0].force_new_group).toBeUndefined();
+  });
+
   it("schickt beim Verknuepfen keinen stehengebliebenen Albumnamen", async () => {
     // Das Namensfeld gehoert dem Anlege-Modus und wird beim Umschalten nur
     // AUSGEBLENDET. Mitgeschickt entschied sein Wert ueber die Gruppe,
@@ -455,6 +566,41 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
       ).toBe(true)
     );
   });
+
+  it("die Invalidierung wirkt WIRKLICH — nicht nur der Aufruf mit der richtigen Form (#119, Punkt 2)", async () => {
+    // Derselbe Fund wie bei MatchSuggestions: `queryKey[0] === "album-group"`
+    // allein beweist nicht, dass die WIRKLICHE Abfrage ["album-group",
+    // "Testalbum"] getroffen wird — ein `exact: true` saehe im Spion oben
+    // genauso aus. Hier wird ein zweiter echter Vorschau-Aufruf verlangt.
+    await fuelleFormular();
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("invalidiert die Gruppenvorschau AUCH, wenn names-multi fehlschlaegt (#119, Punkt 3, onSettled)", async () => {
+    // `onSettled` statt nur `onSuccess`: ein Teil-Schreibvorgang kann schon
+    // eine Gruppe veraendert haben, auch wenn die Anfrage insgesamt als
+    // Fehler zurueckkommt. Bisher ungetestet.
+    namesMultiMock.mockRejectedValueOnce(new Error("netzwerk kaputt"));
+    await fuelleFormular();
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    const knopf = () => screen.getByText(STARTKNOPF) as HTMLButtonElement;
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+
+    await waitFor(() => expect(namesMultiMock).toHaveBeenCalled());
+    // Das Formular bleibt nach einem Fehlschlag offen (kein Reset), also
+    // bleibt GruppenWahl beobachtet — der automatische Refetch ist der
+    // sichtbare Nachweis.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe("Gewaehltes Album verschwindet bei GLEICHEM Besitzer (#110, Nacharbeit 2, WICHTIG Fund 3d)", () => {
@@ -504,5 +650,29 @@ describe("Gewaehltes Album verschwindet bei GLEICHEM Besitzer (#110, Nacharbeit 
     fireEvent.click(knopf());
     await wartenAufRuhe();
     expect(namesMultiMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Kleinfunde (#119, Punkt 4)", () => {
+  it("zeigt einen Hinweis, wenn das gewaehlte bestehende Album keinen Namen traegt", async () => {
+    kontoAlbenMock.mockResolvedValue([{ id: "immich-leer", name: "" }]);
+    await fuelleFormular();
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+
+    await waitFor(() => expect(kontoAlbenMock).toHaveBeenCalled());
+    // 2 Personen-Konto-Auswahlen + Besitzer-Auswahl (immer da) + die
+    // Album-Auswahl, die erst im Modus "Verknuepfen" hinzukommt.
+    await waitFor(() => expect(screen.getAllByRole("combobox").length).toBeGreaterThan(3));
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-leer" } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Dieses Album hat in Immich keinen Namen — bitte dort erst einen Namen vergeben."
+        )
+      ).toBeTruthy()
+    );
+    expect((screen.getByText(STARTKNOPF) as HTMLButtonElement).disabled).toBe(true);
   });
 });

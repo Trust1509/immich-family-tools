@@ -84,13 +84,18 @@ zweiten Ausführungskontext: einen eigenen Lauf (Cron auf dem Wächter-Host mit
 flachem Klon) **oder** den in Schritt 8 vorhandenen Teil-Ersatz, der nur die
 einzelne Auslieferung selbst prüft (siehe oben).
 
-`GET /api/health` liefert bereits `{"status":"ok","version":APP_VERSION}`
-(`backend/main.py:160`, `backend/version.py`) — dieselbe Antwort, die der
-Erreichbarkeits-Wächter oben ohnehin abruft. Der Check ist ein Vergleich mit
-Präfix-Normalisierung: `/api/health` liefert die Version als `<x.y.z>` ohne
-führendes „v" (Platzhalter für die jeweils laufende Zahl — der Präfix-Punkt
-gilt unabhängig davon, welche Version das im Einzelfall ist), Tags tragen
-es. Zwei echte Zeilen statt einer Mischung aus Prosa und Shell:
+`GET /api/health` liefert bereits
+`{"status":"ok","version":APP_VERSION,"commit":GIT_SHA}` (`backend/main.py`,
+`backend/version.py`) — dieselbe Antwort, die der Erreichbarkeits-Wächter
+oben ohnehin abruft. `commit` ist seit #68 dabei: `GIT_SHA` kommt aus dem
+Docker-Build-Argument gleichen Namens (`Dockerfile`, `docker-compose.yml`,
+`docs/agents/release-ritual.md`, Schritt 9) und bleibt `"unknown"`, wenn
+dieses Argument beim Bauen fehlte — kein Absturz, keine erfundene Zahl. Der
+Versionsvergleich ist ein Vergleich mit Präfix-Normalisierung: `/api/health`
+liefert die Version als `<x.y.z>` ohne führendes „v" (Platzhalter für die
+jeweils laufende Zahl — der Präfix-Punkt gilt unabhängig davon, welche
+Version das im Einzelfall ist), Tags tragen es. Zwei echte Zeilen statt einer
+Mischung aus Prosa und Shell:
 
 ```
 version="v$(curl -s http://<host>:3100/api/health | jq -r .version)"
@@ -100,6 +105,22 @@ tag=$(git fetch --tags && git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
 (Vorbehalt zu `--sort=-v:refname`: Ein Vorabversions-Tag wie `v1.4.4-rc1`
 sortiert damit über `v1.4.4` — heute latent, da wir keine solchen Tags
 führen.)
+
+**`commit` deckt die Lücke, die der Versionsvergleich allein lässt:** Ein
+Commit NACH dem Tag ohne Versionsbump meldet weiterhin die alte, getaggte
+Nummer — der Versionsvergleich oben bliebe dann still grün, obwohl der
+laufende Stand nicht mehr der getaggte ist. Wer Commit gegen Commit
+vergleichen will statt Version gegen Version:
+
+```
+laufender_commit=$(curl -s http://<host>:3100/api/health | jq -r .commit)
+tag_commit=$(git rev-list -n 1 "$tag")
+```
+
+Ein `laufender_commit` von `"unknown"` bedeutet nicht „Stand unbekannt gleich
+gut", sondern „ohne `GIT_SHA`-Build-Argument gebaut" — dieser Vergleich ist
+dann nicht aussagekräftig, unabhängig davon, ob der tatsächliche Stand
+zufällig passt.
 
 **Nicht `git describe --tags --abbrev=0`:** Das liefert nicht den letzten
 Tag, sondern den letzten von HEAD **erreichbaren** Tag — unabhängig davon,
@@ -119,10 +140,41 @@ der Normalisierung **grün**, obwohl der getaggte Stand nie draußen war.
 Deshalb checkt Schritt 8 des Release-Rituals den Tag aus, nicht den
 Zweigkopf.
 
-**Was er zeigt und was nicht:** Er fängt „Auslieferung liegt Versionen
-zurück". Er fängt **nicht** „ausgeliefert wurde ein Commit nach dem Tag ohne
-Versionsbump" — dafür bräuchte es den Build-SHA in `/api/health`; das ist
-Anwendungscode und nicht Teil dieses Abschnitts (eigenes Issue).
+**Was er zeigt und was nicht — Stand vor Slice S7:** Er fängt „Auslieferung
+liegt Versionen zurück". Er fängt **nicht** „ausgeliefert wurde ein Commit
+nach dem Tag ohne Versionsbump" — dafür bräuchte es den Build-SHA in
+`/api/health`.
+
+**Seit Slice S7 (#68) gibt es diesen Build-SHA:** `/api/health` liefert
+zusätzlich `commit` — den Commit, aus dem das laufende Abbild gebaut wurde
+(Docker-Build-Argument `GIT_SHA`, gesetzt beim `docker build`/`docker compose
+build`, siehe `docs/agents/release-ritual.md`, Schritt 9). Fehlt das
+Argument (alter Baubefehl, Bau ohne Docker), steht dort `"unknown"` — die App
+startet trotzdem, der Vergleich unten erkennt das dann als offensichtliche
+Abweichung, nicht als stilles Grün.
+
+Der exakte Vergleich lautet damit **Commit gegen Commit**, nicht mehr Version
+gegen Version:
+
+```
+commit=$(curl -s http://<host>:3100/api/health | jq -r .commit)
+tag=$(git fetch --tags && git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+tag_commit=$(git rev-list -n 1 "$tag")
+```
+
+Weichen `$commit` und `$tag_commit` voneinander ab (oder ist `$commit`
+`"unknown"`), ist entweder ein ungetaggter Stand ausgeliefert, oder der
+Baubefehl hat `GIT_SHA` nicht gesetzt — beides ein Fund. Dieser Vergleich
+fängt jetzt auch den Fall, den der Versions-Vergleich oben strukturell nicht
+sehen kann: einen Commit nach dem Tag ohne Versionsbump, weil `commit` sich
+bei jedem neuen Commit ändert, `version` aber nur bei einem bewussten Bump.
+
+**Was sich NICHT geändert hat:** Der **periodische Lauf**, der diesen
+Vergleich automatisch und wiederkehrend fährt (Cron auf dem Wächter-Host),
+bleibt auf Issue #54 vertagt — Slice S7 liefert nur den Rohstoff (`commit` in
+`/api/health`), nicht die Automatisierung. Der Handvergleich in Schritt 8 des
+Release-Rituals kann ab sofort denselben Commit-Vergleich nutzen, läuft aber
+weiterhin nur im Auslieferungsaugenblick (siehe die Abgrenzung oben).
 
 ## Abgrenzung zum Totmann-Schalter
 

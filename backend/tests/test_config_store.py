@@ -2,12 +2,14 @@ import json
 import logging
 import os
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from models.account import AccountCreate
 from models.match import SyncLogEntry
+from services import config_store as config_store_module
 from services.config_store import ConfigStore
 
 
@@ -30,13 +32,70 @@ def test_invalid_config_fails_closed(tmp_path):
         ConfigStore(str(path))
 
 
-def test_delete_account_removes_local_references(tmp_path):
+@pytest.mark.asyncio
+async def test_delete_account_removes_local_references(tmp_path):
+    """Nacharbeit 1 (#117/#121/#103), Fund des Fremdpruefers: Diese Probe
+    prueft SEIT DEM UMBAU auf #117 (Albumschloss je betroffenem Album) nur
+    noch, dass das Konto aus `list_accounts()` verschwindet — der Name
+    verspricht mehr, als der Koerper haelt. Die eigentliche
+    Referenz-Bereinigung hat inzwischen eigene, ausfuehrlichere Proben
+    (`test_konto_loeschen_erhaelt_bestand.py`); hier steht wieder ein Rot-Beweis
+    fuer GENAU das, was der Name verspricht: eine `person_refs`-Referenz
+    verschwindet mit dem Konto.
+    """
+    # `delete_account` ist seit #117 async: Es nimmt je betroffenem Album
+    # dessen `_album_schloss`, damit ein laufender Refresh/Umbenennen/
+    # Erweitern die Loeschung nicht mit einer alten Kopie zurueckdrehen kann.
+    from models.match import ManagedAlbum
+
     store = ConfigStore(str(tmp_path / "accounts.json"))
     account = store.add_account(
         AccountCreate(name="A", immich_url="http://192.168.1.2", api_key="secret")
     )
-    assert store.delete_account(account.id)
-    assert store.list_accounts() == []
+    bleibt = store.add_account(
+        AccountCreate(name="B", immich_url="http://192.168.1.3", api_key="secret-b")
+    )
+    album = ManagedAlbum(
+        id="album-lokale-referenzen", match_id="m-lokale-referenzen",
+        album_id="immich-lokale-referenzen", album_name="Testalbum",
+        group_id="gruppe-lokale-referenzen", owner_account_id=bleibt.id,
+        person_refs=[
+            {"account_id": account.id, "person_id": f"person-{account.id}",
+             "person_name": "Person A", "account_name": account.name,
+             "account_color": account.color},
+            {"account_id": bleibt.id, "person_id": f"person-{bleibt.id}",
+             "person_name": "Person B", "account_name": bleibt.name,
+             "account_color": bleibt.color},
+        ],
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    store.add_managed_album(album)
+
+    assert await store.delete_account(account.id)
+    assert store.list_accounts() == [bleibt]
+
+    verbliebenes_album = store.get_managed_album("album-lokale-referenzen")
+    assert verbliebenes_album is not None
+    assert [r["account_id"] for r in verbliebenes_album.person_refs] == [bleibt.id], (
+        "die lokale Referenz auf das geloeschte Konto ist nicht verschwunden")
+
+
+def test_update_managed_album_wirft_bei_unbekannter_kennung(tmp_path):
+    """#103 Punkt 1: still nichts tun ist keine Zusicherung. Vorher kehrte
+    `update_managed_album` fuer eine Kennung, die es nicht (mehr) gibt,
+    erfolgreich zurueck, OHNE etwas zu speichern — der Aufrufer erfuhr nie
+    davon. Jetzt wirft es, weil jeder heutige Aufrufer den Datensatz unter
+    demselben Albumschloss frisch gelesen hat (siehe Docstring dort)."""
+    from models.match import ManagedAlbum
+
+    store = ConfigStore(str(tmp_path / "accounts.json"))
+    phantom = ManagedAlbum(
+        id="steht-nicht-im-bestand", match_id="m", album_id="ia",
+        album_name="Phantom", group_id="g", owner_account_id="konto-1",
+        person_refs=[], created_at="2026-01-01T00:00:00+00:00",
+    )
+    with pytest.raises(LookupError):
+        store.update_managed_album(phantom)
 
 
 # ----------------------------------------------------------------------
@@ -888,6 +947,104 @@ def test_resolve_group_id_lehnt_widerspruechliche_angaben_ab(tmp_path):
     assert leer.value.key == "err_group_choice_conflict"
 
 
+# ----------------------------------------------------------------------
+# #113: Vorschau bei Mehrdeutigkeit + Ablehnung ohne ausdrueckliche Wahl
+# ----------------------------------------------------------------------
+
+
+def test_group_candidates_for_name_liefert_alle_kandidaten_bei_mehrdeutigkeit(tmp_path):
+    """Anders als `existing_group_for_name`: hier bleibt die MENGE sichtbar."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    assert store.group_candidates_for_name("Doppelt") == {"gruppe-1", "gruppe-2"}
+    assert store.group_candidates_for_name("Kennt keiner") == set()
+    assert store.group_candidates_for_name("  ") == set()
+
+
+def test_group_candidates_for_name_eindeutig_ist_dieselbe_menge_wie_existing_group_for_name(
+    tmp_path,
+):
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    assert store.group_candidates_for_name("Testalbum") == {"gruppe-1"}
+    assert store.existing_group_for_name("Testalbum") == "gruppe-1"
+
+
+def test_resolve_group_id_lehnt_mehrdeutigen_namen_ohne_wahl_ab(tmp_path):
+    """DIE Kernaenderung von #113 — vorher gab `resolve_group_id` hier still
+    eine DRITTE Kennung zurueck (`group_id_for_name` -> `existing_group_for_
+    name` sieht "mehrdeutig" nicht anders als "unbekannt")."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as fehler:
+        store.resolve_group_id("Doppelt")
+    assert fehler.value.key == "err_group_choice_required"
+    # Und die alte Methode raet weiterhin (sie ist bewusst NICHT die Regel
+    # von `resolve_group_id`, siehe ihr eigener Docstring) — der Vergleich
+    # zeigt, dass die beiden jetzt wirklich verschiedene Antworten geben.
+    assert store.group_id_for_name("Doppelt") not in {"gruppe-1", "gruppe-2"}
+
+
+def test_resolve_group_id_expected_none_lehnt_ab_wenn_die_gruppe_jetzt_existiert(tmp_path):
+    """#119: Der Aufrufer erwartete "keine Gruppe" — jetzt gibt es eine."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as fehler:
+        store.resolve_group_id("Testalbum", expected_none=True)
+    assert fehler.value.key == "err_group_situation_changed"
+
+
+def test_resolve_group_id_expected_none_stoert_den_unveraenderten_fall_nicht(tmp_path):
+    """Gegenprobe: Bleibt die Lage "keine Gruppe", stoert das Flag nichts."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    neu = store.resolve_group_id("Ganz neuer Name", expected_none=True)
+
+    assert neu and neu != "gruppe-1"
+
+
+def test_resolve_group_id_expected_none_aendert_die_mehrdeutigkeits_ablehnung_nicht(tmp_path):
+    """Mehrdeutig wird IMMER abgelehnt — unabhaengig von `expected_none`
+    (siehe Docstring von `resolve_group_id`: das Flag ist nur fuer den
+    Uebergang leer -> eindeutig zustaendig, nicht fuer Mehrdeutigkeit)."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [
+        _album("a1", "Doppelt", ["p1"], group_id="gruppe-1"),
+        _album("a2", "Doppelt", ["p2"], group_id="gruppe-2"),
+    ])
+    store = ConfigStore(str(path))
+
+    from errors import AppError
+
+    with pytest.raises(AppError) as ohne:
+        store.resolve_group_id("Doppelt", expected_none=False)
+    assert ohne.value.key == "err_group_choice_required"
+
+    with pytest.raises(AppError) as mit:
+        store.resolve_group_id("Doppelt", expected_none=True)
+    assert mit.value.key == "err_group_choice_required"
+
+
 def test_group_details_zeigt_wem_man_beitritt(tmp_path):
     """Die Vorschau muss die Personen der GANZEN Gruppe fuehren, entdoppelt.
 
@@ -922,13 +1079,77 @@ def test_group_details_haelt_gleiche_personen_aus_zwei_konten_auseinander(tmp_pa
     zwei = _album("a2", "Testalbum", ["p1"], group_id="gruppe-1")
     zwei["person_refs"][0]["account_id"] = "konto-2"
     zwei["person_refs"][0]["account_name"] = "Konto Zwei"
-    _write_albums(path, [eins, zwei])
+    # `konto-2` MUSS im Bestand stehen (Nacharbeit 2, #117/#121/#103):
+    # `ConfigStore._migrate` raeumt seit dieser Nacharbeit beim Start
+    # Referenzen auf Konten, die es nicht (mehr) gibt — `LEGACY_ACCOUNTS`
+    # (ueber `_write_albums`) kennt nur `acc-1`/`acc-2`, nicht das hier
+    # zusaetzlich gebrauchte `konto-2`.
+    konten = dict(LEGACY_ACCOUNTS)
+    konten["konto-2"] = {
+        "id": "konto-2", "name": "Konto Zwei",
+        "immich_url": "http://konto2.invalid", "api_key": "platzhalter",
+        "color": "#222222",
+    }
+    path.write_text(
+        json.dumps({"accounts": konten, "managed_albums": [eins, zwei]}, indent=2),
+        encoding="utf-8",
+    )
     store = ConfigStore(str(path))
 
     details = store.group_details("gruppe-1")
 
     assert len(details["person_refs"]) == 2
     assert {r["account_id"] for r in details["person_refs"]} == {"acc-1", "konto-2"}
+
+
+def test_group_details_traegt_die_markierungen_aus_124_b9(tmp_path):
+    """#124 B9: `owner_account_missing`/`too_few_people` fehlten in der
+    Vorschau — wer beitritt, soll VORHER sehen, dass ein Mitglied verwaist
+    ist, nicht erst danach am einzelnen Album."""
+    path = tmp_path / "accounts.json"
+    _write_albums(path, [_album("a1", "Testalbum", ["p1", "p2"], group_id="gruppe-1")])
+    store = ConfigStore(str(path))
+
+    unversehrt = store.group_details("gruppe-1")
+    assert unversehrt["owner_account_missing"] is False
+    assert unversehrt["too_few_people"] is False  # zwei Personen
+
+    # Das Besitzerkonto ("acc-1") verschwindet aus dem LEBENDEN Bestand.
+    store._data["accounts"].pop("acc-1")
+
+    verwaist = store.group_details("gruppe-1")
+    assert verwaist["owner_account_missing"] is True
+    assert verwaist["too_few_people"] is False  # die Personenzahl aendert sich dadurch NICHT
+
+
+def test_group_details_too_few_people_zaehlt_die_entdoppelte_menge(tmp_path):
+    """Eine Person genuegt nicht — und zwei Alben mit DERSELBEN Person auch
+    nicht (`too_few_people` zaehlt die entdoppelte Gruppenmenge, nicht die
+    Zahl der Alben)."""
+    path = tmp_path / "accounts.json"
+    eins = _album("a1", "Testalbum", ["p1"], group_id="gruppe-1")
+    zwei = _album("a2", "Anders", ["p1"], group_id="gruppe-1")  # dieselbe Person
+    _write_albums(path, [eins, zwei])
+    store = ConfigStore(str(path))
+
+    assert store.group_details("gruppe-1")["too_few_people"] is True
+
+
+def test_group_details_owner_account_missing_ist_wahr_wenn_irgendein_album_verwaist_ist(
+    tmp_path,
+):
+    """Eine Gruppe mit MEHREREN Alben und verschiedenen Besitzern: schon EIN
+    verwaistes Album macht die ganze Gruppe als "hat ein verwaistes
+    Mitglied" sichtbar."""
+    path = tmp_path / "accounts.json"
+    eins = _album("a1", "Testalbum", ["p1"], group_id="gruppe-1")
+    zwei = _album("a2", "Testalbum", ["p2"], group_id="gruppe-1")
+    zwei["owner_account_id"] = "acc-2"
+    _write_albums(path, [eins, zwei])
+    store = ConfigStore(str(path))
+    store._data["accounts"].pop("acc-1")  # nur EIN Besitzer verschwindet
+
+    assert store.group_details("gruppe-1")["owner_account_missing"] is True
 
 
 # ----------------------------------------------------------------------
@@ -1319,7 +1540,15 @@ def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_pat
     """Isolierter Schemasprung (die Alben tragen bereits eine Kennung, nur
     die Schemaversion fehlt) — die Erfolgsmeldung ist ZEICHENGENAU 'Rueckweg
     vor Schemasprung auf Version <N>: <Zielpfad>', auf INFO-Niveau, und es
-    gibt ueberhaupt keine Zeile >= WARNING von diesem Logger."""
+    gibt ueberhaupt keine Zeile >= WARNING von diesem Logger.
+
+    NACHTRAG #120 (Nachlese #105): Nacharbeit 2 hatte die Pruefung aus
+    Nacharbeit 1 verloren, dass KEINE Zeile das Stichwort der GEGENSEITE
+    traegt — eine zusaetzliche `logger.info("Rueckweg vor Kennungsvergabe:
+    %s", <anderer Pfad>)` blieb dadurch unbemerkt gruen, weil `treffer` nur
+    nach dem SCHEMA-Pfad filtert und die Gegenseite einen anderen Pfad
+    nennt. Die Probe unten schliesst das jetzt aus.
+    """
     path = tmp_path / "accounts.json"
     _write_legacy_config(path)
     stand = json.loads(path.read_text(encoding="utf-8"))
@@ -1334,6 +1563,13 @@ def test_schemasprung_erfolg_nennt_die_version_nicht_die_kennungsvergabe(tmp_pat
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
     assert not any(r.levelno >= logging.WARNING for r in eigene), \
         [(r.levelname, r.getMessage()) for r in eigene]
+    assert not any("Kennungsvergabe" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite im isolierten Schemasprung-Erfolg"
+    # ALLE "Rueckweg vor"-Zeilen zaehlen, nicht nur die mit dem erwarteten
+    # Pfad -- eine zusaetzliche Zeile mit demselben Stichwort, aber einem
+    # FALSCHEN Pfad (z. B. `self._path` statt `ziel`), blieb sonst unbemerkt.
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(erwarteter_pfad) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1346,7 +1582,11 @@ def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung
     """Isolierte Kennungsvergabe (Schemaversion ist bereits aktuell, ein Album
     hat noch keine Kennung) — die Erfolgsmeldung ist ZEICHENGENAU 'Rueckweg
     vor Kennungsvergabe: <Zielpfad>', auf INFO-Niveau, und es gibt ueberhaupt
-    keine Zeile >= WARNING von diesem Logger."""
+    keine Zeile >= WARNING von diesem Logger.
+
+    NACHTRAG #120 (Nachlese #105, Spiegelbild der Schemasprung-Probe
+    darueber): keine Zeile darf das Stichwort der GEGENSEITE tragen.
+    """
     path = tmp_path / "accounts.json"
     ohne_kennung = _album("a1", "Testalbum", ["p1"])
     path.write_text(json.dumps({
@@ -1363,6 +1603,12 @@ def test_kennungsvergabe_erfolg_nennt_die_kennungsvergabe_nicht_den_schemasprung
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
     assert not any(r.levelno >= logging.WARNING for r in eigene), \
         [(r.levelname, r.getMessage()) for r in eigene]
+    assert not any("Schemasprung" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite in der isolierten Kennungsvergabe-Erfolg"
+    # Spiegelbild der Schemasprung-Erfolg-Probe: ALLE "Rueckweg vor"-Zeilen
+    # zaehlen, nicht nur die mit dem erwarteten Pfad.
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(erwarteter_pfad) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1387,12 +1633,37 @@ def test_schemasprung_scheitern_nennt_die_version_nicht_die_kennungsvergabe(tmp_
 
     ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
     ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
+    # Enge Rechte auf dem TEST-Geschwister, NICHT auf `path` oder `tmp_path`:
+    # das faengt scheitert an TYP (Verzeichnis), nicht an Rechten -- ein enges
+    # `ziel` aendert diesen Fall nicht. Ohne diese Zeile loest `ziel` unter
+    # echten POSIX-Rechten (Standardmodus eines `mkdir()`, meist 0o755) seit
+    # S7 zusaetzlich die UNABHAENGIGE, korrekte Geschwister-Rechte-Warnung aus
+    # (`_warne_bei_offenen_rechten`) -- diese Probe zaehlt ausschliesslich
+    # Rueckweg-Zeilen und war darauf nie angelegt (S8, vor S7 gebaut).
+    os.chmod(ziel, 0o700)
     erwartet = f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {ziel}"
 
     with caplog.at_level("INFO"):
         ConfigStore(str(path))  # darf nicht werfen
 
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    assert not any("Kennungsvergabe" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite im isolierten Schemasprung-Scheitern"
+    # NACHTRAG #120: ALLE "Rueckweg vor"-Zeilen zaehlen, nicht nur die mit dem
+    # erwarteten (Schema-)Pfad -- eine zusaetzliche Kennungsvergabe-Fehlzeile
+    # mit ihrem EIGENEN (anderen) Pfad blieb sonst unbemerkt, weil sie nicht
+    # auf `str(ziel)` passt (Nacharbeit 1 hatte das geschlossen, Nacharbeit 2
+    # hat es wieder verloren).
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
+    # Auch ALLE WARNUNGEN zaehlen (nicht nur "Rueckweg vor"-Zeilen), damit eine
+    # zusaetzliche WARNUNG ganz OHNE Pfad (M07 im Issue) ebenfalls auffaellt --
+    # ausser der unabhaengigen "Unbrauchbarer Rueckweg wird ersetzt"-Warnung,
+    # die ihr eigener Test deckt (siehe Modul-Kommentar oben).
+    warnungen = [r for r in eigene
+                 if r.levelno >= logging.WARNING
+                 and not r.getMessage().startswith("Unbrauchbarer Rueckweg wird ersetzt")]
+    assert len(warnungen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(ziel) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1418,6 +1689,11 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
 
     ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
     ziel.mkdir()
+    # Siehe Begruendung bei der Schemasprung-Scheitern-Probe oben: enge Rechte
+    # auf dem TEST-Geschwister isolieren gegen die unabhaengige, korrekte
+    # Geschwister-Rechte-Warnung (seit S7), ohne den Scheitern-Fall zu aendern
+    # (der scheitert am TYP Verzeichnis, nicht an dessen Rechten).
+    os.chmod(ziel, 0o700)
     erwartet = f"Rueckweg vor Kennungsvergabe nicht moeglich: {ziel}"
 
     with caplog.at_level("INFO"):
@@ -1425,6 +1701,19 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
 
     assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
     eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    assert not any("Schemasprung" in r.getMessage() for r in eigene), \
+        "kein Stichwort der Gegenseite im isolierten Kennungsvergabe-Scheitern"
+    # NACHTRAG #120, Spiegelbild der Schemasprung-Scheitern-Probe darueber.
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert len(rueckweg_zeilen) == 1, [r.getMessage() for r in eigene]
+    # Auch ALLE WARNUNGEN zaehlen (nicht nur "Rueckweg vor"-Zeilen), damit eine
+    # zusaetzliche WARNUNG ganz OHNE Pfad (M07 im Issue) ebenfalls auffaellt --
+    # ausser der unabhaengigen "Unbrauchbarer Rueckweg wird ersetzt"-Warnung,
+    # die ihr eigener Test deckt (siehe Modul-Kommentar oben).
+    warnungen = [r for r in eigene
+                 if r.levelno >= logging.WARNING
+                 and not r.getMessage().startswith("Unbrauchbarer Rueckweg wird ersetzt")]
+    assert len(warnungen) == 1, [r.getMessage() for r in eigene]
     treffer = [r for r in eigene
                if str(ziel) in r.getMessage()
                and ("Schemasprung" in r.getMessage() or "Kennungsvergabe" in r.getMessage())]
@@ -1433,13 +1722,267 @@ def test_kennungsvergabe_scheitern_nennt_die_kennungsvergabe_nicht_den_schemaspr
     assert treffer[0].getMessage() == erwartet, treffer[0].getMessage()
 
 
+def test_mischfall_schemasprung_und_kennungsvergabe_bekommen_beide_rueckwege(tmp_path, caplog):
+    """Der Mischfall war durch keinen Test gesichert (#120, Klein 2): Ein
+    Altbestand ohne `schema_version` UND mit einem Album ohne `group_id`
+    loest laut Docstring von `_sichere_vor_schemasprung` BEIDE Zweige in
+    einem einzigen Lauf aus — `if kennungen_fehlen and not sprung:` (oder
+    eine sonstige Verknuepfung, die beide Zweige gegenseitig ausschliesst)
+    blieb dabei ungeprueft gruen. `_write_legacy_config` traegt schon beide
+    Ausloeser (kein `schema_version`-Schluessel, `album-1` ohne
+    `group_id`); diese Probe verlangt BEIDE Rueckweg-Dateien mit dem Stand
+    VOR der Migration UND BEIDE Protokollzeilen nebeneinander.
+
+    NACHTRAG (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 3): Die vorige
+    Fassung sammelte die Protokollzeilen in einem SET und verglich nur die
+    MENGE der Nachrichten — drei Luecken blieben so unbemerkt gruen
+    (Sonde S8): eine verdoppelte Zeile (D1/D7, ein SET zeigt ein Duplikat
+    nicht), eine Erfolgszeile auf WARNING statt INFO (D4, ein SET traegt
+    keine Stufe) und eine zusaetzliche, unabhaengige WARNUNG (D5, sie
+    beginnt nicht mit "Rueckweg vor" und fiel deshalb durch den Filter).
+    Diese Probe verlangt jetzt eine LISTE in fester Reihenfolge (Anzahl UND
+    Wertfolge), prueft die Stufe jeder Zeile einzeln und verlangt zusaetzlich,
+    dass keine WARNUNG im Mischfall-Erfolg auftritt."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    original = path.read_text(encoding="utf-8")
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wurde vergeben"
+    assert schema_ziel.read_text(encoding="utf-8") == original
+    assert kennung_ziel.read_text(encoding="utf-8") == original
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    rueckweg_zeilen = [r for r in eigene if r.getMessage().startswith("Rueckweg vor")]
+    assert [r.getMessage() for r in rueckweg_zeilen] == [
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION}: {schema_ziel}",
+        f"Rueckweg vor Kennungsvergabe: {kennung_ziel}",
+    ], [r.getMessage() for r in eigene]
+    assert [r.levelname for r in rueckweg_zeilen] == ["INFO", "INFO"], \
+        [(r.levelname, r.getMessage()) for r in rueckweg_zeilen]
+    # Genau diese zwei INFO-Zeilen -- keine zusaetzliche WARNUNG (D5) und
+    # keine dritte, unerwartete Zeile (bereits durch die Listengleichheit
+    # oben ausgeschlossen, hier zusaetzlich ueber ALLE Stufen bewacht).
+    warnungen = [r for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [], [r.getMessage() for r in warnungen]
+
+
+def test_mischfall_beide_rueckwege_scheitern_melden_beide_warnungen(tmp_path, caplog):
+    """#120, KLEIN (Nacharbeit 1 zu #114/#116/#111/#120): `BACKUP_RESTORE.md`
+    ~68-72 sagt es bereits — im Mischfall (Schemasprung UND Kennungsvergabe
+    im selben Lauf) meldet auch ein DOPPELTES Scheitern beide Warnungen
+    nebeneinander, keine unterdrueckt die andere. Gemessen (Sonde S8, D8):
+    Ein Umbau, der die Kennungsvergabe-Scheitern-Warnung an einen zu diesem
+    Zeitpunkt noch nicht gesetzten Schema-Stand knuepft (`if
+    self._data.get("schema_version") == self.SCHEMA_VERSION:` davor), blieb
+    hier unbemerkt gruen und haette die zweite Warnung im Mischfall stumm
+    verschluckt — die bestehenden isolierten Scheitern-Proben treffen diesen
+    Zweig nicht, weil bei ihnen nur EIN Ziel je Lauf ein Verzeichnis ist."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+    schema_ziel.mkdir()  # os.replace(temp, ziel) scheitert daran zuverlaessig, auch unter Windows
+    kennung_ziel.mkdir()
+    # Siehe Begruendung bei den isolierten Scheitern-Proben oben: enge Rechte
+    # auf BEIDEN TEST-Geschwistern isolieren gegen die unabhaengige, korrekte
+    # Geschwister-Rechte-Warnung (seit S7) -- hier besonders wichtig, weil
+    # sonst ZWEI zusaetzliche Warnungen die exakte Zweier-Menge unten sprengen
+    # wuerden, ohne dass eine echte dritte/vierte Rueckweg-Meldung vorliegt.
+    os.chmod(schema_ziel, 0o700)
+    os.chmod(kennung_ziel, 0o700)
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    # "Unbrauchbarer Rueckweg wird ersetzt" ist die unabhaengige Warnung dafuer,
+    # dass am Ziel schon ein VERZEICHNIS liegt (hier zweimal ausgeloest, weil
+    # BEIDE Ziele als Verzeichnis angelegt sind) -- ihr eigener Test deckt sie
+    # (Modul-Kommentar oben), hier zaehlt sie nicht mit.
+    warnungen = [r for r in eigene
+                 if r.levelno >= logging.WARNING
+                 and not r.getMessage().startswith("Unbrauchbarer Rueckweg wird ersetzt")]
+    assert {r.getMessage() for r in warnungen} == {
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {schema_ziel}",
+        f"Rueckweg vor Kennungsvergabe nicht moeglich: {kennung_ziel}",
+    }, [r.getMessage() for r in eigene]
+    assert len(warnungen) == 2, [r.getMessage() for r in eigene]
+
+
+def test_mischfall_kennungsvergabe_scheitert_trotz_erfolgreichem_schemasprung_meldet_warnung(
+    tmp_path, monkeypatch, caplog
+):
+    """S8 Nacharbeit 2, WICHTIG (D14): Scheitert im Mischfall NUR der
+    Kennungsvergabe-Rueckweg, waehrend der Schemasprung-Rueckweg im selben
+    Lauf gelingt, darf das den Scheitern-Hinweis nicht verschlucken. Anders
+    als `test_mischfall_beide_rueckwege_scheitern_melden_beide_warnungen`
+    oben (BEIDE Ziele scheitern) faengt EIN gescheitertes Ziel neben einem
+    gelungenen eine andere Mutationsklasse: Gemessen (Sonde S8, D14), ein
+    Umbau, der sich nach einem gelungenen Schemasprung-Rueckweg ein Flag
+    merkt (`self._schema_rueckweg_ok = True`) und die
+    Kennungsvergabe-Warnung dann daran knuepft (`elif not getattr(self,
+    "_schema_rueckweg_ok", False):`), blieb hier unbemerkt gruen. Ein echter
+    `OSError` (Monkeypatch auf `tempfile.mkstemp`, gefiltert auf den
+    Kennungsvergabe-Praefix) statt einer Attrappe, damit nur DIESES eine
+    Ziel scheitert."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)  # kein schema_version, album-1 ohne group_id -> Mischfall
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert_nur_bei_kennungsvergabe(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-kennungsvergabe"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert_nur_bei_kennungsvergabe)
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    assert schema_ziel.exists(), "der Schemasprung-Rueckweg gelang wirklich"
+    assert not kennung_ziel.exists(), "der Kennungsvergabe-Rueckweg scheiterte wirklich"
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    warnungen = [r.getMessage() for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [
+        f"Rueckweg vor Kennungsvergabe nicht moeglich: {kennung_ziel}"
+    ], warnungen
+    infos = [r.getMessage() for r in eigene
+             if r.levelno == logging.INFO and r.getMessage().startswith("Rueckweg vor")]
+    assert infos == [
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION}: {schema_ziel}"
+    ], infos
+
+
+def test_kennungsvergabe_scheitert_trotz_vorhandenem_brauchbarem_schema_rueckweg_meldet_warnung(
+    tmp_path, monkeypatch, caplog
+):
+    """S8 Nacharbeit 2, WICHTIG (D14b, genau der #120-Fall): Liegt schon ein
+    brauchbarer `vor-schema-*.bak` am Ziel — aus einem FRUEHEREN Lauf, KEIN
+    Schemasprung in DIESEM Lauf —, darf das eine unabhaengig scheiternde
+    Kennungsvergabe-Sicherung nicht verschweigen. Gemessen (Sonde S8, D14b):
+    ein Umbau, der die Warnung an `not self._rueckweg_brauchbar(<vor-schema-
+    Pfad>)` knuepft, blieb hier unbemerkt gruen — ein Altbestand traegt
+    zufaellig einen brauchbaren Rueckweg aus einer VORHERIGEN Migration, mit
+    dem die aktuelle Kennungsvergabe nichts zu tun hat. `schema_version`
+    steht hier schon auf dem aktuellen Stand (kein Sprung in diesem Lauf,
+    `_sichere_vor_schemasprung(einmalig=True)` wird also gar nicht erst
+    aufgerufen), nur ein Album ohne `group_id` loest die Kennungsvergabe
+    aus."""
+    path = tmp_path / "accounts.json"
+    ohne_kennung = _album("a1", "Testalbum", ["p1"])
+    path.write_text(json.dumps({
+        "schema_version": ConfigStore.SCHEMA_VERSION,  # KEIN Sprung in diesem Lauf
+        "accounts": LEGACY_ACCOUNTS,
+        "managed_albums": [ohne_kennung],
+    }, indent=2), encoding="utf-8")
+
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    schema_ziel.write_text(
+        json.dumps({"accounts": LEGACY_ACCOUNTS}), encoding="utf-8"
+    )  # brauchbarer Alt-Rueckweg aus einer frueheren Migration
+    # 0600, wie die echte `_sichere_vor_schemasprung` ihn auch selbst setzen
+    # wuerde (siehe dort) -- nicht nur ein Test-Kunstgriff, sondern der
+    # realistische Modus fuer eine Datei mit Immich-API-Schluesseln. Isoliert
+    # zugleich gegen die unabhaengige, korrekte Geschwister-Rechte-Warnung
+    # (seit S7): der Standardmodus von `write_text()` (meist 0o644) waere
+    # gruppen-/weltlesbar und loeste sie zusaetzlich aus. Bleibt fuer den
+    # eigenen Prozess weiterhin lesbar (`_rueckweg_brauchbar` liest sie).
+    os.chmod(schema_ziel, 0o600)
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert_bei_kennungsvergabe(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-kennungsvergabe"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert_bei_kennungsvergabe)
+
+    with caplog.at_level("WARNING"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    assert not kennung_ziel.exists(), "der Kennungsvergabe-Rueckweg scheiterte wirklich"
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    warnungen = [r.getMessage() for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [
+        f"Rueckweg vor Kennungsvergabe nicht moeglich: {kennung_ziel}"
+    ], warnungen
+
+
+def test_mischfall_schemasprung_scheitert_kennungsvergabe_gelingt_meldet_erfolg(
+    tmp_path, monkeypatch, caplog
+):
+    """S8 Nacharbeit 2, WICHTIG (D13, Spiegelbild zu D14): Scheitert im
+    Mischfall NUR der Schemasprung-Rueckweg, waehrend die Kennungsvergabe im
+    selben Lauf gelingt, muss deren Erfolgszeile trotzdem stehen. Gemessen
+    (Sonde S8, D13): ein Umbau, der sich das gescheiterte
+    Schemasprung-Rueckweg als Flag merkt (`self._schema_rueckweg_gescheitert
+    = True`) und die Kennungsvergabe-Erfolgszeile dann daran knuepft (`if
+    not getattr(self, "_schema_rueckweg_gescheitert", False):
+    logger.info(...)`), blieb hier unbemerkt gruen. Echter `OSError`
+    (Monkeypatch auf `tempfile.mkstemp`, gefiltert auf den
+    Schemasprung-Praefix) statt einer Attrappe, damit nur DIESES eine Ziel
+    scheitert."""
+    path = tmp_path / "accounts.json"
+    _write_legacy_config(path)
+    schema_ziel = path.parent / f"{path.name}.vor-schema-{ConfigStore.SCHEMA_VERSION}.bak"
+    kennung_ziel = path.parent / f"{path.name}.vor-kennungsvergabe.bak"
+
+    echtes_mkstemp = tempfile.mkstemp
+
+    def scheitert_nur_beim_schemasprung(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".accounts.json.vor-schema"):
+            raise OSError(28, "kein Platz")
+        return echtes_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", scheitert_nur_beim_schemasprung)
+
+    with caplog.at_level("INFO"):
+        store = ConfigStore(str(path))  # darf nicht werfen
+
+    assert store.get_managed_albums()[0].group_id, "die Kennung wird trotzdem vergeben"
+    assert not schema_ziel.exists(), "der Schemasprung-Rueckweg scheiterte wirklich"
+    assert kennung_ziel.exists(), "der Kennungsvergabe-Rueckweg gelang wirklich"
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    warnungen = [r.getMessage() for r in eigene if r.levelno >= logging.WARNING]
+    assert warnungen == [
+        f"Rueckweg vor Schemasprung auf Version {ConfigStore.SCHEMA_VERSION} nicht moeglich: {schema_ziel}"
+    ], warnungen
+    infos = [r.getMessage() for r in eigene
+             if r.levelno == logging.INFO and r.getMessage().startswith("Rueckweg vor")]
+    assert infos == [
+        f"Rueckweg vor Kennungsvergabe: {kennung_ziel}"
+    ], infos
+
+
 def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
     """Die Fehlermeldung in `_load` nannte nur `vor-schema-*.bak` und
     verschwieg `vor-kennungsvergabe.bak` — beide Saetze waren einzeln
     entfernbar, ohne dass die volle Suite es bemerkte (Blindpruefer,
     Nacharbeit 2 zu #105). `test_fehlermeldung_nennt_den_versionierten_
     rueckweg` deckt nur den ersten Satz; dieser Test verlangt beide
-    Dateinamen."""
+    Dateinamen.
+
+    NACHTRAG #120: Der bisherige Teilstring `vor-kennungsvergabe.bak` passt
+    auch auf einen falschen Pfad (z. B. ein hartkodiertes Verzeichnis statt
+    `self._path`). Verlangt wird deshalb der VOLLE erwartete Pfad.
+    """
     path = tmp_path / "accounts.json"
     path.write_text("{kaputt", encoding="utf-8")
 
@@ -1447,4 +1990,187 @@ def test_fehlermeldung_nennt_auch_den_kennungsvergabe_rueckweg(tmp_path):
         ConfigStore(str(path))
 
     assert "vor-schema-" in str(fehler.value)
-    assert "vor-kennungsvergabe.bak" in str(fehler.value)
+    assert f"{path}.vor-kennungsvergabe.bak" in str(fehler.value)
+
+
+# ---------------------------------------------------------------------------
+# #124 B10: liegengebliebene `_save`-Temp-Dateien werden beim Start entfernt.
+# ---------------------------------------------------------------------------
+
+def test_verwaiste_save_temp_datei_wird_beim_start_entfernt(tmp_path, caplog):
+    """Stirbt der Prozess hart zwischen `mkstemp` und `os.replace`, bleibt
+    eine Temp-Datei mit vollem Inhalt (API-Schluessel) liegen. Seit
+    Nacharbeit 1 (#124 B10) traegt sie die unverwechselbare Kennung
+    `_TEMP_KENNUNG`; NUR eine ALTE (mehr als `_TEMP_MINDESTALTER_SEKUNDEN`
+    zurueckliegende) Datei mit dieser Kennung wird entfernt — eine ganz
+    frische bleibt liegen, siehe `test_start_betrieb.py` fuer diesen Fall
+    und fuer die Nacharbeit selbst (neue Kennung, altes Muster wird nur noch
+    gewarnt statt geloescht)."""
+    path = tmp_path / "accounts.json"
+    leiche = tmp_path / ".accounts.json.speichern-tmp-a1B2c3D4"
+    leiche.write_text('{"accounts": {"x": {"api_key": "schluessel-leiche"}}}', encoding="utf-8")
+    alt = time.time() - 3600
+    os.utime(leiche, (alt, alt))
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))  # darf nicht werfen
+
+    assert not leiche.exists(), "die Temp-Datei-Leiche wurde nicht entfernt"
+    treffer = [r for r in caplog.records if str(leiche) in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in caplog.records]
+    assert treffer[0].levelname == "WARNING"
+
+
+def test_fremde_datei_aehnlichen_namens_bleibt_liegen(tmp_path):
+    """Nur EXAKT das eigene Muster wird entfernt — eine Handkopie mit
+    aehnlichem Namen (falsche Laenge) und die Temp-Datei eines Rueckwegs
+    (ein weiterer Punkt im Rest, eigenes `finally`) bleiben unangetastet."""
+    path = tmp_path / "accounts.json"
+    handkopie = tmp_path / ".accounts.json.alt"
+    handkopie.write_text("nicht anfassen", encoding="utf-8")
+    rueckweg_temp = tmp_path / ".accounts.json.vor-schema-3.bak.a1B2c3D4"
+    rueckweg_temp.write_text("nicht anfassen", encoding="utf-8")
+    zu_kurz = tmp_path / ".accounts.json.abc"
+    zu_kurz.write_text("nicht anfassen", encoding="utf-8")
+
+    ConfigStore(str(path))
+
+    assert handkopie.exists(), "eine fremde Handkopie wurde geloescht"
+    assert rueckweg_temp.exists(), "die Temp-Datei eines Rueckwegs wurde geloescht"
+    assert zu_kurz.exists(), "eine zu kurze Zeichenkette wurde faelschlich als eigenes Muster erkannt"
+
+
+def test_keine_temp_leiche_bleibt_der_start_stumm(tmp_path, caplog):
+    """Gegenprobe: ohne liegengebliebene Temp-Datei keine Meldung dazu."""
+    path = tmp_path / "accounts.json"
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+    assert not any("Temp-Datei" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #106: Warnung, wenn eine Geschwisterdatei der Konfiguration (oder ihr
+# Verzeichnis) fuer Gruppe oder Welt lesbar ist.
+# ---------------------------------------------------------------------------
+
+def test_rechte_warnung_uebersprungen_ohne_posix(tmp_path, monkeypatch, caplog):
+    """Auf Systemen ohne verlaessliche POSIX-Rechte wird geschwiegen — aber
+    SICHTBAR, mit Begruendung, nicht stumm gruen. `_verlaessliche_posix_
+    rechte()` wird gezielt gefaelscht (NICHT `os.name` selbst — das bricht
+    unter Linux jede weitere `pathlib.Path`-Instanziierung im selben Test,
+    siehe deren Docstring), damit dieser Test unabhaengig vom tatsaechlichen
+    Betriebssystem (hier: Windows) immer denselben Zweig prueft."""
+    monkeypatch.setattr(config_store_module, "_verlaessliche_posix_rechte", lambda: False)
+    path = tmp_path / "accounts.json"
+
+    with caplog.at_level("INFO"):
+        ConfigStore(str(path))  # darf nicht werfen
+
+    treffer = [r for r in caplog.records
+               if "uebersprungen" in r.getMessage() and "POSIX" in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in caplog.records]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar (st_mode liefert "
+           "immer 0o666, siehe test_sicherung_bekommt_enge_rechte) — auf "
+           "diesem System uebersprungen, nicht stumm gruen: CI faehrt den "
+           "Backend-Job auf ubuntu-latest und deckt diesen Fall ab.",
+)
+def test_rechte_warnung_bei_zu_weit_lesbarer_geschwisterdatei(tmp_path, caplog):
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(tmp_path, 0o700)
+    handkopie = tmp_path / "accounts.json.pre-v1.2.0"
+    handkopie.write_text('{"accounts": {}}', encoding="utf-8")
+    os.chmod(handkopie, 0o644)
+    # Fremde, ebenfalls zu weit lesbare Datei OHNE Bezug zur Konfiguration —
+    # nur echte Geschwister zaehlen (Mutante "alle Verzeichniseintraege
+    # pruefen" ohne diese Datei ungefangen: sie ueberlebte die volle Suite).
+    fremd = tmp_path / "irgendwas-anderes.txt"
+    fremd.write_text("nichts mit accounts.json zu tun", encoding="utf-8")
+    os.chmod(fremd, 0o644)
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))  # darf nicht werfen — nur warnen
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    treffer = [r for r in eigene if str(handkopie) in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert treffer[0].levelname == "WARNING"
+    assert "0o644" in treffer[0].getMessage()
+    assert not any(str(fremd) in r.getMessage() for r in eigene), \
+        "eine fremde Datei ohne Namensbezug wurde mitgewarnt"
+    # genau eine Warnung insgesamt — die Konfiguration selbst (0600), das
+    # Verzeichnis (0700) und die fremde Datei loesen keine weitere aus.
+    rechte_warnungen = [r for r in eigene if "lesbar" in r.getMessage()]
+    assert len(rechte_warnungen) == 1, [r.getMessage() for r in rechte_warnungen]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar, siehe oben.",
+)
+def test_rechte_warnung_ignoriert_die_konfiguration_selbst(tmp_path, caplog):
+    """`accounts.json` selbst ist bewusst KEIN eigenes Geschwister: `_save()`
+    erzwingt darauf bereits `0600` bei jedem eigenen Schreibvorgang, und das
+    Issue gilt dem, was DANEBEN liegt (siehe Docstring von
+    `_warne_bei_offenen_rechten`). Ein 0644 an der Konfiguration selbst — z.
+    B. von einer Hand-Reparatur, oder weil sie gerade erst kopiert wurde,
+    bevor die App zum ersten Mal speichert — loest deshalb noch KEINE Warnung
+    aus."""
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o644)
+    os.chmod(tmp_path, 0o700)
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    rechte_warnungen = [r for r in eigene if "lesbar" in r.getMessage()]
+    assert not rechte_warnungen, [r.getMessage() for r in rechte_warnungen]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar, siehe oben.",
+)
+def test_rechte_warnung_gegenprobe_alles_eng_bleibt_still(tmp_path, caplog):
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(tmp_path, 0o700)
+    handkopie = tmp_path / "accounts.json.bak"
+    handkopie.write_text('{"accounts": {}}', encoding="utf-8")
+    os.chmod(handkopie, 0o600)
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    rechte_warnungen = [r for r in eigene if "lesbar" in r.getMessage()]
+    assert not rechte_warnungen, [r.getMessage() for r in rechte_warnungen]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-Rechte sind unter Windows nicht messbar, siehe oben.",
+)
+def test_rechte_warnung_bei_offenem_verzeichnis(tmp_path, caplog):
+    """#106 verlangt die Warnung auch, wenn das VERZEICHNIS selbst zu weit
+    lesbar ist — nicht nur seine Dateien."""
+    path = tmp_path / "accounts.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(tmp_path, 0o750)  # Gruppe darf lesen
+
+    with caplog.at_level("WARNING"):
+        ConfigStore(str(path))
+
+    eigene = [r for r in caplog.records if r.name == "services.config_store"]
+    treffer = [r for r in eigene if "Verzeichnis" in r.getMessage() and str(tmp_path) in r.getMessage()]
+    assert len(treffer) == 1, [r.getMessage() for r in eigene]
+    assert "0o750" in treffer[0].getMessage()

@@ -107,6 +107,10 @@ def _namen(client):
     return {a["id"]: a["album_name"] for a in client.get("/api/sync/albums").json()}
 
 
+def _gruppen(client):
+    return {a["id"]: a["group_id"] for a in client.get("/api/sync/albums").json()}
+
+
 def test_beide_alben_einer_gruppe_lassen_sich_umbenennen(mit_bestand):
     """Der normale Weg der Oberfläche — und er hatte keine Backend-Probe.
 
@@ -116,14 +120,40 @@ def test_beide_alben_einer_gruppe_lassen_sich_umbenennen(mit_bestand):
     daran etwas findet, schafft die Funktion ab, die sie schützen soll — eine
     Gruppe mit zwei oder mehr Alben liesse sich nie mehr umbenennen. Genau
     dieser Fall hatte drei Fassungen lang keine Backend-Probe.
+
+    NACHTRAG (#114/#116/#111/#120, Nacharbeit 1, WICHTIG 2): Diese Probe
+    prüfte bisher NUR die Namen — nicht, ob die Gruppe dabei zusammenbleibt
+    (Sonde S8, gemessen): Eine Mutation, die dem ERSTEN umbenannten Album
+    eine frische `group_id` gibt, sobald (noch) kein anderes Album denselben
+    Namen trägt (B4r), und eine zweite, die dem ZURÜCKGEBLIEBENEN Geschwister
+    sofort eine eigene `group_id` gibt, weil es (noch) eine andere
+    Faltungsklasse trägt (B7r), blieben beide unbemerkt grün — mit dem Erfolg
+    `a1==a2: False` und einer Gruppenvorschau, die danach `many` meldet,
+    statt der einen ursprünglichen Gruppe. Diese Probe liest deshalb jetzt
+    `group_id` NACH JEDEM der beiden Umbenennen-Schritte und danach die
+    Gruppenvorschau.
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
     assert c.patch("/api/sync/albums/a1",
                    json={"album_name": "Herbstfest"}).status_code == 200
+    # Nach dem ERSTEN Umbenennen (a1 trägt jetzt "Herbstfest", a2 noch
+    # "Sommerfest" — eine andere Faltungsklasse): das zurückgebliebene
+    # Geschwister bleibt in DERSELBEN Gruppe (deckt B7r).
+    zwischenstand = _gruppen(c)
+    assert zwischenstand == {"a1": "gruppe-1", "a2": "gruppe-1"}, zwischenstand
+
     zweite = c.patch("/api/sync/albums/a2", json={"album_name": "Herbstfest"})
     assert zweite.status_code == 200, zweite.text
     assert _namen(c) == {"a1": "Herbstfest", "a2": "Herbstfest"}
+    # Nach BEIDEN Umbenennen-Schritten tragen beide Alben denselben Namen und
+    # müssen dieselbe Gruppe behalten (deckt B4r); die Vorschau für den neuen
+    # Namen zeigt genau diese eine, ursprüngliche Gruppe, nicht "many".
+    endstand = _gruppen(c)
+    assert endstand == {"a1": "gruppe-1", "a2": "gruppe-1"}, endstand
+    vorschau = c.get("/api/sync/album-group",
+                     params={"album_name": "Herbstfest"}).json()
+    assert vorschau and vorschau["group_id"] == "gruppe-1", vorschau
 
 
 def test_die_wiederholung_nach_einem_teilausfall_kommt_durch(mit_bestand):
@@ -154,23 +184,50 @@ def test_die_eigene_gruppe_darf_eine_zweite_schreibweise_bekommen(mit_bestand):
     Namens abgelehnt); diese Probe hält zusätzlich fest, dass sich an der
     Gruppenzuordnung nichts verschiebt: Vor und nach dem Vorgang zeigt
     „Strassenfest" auf `gruppe-1`, und „Straßenfest" jetzt ebenfalls — beide
-    Schreibweisen bleiben bei
-    derselben Gruppe.
+    Schreibweisen bleiben bei derselben Gruppe.
+
+    NACHTRAG #116 (Nachlese #98, Punkt 2): Die vorige Fassung prüfte dafür
+    nur `_namen` (Status und Namen) — `managed.group_id = "verschoben"` VOR
+    dem Speichern in `_rename_managed_album_unlocked` blieb dabei unbemerkt
+    grün (Blindprüfer, gemessen). Diese Probe liest jetzt `group_id` BEIDER
+    Alben aus `/api/sync/albums` UND die Gruppenvorschau (`/api/sync/
+    album-group`) vor und nach dem Umbenennen und verlangt für beide
+    dieselbe, unveränderte Gruppe.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Sommerfest", "gruppe-1")])
+    vorher_gruppen = _gruppen(c)
+    vorher_vorschau = c.get("/api/sync/album-group",
+                            params={"album_name": "Strassenfest"}).json()
+    assert vorher_vorschau and vorher_vorschau["group_id"] == "gruppe-1", vorher_vorschau
+
     antwort = c.patch("/api/sync/albums/a2", json={"album_name": "Straßenfest"})
     assert antwort.status_code == 200, antwort.text
     assert _namen(c) == {"a1": "Strassenfest", "a2": "Straßenfest"}
+
+    nachher_gruppen = _gruppen(c)
+    assert nachher_gruppen == vorher_gruppen == {"a1": "gruppe-1", "a2": "gruppe-1"}, (
+        vorher_gruppen, nachher_gruppen,
+    )
+    nachher_vorschau_alt = c.get("/api/sync/album-group",
+                                 params={"album_name": "Strassenfest"}).json()
+    nachher_vorschau_neu = c.get("/api/sync/album-group",
+                                 params={"album_name": "Straßenfest"}).json()
+    assert nachher_vorschau_alt and nachher_vorschau_alt["group_id"] == "gruppe-1", \
+        nachher_vorschau_alt
+    assert nachher_vorschau_neu and nachher_vorschau_neu["group_id"] == "gruppe-1", \
+        nachher_vorschau_neu
 
 
 def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand):
     """Der Weg AUS dem Schaden von #78 heraus — drei Fassungen lang gesperrt.
 
-    Zwei Gruppen heissen versehentlich gleich. Die Gruppenvorschau schweigt
-    deshalb für beide: Wer den Namen tippt, bekommt keine Gruppe angeboten.
-    Der eine Vorgang, der das behebt, ist eine Schreibweise zu ändern, die nur
-    in der ersten Faltungsstufe zusammenfällt.
+    Zwei Gruppen heissen versehentlich gleich. Die Gruppenvorschau kann sie
+    deshalb nicht auseinanderhalten: Wer den Namen tippt, bekommt keine der
+    beiden automatisch VORGESCHLAGEN (`group_id_for_name`/`resolve_group_id`
+    ohne ausdrueckliche Wahl finden keinen eindeutigen Treffer). Der eine
+    Vorgang, der das behebt, ist eine Schreibweise zu ändern, die nur in der
+    ersten Faltungsstufe zusammenfällt.
 
     Alle drei Vorfassungen der Kollisionsprüfung haben genau diesen Vorgang mit
     409 abgelehnt — mit einer Auskunft, die nicht stimmte: Die andere Gruppe
@@ -179,15 +236,46 @@ def test_zwei_gleichnamige_gruppen_lassen_sich_wieder_unterscheiden(mit_bestand)
 
     Gemessen wird hier nicht der Statuscode allein, sondern die WIRKUNG an der
     Tür, um die es geht: Die Vorschau muss danach für beide Schreibweisen
-    antworten.
+    EINDEUTIG antworten.
+
+    NACHTRAG #113 (29.09.2026): "Schweigt" traf die VORSCHAU selbst nicht
+    mehr fuer JEDE Schreibweise gleich genau — sie kollabiert Mehrdeutigkeit
+    nicht mehr blind auf `null`, sondern zeigt Kandidaten, wo welche zu
+    FINDEN sind. Gemessen (neu, an dieser Stelle): Fuer die BYTEGLEICHE
+    Schreibweise "Strassenfest" sind das beide Gruppen (`status: "many"`) —
+    Stufe 2 (`.lower()`, kein `ß`->`ss`) findet hier trotzdem beide, weil die
+    Datenbank selbst nur "Strassenfest" kennt.
+
+    NACHTRAG Nacharbeit 1 zu #113/#119/#124 (Blind W-1/Gegen F4, 29.09.2026):
+    Fuer "Straßenfest" stand hier zuvor `null` — Stufe 1 faltet `ß`->`ss` und
+    sieht dieselben zwei Kandidaten (mehrdeutig), Stufe 2 faltet NICHT und
+    findet zum Schluessel "straßenfest" nichts in einer Datenbank, die nur
+    "strassenfest" kennt (LEER, dieselbe Stufe-2-Grenze wie in
+    `test_namensfaltung.py`). Die vorige Fassung liess dabei die LEERE
+    Stufe-2-Antwort gewinnen — mit der Folge, dass eine Anlage ohne
+    ausdrueckliche Wahl (`expected_no_group`) still eine DRITTE Gruppe
+    anlegte, obwohl der Name erkennbar mehrdeutig war (genau der Fehler, den
+    `resolve_group_id` verhindern soll). `group_candidates_for_name` faellt
+    jetzt auf Stufe 1 zurueck, wenn Stufe 2 sich nicht auf GENAU EINE Gruppe
+    festlegt — die Vorschau fuer "Straßenfest" antwortet deshalb jetzt
+    ebenfalls mit `status: "many"` und denselben zwei Kandidaten wie fuer die
+    bytegleiche Schreibweise. Der Testname und der obige Absatz bleiben als
+    datierte Historie stehen (`docs/agents/lehren.md`,
+    "Ein Widerspruch über zwei Dateien"); geprueft wird unten die aktuelle
+    Form je Schreibweise.
     """
     c = mit_bestand([_album("a1", "Strassenfest", "gruppe-1"),
                      _album("a2", "Strassenfest", "gruppe-2")])
 
-    # Vorher schweigt die Vorschau für beide — das ist der Schaden.
-    for schreibweise in ("Strassenfest", "Straßenfest"):
-        assert c.get("/api/sync/album-group",
-                     params={"album_name": schreibweise}).json() is None
+    vorher_doppel_s = c.get("/api/sync/album-group",
+                            params={"album_name": "Strassenfest"}).json()
+    assert vorher_doppel_s["status"] == "many", vorher_doppel_s
+    assert {k["group_id"] for k in vorher_doppel_s["candidates"]} == {"gruppe-1", "gruppe-2"}
+
+    vorher_scharf_s = c.get("/api/sync/album-group",
+                            params={"album_name": "Straßenfest"}).json()
+    assert vorher_scharf_s["status"] == "many", vorher_scharf_s
+    assert {k["group_id"] for k in vorher_scharf_s["candidates"]} == {"gruppe-1", "gruppe-2"}
 
     antwort = c.patch("/api/sync/albums/a1", json={"album_name": "Straßenfest"})
     assert antwort.status_code == 200, antwort.text
@@ -207,12 +295,19 @@ def test_der_alte_name_zaehlt_nicht_als_verlust(mit_bestand):
     Das ist der Zweck des Vorgangs. In anderen Beständen kann er danach auf
     eine andere Gruppe zeigen — das misst die Probe darunter.
 
-    In einem Bestand wie diesem verliert der alte Name seine Gruppe
-    zwangsläufig — das ist keine Ablehnung mehr wert, seit #98 sowieso nicht,
-    aber auch die Vorschau (`GET /api/sync/album-group`) hält das fest: Sie
-    antwortet für den alten Namen danach mit `null`, weil ihn niemand mehr
-    trägt. Der Fall, in dem er stattdessen an eine ANDERE Gruppe geht, misst
-    die Probe darunter.
+    In einem Bestand wie diesem verliert der alte Name seine Gruppe — das ist
+    keine Ablehnung mehr wert, seit #98 sowieso nicht, aber auch die Vorschau
+    (`GET /api/sync/album-group`) hält das fest: Sie antwortet für den alten
+    Namen danach mit `null`, weil ihn niemand mehr trägt. Der Fall, in dem er
+    stattdessen an eine ANDERE Gruppe geht, misst die Probe darunter.
+
+    NACHTRAG #111 (Nachlese #108, Klein 3): „zwangsläufig" traf nicht zu —
+    hier gilt der Verlust, weil „Herbstfest" in eine ANDERE Faltungsklasse
+    fällt als „Sommerfest". Ein Umbenennen INNERHALB derselben Klasse (z. B.
+    „Sommerfest" -> „SOMMERFEST") verliert den alten Namen nicht: Beide
+    Schreibweisen falten auf denselben Schlüssel, die Gruppe bleibt über
+    ihn auffindbar (siehe `test_die_eigene_gruppe_darf_eine_zweite_
+    schreibweise_bekommen` für dasselbe Prinzip innerhalb einer Gruppe).
     """
     c = mit_bestand([_album("a1", "Sommerfest", "gruppe-1")])
     vorher = c.get("/api/sync/album-group",
@@ -230,6 +325,14 @@ FREI_GEWORDEN = [
     ("\u1fb3\u0342", "\u1fbc\u0342"),  # Übergabe nur über Stufe 2
 ]
 
+# Laufzeit-Zaehlung fuer den Skip-Waechter weiter unten
+# (`test_jede_frei_gewordene_schreibweise_lief_wirklich_bis_zum_ende`, S8
+# Nacharbeit 2, KLEIN): Der parametrisierte Test traegt sich hier erst nach
+# seiner LETZTEN Zusicherung ein — ein Skip (Marke oder Aufruf im Rumpf), ein
+# Xfail oder eine gebrochene Zusicherung unterbricht ihn vorher, egal welche
+# Form die Unterbrechung hat.
+_TATSAECHLICH_BESTANDENE_FAELLE: list[tuple[str, str]] = []
+
 
 def test_die_festhalte_probe_deckt_beide_stufen():
     """Hält die Parameterliste darunter lebendig.
@@ -245,6 +348,46 @@ def test_die_festhalte_probe_deckt_beide_stufen():
     nur_stufe2 = [(a, b) for a, b in FREI_GEWORDEN if k1(a) != k1(b) and k2(a) == k2(b)]
     assert len(FREI_GEWORDEN) == 2, FREI_GEWORDEN
     assert len(stufe1) == 1 and len(nur_stufe2) == 1, (stufe1, nur_stufe2)
+
+
+def test_der_dekorator_verwendet_wirklich_ganz_frei_geworden():
+    """Wächter für den DEKORATOR selbst, nicht nur für die Liste (#111,
+    WICHTIG 2).
+
+    `test_die_festhalte_probe_deckt_beide_stufen` sichert nur Eigenschaften
+    von `FREI_GEWORDEN` — sie liest die Liste, nicht das, was tatsächlich am
+    `@pytest.mark.parametrize`-Dekorator darunter hängt. Ein Dekorator mit
+    `FREI_GEWORDEN[:1]` oder `FREI_GEWORDEN[:1] * 2` blieb deshalb unbemerkt
+    grün (Blindprüfung an Nacharbeit 2 zu #108: 254 bzw. 255 grün — bei der
+    zweiten Mutation blieb sogar die PROBENZAHL gleich, weil zwei Fälle drin
+    stecken, nur beide derselbe). Diese Probe liest die am Testobjekt
+    tatsächlich hinterlegten Parameter-Werte aus `pytestmark` und verlangt
+    Gleichheit mit `FREI_GEWORDEN` selbst — eine gekürzte oder eine
+    vervielfältigte Kopie hat eine andere Wertfolge und fällt durch.
+
+    NACHTRAG (#114/#116/#111/#120, Nacharbeit 1, KLEIN): Diese Probe prüfte
+    bisher nur den `parametrize`-Dekorator selbst — ein zusätzlicher
+    `@pytest.mark.skip(...)` DARÜBER blieb unbemerkt grün (Sonde S8, C1
+    gemessen): Der Filter oben findet weiterhin genau eine `parametrize`-Marke
+    mit den richtigen Werten, während pytest den ganzen Test wegen der
+    zusätzlichen `skip`-Marke gar nicht mehr ausführt — die Parameterliste
+    bliebe damit ungeprüft, obwohl diese Probe grün meldet. Der Wächter prüft
+    deshalb jetzt zusätzlich, dass am Testobjekt KEINE `skip`/`skipif`-Marke
+    hängt.
+    """
+    marken = [
+        m for m in test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin.pytestmark
+        if m.name == "parametrize"
+    ]
+    assert len(marken) == 1, marken
+    [marke] = marken
+    _argnamen, argwerte = marke.args
+    assert argwerte == FREI_GEWORDEN, argwerte
+    uebersprungen = [
+        m for m in test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin.pytestmark
+        if m.name in ("skip", "skipif")
+    ]
+    assert uebersprungen == [], uebersprungen
 
 
 @pytest.mark.parametrize("alter_name, fremde_schreibweise", FREI_GEWORDEN)
@@ -278,4 +421,31 @@ def test_ein_frei_gewordener_name_geht_an_die_verbleibende_traegerin(
 
     nachher = c.get("/api/sync/album-group", params={"album_name": alter_name}).json()
     assert nachher and nachher["group_id"] == "gruppe-2", nachher
+    _TATSAECHLICH_BESTANDENE_FAELLE.append((alter_name, fremde_schreibweise))
+
+
+def test_jede_frei_gewordene_schreibweise_lief_wirklich_bis_zum_ende():
+    """Skip-Wächter, Ergänzung (S8 Nacharbeit 2, KLEIN): Der Dekorator-Wächter
+    oben (`test_der_dekorator_verwendet_wirklich_ganz_frei_geworden`) liest nur
+    STATISCH die am Testobjekt hinterlegten Marken — eine zusätzliche
+    `@pytest.mark.xfail(...)`-Marke ÜBER `parametrize` (Sonde S8, C2) oder ein
+    `pytest.skip(...)`-Aufruf MITTEN IM RUMPF der parametrisierten Funktion
+    (C3, gar keine Marke, also für eine Markenliste unsichtbar) blieben damit
+    unbemerkt grün: C2 ändert zusätzlich die Erwartung auf eine falsche
+    Gruppe, aber `xfail` verwandelt den daraus folgenden Fehlschlag in ein
+    erwartetes XFAIL statt in ein rotes FAILED; C3 überspringt den
+    Testkörper komplett, ohne je eine Marke zu setzen — eine Markenliste
+    hätte C3 grundsätzlich nie gesehen, gleich wie vollständig sie ist.
+
+    Deshalb hier eine LAUFZEIT-Zählung statt einer weiteren Markenprüfung:
+    Der eigentliche Test trägt sich selbst erst NACH seiner letzten
+    Zusicherung in `_TATSAECHLICH_BESTANDENE_FAELLE` ein. Ein Skip (Marke
+    oder Aufruf), ein Xfail oder eine gebrochene Zusicherung unterbricht die
+    Ausführung VOR dieser Zeile — die Liste bleibt dann unvollständig, egal
+    welche Form die Unterbrechung hatte. Dieser Wächter hier läuft — weil er
+    in der Datei NACH der parametrisierten Funktion steht und pytest ohne
+    Zufalls-Plugin (keins in `backend/requirements.txt`) die Reihenfolge der
+    Datei einhält — garantiert erst NACH allen parametrisierten Fällen und
+    verlangt die volle, geordnete Liste (Anzahl UND Wertfolge)."""
+    assert _TATSAECHLICH_BESTANDENE_FAELLE == FREI_GEWORDEN, _TATSAECHLICH_BESTANDENE_FAELLE
 

@@ -17,7 +17,6 @@
   "log_assets_link_failed": ["account"],
   "log_assets_linked": ["account", "album", "count"],
   "log_assets_partial_failure": ["account", "count"],
-  "log_manual_match_collision": ["album"],
   "log_name_sync_failed": ["account", "person"],
   "log_name_synced": ["account", "name", "person"],
   "log_no_new_assets": ["album"],

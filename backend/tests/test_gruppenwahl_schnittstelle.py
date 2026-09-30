@@ -118,16 +118,116 @@ def test_endpunkt_nennt_die_gruppe_und_ihre_personen(client):
     "name, warum",
     [
         ("Kennt keiner", "kein Treffer"),
-        ("Doppelt", "mehrdeutig — zwei Gruppen tragen den Namen"),
         ("   ", "leer sagt nichts ueber Zugehoerigkeit"),
         ("", "ganz leer"),
     ],
 )
-def test_endpunkt_behauptet_nichts_ohne_eindeutigen_treffer(client, name, warum):
+def test_endpunkt_behauptet_nichts_ohne_treffer(client, name, warum):
     antwort = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": name})
 
     assert antwort.status_code == 200, warum
     assert antwort.json() is None, warum
+
+
+def test_endpunkt_unterscheidet_mehrdeutig_von_gar_keinem_treffer(client):
+    """#113: "kein Treffer" und "mehrdeutig" sahen bis hierher GLEICH aus.
+
+    `existing_group_for_name` (und damit die alte Fassung dieses Endpunkts)
+    lieferte fuer beide `None` — die Oberflaeche konnte "neuer Name" nicht
+    von "mehrere Gruppen tragen diesen Namen, aber KEINE davon ist gemeint,
+    ohne dass ich es weiss" unterscheiden. Jetzt: `status: "many"` mit ALLEN
+    Kandidaten, in derselben Form wie ein eindeutiger Treffer.
+    """
+    antwort = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "Doppelt"})
+
+    assert antwort.status_code == 200
+    koerper = antwort.json()
+    assert koerper["status"] == "many"
+    kandidaten = {k["group_id"]: k for k in koerper["candidates"]}
+    assert set(kandidaten) == {"gruppe-2", "gruppe-3"}
+    # Dieselbe Form wie der eindeutige Treffer — Kennung, Personen, Konten.
+    assert [r["person_id"] for r in kandidaten["gruppe-2"]["person_refs"]] == ["p4"]
+    assert [r["person_id"] for r in kandidaten["gruppe-3"]["person_refs"]] == ["p5"]
+    assert kandidaten["gruppe-2"]["album_names"] == ["Doppelt"]
+
+
+def test_endpunkt_traegt_die_markierungen_je_kandidat(client, tmp_path):
+    """#124 B9: `owner_account_missing`/`too_few_people` fehlten in der Vorschau.
+
+    Wer einer Gruppe beitritt, soll VORHER sehen, dass sie ein verwaistes
+    Mitglied hat — nicht erst danach am einzelnen Album.
+    """
+    # a4 (gruppe-3) bekommt einen ANDEREN Besitzer als a3 (gruppe-2) — die
+    # Fixture-Hilfsfunktion `_album` setzt sonst bei ALLEN Alben denselben
+    # Besitzer ("konto-1"), und die beiden Kandidaten waeren nicht zu
+    # unterscheiden.
+    alben = main.app.state.store._data["managed_albums"]
+    next(a for a in alben if a["id"] == "a4")["owner_account_id"] = "konto-2"
+
+    # gruppe-2 (Album a3, Besitzer konto-1) wird verwaist: konto-1 verschwindet
+    # aus dem LEBENDEN Bestand, ohne das Album selbst zu aendern — genau der
+    # Fall, den `owner_account_missing` auf Gruppenebene beschreibt.
+    main.app.state.store._data["accounts"].pop("konto-1")
+
+    antwort = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "Doppelt"})
+
+    assert antwort.status_code == 200
+    kandidaten = {k["group_id"]: k for k in antwort.json()["candidates"]}
+    assert kandidaten["gruppe-2"]["owner_account_missing"] is True
+    assert kandidaten["gruppe-2"]["too_few_people"] is True  # genau eine Person
+    assert kandidaten["gruppe-3"]["owner_account_missing"] is False
+
+
+def test_too_few_people_ist_ODER_je_album_nicht_die_entdoppelte_summe(client):
+    """Nacharbeit 1 zu #113/#119/#124 (Gegen F3), Owner-Entscheid #112/#123.
+
+    "Zu wenige Personen" markiert eine GRUPPE, wenn EIN Album zu wenige
+    Personen hat — ODER je Album, nicht die entdoppelte Personenzahl der
+    ganzen Gruppe. Zwei Bestaende:
+
+    * (2+1): ein Album mit zwei Personen, eins mit einer, ohne Ueberschneidung
+      — die ENTDOPPELTE Summe ist hier 3 (>= 2, "genug"), obwohl das zweite
+      Album fuer sich allein zu wenige hat.
+    * (1+1): zwei Alben mit je EINER (verschiedenen) Person — die entdoppelte
+      Summe ist hier genau 2 ("genug"), obwohl KEIN einzelnes Album fuer sich
+      zwei Personen hat.
+
+    Nach der alten Rechnung (entdoppelte Summe der Gruppe < 2) waeren BEIDE
+    Bestaende "genug" gewesen; nach der neuen (ODER je Album) sind es beide
+    nicht.
+
+    Beide muessen `too_few_people: True` liefern — wie die Albumliste
+    (`GET /api/sync/albums`, `ManagedAlbumOut.too_few_people`) es fuer jedes
+    der beteiligten Alben schon tut.
+    """
+    pfad_alben = main.app.state.store._data["managed_albums"]
+    pfad_alben.clear()
+    pfad_alben.append(_album("zwei_eins_a", "ZweiEins", "gruppe-21", ["p1", "p2"]))
+    pfad_alben.append(_album("zwei_eins_b", "ZweiEins", "gruppe-21", ["p3"]))
+    pfad_alben.append(_album("eins_eins_a", "EinsEins", "gruppe-11", ["p4"]))
+    pfad_alben.append(_album("eins_eins_b", "EinsEins", "gruppe-11", ["p5"]))
+
+    v21 = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "ZweiEins"}).json()
+    v11 = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "EinsEins"}).json()
+
+    assert v21["too_few_people"] is True, v21
+    assert v11["too_few_people"] is True, v11
+
+    # Gegenprobe: EIN Album mit >= 2 Personen und sonst nichts ist NICHT
+    # markiert.
+    pfad_alben.append(_album("genug_a", "Genug", "gruppe-genug", ["p6", "p7"]))
+    vgenug = client.get("/api/sync/album-group", headers=KOPF, params={"album_name": "Genug"}).json()
+    assert vgenug["too_few_people"] is False, vgenug
+
+
+def test_eindeutiger_treffer_traegt_die_markierungen_auch(client):
+    """Dieselben zwei Felder auch am unveraenderten Ein-Treffer-Pfad."""
+    antwort = client.get("/api/sync/album-group", headers=KOPF,
+                         params={"album_name": "Testalbum"})
+
+    koerper = antwort.json()
+    assert koerper["owner_account_missing"] is False
+    assert koerper["too_few_people"] is False  # gruppe-1 hat drei Personen
 
 
 def test_endpunkt_verlangt_den_parameter(client):
@@ -334,6 +434,29 @@ def test_vorschau_zeigt_lebende_kontodaten(client, tmp_path):
     assert nachher["person_refs"][0]["account_color"] == "#aaaaaa"
 
 
+def test_vorschau_zeigt_lebende_kontodaten_auch_im_many_zweig(client, tmp_path):
+    """Testluecke, Nacharbeit 1 (Blind B8): Die Kontodaten-Anreicherung
+    (`_mit_lebenden_kontodaten`) galt bisher nur getestet fuer den EINDEUTIGEN
+    Treffer — der MEHRDEUTIGE Zweig (`status: "many"`) ruft dieselbe Routine
+    im Code schon auf (`routers/albums.py`, Schleife ueber `kandidaten`), war
+    aber ungeprueft. "Doppelt" traegt zwei Gruppen (gruppe-2/gruppe-3, beide
+    Besitzer "konto-1").
+    """
+    vorher = client.get("/api/sync/album-group", headers=KOPF,
+                        params={"album_name": "Doppelt"}).json()
+    assert vorher["status"] == "many"
+    kandidaten_vorher = {k["group_id"]: k for k in vorher["candidates"]}
+    assert kandidaten_vorher["gruppe-2"]["person_refs"][0]["account_color"] == "#111111"
+
+    main.app.state.store._data["accounts"]["konto-1"]["color"] = "#aaaaaa"
+
+    nachher = client.get("/api/sync/album-group", headers=KOPF,
+                         params={"album_name": "Doppelt"}).json()
+    kandidaten_nachher = {k["group_id"]: k for k in nachher["candidates"]}
+    assert kandidaten_nachher["gruppe-2"]["person_refs"][0]["account_color"] == "#aaaaaa"
+    assert kandidaten_nachher["gruppe-3"]["person_refs"][0]["account_color"] == "#aaaaaa"
+
+
 def test_post_album_benutzt_die_gewaehlte_gruppe(client, ohne_immich, monkeypatch):
     """Der HAUPTWEG — die Vorschlagsliste. Ueber ihn lief keine Probe.
 
@@ -450,6 +573,46 @@ def test_post_album_verknuepfen_tritt_der_gewaehlten_gruppe_bei(client, ohne_imm
 
     assert antwort.status_code == 200, antwort.text
     assert _gruppe_von(client, "match-vorschlag") == "gruppe-2"
+
+
+def test_post_album_expected_no_group_wird_geprueft(client, ohne_immich, monkeypatch):
+    """Testluecke, Nacharbeit 1 (Blind B5, Gegen F2): `expected_no_group` galt
+    bisher nur ueber geprueft am MANUELLEN Weg (`/sync/names-multi`,
+    `_anlegen`) — der HAUPTWEG (Vorschlagsliste, `/sync/album`, Anlegen) war
+    ungedeckt. "Testalbum" traegt schon `gruppe-1`; wer das nicht weiss (der
+    Client zeigt "keine Gruppe") und trotzdem mit `expected_no_group`
+    anlegt, muss abgelehnt werden statt still beizutreten.
+    """
+    _vorschlags_match(monkeypatch)
+
+    antwort = client.post("/api/sync/album", headers=KOPF, json={
+        "match_id": "match-vorschlag",
+        "owner_account_id": "konto-1",
+        "album_name": "Testalbum",
+        "expected_no_group": True,
+    })
+
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_situation_changed"
+
+
+def test_post_album_verknuepfen_expected_no_group_wird_geprueft(client, ohne_immich, monkeypatch):
+    """Dieselbe Testluecke fuer den VIERTEN Aufrufort — Verknuepfen ueber die
+    Vorschlagsliste (Blind B6, Gegen F2). `existing_album_id="immich-x"`
+    loest ueber die Attrappe auf "Testalbum" auf, das schon `gruppe-1`
+    traegt.
+    """
+    _vorschlags_match(monkeypatch)
+
+    antwort = client.post("/api/sync/album", headers=KOPF, json={
+        "match_id": "match-vorschlag",
+        "owner_account_id": "konto-1",
+        "existing_album_id": "immich-x",
+        "expected_no_group": True,
+    })
+
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_situation_changed"
 
 
 def test_leerraum_name_reisst_die_gruppe_nicht_ab(client, ohne_immich, monkeypatch):
@@ -956,3 +1119,304 @@ async def test_schloss_normalisiert_den_namen(tmp_path, monkeypatch):
 
     gruppen = {a.group_id for a in store.get_managed_albums()}
     assert len(gruppen) == 1, f"verschieden geschrieben, aber dieselbe Gruppe: {gruppen}"
+
+
+# ----------------------------------------------------------------------
+# #113: mehrdeutiger Name OHNE ausdrueckliche Wahl wird abgelehnt
+# ----------------------------------------------------------------------
+
+
+def test_mehrdeutiger_name_ohne_wahl_wird_beim_anlegen_abgelehnt(client):
+    """`resolve_group_id` oeffnete hier bis #113 still eine DRITTE Gruppe."""
+    vorher = client.get("/api/sync/albums", headers=KOPF).json()
+
+    antwort = _anlegen(client, album_name="Doppelt")
+
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_choice_required"
+    nachher = client.get("/api/sync/albums", headers=KOPF).json()
+    assert nachher == vorher, "nichts wurde angelegt"
+
+
+def test_mehrdeutiger_name_ohne_wahl_wird_beim_verknuepfen_ueber_die_vorschlagsliste_abgelehnt(
+    client, monkeypatch
+):
+    """Derselbe Fall am HAUPTWEG (`/sync/album`), nicht nur im manuellen Weg."""
+    _vorschlags_match(monkeypatch)
+    vorher = client.get("/api/sync/albums", headers=KOPF).json()
+
+    antwort = client.post("/api/sync/album", headers=KOPF, json={
+        "match_id": "match-vorschlag",
+        "owner_account_id": "konto-1",
+        "album_name": "Doppelt",
+    })
+
+    assert antwort.status_code == 409, antwort.text
+    assert antwort.json().get("error_key") == "err_group_choice_required"
+    nachher = client.get("/api/sync/albums", headers=KOPF).json()
+    assert nachher == vorher, "nichts wurde angelegt"
+
+
+def test_mehrdeutiger_name_mit_ausdruecklicher_wahl_geht_weiter_wie_bisher(client, ohne_immich):
+    """Die Ablehnung trifft NUR den Fall ohne Angabe — #113 aendert daran nichts."""
+    antwort = _anlegen(client, album_name="Doppelt", group_id="gruppe-2")
+
+    assert antwort.status_code == 200, antwort.text
+    assert _gruppe_von(client, "manual_testname_konto-1") == "gruppe-2"
+
+
+# ----------------------------------------------------------------------
+# #119: der Client schickt mit, was er ANGEZEIGT hat ("keine Gruppe") — der
+# Server prueft das unter dem Schloss und lehnt ab, wenn es nicht mehr
+# stimmt. #86 (zwei GLEICHZEITIGE Anlagen ohne jede Angabe -> eine Gruppe)
+# bleibt ausdruecklich unberuehrt: Das Verhalten hier gilt nur, wenn der
+# Client `expected_no_group` MITSCHICKT — die Proben zu #86 weiter oben tun
+# das nicht und bleiben deshalb gruen (Rot-Beweis siehe Bericht).
+# ----------------------------------------------------------------------
+
+
+def test_119_erwartete_leere_lage_wird_beim_absenden_geprueft(client, ohne_immich):
+    """Karte 1 legt vollstaendig an; Karte 2 zeigte "keine Gruppe" fuer
+    denselben Namen und bestaetigt das mit `expected_no_group` — die Lage hat
+    sich seither geaendert, also wird abgelehnt statt still beizutreten.
+
+    Sequenziell durch die ECHTE HTTP-Tuer (das erzwungene Fenster fuer
+    dieselbe Klasse steht unten, am Router direkt).
+    """
+    erste = _anlegen(client, canonical_name="Karte Eins", album_name="Kartenpaar",
+                      expected_no_group=True)
+    assert erste.status_code == 200, erste.text
+    vorher = client.get("/api/sync/albums", headers=KOPF).json()
+
+    zweite = _anlegen(client, canonical_name="Karte Zwei", album_name="Kartenpaar",
+                       expected_no_group=True)
+
+    assert zweite.status_code == 409, zweite.text
+    assert zweite.json().get("error_key") == "err_group_situation_changed"
+    nachher = client.get("/api/sync/albums", headers=KOPF).json()
+    assert nachher == vorher, "die zweite Anlage darf nichts veraendert haben"
+
+
+def test_119_gegenprobe_unveraenderte_lage_wird_angelegt(client, ohne_immich):
+    """Gegenprobe: Bleibt die Lage tatsaechlich "keine Gruppe", wird angelegt."""
+    antwort = _anlegen(client, canonical_name="Karte Solo", album_name="Ganz allein",
+                        expected_no_group=True)
+
+    assert antwort.status_code == 200, antwort.text
+    assert _gruppe_von(client, "manual_karte_solo_konto-1") is not None
+
+
+def test_119_ohne_das_feld_bleibt_das_alte_verhalten_bestehen(client, ohne_immich):
+    """Ohne `expected_no_group` (Vorgabe: aus) bleibt der stille Beitritt
+    bestehen — dieselbe Klasse wie #86, hier fuer den EINDEUTIGEN Fall (nicht
+    das gleichzeitige `asyncio.gather`, sondern zwei sequenzielle Anfragen
+    ohne das neue Feld).
+    """
+    erste = _anlegen(client, canonical_name="Karte A", album_name="Ohne Angabe")
+    assert erste.status_code == 200, erste.text
+
+    zweite = _anlegen(client, canonical_name="Karte B", album_name="Ohne Angabe")
+
+    assert zweite.status_code == 200, zweite.text
+    assert _gruppe_von(client, "manual_karte_a_konto-1") == _gruppe_von(
+        client, "manual_karte_b_konto-1"
+    ), "beide muessen in DERSELBEN Gruppe landen wie vor #119"
+
+
+@pytest.mark.asyncio
+async def test_119_erzwungenes_fenster_lehnt_nach_der_ersten_anlage_ab(tmp_path, monkeypatch):
+    """#119 mit ERZWUNGENEM Fenster, nicht mit Glueck (`lehren.md`, Nebenlaeufigkeit).
+
+    Anders als die HTTP-Probe oben (rein sequenziell) haelt dieser Test die
+    ERSTE Anfrage bewusst MITTEN im Namensschloss an (`asyncio.Event`),
+    startet dann die ZWEITE — die also auf DASSELBE Schloss trifft, waehrend
+    die erste es noch haelt — und laesst die erste erst danach fertigwerden.
+    Das beweist, dass die Pruefung wirklich FRISCH unter dem Schloss liest,
+    nicht aus einem Schnappschuss von VOR dem Warten auf das Schloss.
+    """
+    import asyncio
+    import json as _json
+
+    from errors import AppError
+    from models.match import MultiSyncPersonEntry, SyncNamesMultiRequest
+    from routers import albums as albums_router
+    from services import sync_service
+    from services.config_store import ConfigStore
+
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(_json.dumps({"accounts": KONTEN, "managed_albums": []}), encoding="utf-8")
+    store = ConfigStore(str(pfad))
+
+    drin = asyncio.Event()
+    weiter = asyncio.Event()
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def create_album(self, name, _ids):
+            if name == "Kartenpaar":
+                # Haelt das Namensschloss fuer "Kartenpaar" fest, waehrend die
+                # zweite Anfrage bereits darauf wartet.
+                drin.set()
+                await weiter.wait()
+            return {"id": f"immich-{name}"}
+
+        async def get_person_assets(self, _pid):
+            return []
+
+    async def ohne_teilen(*_a, **_k):
+        return []
+
+    async def ohne_namen(*_a, **_k):
+        return []
+
+    class Konto:
+        async def get_person(self, _pid):
+            return {"id": _pid}
+
+    class Pool:
+        def get_for_account(self, _acc):
+            return Konto()
+
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", ohne_teilen)
+    monkeypatch.setattr(sync_service, "sync_names_multi", ohne_namen)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        store=store, client_pool=Pool())))
+
+    def anfrage(canonical_name):
+        return SyncNamesMultiRequest(
+            persons=[MultiSyncPersonEntry(account_id="konto-1", person_id="p1"),
+                     MultiSyncPersonEntry(account_id="konto-2", person_id="p2")],
+            canonical_name=canonical_name,
+            album_name="Kartenpaar",
+            owner_account_id="konto-1",
+            expected_no_group=True,
+        )
+
+    erste = asyncio.create_task(albums_router.sync_names_multi(anfrage("Karte Eins"), request))
+    await drin.wait()   # "Karte Eins" haelt das Schloss, mitten im Immich-Aufruf.
+
+    zweite = asyncio.create_task(albums_router.sync_names_multi(anfrage("Karte Zwei"), request))
+    # Zwei Runden statt einer, aus Sicherheitsabstand: "Karte Zwei" soll bis
+    # zum Schloss-Erwerb laufen (ihr eigener Preflight hat keine echten
+    # Wartepunkte), nicht nur einmal angestossen werden.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert store.gruppen_schloss("Kartenpaar").locked(), (
+        "das Schloss muss zu diesem Zeitpunkt noch von Karte Eins gehalten werden"
+    )
+
+    weiter.set()   # "Karte Eins" darf fertigwerden und das Schloss freigeben.
+    await erste
+
+    with pytest.raises(AppError) as exc_info:
+        await zweite
+    assert exc_info.value.key == "err_group_situation_changed"
+
+    alben = store.get_managed_albums()
+    assert len(alben) == 1, "nur Karte Eins darf angelegt haben"
+    assert alben[0].match_id == "manual_karte_eins_konto-1"
+
+
+# ── #85 Schnittstelle an den Raendern ────────────────────────────────────
+#
+# Der Gegenpruefer zum Panel dieser Datei (#81) hat diese fuenf Punkte am
+# LAUFENDEN Code gemessen, nicht an der Absicht — alles ueber echtes HTTP,
+# derselbe Massstab wie der Rest dieser Datei.
+
+
+def test_unbekanntes_feld_wird_abgelehnt_und_nichts_angelegt(client):
+    """#85 Punkt 2: `{"groupId": "gruppe-1"}` statt `group_id` lief bisher
+    STILL durch (Pydantic-Vorgabe `extra="ignore"`) — der Aufruf verhielt
+    sich wie "keine Wahl getroffen" und die Namensregel griff unbemerkt.
+    `extra="forbid"` lehnt das jetzt ab, BEVOR irgendetwas geschrieben wird.
+    """
+    antwort = _anlegen(client, groupId="gruppe-1")
+
+    assert antwort.status_code == 422
+    assert antwort.json().get("error_key") == "err_validation_failed"
+
+    alben = client.get("/api/sync/albums", headers=KOPF).json()
+    assert [a["id"] for a in alben] == ["a1", "a2", "a3", "a4"]
+
+
+def test_typfehler_liefert_die_hausform_mit_schluessel(client):
+    """#85 Punkt 1: `group_id: 42` lieferte FastAPIs Standardform — `detail`
+    als LISTE, kein `error_key` — obwohl `backend/main.py` zusagt, `detail`
+    bleibe eine Zeichenkette mit Schluessel daneben.
+    """
+    antwort = _anlegen(client, group_id=42)
+
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert isinstance(koerper["detail"], str) and koerper["detail"]
+    assert koerper["error_key"] == "err_validation_failed"
+    assert "group_id" in koerper["error_params"]["fields"]
+
+
+def test_force_new_group_null_liefert_die_hausform_mit_schluessel(client):
+    """#85 Punkt 1, zweites Beispiel aus dem Issue: `force_new_group: bool =
+    False` ohne `Optional` macht `null` — die naheliegendste JS-Serialisierung
+    eines nicht gesetzten Schalters — zum selben unbeschlüsselten Fehler.
+    """
+    antwort = _anlegen(client, force_new_group=None)
+
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert isinstance(koerper["detail"], str) and koerper["detail"]
+    assert koerper["error_key"] == "err_validation_failed"
+    assert "force_new_group" in koerper["error_params"]["fields"]
+
+
+def test_sehr_lange_kennung_wird_in_der_antwort_gekuerzt(client):
+    """#85 Punkt 4: `errors.group_not_found` spiegelte die Kennung bisher
+    unbegrenzt zurueck — eine sehr lange Kennung kam vollstaendig in
+    `detail` UND `error_params` zurueck. 16 000 Zeichen, wie im Issue.
+    """
+    lang = "x" * 16000
+    antwort = _anlegen(client, group_id=lang)
+
+    assert antwort.status_code == 404
+    koerper = antwort.json()
+    assert koerper.get("error_key") == "err_group_not_found"
+    assert len(koerper["detail"]) < len(lang)
+    assert len(koerper["error_params"]["group_id"]) < len(lang)
+    assert koerper["error_params"]["group_id"] != lang
+
+
+def test_langer_unbekannter_feldname_wird_in_der_antwort_gekuerzt(client):
+    """#85 Punkt 4, zweiter Fall — nicht nur eine lange Kennung spiegelt sich:
+    Bei `extra="forbid"` ist der gemeldete "Feldname" exakt das, was der
+    Client als Schluessel gewaehlt hat. Ohne eigene Kappung an dieser Stelle
+    waere `_gekuerzt()` nur an EINER der beiden Reflexionsstellen wirksam.
+    """
+    langer_name = "x" * 16000
+    antwort = _anlegen(client, **{langer_name: "gruppe-1"})
+
+    assert antwort.status_code == 422
+    koerper = antwort.json()
+    assert len(koerper["detail"]) < len(langer_name)
+    assert len(koerper["error_params"]["fields"]) < len(langer_name)
+
+
+def test_doppelter_query_parameter_wird_abgelehnt(client):
+    """#85 Punkt 5: `?album_name=A&album_name=B` liess bisher still den
+    letzten Wert gewinnen — Vorschau und das anschliessende POST konnten so
+    unbemerkt auf verschiedene Namen auflaufen.
+    """
+    antwort = client.get(
+        "/api/sync/album-group?album_name=Testalbum&album_name=Anders+benannt",
+        headers=KOPF,
+    )
+
+    assert antwort.status_code == 422
+    assert antwort.json().get("error_key") == "err_duplicate_query_param"
+
+    # Gegenprobe: EIN Parameter bleibt weiterhin erlaubt.
+    einzeln = client.get(
+        "/api/sync/album-group?album_name=Testalbum", headers=KOPF,
+    )
+    assert einzeln.status_code == 200

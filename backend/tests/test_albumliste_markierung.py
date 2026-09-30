@@ -121,6 +121,15 @@ def test_lebender_besitzer_ohne_eigenen_personenbezug_wird_nicht_markiert(tmp_pa
     teilnehmer = {"id": "teilnehmer-x", "name": "Teilnehmer X",
                   "immich_url": "http://x.invalid", "api_key": "platzhalter",
                   "color": "#555555", "user_id": "u-x"}
+    # NACHARBEIT 1 (#117/#121/#103): `too_few_people` zaehlt seitdem nur
+    # Referenzen auf LEBENDE Konten. Diese Probe will pruefen, dass ein
+    # Besitzer OHNE eigene Personen-Referenz nicht faelschlich markiert wird
+    # — dafuer braucht sie ZWEI wirklich lebende Teilnehmer, nicht einen
+    # lebenden und einen, dessen Konto es im Bestand nie gab (das waere seit
+    # dieser Nacharbeit ungewollt derselbe Fall wie „Teilnehmer geloescht").
+    teilnehmer_y = {"id": "teilnehmer-y", "name": "Teilnehmer Y",
+                    "immich_url": "http://y.invalid", "api_key": "platzhalter",
+                    "color": "#666666", "user_id": "u-y"}
     album = {
         "id": "album-owner-ohne-ref", "match_id": "m-owner-ohne-ref",
         "album_id": "immich-owner-ohne-ref", "album_name": "Nur Teilnehmer",
@@ -137,7 +146,8 @@ def test_lebender_besitzer_ohne_eigenen_personenbezug_wird_nicht_markiert(tmp_pa
     }
     pfad = tmp_path / "accounts.json"
     pfad.write_text(json.dumps({
-        "accounts": {"besitzer-teilt-nur": besitzer, "teilnehmer-x": teilnehmer},
+        "accounts": {"besitzer-teilt-nur": besitzer, "teilnehmer-x": teilnehmer,
+                     "teilnehmer-y": teilnehmer_y},
         "schema_version": 3,
         "managed_albums": [album],
     }), encoding="utf-8")
@@ -153,3 +163,56 @@ def test_lebender_besitzer_ohne_eigenen_personenbezug_wird_nicht_markiert(tmp_pa
             "wurde faelschlich als verwaist markiert"
         )
         assert antwort["too_few_people"] is False, antwort
+
+
+def test_too_few_people_zaehlt_nur_lebende_referenzen(tmp_path, monkeypatch):
+    """Nacharbeit 1 (#117/#121/#103), Richtung „Markierungen": `too_few_people`
+    zaehlt nur Referenzen auf LEBENDE Konten.
+
+    Zwei `person_refs`, aber eines zeigt auf ein Konto, das im Bestand nicht
+    (mehr) steht — die Form, die liegen bleibt, wenn `delete_account` ein
+    Album wegen eines belegten Schlosses ueberspringt (siehe
+    `ConfigStore.delete_account`, `test_konto_loeschung_ohne_konvoi.py`) und
+    der Heilweg dieses Album noch nicht erreicht hat. Vor dieser Nacharbeit
+    zaehlte `len(person_refs)` roh — mit zwei Eintraegen galt das Album als
+    „genug Personen", obwohl nur noch EINE davon zu einem lebenden Konto
+    gehoert.
+    """
+    import main
+
+    lebendig = {"id": "lebendig", "name": "Lebendig",
+                "immich_url": "http://lebendig.invalid", "api_key": "platzhalter",
+                "color": "#777777", "user_id": "u-lebendig"}
+    album = {
+        "id": "album-tote-referenz", "match_id": "m-tote-referenz",
+        "album_id": "immich-tote-referenz", "album_name": "Mit toter Referenz",
+        "group_id": "gruppe-tote-referenz", "owner_account_id": "lebendig",
+        "person_refs": [
+            {"account_id": "lebendig", "person_id": "p-lebendig",
+             "person_name": "P Lebendig", "account_name": "Lebendig",
+             "account_color": "#777777"},
+            # Kein Konto "tot" im Bestand -- exakt die Form einer liegen
+            # gebliebenen Referenz nach einer uebersprungenen Bereinigung.
+            {"account_id": "tot", "person_id": "p-tot",
+             "person_name": "P Tot", "account_name": "Tot",
+             "account_color": "#888888"},
+        ],
+        "linked_match_ids": [], "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    pfad = tmp_path / "accounts.json"
+    pfad.write_text(json.dumps({
+        "accounts": {"lebendig": lebendig},
+        "schema_version": 3,
+        "managed_albums": [album],
+    }), encoding="utf-8")
+    monkeypatch.setattr(main.settings, "secret", "nur-fuer-den-test", raising=False)
+    monkeypatch.setattr(main.settings, "config_path", pfad, raising=False)
+
+    with TestClient(main.app) as c:
+        c.post("/api/auth/login", json={"token": "nur-fuer-den-test"})
+        alben = c.get("/api/sync/albums").json()
+        antwort = next(a for a in alben if a["id"] == "album-tote-referenz")
+        assert antwort["too_few_people"] is True, (
+            "Zwei Referenzen, aber nur eine auf ein lebendes Konto -- "
+            "haette als 'zu wenige Personen' markiert werden muessen"
+        )

@@ -199,6 +199,82 @@ describe("Gruppenwahl beim Anlegen", () => {
     expect(albumMock.mock.calls[0][0].force_new_group).toBeUndefined();
   });
 
+  it("schickt expected_no_group mit, wenn die Vorschau keine Gruppe fand (#119)", async () => {
+    // Die tragende Zusicherung von #119: Ohne Treffer wird das ANGEZEIGTE
+    // "keine Gruppe" ausdruecklich mitgeschickt, statt gar nichts zu sagen —
+    // nur damit kann der Server unter dem Namensschloss pruefen, ob sich die
+    // Lage seit der Vorschau geaendert hat.
+    vorschauMock.mockResolvedValue(null);
+    await oeffneDialog();
+    await waitFor(() =>
+      expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    fireEvent.click(screen.getByText("Album erstellen"));
+
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+    expect(albumMock.mock.calls[0][0].expected_no_group).toBe(true);
+    expect(albumMock.mock.calls[0][0].group_id).toBeUndefined();
+    expect(albumMock.mock.calls[0][0].force_new_group).toBeUndefined();
+  });
+
+  it("bei mehrdeutigem Namen ('many') bleibt 'Album erstellen' gesperrt, bis eine Gruppe gewaehlt ist (Nacharbeit 1, Blind W-5)", async () => {
+    // Testluecke, Nacharbeit 1 zu #113/#119/#124 (Blind W-5): "many" war nur
+    // an der Einzelkomponente `GruppenWahl` geprueft, nicht end-to-end an der
+    // Vorschlagsliste.
+    const MANY = {
+      status: "many" as const,
+      candidates: [
+        {
+          group_id: "gruppe-a",
+          album_names: ["Testalbum"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "p9",
+              person_name: "Person Neun",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+        {
+          group_id: "gruppe-b",
+          album_names: ["Testalbum"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "p10",
+              person_name: "Person Zehn",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+      ],
+    };
+    vorschauMock.mockResolvedValue(MANY);
+    await oeffneDialog();
+    const knopf = () => screen.getByText("Album erstellen") as HTMLButtonElement;
+
+    await waitFor(() => expect(screen.getByText("Person Neun")).toBeTruthy());
+    expect(knopf().disabled).toBe(true);
+    fireEvent.click(knopf());
+    await wartenAufRuhe();
+    expect(albumMock).not.toHaveBeenCalled();
+
+    const radio = screen
+      .getByText("Person Neun")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    fireEvent.click(radio);
+    await waitFor(() => expect(knopf().disabled).toBe(false));
+
+    fireEvent.click(knopf());
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+    expect(albumMock.mock.calls[0][0].group_id).toBe("gruppe-a");
+  });
+
   it("schickt die angezeigte Gruppe beim Beitritt mit", async () => {
     // Was ANGEZEIGT wird, wird auch GESCHICKT. Ohne diese Bindung liess die
     // App das Backend beim Bestaetigen erneut ueber den Namen raten — kommt
@@ -476,6 +552,69 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
     );
   });
 
+  it("die Invalidierung wirkt WIRKLICH — nicht nur der Aufruf mit der richtigen Form (#119, Punkt 2)", async () => {
+    // Der Spion oben prueft nur `queryKey[0] === "album-group"` — ein
+    // `invalidateQueries({queryKey: ["album-group", name], exact: true})`
+    // saehe FORMAL genauso aus (der Spion sieht den Aufruf), traefe aber die
+    // echte Abfrage `["album-group", "Person A"]` NICHT mehr. Hier wird
+    // deshalb die WIRKUNG geprueft: der Zustand der konkreten Abfrage nach
+    // der Mutation.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <MatchSuggestions />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    fireEvent.click(await screen.findByText("Album verbinden"));
+    await screen.findByPlaceholderText("Album-Name…");
+    await waitFor(() =>
+      expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText("Album erstellen"));
+
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+    // Ein `invalidateQueries({queryKey: ["album-group", name], exact: true})`
+    // saehe im Spion oben GENAUSO aus wie der echte Aufruf, traefe die
+    // laufende Beobachtung `["album-group", "Person A"]` aber NICHT — dann
+    // bliebe es bei GENAU einem Aufruf. Hier wird die WIRKUNG gemessen: ein
+    // ZWEITER echter Vorschau-Aufruf, ausgeloest vom automatischen Refetch
+    // einer wirklich invalidierten, noch beobachteten Abfrage.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("invalidiert die Gruppenvorschau AUCH, wenn das Anlegen fehlschlaegt (#119, Punkt 3, onSettled)", async () => {
+    // `onSettled` statt nur `onSuccess`: ein Teil-Schreibvorgang kann in
+    // Immich schon eine Gruppe veraendert haben, auch wenn die Anfrage
+    // insgesamt als Fehler zurueckkommt. Bisher ungetestet — eine Mutation,
+    // die `onSettled` durch `onSuccess` ersetzt, blieb hier gruen.
+    albumMock.mockRejectedValueOnce(new Error("netzwerk kaputt"));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <LanguageProvider>
+          <MatchSuggestions />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+    fireEvent.click(await screen.findByText("Album verbinden"));
+    await screen.findByPlaceholderText("Album-Name…");
+    await waitFor(() =>
+      expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    fireEvent.click(screen.getByText("Album erstellen"));
+
+    await waitFor(() => expect(albumMock).toHaveBeenCalled());
+    // Der Fehlschlag haelt den Dialog OFFEN (kein `setMode(null)` bei
+    // `onError`) — GruppenWahl bleibt gemountet und beobachtet die Abfrage
+    // weiter, also ist hier der REFETCH der sichtbare Nachweis.
+    await waitFor(() => expect(vorschauMock).toHaveBeenCalledTimes(2));
+  });
+
   it("zeigt nach dem Anlegen keine veraltete 'keine Gruppe'-Antwort mehr, auch nicht unter dem PRODUKTIONS-Client", async () => {
     // End-zu-Ende-Nachweis des sichtbaren Verhaltens: erst "keine Gruppe",
     // dann angelegt, dann derselbe Name erneut abgefragt — jetzt MIT Gruppe.
@@ -562,5 +701,47 @@ describe("Gruppen-Cache nach Aenderungen (#110, Nacharbeit 1, BLOCKER Fund 1)", 
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(albumMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Kleinfunde (#119, Punkt 4)", () => {
+  it("ein Name aus reinem Leerraum gibt den Knopf NICHT frei", async () => {
+    // `!!albumName` allein war truthy fuer "   " — der Knopf war frei, obwohl
+    // GruppenWahl darunter nichts anzeigte (der Name faellt bei ihr auf
+    // "leer" zurueck) und der Server einen solchen Namen ohnehin ablehnt.
+    await oeffneDialog();
+    fireEvent.change(screen.getByPlaceholderText("Album-Name…"), {
+      target: { value: "   " },
+    });
+
+    expect((screen.getByText("Album erstellen") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByText("Album erstellen"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(albumMock).not.toHaveBeenCalled();
+  });
+
+  it("zeigt einen Hinweis, wenn das gewaehlte bestehende Album keinen Namen traegt", async () => {
+    kontoAlbenMock.mockResolvedValue([{ id: "immich-leer", name: "" }]);
+    await oeffneDialog();
+    fireEvent.click(screen.getByText("Vorhandenes verknüpfen"));
+
+    // Kein Text zum Warten (der Albumname ist leer) — stattdessen auf das
+    // geladene <select> selbst warten (Owner-Auswahl + Album-Auswahl).
+    await waitFor(() => expect(kontoAlbenMock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getAllByRole("combobox").length).toBeGreaterThan(1));
+    const felder = screen.getAllByRole("combobox");
+    fireEvent.change(felder[felder.length - 1], { target: { value: "immich-leer" } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Dieses Album hat in Immich keinen Namen — bitte dort erst einen Namen vergeben."
+        )
+      ).toBeTruthy()
+    );
+    expect((screen.getByText("Album verknüpfen") as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -321,6 +321,12 @@ function AlbumSection({
             </select>
           ))}
 
+        {/* #119, Punkt 4 (KLEIN): ein gewaehltes Immich-Album ohne Namen
+            sperrte bisher ohne Hinweis. */}
+        {albumMode === "existing" && existingAlbumId && !wirksamerName.trim() && (
+          <p className="text-xs text-amber-500">{t("album_existing_unnamed_hint")}</p>
+        )}
+
         {/* Auch beim VERKNUEPFEN, nicht nur beim Anlegen: Das Backend
             gruppiert dort genauso ueber den Namen, und ohne die Anzeige
             verschmilzt es still (Blindpruefer 21.09.2026). */}
@@ -431,7 +437,16 @@ export default function ManualMatch() {
         persons: selections.map((s) => ({ account_id: s.account_id, person_id: s.person_id })),
         canonical_name: canonicalName.trim(),
         owner_account_id: effectiveOwner || undefined,
-        ...(eigeneGruppe ? { force_new_group: true } : gruppeId ? { group_id: gruppeId } : {}),
+        // #119: Ohne Treffer wird das ANGEZEIGTE "keine Gruppe" ausdruecklich
+        // mitgeschickt (`expected_no_group`) — der Server prueft das unter
+        // dem Namensschloss frisch nach, statt still einer inzwischen
+        // entstandenen Gruppe beizutreten. `wirksamerName` ist hier immer
+        // gesetzt: `isValid` unten haelt den Startknopf sonst gesperrt.
+        ...(eigeneGruppe
+          ? { force_new_group: true }
+          : gruppeId
+            ? { group_id: gruppeId }
+            : { expected_no_group: true }),
         ...(albumMode === "new"
           ? { album_name: albumName.trim() || canonicalName.trim() }
           : // BEWUSST OHNE album_name: Das Feld gehoert dem Anlege-Modus und
@@ -448,6 +463,33 @@ export default function ManualMatch() {
       queryClient.invalidateQueries({ queryKey: ["sync-log"] });
       queryClient.invalidateQueries({ queryKey: ["managed-albums"] });
       queryClient.invalidateQueries({ queryKey: ["person-links"] });
+    },
+    // Nacharbeit 1 zu #113/#119/#124 (Gegen F8, KLEIN): Im Modus "Verknuepfen"
+    // bestimmt `existingAlbums` (Abfrage `account-albums`) den NAMEN, den die
+    // Vorschau (`gruppenBereitschaft`/`wirksamerName` oben) prueft — der
+    // SERVER loest beim Speichern aber den Namen frisch aus Immich auf
+    // (`_name_des_bestehenden_albums`). Aendert sich der Immich-Albumname
+    // zwischen dem Laden der Liste und diesem Versuch, sieht der Client
+    // weiterhin den ALTEN Namen, `expected_no_group`/die gewaehlte
+    // `group_id` passt nicht mehr zur SERVER-Sicht, der Server lehnt mit
+    // `err_group_situation_changed` ab — und ohne diese Invalidierung zeigt
+    // die Vorschau beim naechsten Versuch wieder denselben veralteten Namen:
+    // eine Ablehnungsschleife, aus der ein erneuter Klick nicht herausfuehrt.
+    //
+    // Absichtlich OHNE `instanceof ApiError` (stattdessen auf das Feld `key`
+    // geprueft): Mehrere Testdateien ersetzen `../api/client` komplett per
+    // `vi.mock(() => ({ api: {...} }))`, ohne `importOriginal` — ein
+    // `instanceof`-Vergleich gegen die dabei fehlende `ApiError`-Klasse wirft
+    // dort zur Laufzeit ("Right-hand side of 'instanceof' is not callable"),
+    // gemessen an genau dieser Datei (Rot-Beweis vor dieser Fassung).
+    onError: (error) => {
+      const key =
+        error && typeof error === "object" && "key" in error
+          ? (error as { key?: unknown }).key
+          : undefined;
+      if (key === "err_group_situation_changed") {
+        queryClient.invalidateQueries({ queryKey: ["account-albums"] });
+      }
     },
     // `onSettled` statt nur `onSuccess` (#110, Nacharbeit 2, KLEIN Fund 4):
     // names-multi aendert Gruppen (legt an oder verknuepft) — eine von fuenf

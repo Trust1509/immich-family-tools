@@ -190,25 +190,35 @@ def test_ein_verschwundenes_besitzerkonto_wird_abgelehnt(client):
     assert _name_im_bestand(client, "a2") == "Waisenalbum"
 
 
-def test_umbenennen_des_gesunden_albums_wird_abgelehnt_wenn_die_gruppe_ein_verwaistes_mitglied_hat(
-    client,
-):
-    """Nacharbeit 2 zu #99/#112 (Gegen- und Blindpruefer, gemessen ueber HTTP).
-
-    `a3-gesund` hat selbst einen lebenden Besitzer — trotzdem lehnt der
-    Server ab, weil `a3-verwaist` (dieselbe `group_id`) keinen mehr hat. Das
-    ist die Lage eines Clients mit veralteter Liste (zweiter Tab, 30s
-    `staleTime`, anderes Geraet): Ohne diese Ablehnung wuerde `a3-gesund`
-    hier erfolgreich umbenannt und `a3-verwaist` schiede mit
-    `err_owner_account_not_found` aus — eine Gruppe mit zwei Namen. Die
-    Oberflaechen-Sperre (`AlbumsOverview.tsx`) ist nur Komfort; hier steht
-    die Regel, die kein Client umgehen kann.
+def test_umbenennen_des_gesunden_albums_in_einer_gemischten_gruppe_gelingt(client):
+    """Owner-Entscheid 29.09.2026 (#123) — die gruppenweite Sperre aus
+    Nacharbeit 2 zu #99/#112 (`err_group_member_owner_missing`) ist wieder
+    weg: `a3-gesund` hat selbst einen lebenden Besitzer, `a3-verwaist`
+    (dieselbe `group_id`) nicht — trotzdem gelingt das Umbenennen von
+    `a3-gesund`. Kein 409 mehr; das Werkzeug behandelt gemischte Gruppen
+    beim Umbenennen wie beim Abgleichen: gesunde Alben werden bedient,
+    verwaiste einzeln uebersprungen (siehe der Test direkt darunter).
     """
     antwort = client.patch("/api/sync/albums/a3-gesund", json={"album_name": "Herbstfest"})
-    assert antwort.status_code == 409, antwort.text
-    assert antwort.json().get("error_key") == "err_group_member_owner_missing"
-    assert _name_im_bestand(client, "a3-gesund") == "Gemischt", "trotz Ablehnung umbenannt"
-    assert _name_im_bestand(client, "a3-verwaist") == "Gemischt"
+    assert antwort.status_code == 200, antwort.text
+    eintraege = antwort.json()
+    assert [e["status"] for e in eintraege] == ["success"], eintraege
+    assert _name_im_bestand(client, "a3-gesund") == "Herbstfest"
+    assert antwort.status_code != 409
+
+
+def test_umbenennen_des_verwaisten_albums_einer_gemischten_gruppe_lehnt_nur_dieses_ab(client):
+    """Das GESCHWISTER-Album bleibt unbehelligt — die Ablehnung trifft nur
+    das verwaiste Album selbst, ueber dieselbe Pruefung wie bei einer ganz
+    verwaisten Gruppe (`test_ein_verschwundenes_besitzerkonto_wird_abgelehnt`).
+    """
+    antwort = client.patch("/api/sync/albums/a3-verwaist", json={"album_name": "Herbstfest"})
+    assert antwort.status_code == 404, antwort.text
+    assert antwort.json().get("error_key") == "err_owner_account_not_found"
+    assert _name_im_bestand(client, "a3-verwaist") == "Gemischt", "trotz Ablehnung umbenannt"
+    # Das gesunde Geschwister-Album traegt weiterhin seinen alten Namen —
+    # die Ablehnung des verwaisten Albums hat es nicht angefasst.
+    assert _name_im_bestand(client, "a3-gesund") == "Gemischt"
 
 
 # --------------------------------------------------- Der Client selbst

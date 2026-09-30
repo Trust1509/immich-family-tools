@@ -491,6 +491,175 @@ function zeichneMitZustand(start: string) {
   return { antworten, neuZeichnen: (n: string) => e.rerender(baum(n)) };
 }
 
+// #113: der Name ist mehrdeutig — mehrere Gruppen tragen ihn.
+const GRUPPE_MEHRDEUTIG = {
+  status: "many" as const,
+  candidates: [
+    {
+      group_id: "gruppe-a",
+      album_names: ["Testalbum"],
+      person_refs: [
+        {
+          account_id: "konto-1",
+          person_id: "p1",
+          person_name: "Person Eins",
+          account_name: "Konto Eins",
+          account_color: "#111111",
+        },
+      ],
+      owner_account_missing: false,
+      too_few_people: false,
+    },
+    {
+      group_id: "gruppe-b",
+      album_names: ["Testalbum"],
+      person_refs: [
+        {
+          account_id: "konto-2",
+          person_id: "p2",
+          person_name: "Person Zwei",
+          account_name: "Konto Zwei",
+          account_color: "#222222",
+        },
+      ],
+      owner_account_missing: true,
+      too_few_people: true,
+    },
+  ],
+};
+
+describe("GruppenWahl: Mehrdeutigkeit — Auswahl unter mehreren Gruppen (#113)", () => {
+  it("zeigt ALLE Kandidaten, ohne Vorauswahl", async () => {
+    vorschauMock.mockResolvedValue(GRUPPE_MEHRDEUTIG);
+    const { letzteBereitschaft } = zeichne("Testalbum");
+
+    await waitFor(() => expect(screen.getByText("Person Eins")).toBeTruthy());
+    expect(screen.getByText("Person Zwei")).toBeTruthy();
+    expect(screen.getAllByRole("radio")).toHaveLength(3); // 2 Kandidaten + "eigene Gruppe"
+    (screen.getAllByRole("radio") as HTMLInputElement[]).forEach((r) =>
+      expect(r.checked).toBe(false)
+    );
+    // Ohne Wahl bleibt es gesperrt — trotz einer erfolgreichen Vorschau.
+    expect(letzteBereitschaft("Testalbum").bereit).toBe(false);
+  });
+
+  it("gibt erst frei, wenn EINE Gruppe gewaehlt wurde, und meldet genau die", async () => {
+    vorschauMock.mockResolvedValue(GRUPPE_MEHRDEUTIG);
+    const { letzteBereitschaft } = zeichne("Testalbum");
+    await waitFor(() => expect(screen.getByText("Person Eins")).toBeTruthy());
+
+    const radioEins = screen
+      .getByText("Person Eins")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    fireEvent.click(radioEins);
+
+    await waitFor(() => expect(letzteBereitschaft("Testalbum").bereit).toBe(true));
+    expect(letzteBereitschaft("Testalbum").gruppeId).toBe("gruppe-a");
+    expect(radioEins.checked).toBe(true);
+  });
+
+  it("gibt frei fuer 'eigene Gruppe', mit gruppeId null", async () => {
+    vorschauMock.mockResolvedValue(GRUPPE_MEHRDEUTIG);
+    const { antworten } = zeichneMitZustand("Testalbum");
+    await waitFor(() => expect(screen.getByText("Person Eins")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Eigene Gruppe anlegen"));
+
+    await waitFor(() =>
+      expect(gruppenBereitschaft(antworten[antworten.length - 1] ?? null, "Testalbum").bereit).toBe(
+        true
+      )
+    );
+    expect(
+      gruppenBereitschaft(antworten[antworten.length - 1] ?? null, "Testalbum").gruppeId
+    ).toBeNull();
+  });
+
+  it("wechselt die Wahl beim Umklicken auf eine ANDERE Gruppe", async () => {
+    vorschauMock.mockResolvedValue(GRUPPE_MEHRDEUTIG);
+    const { letzteBereitschaft } = zeichne("Testalbum");
+    await waitFor(() => expect(screen.getByText("Person Eins")).toBeTruthy());
+
+    const radioEins = screen
+      .getByText("Person Eins")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    const radioZwei = screen
+      .getByText("Person Zwei")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    fireEvent.click(radioEins);
+    await waitFor(() => expect(letzteBereitschaft("Testalbum").gruppeId).toBe("gruppe-a"));
+
+    fireEvent.click(radioZwei);
+
+    await waitFor(() => expect(letzteBereitschaft("Testalbum").gruppeId).toBe("gruppe-b"));
+    expect(radioEins.checked).toBe(false);
+    expect(radioZwei.checked).toBe(true);
+  });
+
+  it("zeigt die Markierungen je Kandidat (#124 B9)", async () => {
+    vorschauMock.mockResolvedValue(GRUPPE_MEHRDEUTIG);
+    zeichne("Testalbum");
+
+    await waitFor(() => expect(screen.getByText("Person Zwei")).toBeTruthy());
+    // Nur gruppe-b traegt die Markierungen in der Fixture.
+    expect(
+      screen.getByText("Ein Album dieser Gruppe ist verwaist (Besitzerkonto fehlt).")
+    ).toBeTruthy();
+    expect(screen.getByText("Ein Album dieser Gruppe hat weniger als zwei Personen.")).toBeTruthy();
+  });
+
+  it("verwirft eine getroffene Wahl, sobald sich der Name aendert", async () => {
+    vorschauMock.mockResolvedValue(GRUPPE_MEHRDEUTIG);
+    const { letzteBereitschaft, neuZeichnen } = zeichne("Testalbum");
+    await waitFor(() => expect(screen.getByText("Person Eins")).toBeTruthy());
+    const radioEins = screen
+      .getByText("Person Eins")
+      .closest("label")
+      ?.querySelector('input[type="radio"]') as HTMLInputElement;
+    fireEvent.click(radioEins);
+    await waitFor(() => expect(letzteBereitschaft("Testalbum").bereit).toBe(true));
+
+    vorschauMock.mockResolvedValue(GRUPPE); // ein neuer Name trifft eindeutig
+    neuZeichnen("Anderer Name");
+
+    // Sofort unbereit fuer den neuen Namen — nicht mit der alten Wahl
+    // "durchgereicht".
+    expect(letzteBereitschaft("Anderer Name").bereit).toBe(false);
+    await waitFor(() => expect(letzteBereitschaft("Anderer Name").bereit).toBe(true));
+    // Und die neue, eindeutige Antwort traegt ihre EIGENE Gruppe, nicht die
+    // alte Wahl aus der Mehrdeutigkeit.
+    expect(letzteBereitschaft("Anderer Name").gruppeId).toBe("gruppe-1");
+  });
+});
+
+describe("GruppenWahl: Markierungen beim eindeutigen Treffer (#124 B9)", () => {
+  it("zeigt owner_account_missing/too_few_people, wenn vorhanden", async () => {
+    vorschauMock.mockResolvedValue({
+      ...GRUPPE,
+      owner_account_missing: true,
+      too_few_people: true,
+    });
+    zeichne("Testalbum");
+
+    await waitFor(() => expect(screen.getByText("Person X")).toBeTruthy());
+    expect(
+      screen.getByText("Ein Album dieser Gruppe ist verwaist (Besitzerkonto fehlt).")
+    ).toBeTruthy();
+    expect(screen.getByText("Ein Album dieser Gruppe hat weniger als zwei Personen.")).toBeTruthy();
+  });
+
+  it("zeigt NICHTS zusaetzliches, wenn beide Markierungen fehlen (das Normale)", async () => {
+    zeichne("Testalbum"); // GRUPPE (Standard-Mock) traegt keine Markierungen
+
+    await waitFor(() => expect(screen.getByText("Person X")).toBeTruthy());
+    expect(screen.queryByText(/verwaist/)).toBeNull();
+    expect(screen.queryByText(/weniger als zwei/)).toBeNull();
+  });
+});
+
 describe("GruppenWahl: die Wahl und ihre Meldung", () => {
   it("setzt die Wahl zurueck, wenn die Gruppe wirklich verschwindet", async () => {
     // Die Zeile liess sich ersatzlos streichen, ohne dass ein Test rot wurde
@@ -526,6 +695,73 @@ describe("GruppenWahl: die Wahl und ihre Meldung", () => {
       expect(screen.getByText("Prüfung fehlgeschlagen — Anlegen bleibt gesperrt.")).toBeTruthy()
     );
     expect(screen.getByTestId("wahl").textContent).toBe("true");
+  });
+
+  it("setzt 'eigene Gruppe' auch zurueck, wenn die neue Mehrdeutigkeit aus dem CACHE kommt (Nacharbeit 2, Blind Sonde F5)", async () => {
+    // Der Ruecksetzer oben (Blind W-3, Nacharbeit 1) haengt am Vergleich
+    // `mehrdeutigSeitRef.current !== entprellt` — NICHT an einer echten
+    // Ladeluecke. Eine Mutation, die ihn stattdessen an eine Ladeluecke
+    // bindet (`gruppe` muss zwischendurch `undefined` gewesen sein), blieb
+    // GRUEN: Kein bisheriger Test wechselte zu einem Namen, dessen
+    // mehrdeutige Antwort React Query schon GECACHT hat und deshalb SOFORT
+    // liefert, ohne `gruppe` je kurz auf `undefined` fallen zu lassen.
+    const MEHRDEUTIG_A = {
+      status: "many" as const,
+      candidates: [
+        {
+          group_id: "gruppe-a1",
+          album_names: ["Doppelt A"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "a1",
+              person_name: "Person A1",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+      ],
+    };
+    const MEHRDEUTIG_B = {
+      status: "many" as const,
+      candidates: [
+        {
+          group_id: "gruppe-b1",
+          album_names: ["Doppelt B"],
+          person_refs: [
+            {
+              account_id: "konto-1",
+              person_id: "b1",
+              person_name: "Person B1",
+              account_name: "Konto Eins",
+              account_color: "#111111",
+            },
+          ],
+        },
+      ],
+    };
+    vorschauMock.mockImplementation(async (name: string) => {
+      if (name === "Doppelt A") return MEHRDEUTIG_A;
+      if (name === "Doppelt B") return MEHRDEUTIG_B;
+      return null;
+    });
+
+    const { neuZeichnen } = zeichneMitZustand("Doppelt B");
+    await waitFor(() => expect(screen.getByText("Person B1")).toBeTruthy());
+
+    // "Doppelt A" liegt danach im Cache.
+    neuZeichnen("Doppelt A");
+    await waitFor(() => expect(screen.getByText("Person A1")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Eigene Gruppe anlegen"));
+    await waitFor(() => expect(screen.getByTestId("wahl").textContent).toBe("true"));
+
+    // Zurueck zu "Doppelt B" — SCHON GECACHT, keine Ladeluecke.
+    neuZeichnen("Doppelt B");
+    await waitFor(() => expect(screen.getByText("Person B1")).toBeTruthy());
+
+    await waitFor(() => expect(screen.getByTestId("wahl").textContent).toBe("false"));
   });
 
   it("meldet keine Gruppe, solange die Antwort nicht zur Eingabe passt", async () => {

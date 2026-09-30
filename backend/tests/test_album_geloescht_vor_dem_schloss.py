@@ -136,14 +136,16 @@ async def test_rename_bricht_ab_wenn_album_vor_dem_schloss_geloescht_wurde(
     from services import sync_service
 
     store = _store(tmp_path)
-    owner = store.get_account("konto-1")
     aufrufe = _immich_attrappe_mit_zaehler(monkeypatch)
 
     abbild = store.get_managed_albums()[0]
     assert store.delete_managed_album("a1")
 
     with pytest.raises(errors.AppError) as exc_info:
-        await sync_service.rename_managed_album(abbild, owner, "Neu", store)
+        # Der Besitzer wird seit #117 Nachtrag NICHT mehr uebergeben, sondern
+        # innerhalb des Schlosses aus dem Store gelesen (siehe dort) —
+        # deshalb hier nur noch drei Argumente.
+        await sync_service.rename_managed_album(abbild, "Neu", store)
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.key == "err_managed_album_not_found"
@@ -334,14 +336,16 @@ async def test_auto_sync_faengt_eine_unerwartete_ausnahme_ab_und_macht_bei_den_a
     assert nach_a2 is not None and nach_a2.last_synced_at, (
         "a2 haette trotz des Fehlers bei a1 normal laufen sollen")
     assert len(fehler) == 1, f"erwartet genau einen ERROR-Aufruf, war: {fehler}"
-    assert fehler[0][1] == "Kaputt", "falsches Album im Fehlerlog benannt"
+    # Die KENNUNG, nicht der (womoeglich veraltete) Name aus der Kopie von
+    # vor der Schleife (#121 Punkt 3, #103 Punkt 4) — die Erfolgszeile logt
+    # seit #79 schon die Kennung, die Fehlerzeile tat es bis hierher nicht.
+    assert fehler[0][1] == "a1", "falsche Kennung im Fehlerlog genannt"
     assert "Immich antwortet nicht" in str(fehler[0][2])
 
 
 @pytest.mark.asyncio
 async def test_auto_sync_loop_ueberlebt_eine_ausnahme_aus_run_auto_sync(monkeypatch):
     """#101, Nacharbeit 2, Punkt 3: `_auto_sync_loop` darf an einer Ausnahme
-
     aus `_run_auto_sync` nicht sterben — sonst laeuft der taegliche Auto-Sync
     nach dem ERSTEN unerwarteten Fehler nie wieder, bis der Prozess neu
     startet, und niemand merkt es (kein Aufrufer wartet auf diese

@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -37,14 +38,22 @@ app = FastAPI(
 UNPROTECTED = {"/api/health", "/api/auth/login"}
 
 
-def _fehler_antwort(fehler: errors.AppError) -> JSONResponse:
+def _fehler_antwort(
+    fehler: errors.AppError, *, headers: dict[str, str] | None = None
+) -> JSONResponse:
     """Die Antwortform fuer Wege, die keine Ausnahme werfen koennen.
 
     Die Middleware laeuft VOR jedem Router und vor dem Exception-Handler; sie
     baut ihre Antworten selbst. Beide Wege holen die Form aus errors.antwort(),
     damit nicht einer von beiden still beim alten Format bleibt.
+
+    `headers` ist der Ausnahmefall (aktuell nur `Connection: close` bei
+    `err_length_required`, siehe `auth_middleware`) — die meisten Aufrufer
+    lassen es weg.
     """
-    return JSONResponse(status_code=fehler.status_code, content=errors.antwort(fehler))
+    return JSONResponse(
+        status_code=fehler.status_code, content=errors.antwort(fehler), headers=headers
+    )
 
 
 @app.exception_handler(errors.AppError)
@@ -58,9 +67,130 @@ async def _app_error_handler(request: Request, fehler: errors.AppError) -> JSONR
     return _fehler_antwort(fehler)
 
 
+def _feldnamen_aus_validierungsfehlern(exc: RequestValidationError) -> list[str]:
+    """Ein lesbarer Feldname je Fehler aus `exc.errors()`.
+
+    `loc` ist ein Tupel wie `("body", "group_id")` oder, bei einem
+    abgelehnten Zusatzfeld unter `extra="forbid"`, `("body", "groupId")` —
+    das erste Glied nennt nur die Quelle (Koerper/Query/Pfad), kein Feld.
+    Ein verschachteltes Modell (z. B. `SyncNamesMultiRequest.persons`) liefert
+    mehr als zwei Glieder; die werden mit "." verbunden, damit der Pfad
+    lesbar bleibt, statt nur das letzte (moeglicherweise mehrdeutige) Glied
+    zu nennen.
+    """
+    namen = []
+    for fehler in exc.errors():
+        loc = tuple(fehler.get("loc", ()))
+        rest = loc[1:] if len(loc) > 1 else loc
+        namen.append(".".join(str(teil) for teil in rest) or "?")
+    return namen
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """FastAPIs eigener Validierungsfehler in Hausform (#85 Punkt 1).
+
+    FastAPI wirft `RequestValidationError` fuer jeden fehlerhaften
+    Request-Koerper oder -Query-Parameter, BEVOR ein Router laeuft — das ist
+    keine `errors.AppError` und lief am Handler oben vorbei. Ohne diesen
+    Handler antwortete dieser Pfad mit FastAPIs eigener Form (`detail` als
+    LISTE, kein `error_key`), obwohl diese Datei zusagt: `detail` bleibt eine
+    Zeichenkette. Trifft JEDEN Validierungsfehler, nicht nur die neuen Felder
+    aus #85 — auch ein abgelehntes Zusatzfeld (`extra="forbid"`, Punkt 2)
+    laeuft hier durch, weil Pydantic es als denselben Fehlertyp meldet.
+
+    NEU (Nacharbeit 1 zu #85, KLEIN): Zwei Sonderfaelle werden VOR dem
+    generischen Pfad erkannt, weil `errors.validation_failed()` fuer beide
+    die falsche Antwort waere:
+
+      - `json_invalid` (kaputtes JSON): `loc` ist dort `("body", <Byte-
+        Position>)` — eine ZAHL, kein Feldname. Der generische Pfad zeigte
+        vorher "Ungültige oder unbekannte Angabe für: 15".
+      - GENAU EIN `value_error` mit einem BEKANNTEN Text aus einem eigenen
+        `field_validator` (`models/account.py`): Der generische Pfad kennt
+        nur den FELDNAMEN, nicht den GRUND — "Zugangsdaten in der URL" und
+        "nicht erlaubte Netzadresse" sahen beide gleich aus ("Ungültige oder
+        unbekannte Angabe für: immich_url"). `errors.EIGENE_VALIDATOR_GRUENDE`
+        bildet den bekannten `ValueError`-Text auf eine eigene, uebersetzbare
+        Meldung ab. Bei MEHR als einem Fehler oder einem unbekannten Text
+        faellt das auf den generischen Pfad zurueck — kein Absturz, nur der
+        Grund bleibt dann (wie vorher) auf den Feldnamen begrenzt.
+
+    Beide Sonderfaelle bleiben — wie jede andere Meldung — mehrsprachig
+    (`frontend/src/i18n.tsx`), keine deutsche Klartext-Ausnahme.
+    """
+    rohe_fehler = exc.errors()
+    if any(f.get("type") == "json_invalid" for f in rohe_fehler):
+        return _fehler_antwort(errors.invalid_json_body())
+    if len(rohe_fehler) == 1 and rohe_fehler[0].get("type") == "value_error":
+        grund = str((rohe_fehler[0].get("ctx") or {}).get("error", ""))
+        fabrik = errors.EIGENE_VALIDATOR_GRUENDE.get(grund)
+        if fabrik is not None:
+            return _fehler_antwort(fabrik())
+    fehler = errors.validation_failed(_feldnamen_aus_validierungsfehlern(exc))
+    return _fehler_antwort(fehler)
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if request.url.path.startswith("/api/"):
+        if "transfer-encoding" in request.headers:
+            # Nacharbeit 3 zu #85, BLOCKER: ERSETZT die Nacharbeit-2-Fassung
+            # (`elif request.headers.get("transfer-encoding"):`) — `.get()`
+            # liefert bei EINER doppelten Kopfzeile nur den ERSTEN Wert
+            # (Starlettes `Headers.__getitem__` durchsucht die rohe Liste und
+            # gibt beim ersten Treffer zurueck, siehe
+            # `starlette.datastructures.Headers`). Eine Anfrage mit
+            # `Transfer-Encoding: \r\nTransfer-Encoding: chunked\r\n` liefert
+            # also `""` — falsch in einem `if`/`elif` — und die 411 blieb aus,
+            # OBWOHL httptools (das Produktionsformat, `uvicorn[standard]`)
+            # den Koerper trotzdem als chunked rahmt: Der Zweig unten wurde
+            # gar nicht erst betreten, die Anfrage lief normal weiter (bei
+            # `/api/auth/login`, also OHNE Anmeldeprüfung davor, geradewegs in
+            # den Router). Geprueft wird deshalb nur noch die ANWESENHEIT der
+            # Kopfzeile (`in request.headers`, Starlettes `__contains__`
+            # vergleicht nur den Namen, nie den Wert) — unabhaengig davon, wie
+            # oft sie vorkommt oder ob der erste Wert leer ist.
+            #
+            # VOR dem Content-Length-Zweig, nicht danach: `Transfer-Encoding`
+            # hat laut RFC 9112 §6.3 Vorrang vor `Content-Length`, auch wenn
+            # BEIDE Kopfzeilen vorliegen und die Content-Length fuer sich
+            # genommen gueltig und unter dem Limit waere — die Middleware
+            # verlaesst sich hier absichtlich nicht auf uvicorns eigenen
+            # HTTP-Parser (der beide Kopfzeilen zusammen mit einem eigenen 400
+            # zurueckweist, gemessen mit echtem uvicorn/httptools), weil diese
+            # Pruefung unabhaengig vom verwendeten HTTP-Server gelten soll.
+            #
+            # Dieser Fix liest weiterhin GAR NICHTS vom Koerper: Eine
+            # `/api/`-Anfrage mit `Transfer-Encoding` wird SOFORT mit 411
+            # abgelehnt, noch bevor ein einziges Byte angefragt wird — der
+            # anonyme, absichtlich nie endende chunked-Koerper aus Nacharbeit
+            # 1 kann damit weiterhin keinen Speicher und keine Verbindung
+            # unbegrenzt binden.
+            #
+            # Kein Konsument dieser Anwendung sendet jemals chunked: Jeder
+            # Aufruf in `frontend/src/api/client.ts` schickt eine fertige
+            # `JSON.stringify(...)`-Zeichenkette, `fetch` setzt dafuer selbst
+            # `Content-Length`. HTTP/1.1 ohne BEIDE Kopfzeilen hat definitionsgemaess
+            # keinen Koerper (RFC 9112 §6.3) — ein `GET` ohne Koerper traegt
+            # ohnehin keinen der beiden Header und ist von dieser Pruefung
+            # nicht betroffen.
+            #
+            # VOR der Anmeldeprüfung, aber nicht WEGEN eines Vorrangs: Weil
+            # hier nichts gelesen wird, kostet die Reihenfolge nichts — ein
+            # unauthentifizierter UND ein authentifizierter chunked-Aufruf
+            # bekommen beide dieselbe sofortige 411-Antwort.
+            #
+            # `Connection: close` (Nacharbeit 3, KLEIN): Ohne diese Kopfzeile
+            # bleibt die Verbindung offen, solange der Client weiter Bytes
+            # nachschiebt (Keep-Alive) — der Client bekommt zwar die 411,
+            # koennte die Verbindung aber beliebig lange halten. uvicorns
+            # httptools-Protokoll schliesst nach dem Senden dieser Antwort,
+            # sobald es `connection: close` in den Antwort-Kopfzeilen sieht
+            # (`uvicorn/protocols/http/httptools_impl.py`).
+            return _fehler_antwort(errors.length_required(), headers={"Connection": "close"})
         content_length = request.headers.get("content-length")
         if content_length:
             try:
@@ -119,6 +249,19 @@ async def _run_auto_sync(app_state) -> None:
     Entscheidung des Hauptagenten, nicht Teil dieses Owner-Entscheids und
     nicht Gegenstand dieses Skips hier. Dieser Skip hier betrifft
     ausschliesslich den naechtlichen Auto-Sync.
+
+    PRAEZISIERT (Nacharbeit 1, #117/#121/#103, Fund „KLEIN"): „Verwaiste
+    Alben werden uebersprungen" gilt nur fuer Alben, die schon VOR diesem
+    Lauf verwaist waren — `lebende_konten` ist eine Momentaufnahme direkt zu
+    Beginn dieser Funktion. Ein Album, dessen Besitzer WAEHREND dieses Laufs
+    geloescht wird (waehrend ein FRUEHERES Album in der Schleife noch
+    abgeglichen wird), steht zu diesem Zeitpunkt noch in `albums` und wird
+    ganz normal an `refresh_managed_album` uebergeben — es entsteht dafuer
+    GENAU EIN `log_owner_account_missing`-Eintrag fuer diesen Lauf (aus
+    `_refresh_managed_album_unlocked`'s eigenem, frischen Besitzer-Check),
+    kein taeglich wiederkehrender: Der naechste Lauf sieht das Konto beim
+    ERNEUTEN Aufbau von `lebende_konten` schon als tot und ueberspringt das
+    Album dann regulaer ueber den Weg oben.
     """
     from services.sync_service import refresh_managed_album
     store = app_state.store
@@ -141,7 +284,13 @@ async def _run_auto_sync(app_state) -> None:
             # sein — die Liste wurde EINMAL vor der Schleife gelesen.
             logger.info("Auto-sync: album %s done (%d log entries)", album.id, len(logs))
         except errors.AppError as exc:
-            if exc.status_code == 404:
+            # #121/#103 Punkt 3/4: Vorher `exc.status_code == 404` — das trifft
+            # zufaellig auch auf ANDERE Fehlerarten zu, die denselben
+            # Statuscode tragen (z. B. `err_owner_account_not_found`), auch
+            # wenn `refresh_managed_album` diesen konkreten Weg heute nicht
+            # geht. Die Fehlerart entscheidet, nicht der Statuscode: Nur ein
+            # zwischendurch entferntes Album ist kein Fehler des Auto-Syncs.
+            if exc.key == "err_managed_album_not_found":
                 # #101, Nacharbeit 2: Ein Album, das zwischen dem Lesen der
                 # Liste und dieser Runde entfernt wurde (`refresh_managed_
                 # album` wirft dann `errors.managed_album_not_found()`), ist
@@ -150,9 +299,13 @@ async def _run_auto_sync(app_state) -> None:
                 # KENNUNG loggen, nicht `album.album_name`.
                 logger.info("Auto-sync: album %s removed, skipped", album.id)
             else:
-                logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
+                # Die Kennung, nicht der (womoeglich veraltete) Name aus der
+                # Kopie von vor der Schleife — dieselbe Begruendung wie oben,
+                # bisher aber nur fuer die Erfolgszeile umgesetzt (#121 Punkt
+                # 3, #103 Punkt 4).
+                logger.error("Auto-sync: album '%s' failed: %s", album.id, exc)
         except Exception as exc:
-            logger.error("Auto-sync: album '%s' failed: %s", album.album_name, exc)
+            logger.error("Auto-sync: album '%s' failed: %s", album.id, exc)
 
 
 async def _auto_sync_loop(app_state) -> None:
@@ -208,6 +361,30 @@ async def startup():
     # Backfill user_ids for accounts added before this feature (runs in background)
     asyncio.create_task(_backfill_user_ids(app.state.store, app.state.client_pool))
     asyncio.create_task(_auto_sync_loop(app.state))
+    # Genau EIN verzoegerter zweiter Aufraeumdurchlauf fuer liegengebliebene
+    # Temp-Dateien (siehe `ConfigStore.zweiter_aufraeum_durchlauf`): Der
+    # Start-Scan meldet einen zu jungen Rest nur, entfernt ihn aber nicht —
+    # dieser Durchlauf holt genau den Fall spaeter, in DERSELBEN laufenden
+    # Instanz, statt auf den naechsten vollen Neustart zu warten. Referenz auf
+    # `app.state`, damit `shutdown` unten die Aufgabe sauber abbrechen kann.
+    app.state.zweiter_aufraeum_task = asyncio.create_task(
+        app.state.store.zweiter_aufraeum_durchlauf()
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    # Sauberer Abbruch des zweiten Aufraeumdurchlaufs (siehe `startup` oben):
+    # Ein Fehler oder eine haengende Aufgabe hier darf das Herunterfahren
+    # nicht verzoegern oder mit einer Ausnahme quittieren — `CancelledError`
+    # aus dem `await` ist der ERWARTETE, nicht der Fehler-Fall.
+    task = getattr(app.state, "zweiter_aufraeum_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 # ------------------------------------------------------------------
@@ -224,9 +401,16 @@ app.include_router(auth.router)
 
 @app.get("/api/health")
 async def health():
+    # #68: `commit` schliesst die Luecke, die `version` allein laesst — ein
+    # Commit NACH dem Tag ohne Versionsbump meldet weiterhin die alte,
+    # getaggte Nummer. Der Rueckstands-Check kann so Commit gegen Commit
+    # vergleichen statt Version gegen Version (docs/betrieb/erreichbarkeit.md).
+    # `settings.git_sha` bleibt "unknown", wenn das Docker-Build-Argument
+    # `GIT_SHA` fehlte — kein Absturz, keine erfundene Zahl.
     return {
         "status": "ok",
         "version": APP_VERSION,
+        "commit": settings.git_sha,
     }
 
 
