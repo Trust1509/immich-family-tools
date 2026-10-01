@@ -14,7 +14,7 @@ from services.config_store import ConfigStore
 from services.immich_client import ClientPool
 from services.match_cache import MatchCache
 from services.thumbnail_cache import ThumbnailCache
-from routers import accounts, people, faces, albums, auth
+from routers import accounts, people, people_links, faces, albums, auth
 import errors
 from services.auth_service import verify_session
 from version import APP_VERSION
@@ -393,6 +393,7 @@ async def shutdown():
 
 app.include_router(accounts.router)
 app.include_router(people.router)
+app.include_router(people_links.router)
 app.include_router(faces.router)
 app.include_router(albums.router)
 app.include_router(auth.router)

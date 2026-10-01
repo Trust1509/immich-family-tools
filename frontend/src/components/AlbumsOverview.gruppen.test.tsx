@@ -59,10 +59,11 @@ const ALBEN = [
   },
 ];
 
-const { albenMock, autoSyncGet, refreshMock } = vi.hoisted(() => ({
+const { albenMock, autoSyncGet, refreshMock, renameMock } = vi.hoisted(() => ({
   albenMock: vi.fn(),
   autoSyncGet: vi.fn(),
   refreshMock: vi.fn(),
+  renameMock: vi.fn(),
 }));
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -70,7 +71,12 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     api: {
-      sync: { albums: albenMock, refreshAlbum: refreshMock, deleteAlbum: vi.fn() },
+      sync: {
+        albums: albenMock,
+        refreshAlbum: refreshMock,
+        deleteAlbum: vi.fn(),
+        renameAlbum: renameMock,
+      },
       autoSync: { get: autoSyncGet, set: vi.fn() },
     },
   };
@@ -159,6 +165,110 @@ describe("AlbumsOverview", () => {
     } finally {
       console.error = echt;
     }
+  });
+});
+
+describe("AlbumsOverview: bedingte Regeln", () => {
+  it("erlaubt Umbenennen der gesunden Regelkarte und sperrt nur die verwaiste", async () => {
+    renameMock.mockResolvedValue([]);
+    albenMock.mockResolvedValue([
+      ALBEN[0],
+      {
+        ...ALBEN[0],
+        id: "regel-verwaist",
+        minimum_person_count: 2,
+        condition_person_count: 2,
+        owner_account_missing: true,
+      },
+    ]);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(2));
+    const renameButtons = screen.getAllByRole("button", { name: /Album umbenennen/i });
+    expect(renameButtons).toHaveLength(2);
+    // #123: Ein verwaistes Geschwisteralbum sperrt die gesunde Karte nicht.
+    expect((renameButtons[0] as HTMLButtonElement).disabled).toBe(false);
+    expect((renameButtons[1] as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(renameButtons[0]);
+    const field = screen.getByRole("textbox", { name: /Album umbenennen/i });
+    fireEvent.change(field, { target: { value: "Neuer Name" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(renameMock).toHaveBeenCalledWith("album-eins", "Neuer Name"));
+    expect(renameMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("trennt normale und inkompatible bedingte Alben trotz gleicher Gruppenkennung", async () => {
+    const album = (id: string, personId: string, personName: string) => ({
+      ...ALBEN[0],
+      id,
+      person_refs: [{ ...ALBEN[0].person_refs[0], person_id: personId, person_name: personName }],
+    });
+    albenMock.mockResolvedValue([
+      album("normal-a", "person-a", "Person A"),
+      album("normal-b", "person-b", "Person B"),
+      {
+        ...album("regel-zwei", "person-c", "Person C"),
+        minimum_person_count: 2,
+        condition_person_count: 2,
+      },
+      {
+        ...album("regel-drei", "person-d", "Person D"),
+        minimum_person_count: 2,
+        condition_person_count: 3,
+      },
+      {
+        ...album("link-e", "person-e", "Person E"),
+        minimum_person_count: 1,
+        linked_person_ids: ["identitaet-e"],
+      },
+      {
+        ...album("link-f", "person-f", "Person F"),
+        minimum_person_count: 1,
+        linked_person_ids: ["identitaet-f"],
+      },
+    ]);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <LanguageProvider>
+          <AlbumsOverview />
+        </LanguageProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getAllByText("Testalbum")).toHaveLength(5));
+    const normalCard = screen.getByText("Person A").closest(".card");
+    const twoCard = screen.getByText("Person C").closest(".card");
+    const threeCard = screen.getByText("Person D").closest(".card");
+    const linkedCard = screen.getByText("Person E").closest(".card");
+    expect(normalCard?.contains(screen.getByText("Person B"))).toBe(true);
+    expect(normalCard?.textContent).not.toContain("Mindestens 2");
+    expect(twoCard?.textContent).toContain("Mindestens 2 von 2");
+    expect(twoCard).not.toBe(threeCard);
+    expect(threeCard?.textContent).toContain("Mindestens 2 von 3");
+    expect(linkedCard).not.toBe(screen.getByText("Person F").closest(".card"));
+
+    fireEvent.click(screen.getByText("Alle synchronisieren"));
+    await waitFor(() => expect(screen.getByText("Ergebnis fuer link-f")).toBeTruthy());
+    expect(normalCard?.textContent).toContain("Ergebnis fuer normal-a");
+    expect(normalCard?.textContent).toContain("Ergebnis fuer normal-b");
+    expect(twoCard?.textContent).toContain("Ergebnis fuer regel-zwei");
+    expect(twoCard?.textContent).not.toContain("Ergebnis fuer regel-drei");
+    expect(threeCard?.textContent).toContain("Ergebnis fuer regel-drei");
+    expect(linkedCard?.textContent).toContain("Ergebnis fuer link-e");
+    expect(linkedCard?.textContent).not.toContain("Ergebnis fuer link-f");
   });
 });
 

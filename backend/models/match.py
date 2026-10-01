@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Callable, Optional
 from enum import Enum
 
@@ -57,11 +57,23 @@ class ManagedAlbum(BaseModel):
     group_id: str = Field(min_length=1)
     owner_account_id: str        # account that owns the album
     person_refs: list[dict]      # [{"account_id", "person_id", "person_name", "account_name", "account_color"}]
+    minimum_person_count: int = 1
+    linked_person_ids: list[str] = Field(default_factory=list)
+    condition_person_count: int = 0
     linked_match_ids: list[str] = Field(default_factory=list)
     created_at: str
     last_synced_at: Optional[str] = None
     total_assets: int = 0
     status: str = "active"  # pending | active | partial
+
+    @model_validator(mode="after")
+    def fill_legacy_condition_count(self):
+        if not self.condition_person_count:
+            self.condition_person_count = len({
+                (ref.get("account_id"), ref.get("person_id"))
+                for ref in self.person_refs
+            })
+        return self
 
 
 class ManagedAlbumOut(ManagedAlbum):
@@ -117,6 +129,28 @@ class MultiSyncPersonEntry(BaseModel):
 
     account_id: str
     person_id: str
+
+
+class LinkedPerson(BaseModel):
+    """One logical person represented by a face profile in several accounts."""
+    id: str
+    display_name: str
+    person_refs: list[PersonRef]
+    created_at: str
+
+
+class LinkedPersonCreate(BaseModel):
+    display_name: Optional[str] = None
+    persons: list[MultiSyncPersonEntry]
+
+
+class ConditionalAlbumRequest(BaseModel):
+    album_name: Optional[str] = None
+    existing_album_id: Optional[str] = None
+    owner_account_id: str
+    persons: list[MultiSyncPersonEntry] = Field(default_factory=list)
+    linked_person_ids: list[str] = Field(default_factory=list)
+    minimum_person_count: int = 1
 
 
 class SyncNamesMultiRequest(BaseModel):

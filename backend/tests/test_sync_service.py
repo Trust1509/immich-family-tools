@@ -142,6 +142,307 @@ async def test_album_is_shared_only_with_participants(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_album_sharing_deduplicates_accounts_and_immich_users():
+    shared_entries: list[dict] = []
+
+    class Client:
+        async def get_album_user_ids(self, _album_id):
+            return set()
+
+        async def share_album_with_users(self, _album_id, entries):
+            shared_entries.extend(entries)
+
+    first = account("first")
+    alias = account("alias")
+    alias.user_id = first.user_id
+
+    await sync_service._share_album_if_needed(
+        Client(), "album", "Family", [first, first, alias]
+    )
+
+    assert shared_entries == [{"userId": first.user_id, "role": "editor"}]
+
+
+@pytest.mark.asyncio
+async def test_album_sharing_filters_deleted_accounts_after_fetch_before_sharing():
+    shared_entries: list[dict] = []
+    deleted = account("deleted")
+    remaining = account("remaining")
+    store = StoreDoppel()
+
+    class Client:
+        async def get_album_user_ids(self, _album_id):
+            store._geloeschte_konten.add(deleted.id)
+            return set()
+
+        async def share_album_with_users(self, _album_id, entries):
+            shared_entries.extend(entries)
+
+    await sync_service._share_album_if_needed(
+        Client(), "album", "Family", [deleted, deleted, remaining, remaining],
+        "owner", store,
+    )
+
+    assert shared_entries == [{"userId": remaining.user_id, "role": "editor"}]
+
+
+@pytest.mark.asyncio
+async def test_conditional_album_with_three_people_includes_assets_seen_for_at_least_two(monkeypatch):
+    created_assets: list[str] = []
+    saved: list[ManagedAlbum] = []
+    assets_by_person = {
+        "p1": ["together-12", "together-123", "only-1"],
+        "p2": ["together-12", "together-123", "only-2"],
+        "p3": ["together-123", "only-3"],
+    }
+
+    class Client:
+        def __init__(self, *_):
+            pass
+
+        async def get_person_assets(self, person_id):
+            return [{"id": asset_id} for asset_id in assets_by_person[person_id]]
+
+        async def create_album(self, _name, asset_ids):
+            created_assets.extend(asset_ids)
+            return {"id": "album"}
+
+    async def skip_sharing(*_args):
+        return []
+
+    class Store:
+        def add_managed_album(self, album):
+            saved.append(album)
+
+    owner = account("owner")
+    refs = [
+        {"account_id": owner.id, "person_id": "p1"},
+        {"account_id": owner.id, "person_id": "p2"},
+        {"account_id": owner.id, "person_id": "p3"},
+    ]
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
+
+    managed, _ = await sync_service.create_shared_album(
+        "conditional", owner, [owner], refs, "Family", Store(),
+        group_id="gruppe-family", minimum_person_count=2,
+    )
+
+    assert created_assets == ["together-12", "together-123"]
+    assert managed is saved[0]
+    assert managed.minimum_person_count == 2
+    assert managed.total_assets == 2
+
+
+@pytest.mark.asyncio
+async def test_conditional_threshold_skips_account_with_too_few_distinct_people(monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    created_assets: list[str] = []
+
+    class Client:
+        def __init__(self, *_):
+            pass
+
+        async def get_assets_matching_people(self, person_ids, minimum):
+            calls.append(tuple(person_ids))
+            assert minimum == 2
+            assert person_ids == ["owner-1", "owner-2"]
+            return [{"id": "shared"}]
+
+        async def create_album(self, _name, asset_ids):
+            created_assets.extend(asset_ids)
+            return {"id": "album"}
+
+    async def skip_sharing(*_args):
+        return []
+
+    class Store:
+        def add_managed_album(self, album):
+            self.album = album
+
+    owner, other = account("owner"), account("other")
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
+
+    managed, logs = await sync_service.create_shared_album(
+        "conditional", owner, [owner, other], [
+            {"account_id": owner.id, "person_id": "owner-1"},
+            {"account_id": owner.id, "person_id": "owner-2"},
+            {"account_id": other.id, "person_id": "other-1"},
+        ], "Family", Store(), group_id="group-family", minimum_person_count=2,
+    )
+
+    assert calls == [("owner-1", "owner-2")]
+    assert created_assets == ["shared"]
+    assert managed.total_assets == 1
+    assert all(log.status == "success" for log in logs)
+
+
+@pytest.mark.asyncio
+async def test_conditional_threshold_skips_duplicate_person_ids_without_client_call():
+    class Client:
+        async def get_assets_matching_people(self, *_args):
+            raise AssertionError("impossible threshold must not query Immich")
+
+    assert await sync_service._get_qualifying_asset_ids(Client(), ["p1", "p1"], 2) == []
+
+
+@pytest.mark.asyncio
+async def test_conditional_album_does_not_create_empty_album_when_person_search_fails(monkeypatch):
+    create_calls: list[str] = []
+
+    class Client:
+        def __init__(self, *_):
+            pass
+
+        async def get_person_assets(self, person_id):
+            if person_id == "p2":
+                raise RuntimeError("search failed")
+            return [{"id": "asset-1"}]
+
+        async def create_album(self, name, _asset_ids):
+            create_calls.append(name)
+            return {"id": "album"}
+
+    class Store:
+        def add_managed_album(self, _album):
+            raise AssertionError("failed conditional album must not be persisted")
+
+    owner = account("owner")
+    refs = [
+        {"account_id": owner.id, "person_id": "p1"},
+        {"account_id": owner.id, "person_id": "p2"},
+    ]
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+
+    managed, logs = await sync_service.create_shared_album(
+        "conditional", owner, [owner], refs, "Family", Store(),
+        group_id="gruppe-family", minimum_person_count=2,
+    )
+
+    assert managed is None
+    assert create_calls == []
+    assert len(logs) == 1
+    assert logs[0].status == "error"
+    assert logs[0].message_key == "log_album_create_failed"
+
+
+@pytest.mark.asyncio
+async def test_conditional_album_refresh_reapplies_threshold(monkeypatch):
+    add_calls: list[list[str]] = []
+    assets_by_person = {
+        "p1": ["existing", "new-shared", "only-1"],
+        "p2": ["new-shared"],
+        "p3": ["existing"],
+    }
+
+    class Client:
+        def __init__(self, *_):
+            pass
+
+        async def get_album_assets(self, _album_id):
+            return ["existing"]
+
+        async def get_album_assets_with_name(self, _album_id):
+            return "Family", ["existing"]
+
+        async def get_person_assets(self, person_id):
+            return [{"id": asset_id} for asset_id in assets_by_person[person_id]]
+
+        async def add_assets_to_album(self, _album_id, asset_ids):
+            add_calls.append(asset_ids)
+            return [{"id": asset_id, "success": True} for asset_id in asset_ids]
+
+    async def skip_sharing(*_args):
+        return []
+
+    class Store:
+        def get_managed_album(self, _album_id):
+            return managed
+
+        def get_account(self, account_id):
+            return owner if account_id == owner.id else None
+
+        def update_managed_album(self, _album):
+            pass
+
+    owner = account("owner")
+    managed = ManagedAlbum(
+        id="managed-conditional",
+        match_id="conditional",
+        album_id="album",
+        album_name="Family",
+        group_id="gruppe-family",
+        owner_account_id=owner.id,
+        person_refs=[
+            {"account_id": owner.id, "person_id": "p1"},
+            {"account_id": owner.id, "person_id": "p2"},
+            {"account_id": owner.id, "person_id": "p3"},
+        ],
+        minimum_person_count=2,
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    monkeypatch.setattr(sync_service, "_share_album_if_needed", skip_sharing)
+
+    await sync_service.refresh_managed_album(managed, [owner], Store())
+
+    assert add_calls == [["new-shared"]]
+    assert managed.total_assets == 2
+
+
+@pytest.mark.asyncio
+async def test_existing_album_applies_threshold_per_account(monkeypatch):
+    add_calls: list[list[str]] = []
+    assets = {
+        "a1": ["a-both", "a-only"], "a2": ["a-both"],
+        "b1": ["b-both"], "b2": ["b-both", "b-only"],
+    }
+
+    class Client:
+        def __init__(self, *_): pass
+        async def get_album_user_ids(self, _album_id): return set()
+        async def share_album_with_users(self, *_args): return {}
+        async def get_album_assets(self, _album_id): return []
+        async def get_person_assets(self, person_id):
+            return [{"id": item} for item in assets[person_id]]
+        async def add_assets_to_album(self, _album_id, asset_ids):
+            add_calls.append(asset_ids)
+            return [{"id": item, "success": True} for item in asset_ids]
+
+    class Store:
+        def add_managed_album(self, album): self.album = album
+
+    owner, other = account("owner"), account("other")
+    monkeypatch.setattr(sync_service, "ImmichClient", Client)
+    managed, _ = await sync_service.link_existing_album(
+        "conditional", owner, "album", "Family", [owner, other], [
+            {"account_id": owner.id, "person_id": "a1"},
+            {"account_id": owner.id, "person_id": "a2"},
+            {"account_id": other.id, "person_id": "b1"},
+            {"account_id": other.id, "person_id": "b2"},
+        ], Store(), group_id="gruppe-family", minimum_person_count=2,
+        linked_person_ids=["l1", "l2"], condition_person_count=2,
+    )
+    assert add_calls == [["a-both"], ["b-both"]]
+    assert managed.minimum_person_count == 2
+    assert managed.linked_person_ids == ["l1", "l2"]
+    assert managed.condition_person_count == 2
+
+
+def test_legacy_managed_album_derives_condition_person_count():
+    managed = ManagedAlbum(
+        id="legacy", match_id="match", album_id="album", album_name="Legacy",
+        group_id="gruppe-legacy",
+        owner_account_id="owner", person_refs=[
+            {"account_id": "owner", "person_id": "p1"},
+            {"account_id": "owner", "person_id": "p2"},
+        ], created_at="2026-01-01T00:00:00+00:00",
+    )
+    assert managed.condition_person_count == 2
+
+
+@pytest.mark.asyncio
 async def test_refresh_does_not_readd_assets_already_in_the_album(monkeypatch):
     add_calls: list[list[str]] = []
 

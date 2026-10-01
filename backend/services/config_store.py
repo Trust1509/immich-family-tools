@@ -22,7 +22,7 @@ from typing import Optional
 from pydantic import ValidationError
 
 from models.account import Account, AccountCreate
-from models.match import ManagedAlbum, SyncLogEntry
+from models.match import LinkedPerson, ManagedAlbum, MultiSyncPersonEntry, PersonRef, SyncLogEntry
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +256,7 @@ class ConfigStore:
             "dismissed_match_ids": [],
             "sync_log": [],
             "managed_albums": [],
+            "linked_people": [],
         }
         self._load()
 
@@ -281,6 +282,36 @@ class ConfigStore:
             ConfigStore.pair_match_id(a, b)
             for a, b in combinations(ids, 2)
         ]
+
+    def _album_linked_match_ids(self, album: ManagedAlbum | dict) -> list[str]:
+        """Return identity-match IDs without pairing unrelated conditional subjects."""
+        raw = album.model_dump() if hasattr(album, "model_dump") else album
+        if not str(raw.get("match_id", "")).startswith("conditional_"):
+            return self.compute_linked_match_ids(raw.get("person_refs", []))
+
+        album_keys = {
+            (ref.get("account_id"), ref.get("person_id"))
+            for ref in raw.get("person_refs", [])
+        }
+        match_ids: list[str] = []
+        for linked_id in raw.get("linked_person_ids", []):
+            linked = next(
+                (
+                    item
+                    for item in self._data.get("linked_people", [])
+                    if item.get("id") == linked_id
+                ),
+                None,
+            )
+            if not linked:
+                continue
+            refs = [
+                ref
+                for ref in linked.get("person_refs", [])
+                if (ref.get("account_id"), ref.get("person_id")) in album_keys
+            ]
+            match_ids.extend(self.compute_linked_match_ids(refs))
+        return list(dict.fromkeys(match_ids))
 
     # ------------------------------------------------------------------
     # Persistence
@@ -588,6 +619,7 @@ class ConfigStore:
                 if not isinstance(self._data, dict) or not isinstance(self._data.get("accounts", {}), dict):
                     raise ValueError("invalid configuration schema")
                 self._data.setdefault("managed_albums", [])
+                self._data.setdefault("linked_people", [])
                 logger.info("Config loaded from %s", self._path)
                 # ERST NACH erfolgreichem Parsen (siehe `_ziehe_eigene_
                 # rechte_an`s eigene Begruendung): Eine Konfiguration, die
@@ -843,6 +875,7 @@ class ConfigStore:
         self._data.setdefault("synced_name_match_ids", [])
         self._data.setdefault("sync_log", [])
         self._data.setdefault("auto_sync", {"enabled": False, "time": "01:00"})
+        self._data.setdefault("linked_people", [])
 
         for album in albums:
             album_name = album.get("album_name", "")
@@ -875,9 +908,18 @@ class ConfigStore:
                     changed = True
 
             # Recompute linked_match_ids — always authoritative
-            computed = self.compute_linked_match_ids(album.get("person_refs", []))
+            computed = self._album_linked_match_ids(album)
             if set(album.get("linked_match_ids", [])) != set(computed):
                 album["linked_match_ids"] = computed
+                changed = True
+            if "linked_person_ids" not in album:
+                album["linked_person_ids"] = []
+                changed = True
+            if not album.get("condition_person_count"):
+                album["condition_person_count"] = len({
+                    (ref.get("account_id"), ref.get("person_id"))
+                    for ref in album.get("person_refs", [])
+                })
                 changed = True
 
         if self._backfill_group_ids(albums):
@@ -1625,6 +1667,23 @@ class ConfigStore:
             for ref in a.get("person_refs", [])
         )
 
+        # Linked identities lose dead account profiles as well. Keep this
+        # synchronous so album writers cannot observe partially pruned links.
+        linked_people = self._data.get("linked_people", [])
+        eigene_reste = eigene_reste or any(
+            ref.get("account_id") == account_id
+            for link in linked_people
+            for ref in link.get("person_refs", [])
+        )
+        retained_links = []
+        for link in linked_people:
+            retained_refs = self._ohne_tote_konten(link.get("person_refs", []))
+            if len({ref.get("account_id") for ref in retained_refs}) >= 2:
+                retained_links.append({**link, "person_refs": retained_refs})
+        if retained_links != linked_people:
+            self._data["linked_people"] = retained_links
+            self._save()
+
         lebende_konten = set(self._data["accounts"].keys())
         betroffene_alben = [
             a["id"] for a in self._data.get("managed_albums", [])
@@ -1699,6 +1758,121 @@ class ConfigStore:
                 # jedes tote Konto, nicht nur `account_id`.
                 self.update_managed_album(frisches)
         return existierte or eigene_reste
+
+    # ------------------------------------------------------------------
+    # Linked people
+    # ------------------------------------------------------------------
+
+    def get_linked_people(self) -> list[LinkedPerson]:
+        return [LinkedPerson(**item) for item in self._data.get("linked_people", [])]
+
+    def get_linked_person(self, linked_person_id: str) -> Optional[LinkedPerson]:
+        return next((item for item in self.get_linked_people() if item.id == linked_person_id), None)
+
+    def linked_person_conflicts(
+        self,
+        person_refs: list[MultiSyncPersonEntry | dict],
+    ) -> bool:
+        """Return whether refs would merge incompatible linked identities."""
+        keys = {
+            (
+                raw.account_id if hasattr(raw, "account_id") else raw["account_id"],
+                raw.person_id if hasattr(raw, "person_id") else raw["person_id"],
+            )
+            for raw in person_refs
+        }
+        overlapping = [
+            link for link in self.get_linked_people()
+            if keys & {(ref.account_id, ref.person_id) for ref in link.person_refs}
+        ]
+        if len(overlapping) > 1:
+            return True
+        if not overlapping:
+            return False
+        by_account = {
+            ref.account_id: ref.person_id for ref in overlapping[0].person_refs
+        }
+        return any(
+            account_id in by_account and by_account[account_id] != person_id
+            for account_id, person_id in keys
+        )
+
+    def ensure_linked_person(
+        self,
+        display_name: str,
+        person_refs: list[MultiSyncPersonEntry | dict],
+    ) -> LinkedPerson:
+        """Create, reuse, or compatibly extend a cross-account identity."""
+        if self.linked_person_conflicts(person_refs):
+            raise ValueError("profiles belong to incompatible linked people")
+
+        normalized: list[PersonRef] = []
+        for raw in person_refs:
+            payload = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
+            account = self.get_account(payload["account_id"])
+            normalized.append(PersonRef(
+                account_id=payload["account_id"],
+                person_id=payload["person_id"],
+                person_name=payload.get("person_name") or display_name,
+                account_name=payload.get("account_name") or (account.name if account else ""),
+                account_color=payload.get("account_color") or (account.color if account else "#6366f1"),
+            ))
+        keys = {(ref.account_id, ref.person_id) for ref in normalized}
+        links = self.get_linked_people()
+        overlapping = [
+            link for link in links
+            if keys & {(ref.account_id, ref.person_id) for ref in link.person_refs}
+        ]
+
+        if overlapping:
+            link = overlapping[0]
+            merged = list(link.person_refs)
+            existing_keys = {(ref.account_id, ref.person_id) for ref in merged}
+            changed = False
+            normalized_name = display_name.strip()
+            if normalized_name and normalized_name != link.display_name:
+                link.display_name = normalized_name
+                changed = True
+            for ref in normalized:
+                if (ref.account_id, ref.person_id) not in existing_keys:
+                    merged.append(ref)
+                    existing_keys.add((ref.account_id, ref.person_id))
+                    changed = True
+            if changed:
+                link.person_refs = merged
+                self.update_linked_person(link)
+            return link
+
+        if len({ref.account_id for ref in normalized}) < 2:
+            raise ValueError("linked people require profiles from at least two accounts")
+        if len({ref.account_id for ref in normalized}) != len(normalized):
+            raise ValueError("linked people allow one profile per account")
+        linked = LinkedPerson(
+            id=str(uuid.uuid4()),
+            display_name=display_name,
+            person_refs=normalized,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._data.setdefault("linked_people", []).append(linked.model_dump())
+        self._save()
+        return linked
+
+    def update_linked_person(self, linked: LinkedPerson) -> None:
+        items = self._data.setdefault("linked_people", [])
+        for index, item in enumerate(items):
+            if item.get("id") == linked.id:
+                items[index] = linked.model_dump()
+                self._save()
+                return
+
+    def delete_linked_person(self, linked_person_id: str) -> bool:
+        items = self._data.get("linked_people", [])
+        retained = [item for item in items if item.get("id") != linked_person_id]
+        if len(retained) == len(items):
+            return False
+        self._data["linked_people"] = retained
+        self._save()
+        return True
 
     # ------------------------------------------------------------------
     # Dismissed matches
@@ -1934,7 +2108,7 @@ class ConfigStore:
         # unberuehrt — diese Zeile filtert nur das Ergebnis vor dem Speichern.
         album.person_refs = self._ohne_tote_konten(album.person_refs)
         # Always compute linked_match_ids before saving
-        album.linked_match_ids = self.compute_linked_match_ids(album.person_refs)
+        album.linked_match_ids = self._album_linked_match_ids(album)
         albums = self._data.setdefault("managed_albums", [])
         albums.append(album.model_dump())
         self._save()
@@ -1973,7 +2147,7 @@ class ConfigStore:
         """
         album.person_refs = self._ohne_tote_konten(album.person_refs)
         # Always recompute linked_match_ids before saving
-        album.linked_match_ids = self.compute_linked_match_ids(album.person_refs)
+        album.linked_match_ids = self._album_linked_match_ids(album)
         albums = self._data.get("managed_albums", [])
         for i, a in enumerate(albums):
             if a["id"] == album.id:
