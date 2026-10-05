@@ -12,6 +12,8 @@ async def test_album_assets_are_loaded_across_all_search_pages():
 
     def handle(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 3, "minor": 1, "patch": 0})
         if request.method == "GET":
             return httpx.Response(200, json={"id": "album-1", "assetCount": 3})
         body = json.loads(request.read())
@@ -44,11 +46,12 @@ async def test_album_assets_are_loaded_across_all_search_pages():
     assert await client.get_album_assets("album-1") == ["asset-1", "asset-2", "asset-3"]
     assert [request.url.path for request in requests] == [
         "/api/albums/album-1",
+        "/api/server/version",
         "/api/search/metadata",
         "/api/search/metadata",
     ]
-    assert [request.method for request in requests] == ["GET", "POST", "POST"]
-    assert [json.loads(request.read())["page"] for request in requests[1:]] == [1, 3]
+    assert [request.method for request in requests] == ["GET", "GET", "POST", "POST"]
+    assert [json.loads(request.read())["page"] for request in requests[2:]] == [1, 3]
 
 
 @pytest.mark.asyncio
@@ -217,6 +220,8 @@ async def test_get_server_version_raises_on_http_error():
 @pytest.mark.asyncio
 async def test_person_assets_pagination_stops_on_a_non_numeric_next_page():
     def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 3, "minor": 1, "patch": 0})
         body = json.loads(request.read())
         if body["page"] == 1:
             return httpx.Response(
@@ -271,6 +276,8 @@ async def test_add_assets_to_album_returns_the_per_item_results():
 @pytest.mark.asyncio
 async def test_person_assets_pagination_terminates_when_the_server_repeats_a_page():
     def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 3, "minor": 1, "patch": 0})
         body = json.loads(request.read())
         if body["page"] == 1:
             return httpx.Response(
@@ -294,3 +301,119 @@ async def test_person_assets_pagination_terminates_when_the_server_repeats_a_pag
     assets = await client.get_person_assets("person-1")
 
     assert [a["id"] for a in assets] == ["asset-1"]
+
+
+@pytest.mark.asyncio
+async def test_structured_search_expresses_two_of_three_and_uses_cursor_pagination():
+    payloads: list[dict] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 3, "minor": 2, "patch": 0})
+        body = json.loads(request.read())
+        payloads.append(body)
+        if "cursor" not in body:
+            return httpx.Response(200, json={
+                "assets": {"items": [{"id": "asset-1"}], "nextCursor": "cursor-2"}
+            })
+        return httpx.Response(200, json={
+            "assets": {"items": [{"id": "asset-2"}], "nextCursor": None}
+        })
+
+    client = ImmichClient(
+        "http://immich.test", "api-key", transport=httpx.MockTransport(handle)
+    )
+
+    assets = await client.get_assets_matching_people(["a", "b", "c"], 2)
+
+    assert [asset["id"] for asset in assets] == ["asset-1", "asset-2"]
+    expected_branches = [
+        {"personIds": {"all": ["a", "b"]}},
+        {"personIds": {"all": ["a", "c"]}},
+        {"personIds": {"all": ["b", "c"]}},
+    ]
+    assert payloads[0] == {
+        "filter": {"trashedAt": {"eq": None}, "or": expected_branches},
+        "size": 1000,
+    }
+    assert payloads[1]["cursor"] == "cursor-2"
+    assert "page" not in payloads[1]
+
+
+@pytest.mark.asyncio
+async def test_structured_search_uses_any_and_all_for_boundary_thresholds():
+    filters: list[dict] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 4, "minor": 0, "patch": 0})
+        filters.append(json.loads(request.read())["filter"])
+        return httpx.Response(200, json={"assets": {"items": [], "nextCursor": None}})
+
+    client = ImmichClient(
+        "http://immich.test", "api-key", transport=httpx.MockTransport(handle)
+    )
+    await client.get_assets_matching_people(["a", "b", "c"], 1)
+    await client.get_assets_matching_people(["a", "b", "c"], 3)
+
+    assert filters == [
+        {"trashedAt": {"eq": None}, "personIds": {"any": ["a", "b", "c"]}},
+        {"trashedAt": {"eq": None}, "personIds": {"all": ["a", "b", "c"]}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_large_threshold_avoids_combinatorial_or_and_counts_structured_searches_locally():
+    filters: list[dict] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 3, "minor": 2, "patch": 0})
+        search_filter = json.loads(request.read())["filter"]
+        filters.append(search_filter)
+        person_id = search_filter["personIds"]["any"][0]
+        return httpx.Response(200, json={
+            "assets": {
+                "items": [{"id": "shared"}, {"id": f"only-{person_id}"}],
+                "nextCursor": None,
+            }
+        })
+
+    client = ImmichClient(
+        "http://immich.test", "api-key", transport=httpx.MockTransport(handle)
+    )
+    people = [f"p{index}" for index in range(10)]
+
+    assets = await client.get_assets_matching_people(people, 5)
+
+    assert [asset["id"] for asset in assets] == ["shared"]
+    assert len(filters) == 10
+    assert all("or" not in search_filter for search_filter in filters)
+
+
+@pytest.mark.asyncio
+async def test_album_inventory_uses_structured_album_filter_on_immich_3_2():
+    payloads: list[dict] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/albums/album-1":
+            return httpx.Response(200, json={"id": "album-1"})
+        if request.url.path == "/api/server/version":
+            return httpx.Response(200, json={"major": 3, "minor": 2, "patch": 0})
+        payloads.append(json.loads(request.read()))
+        return httpx.Response(200, json={
+            "assets": {"items": [{"id": "asset-1"}], "nextCursor": None}
+        })
+
+    client = ImmichClient(
+        "http://immich.test", "api-key", transport=httpx.MockTransport(handle)
+    )
+
+    assert await client.get_album_assets("album-1") == ["asset-1"]
+    assert payloads == [{
+        "filter": {
+            "trashedAt": {"eq": None},
+            "albumIds": {"any": ["album-1"]},
+        },
+        "size": 1000,
+    }]

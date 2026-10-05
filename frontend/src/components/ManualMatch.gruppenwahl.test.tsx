@@ -64,6 +64,7 @@ vi.mock("../api/client", () => ({
   api: {
     accounts: { list: kontenMock, albums: kontoAlbenMock },
     people: { byAccount: leuteMock, thumbnailUrl: () => "" },
+    personLinks: { list: vi.fn().mockResolvedValue([]) },
     sync: { namesMulti: namesMultiMock, albumGroupPreview: vorschauMock },
   },
 }));

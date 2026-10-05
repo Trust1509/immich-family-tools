@@ -1,4 +1,8 @@
 """Async Immich REST API client."""
+from collections import Counter
+from itertools import combinations
+from math import comb
+
 import httpx
 import logging
 from typing import Optional
@@ -6,6 +10,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+STRUCTURED_SEARCH_MIN_VERSION = (3, 2)
+MAX_STRUCTURED_OR_BRANCHES = 64
 
 
 class ImmichClient:
@@ -18,6 +24,7 @@ class ImmichClient:
         self.base_url = base_url.rstrip("/")
         self._headers = {"x-api-key": api_key, "Accept": "application/json"}
         self._transport = transport
+        self._structured_search_supported: Optional[bool] = None
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -160,9 +167,142 @@ class ImmichClient:
             logger.warning("search/metadata pagination stopped at the 500-page safety cap")
         return all_items
 
+    async def _supports_structured_search(self) -> bool:
+        """Return whether this server supports Immich's Search API v2 shape."""
+        if self._structured_search_supported is not None:
+            return self._structured_search_supported
+        try:
+            version = await self.get_server_version()
+            current = (int(version["major"]), int(version["minor"]))
+            self._structured_search_supported = current >= STRUCTURED_SEARCH_MIN_VERSION
+        except Exception as exc:
+            logger.warning(
+                "Could not determine Immich search API version; using legacy search: %s",
+                exc,
+            )
+            # Treat this as a transient decision for the current request. A
+            # cached client should retry version detection after connectivity
+            # recovers instead of remaining on the legacy path forever.
+            return False
+        return self._structured_search_supported
+
+    async def _search_structured_all_pages(self, search_filter: dict) -> list[dict]:
+        """Run a Search API v2 filter and follow its opaque cursor."""
+        all_items: list[dict] = []
+        cursor: Optional[str] = None
+        seen_cursors: set[str] = set()
+        for _ in range(500):
+            payload = {"filter": search_filter, "size": 1000}
+            if cursor:
+                payload["cursor"] = cursor
+            async with self._client() as c:
+                r = await c.post("/api/search/metadata", json=payload)
+                r.raise_for_status()
+                data = r.json()
+            assets = data.get("assets", {})
+            all_items.extend(assets.get("items", []))
+            next_cursor = assets.get("nextCursor")
+            if not next_cursor:
+                break
+            if not isinstance(next_cursor, str):
+                logger.warning(
+                    "search/metadata returned a non-string nextCursor (%r); stopping pagination",
+                    next_cursor,
+                )
+                break
+            if next_cursor in seen_cursors:
+                logger.warning(
+                    "search/metadata repeated nextCursor (%r); stopping pagination",
+                    next_cursor,
+                )
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        else:
+            logger.warning("structured search pagination stopped at the 500-page safety cap")
+        return all_items
+
+    @staticmethod
+    def _people_filter(person_ids: list[str], minimum_person_count: int) -> dict:
+        """Build a compact structured filter for a small N-of-M rule."""
+        base: dict = {"trashedAt": {"eq": None}}
+        if minimum_person_count == 1:
+            base["personIds"] = {"any": person_ids}
+        elif minimum_person_count == len(person_ids):
+            base["personIds"] = {"all": person_ids}
+        else:
+            base["or"] = [
+                {"personIds": {"all": list(group)}}
+                for group in combinations(person_ids, minimum_person_count)
+            ]
+        return base
+
+    async def _count_people_locally(
+        self,
+        person_ids: list[str],
+        minimum_person_count: int,
+        structured: bool,
+    ) -> list[dict]:
+        """Evaluate N-of-M with one bounded search per person."""
+        counts: Counter[str] = Counter()
+        first_asset: dict[str, dict] = {}
+        ordered_ids: list[str] = []
+        for person_id in person_ids:
+            if structured:
+                assets = await self._search_structured_all_pages(
+                    self._people_filter([person_id], 1)
+                )
+            else:
+                assets = await self._search_metadata_all_pages({"personIds": [person_id]})
+            seen_for_person: set[str] = set()
+            for asset in assets:
+                asset_id = asset["id"]
+                if asset_id in seen_for_person:
+                    continue
+                seen_for_person.add(asset_id)
+                if asset_id not in first_asset:
+                    first_asset[asset_id] = asset
+                    ordered_ids.append(asset_id)
+                counts[asset_id] += 1
+        return [
+            first_asset[asset_id]
+            for asset_id in ordered_ids
+            if counts[asset_id] >= minimum_person_count
+        ]
+
+    async def get_assets_matching_people(
+        self,
+        person_ids: list[str],
+        minimum_person_count: int,
+    ) -> list[dict]:
+        """Return assets matching an N-of-M people rule.
+
+        Immich 3.2+ evaluates compact any/all rules and small intermediate
+        thresholds server-side. Large combinatorial rules keep predictable
+        request sizes by counting one search per person locally. Immich 3.1
+        uses the same local algorithm with its legacy flat search fields.
+        """
+        distinct_ids = list(dict.fromkeys(person_ids))
+        if not distinct_ids or not 1 <= minimum_person_count <= len(distinct_ids):
+            raise ValueError("minimum_person_count must be between 1 and the person count")
+
+        structured = await self._supports_structured_search()
+        branch_count = (
+            1
+            if minimum_person_count in (1, len(distinct_ids))
+            else comb(len(distinct_ids), minimum_person_count)
+        )
+        if structured and branch_count <= MAX_STRUCTURED_OR_BRANCHES:
+            return await self._search_structured_all_pages(
+                self._people_filter(distinct_ids, minimum_person_count)
+            )
+        return await self._count_people_locally(
+            distinct_ids, minimum_person_count, structured=structured
+        )
+
     async def get_person_assets(self, person_id: str) -> list[dict]:
-        """Fetch assets belonging to a person via search/metadata (works in all recent Immich versions)."""
-        return await self._search_metadata_all_pages({"personIds": [person_id]})
+        """Fetch assets belonging to one person with the best supported search shape."""
+        return await self.get_assets_matching_people([person_id], 1)
 
     # ------------------------------------------------------------------
     # Face embeddings
@@ -253,7 +393,13 @@ class ImmichClient:
         bisher. Raises AlbumNotFoundError if deleted.
         """
         info = await self.get_album_info(album_id)
-        items = await self._search_metadata_all_pages({"albumIds": [album_id]})
+        if await self._supports_structured_search():
+            items = await self._search_structured_all_pages({
+                "trashedAt": {"eq": None},
+                "albumIds": {"any": [album_id]},
+            })
+        else:
+            items = await self._search_metadata_all_pages({"albumIds": [album_id]})
         asset_ids: list[str] = []
         seen_ids: set[str] = set()
         for asset in items:
