@@ -430,6 +430,45 @@ def _lies_bis_eof(sock: socket.socket, timeout: float) -> tuple[bytes, bool]:
         return daten, False
 
 
+def _pruefe_sofort_abgelehnt(antwort: bytes, dauer: float, eof: bool, wo: str) -> None:
+    """Die Zusicherung der doppelten-TE-Probe ist NICHT ein bestimmter
+    Statuscode, sondern: die Anfrage wird SOFORT abgelehnt, ohne dass ein
+    Byte des (nie endenden) Koerpers gelesen wird, und die Verbindung wird
+    danach geschlossen.
+
+    Welche Schicht ablehnt, haengt an `httptools` — einem transitiven Paket
+    (ueber `uvicorn[standard]`), das dieses Repo nicht festhaelt (Issue #142):
+
+      * 0.8.0 rahmt eine doppelte Transfer-Encoding-Kopfzeile, deren erster
+        Wert leer ist, als chunked; die Anfrage erreicht unsere Middleware,
+        deren Praesenzpruefung mit `411 err_length_required` antwortet.
+      * 0.9.0 weist dieselbe Kopfzeilenfolge schon im Parser ab:
+        `400 Bad Request`, Koerper "Invalid HTTP request received.", und
+        `WARNING: Invalid HTTP request received.` im Server-Log.
+
+    Beide Fassungen sind gemessen (26.10.2026, je echter uvicorn mit
+    `--http httptools`): Antwortzeit 0.000 s, `connection: close` gesetzt,
+    Verbindung geschlossen. Die 400 ist die STRENGERE Lage — abgelehnt wird
+    eine Schicht frueher, ohne dass unser Code sie sehen muss.
+
+    Dass unsere EIGENE Praesenzpruefung wirkt, haengt nicht an dieser Probe:
+    Das belegen die `TestClient`-Proben oben, die den Parser umgehen und
+    weiterhin strikt `411` verlangen, sowie Teil c) dieser Probe mit einer
+    einfachen Kopfzeile, die beide httptools-Fassungen durchlassen.
+
+    Der Rueckbau-Fall bleibt gefangen: Unter f17d104 kam auf dieselbe Anfrage
+    innerhalb von 3 s GAR KEINE Antwort (gemessen), waehrend der Koerper
+    weiterlief — das faellt sowohl ueber `dauer` als auch ueber den
+    fehlenden Statuscode auf. Ein `200` (gelesen und durchgelassen) faellt
+    ebenfalls auf.
+    """
+    erste_zeile = antwort.split(b"\r\n")[0].decode(errors="replace")
+    assert any(code in erste_zeile for code in ("400", "411")), f"{wo}: {erste_zeile}"
+    assert dauer < 3.0, f"{wo}: Antwort kam erst nach {dauer:.2f}s — Koerper wurde vermutlich gelesen"
+    assert b"connection: close" in antwort.lower(), f"{wo}: {antwort!r}"
+    assert eof, f"{wo}: Verbindung blieb trotz 'Connection: close' offen"
+
+
 def test_leere_te_kopfzeile_ohne_anmeldung_wird_ueber_praesenz_erkannt(client):
     """Nacharbeit 3 zu #85, BLOCKER (TestClient-Teil, Prueffrage 7 verlangt
     zusaetzlich echten uvicorn — siehe
@@ -588,11 +627,7 @@ def test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn(tmp_path):
         antwort, eof = _lies_bis_eof(s, 3.0)
         dauer = time.perf_counter() - t0
         s.close()
-        erste_zeile = antwort.split(b"\r\n")[0].decode()
-        assert "411" in erste_zeile, erste_zeile
-        assert dauer < 3.0, f"Antwort kam erst nach {dauer:.2f}s — Koerper wurde vermutlich gelesen"
-        assert b"connection: close" in antwort.lower(), antwort
-        assert eof, "Verbindung blieb trotz 'Connection: close' offen"
+        _pruefe_sofort_abgelehnt(antwort, dauer, eof, "a) anonym, doppelte TE")
 
         # b) Dieselbe Kopfzeilenfolge, MIT Anmeldung — Prueffrage 1/9:
         # dieselbe sofortige 411, kein Vorrang der Anmeldeprüfung noetig.
@@ -604,9 +639,11 @@ def test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn(tmp_path):
             b"Transfer-Encoding: \r\nTransfer-Encoding: chunked\r\n\r\n"
             + b"a\r\n" + b"x" * 10 + b"\r\n"
         )
-        antwort, _ = _lies_bis_eof(s, 3.0)
-        assert b"411" in antwort.split(b"\r\n", 1)[0], antwort
+        t0 = time.perf_counter()
+        antwort, eof = _lies_bis_eof(s, 3.0)
+        dauer = time.perf_counter() - t0
         s.close()
+        _pruefe_sofort_abgelehnt(antwort, dauer, eof, "b) angemeldet, doppelte TE")
 
         # c) `Transfer-Encoding:chunked` OHNE Leerzeichen nach dem
         # Doppelpunkt — die reine Anwesenheitspruefung haengt nicht an
