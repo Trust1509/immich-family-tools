@@ -430,7 +430,9 @@ def _lies_bis_eof(sock: socket.socket, timeout: float) -> tuple[bytes, bool]:
         return daten, False
 
 
-def _pruefe_sofort_abgelehnt(antwort: bytes, dauer: float, eof: bool, wo: str) -> None:
+def _pruefe_sofort_abgelehnt(
+    antwort: bytes, dauer: float, eof: bool, wo: str, *, nur_411: bool = False
+) -> None:
     """Die Zusicherung der doppelten-TE-Probe ist NICHT ein bestimmter
     Statuscode, sondern: die Anfrage wird SOFORT abgelehnt, ohne dass ein
     Byte des (nie endenden) Koerpers gelesen wird, und die Verbindung wird
@@ -463,7 +465,15 @@ def _pruefe_sofort_abgelehnt(antwort: bytes, dauer: float, eof: bool, wo: str) -
     ebenfalls auf.
     """
     erste_zeile = antwort.split(b"\r\n")[0].decode(errors="replace")
-    assert any(code in erste_zeile for code in ("400", "411")), f"{wo}: {erste_zeile}"
+    if nur_411 or "411" in erste_zeile:
+        assert "411" in erste_zeile, f"{wo}: {erste_zeile}"
+    else:
+        # Eine 400 gilt nur, wenn sie NACHWEISLICH aus dem Parser kommt.
+        # `errors.invalid_content_length()` ist ebenfalls 400 (errors.py):
+        # ein Rueckbau, der TE-Anfragen damit beantwortet, kaeme sonst hier
+        # durch (Blindpruefer, 26.10.2026).
+        assert "400" in erste_zeile, f"{wo}: {erste_zeile}"
+        assert b"Invalid HTTP request received." in antwort, f"{wo}: {antwort!r}"
     assert dauer < 3.0, f"{wo}: Antwort kam erst nach {dauer:.2f}s — Koerper wurde vermutlich gelesen"
     assert b"connection: close" in antwort.lower(), f"{wo}: {antwort!r}"
     assert eof, f"{wo}: Verbindung blieb trotz 'Connection: close' offen"
@@ -584,6 +594,16 @@ def test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn(tmp_path):
     Praesenzpruefung. Deckt in einem Lauf zugleich: Punkt 1 (Login,
     anonym+angemeldet), das KLEIN-Item "Transfer-Encoding: ohne Leerzeichen"
     und das KLEIN-Item "Connection: close".
+
+    WELCHER TEIL WAS TRAEGT, haengt an der httptools-Fassung (siehe
+    `_pruefe_sofort_abgelehnt`): Ab 0.9.0 beantwortet der Parser die Teile a)
+    und b) selbst, dann laeuft dort KEINE Zeile unseres Codes (gemessen:
+    keine Zugriffszeile im Server-Log). Das `Connection: close`-Item und die
+    "nichts gelesen"-Zusage traegt dann Teil c) — deshalb laeuft c) seit
+    26.10.2026 durch denselben Pruefsatz, nur mit striktem 411. Vorher pruefte
+    c) allein die Statuszeile, und eine Mutation, die die
+    `Connection`-Kopfzeile aus dem 411-Zweig entfernt, ueberlebte unter 0.9.0
+    die ganze Suite (Blindpruefer).
     """
     port = _freier_port_411()
     pfad = tmp_path / "accounts.json"
@@ -630,7 +650,12 @@ def test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn(tmp_path):
         _pruefe_sofort_abgelehnt(antwort, dauer, eof, "a) anonym, doppelte TE")
 
         # b) Dieselbe Kopfzeilenfolge, MIT Anmeldung — Prueffrage 1/9:
-        # dieselbe sofortige 411, kein Vorrang der Anmeldeprüfung noetig.
+        # dieselbe sofortige Ablehnung, kein Vorrang der Anmeldepruefung
+        # noetig. ACHTUNG: Diese Aussage traegt b) nur, solange der Parser die
+        # Anfrage durchlaesst (httptools 0.8.0). Ab 0.9.0 antwortet der Parser
+        # selbst, die `Authorization`-Kopfzeile kann dort gar nicht wirken —
+        # die Unabhaengigkeit von der Anmeldung belegen dann die
+        # `TestClient`-Proben oben, die den Parser umgehen.
         s = socket.create_connection(("127.0.0.1", port))
         s.sendall(
             b"POST /api/auth/login HTTP/1.1\r\nHost: x\r\n"
@@ -654,9 +679,13 @@ def test_blocker_doppelte_leere_te_kopfzeile_gegen_echten_uvicorn(tmp_path):
             b"Content-Type: application/json\r\nTransfer-Encoding:chunked\r\n\r\n"
             + b"a\r\n" + b"x" * 10 + b"\r\n"
         )
-        antwort, _ = _lies_bis_eof(s, 3.0)
-        assert b"411" in antwort.split(b"\r\n", 1)[0], antwort
+        t0 = time.perf_counter()
+        antwort, eof = _lies_bis_eof(s, 3.0)
+        dauer = time.perf_counter() - t0
         s.close()
+        _pruefe_sofort_abgelehnt(
+            antwort, dauer, eof, "c) einfache TE ohne Leerzeichen", nur_411=True
+        )
         time.sleep(0.5)
     finally:
         prozess.terminate()
