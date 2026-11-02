@@ -257,8 +257,15 @@ export const api = {
         body: JSON.stringify({ match_id: matchId, name }),
       }),
     namesMulti: (body: {
-      persons: { account_id: string; person_id: string }[];
+      persons: {
+        account_id: string;
+        person_id?: string;
+        participation?: "contributor" | "album_access_only";
+      }[];
       canonical_name: string;
+      /** `false`: keine Person in Immich umbenennen — das Album wird trotzdem
+       *  angelegt, geteilt und automatisch abgeglichen. */
+      sync_names?: boolean;
       album_name?: string;
       existing_album_id?: string;
       owner_account_id?: string;

@@ -10,9 +10,12 @@ import {
   type GruppenAntwort,
 } from "./GruppenWahl";
 
+type PersonParticipation = "contributor" | "album_access_only";
+
 interface PersonSelection {
   account_id: string;
   person_id: string;
+  participation: PersonParticipation;
 }
 
 // ── Searchable person picker ───────────────────────────────────────────────
@@ -158,7 +161,13 @@ function PersonRow({
       <select
         className="w-36 shrink-0 bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-immich-primary"
         value={selection.account_id}
-        onChange={(e) => onUpdate({ account_id: e.target.value, person_id: "" })}
+        onChange={(e) =>
+          onUpdate({
+            account_id: e.target.value,
+            person_id: "",
+            participation: selection.participation,
+          })
+        }
       >
         <option value="">{t("account_select_ph")}</option>
         {accounts.map((a) => {
@@ -177,9 +186,30 @@ function PersonRow({
         value={selection.person_id}
         onChange={(id) => onUpdate({ ...selection, person_id: id })}
         placeholder={selection.account_id ? t("extend_search_person") : t("person_select_ph")}
-        disabled={!selection.account_id}
+        disabled={!selection.account_id || selection.participation === "album_access_only"}
       />
-      {selection.person_id && (
+      <label
+        className="flex items-center gap-1.5 text-xs text-gray-400 shrink-0 cursor-pointer select-none"
+        title={t("manual_album_access_only_hint")}
+      >
+        <input
+          type="checkbox"
+          className="rounded border-immich-border"
+          checked={selection.participation === "album_access_only"}
+          onChange={(e) =>
+            onUpdate({
+              ...selection,
+              participation: e.target.checked ? "album_access_only" : "contributor",
+              person_id: e.target.checked ? "" : selection.person_id,
+            })
+          }
+          disabled={!selection.account_id}
+        />
+        <span className="hidden sm:inline max-w-[9rem] leading-tight">
+          {t("manual_album_access_only")}
+        </span>
+      </label>
+      {selection.person_id && selection.participation === "contributor" && (
         <img
           src={api.people.thumbnailUrl(selection.account_id, selection.person_id)}
           alt=""
@@ -367,10 +397,11 @@ export default function ManualMatch() {
   });
 
   const [selections, setSelections] = useState<PersonSelection[]>([
-    { account_id: "", person_id: "" },
-    { account_id: "", person_id: "" },
+    { account_id: "", person_id: "", participation: "contributor" },
+    { account_id: "", person_id: "", participation: "contributor" },
   ]);
   const [canonicalName, setCanonicalName] = useState("");
+  const [syncNames, setSyncNames] = useState(true);
   const [albumMode, setAlbumMode] = useState<"new" | "existing">("new");
   const [albumName, setAlbumName] = useState("");
   const [eigeneGruppe, setEigeneGruppe] = useState(false);
@@ -420,8 +451,14 @@ export default function ManualMatch() {
   const mutation = useMutation({
     mutationFn: () =>
       api.sync.namesMulti({
-        persons: selections.map((s) => ({ account_id: s.account_id, person_id: s.person_id })),
+        persons: selections.map((s) => ({
+          account_id: s.account_id,
+          ...(s.participation === "album_access_only"
+            ? { participation: "album_access_only" as const }
+            : { person_id: s.person_id, participation: "contributor" as const }),
+        })),
         canonical_name: canonicalName.trim(),
+        sync_names: syncNames,
         owner_account_id: effectiveOwner || undefined,
         // #119: Ohne Treffer wird das ANGEZEIGTE "keine Gruppe" ausdruecklich
         // mitgeschickt (`expected_no_group`) — der Server prueft das unter
@@ -485,7 +522,11 @@ export default function ManualMatch() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["album-group"] }),
   });
 
-  const addRow = () => setSelections((prev) => [...prev, { account_id: "", person_id: "" }]);
+  const addRow = () =>
+    setSelections((prev) => [
+      ...prev,
+      { account_id: "", person_id: "", participation: "contributor" },
+    ]);
   const updateRow = (i: number, s: PersonSelection) =>
     setSelections((prev) => prev.map((x, idx) => (idx === i ? s : x)));
   const removeRow = (i: number) => setSelections((prev) => prev.filter((_, idx) => idx !== i));
@@ -502,10 +543,14 @@ export default function ManualMatch() {
         // `bestehendesAlbumGueltig` statt einer zweiten, hier lokalen Kopie.
         bestehendesAlbumGueltig(existingAlbumId, wirksamerName);
 
+  const rowComplete = (s: PersonSelection) =>
+    !!s.account_id && (s.participation === "album_access_only" || !!s.person_id);
+
   const isValid =
     canonicalName.trim().length > 0 &&
     selections.length >= 2 &&
-    selections.every((s) => s.account_id && s.person_id) &&
+    selections.every(rowComplete) &&
+    selections.some((s) => s.participation === "contributor" && s.person_id) &&
     albumReady &&
     gruppenBereit;
 
@@ -564,6 +609,18 @@ export default function ManualMatch() {
           }}
           className="w-full bg-immich-surface border border-immich-border rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-immich-primary"
         />
+        <label className="flex items-start gap-2 pt-1 text-sm text-gray-300 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5 rounded border-immich-border"
+            checked={syncNames}
+            onChange={(e) => setSyncNames(e.target.checked)}
+          />
+          <span>
+            {t("manual_sync_names")}
+            <span className="block text-xs text-gray-500">{t("manual_sync_names_hint")}</span>
+          </span>
+        </label>
       </div>
 
       {/* Album */}

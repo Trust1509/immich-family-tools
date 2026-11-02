@@ -153,6 +153,14 @@ def min_two_people() -> AppError:
     return AppError(422, "err_min_two_people", "Mindestens 2 Personen erforderlich")
 
 
+def min_one_contributor() -> AppError:
+    return AppError(
+        422,
+        "err_min_one_contributor",
+        "Mindestens ein Konto muss Fotos beisteuern (nicht nur Album-Zugang)",
+    )
+
+
 def not_undoable() -> AppError:
     return AppError(
         422, "err_not_undoable", "Aktion kann nicht rückgängig gemacht werden"
@@ -533,10 +541,19 @@ def invalid_url_scheme() -> AppError:
     return AppError(422, "err_invalid_url_scheme", "Die Immich-URL muss mit http:// oder https:// beginnen")
 
 
+def contributor_person_required() -> AppError:
+    return AppError(
+        422,
+        "err_contributor_person_required",
+        "Für Konten, die Fotos beisteuern, muss eine Person gewählt sein",
+    )
+
+
 EIGENE_VALIDATOR_GRUENDE: dict[str, Callable[[], AppError]] = {
     "Immich URL must use http:// or https://": invalid_url_scheme,
     "Credentials are not allowed inside the Immich URL": credentials_in_url,
     "This network address is not allowed": disallowed_network_address,
+    "person_id is required when participation is contributor": contributor_person_required,
 }
 
 

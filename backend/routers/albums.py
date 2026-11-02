@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from models.match import (
     ExtendMatchRequest,
     ManagedAlbumOut,
+    PersonParticipation,
     RenameManagedAlbumRequest,
     SyncAlbumRequest,
     SyncLogEntry,
@@ -136,14 +137,32 @@ def _personenmenge(refs) -> set:
     Zwei Aufrufe mit derselben manuellen Kennung sind nur dann DERSELBE
     Vorgang, wenn sie dieselben Personen meinen. Die Kennung allein sagt das
     nicht: Sie traegt nur Name und Eigentuemer.
+
+    Konten mit reinem Album-Zugang haben keine `person_id`; sie zaehlen ueber
+    einen festen Platzhalter trotzdem als eigenes Mitglied.
     """
     aus = set()
     for r in refs or []:
         if isinstance(r, dict):
-            aus.add((r.get("account_id"), r.get("person_id")))
+            if r.get("album_access_only"):
+                aus.add((r.get("account_id"), "__album_access_only__"))
+            else:
+                aus.add((r.get("account_id"), r.get("person_id")))
         else:
-            aus.add((getattr(r, "account_id", None), getattr(r, "person_id", None)))
+            part = getattr(r, "participation", None)
+            if part == PersonParticipation.album_access_only:
+                aus.add((r.account_id, "__album_access_only__"))
+            else:
+                aus.add((getattr(r, "account_id", None), getattr(r, "person_id", None)))
     return aus
+
+
+def _contributor_person_ids(persons) -> list[str]:
+    return [
+        e.person_id
+        for e in persons
+        if e.participation == PersonParticipation.contributor and e.person_id
+    ]
 
 
 async def _gruppe_fuer_manuellen_weg_unter_dem_schloss(
@@ -249,24 +268,41 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         acc = store.get_account(entry.account_id)
         if not acc:
             raise errors.account_id_not_found(entry.account_id)
-        accounts_persons.append((acc, entry.person_id))
-        person_refs.append({
+        album_only = entry.participation == PersonParticipation.album_access_only
+        if not album_only:
+            accounts_persons.append((acc, entry.person_id))
+        ref: dict = {
             "account_id": entry.account_id,
-            "person_id": entry.person_id,
             "person_name": body.canonical_name,
             "account_name": acc.name,
             "account_color": acc.color,
-        })
+            "album_access_only": album_only,
+        }
+        if not album_only:
+            ref["person_id"] = entry.person_id
+        person_refs.append(ref)
 
-    # Preflight every selected person before any write is attempted.
+    requested_album = bool(body.album_name or body.existing_album_id)
+    if requested_album and not accounts_persons:
+        raise errors.min_one_contributor()
+    if not body.sync_names and not requested_album:
+        raise errors.album_name_required()
+
+    # Preflight every contributor person before any write is attempted.
     for acc, person_id in accounts_persons:
         try:
             await request.app.state.client_pool.get_for_account(acc).get_person(person_id)
         except Exception:
             raise errors.person_validation_failed(acc.name)
 
-    requested_album = bool(body.album_name or body.existing_album_id)
-    owner_id = body.owner_account_id or body.persons[0].account_id
+    owner_id = body.owner_account_id or next(
+        (
+            e.account_id
+            for e in body.persons
+            if e.participation == PersonParticipation.contributor
+        ),
+        body.persons[0].account_id,
+    )
     manual_match_id = f"manual_{body.canonical_name.lower().replace(' ', '_')}_{owner_id[:8]}"
     # Die Dublettensperre lehnt hier nicht mehr pauschal ab (#86) — sie
     # unterscheidet jetzt zwei Faelle, und der Unterschied ist der ganze
@@ -385,7 +421,7 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
         logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
         store.append_log(logs)
         if all(e.status == "success" for e in logs):
-            store.mark_all_pairs_synced([e.person_id for e in body.persons])
+            store.mark_all_pairs_synced(_contributor_person_ids(body.persons))
         return logs
 
     assert owner is not None  # oben aufgeloest, weil requested_album gilt
@@ -424,11 +460,15 @@ async def sync_names_multi(body: SyncNamesMultiRequest, request: Request):
             )
 
             # Ab hier wird geschrieben — jede Ablehnung liegt jetzt darueber.
-            logs = await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
+            logs = (
+                await sync_service.sync_names_multi(accounts_persons, body.canonical_name)
+                if body.sync_names
+                else []
+            )
             store.append_log(logs)
             erfolgreich = all(e.status == "success" for e in logs)
-            if erfolgreich:
-                store.mark_all_pairs_synced([e.person_id for e in body.persons])
+            if erfolgreich and body.sync_names:
+                store.mark_all_pairs_synced(_contributor_person_ids(body.persons))
 
             if not erfolgreich:
                 return logs

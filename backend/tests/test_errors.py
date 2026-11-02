@@ -202,6 +202,8 @@ STATUSCODES = {
     "err_manual_match_id_collision": 409,
     "err_match_not_found": 404,
     "err_min_two_people": 422,
+    "err_min_one_contributor": 422,
+    "err_contributor_person_required": 422,
     "err_no_thumbnail": 404,
     "err_not_undoable": 422,
     "err_owner_account_id_not_found": 404,

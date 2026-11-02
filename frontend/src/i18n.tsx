@@ -1443,6 +1443,46 @@ export const translations = {
     "es-ES": "Se requieren al menos 2 personas",
     "pt-BR": "São necessárias pelo menos 2 pessoas",
   },
+  err_min_one_contributor: {
+    de: "Mindestens ein Konto muss Fotos beisteuern (nicht nur Album-Zugang)",
+    en: "At least one account must contribute photos (not album access only)",
+    "es-ES": "Al menos una cuenta debe aportar fotos (no solo acceso al álbum)",
+    "pt-BR": "Pelo menos uma conta deve contribuir com fotos (não só acesso ao álbum)",
+  },
+  err_contributor_person_required: {
+    de: "Für Konten, die Fotos beisteuern, muss eine Person gewählt sein",
+    en: "Accounts that contribute photos need a person selected",
+    "es-ES": "Las cuentas que aportan fotos necesitan una persona seleccionada",
+    "pt-BR": "Contas que contribuem com fotos precisam de uma pessoa selecionada",
+  },
+  manual_sync_names: {
+    de: "Namen abgleichen (ausgewählte Personen umbenennen)",
+    en: "Sync names (rename the selected people)",
+    "es-ES": "Sincronizar nombres (renombrar a las personas seleccionadas)",
+    "pt-BR": "Sincronizar nomes (renomear as pessoas selecionadas)",
+  },
+  manual_sync_names_hint: {
+    de: "Abgewählt: Namen in Immich bleiben unverändert — das geteilte Album wird trotzdem erstellt und automatisch abgeglichen.",
+    en: "Unchecked: names in Immich stay as they are — the shared album is still created and auto-synced.",
+    "es-ES":
+      "Desmarcado: los nombres en Immich no cambian; el álbum compartido se crea igualmente y se sincroniza automáticamente.",
+    "pt-BR":
+      "Desmarcado: os nomes no Immich não mudam; o álbum compartilhado ainda é criado e sincronizado automaticamente.",
+  },
+  manual_album_access_only: {
+    de: "Nur Album-Zugang (kein Gesicht, keine Fotos)",
+    en: "Album access only (no face sync, no photos)",
+    "es-ES": "Solo acceso al álbum (sin cara ni fotos)",
+    "pt-BR": "Só acesso ao álbum (sem rosto nem fotos)",
+  },
+  manual_album_access_only_hint: {
+    de: "Dieses Konto erhält das geteilte Album als Editor, ohne Person umbenennen oder Fotos hinzuzufügen.",
+    en: "This account gets the shared album as an editor without renaming a person or adding photos.",
+    "es-ES":
+      "Esta cuenta recibe el álbum compartido como editora, sin renombrar una persona ni añadir fotos.",
+    "pt-BR":
+      "Esta conta recebe o álbum compartilhado como editora, sem renomear pessoa nem adicionar fotos.",
+  },
   err_not_undoable: {
     de: "Diese Aktion lässt sich nicht rückgängig machen",
     en: "This action cannot be undone",

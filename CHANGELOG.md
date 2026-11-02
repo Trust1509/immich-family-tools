@@ -2,6 +2,23 @@
 
 All notable changes to Immich Family Tools are documented here.
 
+## [Unreleased]
+
+**Risk: none** — no data migration. New optional request fields only; existing
+clients and stored albums behave exactly as before.
+
+### Added
+
+- **Manual Match: "Sync names" checkbox** (on by default). Untick it to create or
+  link the shared album, share it and keep it auto-synced **without renaming any
+  person in Immich**.
+- **Manual Match: "Album access only" per account.** For family members who only
+  view: the account gets the shared album as editor, but no person is picked,
+  renamed or merged and no photos are pulled from that account. At least one
+  account must still contribute photos. `POST /api/sync/names-multi` accepts
+  `sync_names` and, per person, `participation` (`contributor` |
+  `album_access_only`); `person_id` is only required for contributors.
+
 ## [1.9.0] – 2026-09-30
 
 **Risk: backup**

@@ -36,6 +36,10 @@ def _split_add_results(result: list[dict]) -> tuple[list[dict], list[dict]]:
     return added, failed
 
 
+def _is_album_access_only(ref: dict) -> bool:
+    return bool(ref.get("album_access_only"))
+
+
 def album_gab_es_schon(album_name: str) -> SyncLogEntry:
     """Der Eintrag fuer den zweiten Klick (#86).
 
@@ -284,7 +288,7 @@ async def create_shared_album(
     owner_ref = next((r for r in person_refs if r["account_id"] == owner_account.id), None)
 
     initial_asset_ids: list[str] = []
-    if owner_ref:
+    if owner_ref and not _is_album_access_only(owner_ref) and owner_ref.get("person_id"):
         try:
             assets = await owner_client.get_person_assets(owner_ref["person_id"])
             initial_asset_ids = [a["id"] for a in assets]
@@ -327,6 +331,8 @@ async def create_shared_album(
     for ref in person_refs:
         if ref["account_id"] == owner_account.id:
             continue  # already added in step 1
+        if _is_album_access_only(ref) or not ref.get("person_id"):
+            continue
         account = account_map.get(ref["account_id"])
         if not account:
             continue
@@ -427,6 +433,8 @@ async def link_existing_album(
 
     # Add assets from all accounts
     for ref in person_refs:
+        if _is_album_access_only(ref) or not ref.get("person_id"):
+            continue
         account = account_map.get(ref["account_id"])
         if not account:
             continue
@@ -624,6 +632,8 @@ async def _refresh_managed_album_unlocked(
         logs.append(name_entry)
 
     for ref in managed.person_refs:
+        if _is_album_access_only(ref) or not ref.get("person_id"):
+            continue
         # FRISCH AUS DEM STORE, NICHT AUS `account_map` (Nacharbeit 1 zu
         # #117/#121/#103 — gemessen, Blocker-Klasse „Teilnehmerschluessel"):
         # `account_map` ist derselbe Schnappschuss aus `all_accounts`, den der

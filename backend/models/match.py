@@ -1,6 +1,18 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Callable, Optional
 from enum import Enum
+
+
+class PersonParticipation(str, Enum):
+    """Wie ein Konto an einem manuellen Album teilnimmt.
+
+    `album_access_only`: Das Konto bekommt das geteilte Album (Editor), aber
+    keine Person wird umbenannt und keine Fotos werden aus diesem Konto
+    beigesteuert — fuer Familienmitglieder, die nur ansehen.
+    """
+
+    contributor = "contributor"
+    album_access_only = "album_access_only"
 
 
 class MatchReason(str, Enum):
@@ -116,7 +128,15 @@ class MultiSyncPersonEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     account_id: str
-    person_id: str
+    person_id: Optional[str] = None
+    participation: PersonParticipation = PersonParticipation.contributor
+
+    @model_validator(mode="after")
+    def _contributor_needs_person_id(self) -> "MultiSyncPersonEntry":
+        if self.participation == PersonParticipation.contributor:
+            if not self.person_id or not str(self.person_id).strip():
+                raise ValueError("person_id is required when participation is contributor")
+        return self
 
 
 class SyncNamesMultiRequest(BaseModel):
@@ -127,6 +147,10 @@ class SyncNamesMultiRequest(BaseModel):
 
     persons: list[MultiSyncPersonEntry]        # one entry per account, min 2
     canonical_name: str
+    # `False`: kein Personenname in Immich wird angefasst; das Album wird
+    # trotzdem angelegt bzw. verknuepft, geteilt und befuellt, und der
+    # automatische Abgleich fuellt es spaeter weiter.
+    sync_names: bool = True
     album_name: Optional[str] = None           # if set, create new shared album
     existing_album_id: Optional[str] = None    # if set, link existing album instead
     owner_account_id: Optional[str] = None     # album owner; defaults to first person's account
