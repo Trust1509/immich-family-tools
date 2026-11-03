@@ -166,7 +166,8 @@ klingt, und das ist selten das Gemeinte.
 | **`qa`**                            | Konversationelle Fehlermeldung → Issues. Upstream entfallen, hier vorhanden                                                        |
 | **`resolving-merge-conflicts`**     | Bei laufendem Merge- oder Rebase-Konflikt. Upstream entfallen, hier vorhanden                                                      |
 
-**Verhältnis zum Panel:** `review` **ersetzt das Panel nicht.** Es fährt mehrere
+**Verhältnis zum Panel:** `review` (upstream `code-review`, hier nicht
+installiert) **ersetzt das Panel nicht.** Es fährt mehrere
 Subagenten desselben Anbieters gegen Standards und Spezifikation — wertvoll, aber
 nicht unabhängig im Sinne des Panels. Das Panel lebt davon, dass Stimme 2 und 3
 von _anderen_ Anbietern kommen und die blinde Erststimme den Bau-Kontext nicht

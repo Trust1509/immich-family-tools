@@ -168,7 +168,9 @@ Sicht des Orchestrators.
 **Pflichtzeile in jedem Prüfauftrag:** „Beende jeden eigenen Hintergrundlauf
 VOR dem Bericht samt seinen Kindprozessen — über seine Prozessnummer
 (`sh docs/vorlagen/baum-stoppen.sh <pid>`), nie über den Programmnamen — und
-nenne ihn in der Schlusszeile ‚Eigene Läufe am Ende: …'."
+nenne ihn in der Schlusszeile ‚Eigene Läufe am Ende: …'." Die Prozessnummer
+allein reicht nicht: Ein Gate oder ein Testlauf mit Workern startet Kinder, die
+sonst als Waisen weiterlaufen (von der Vorlage gemessen, v1.18.9 und v1.18.12).
 Die Schlusszeile allein reicht nicht — sie ist ein Formfeld, das eine Stimme
 auch mit einem laufenden Prozess wahrheitsgemäß ausfüllen kann. **Kein Gate
 macht das rot**: Der Arbiter sieht die offenen Läufe nur, wenn er selbst
@@ -189,9 +191,8 @@ ohne Sperre, weil sein Auftrag sie nicht nannte.
 **Und eine Stimme räumt nur ihre eigenen Prozesse ab.** Gemessen im Panel zu
 v1.16.0: Eine Stimme beendete einen hängenden Lauf mit einem rechnerweiten
 `taskkill /F /IM python.exe` und hat das offengelegt — der Griff trifft jeden
-Python-Prozess auf dem Rechner, auch die einer parallelen Sitzung. In den
-Prüfauftrag gehört deshalb: **eigene Läufe über ihre Prozessnummer beenden,
-nie über den Programmnamen.**
+Python-Prozess auf dem Rechner, auch die einer parallelen Sitzung. Den Wortlaut
+für den Prüfauftrag führt die **Pflichtzeile** oben; hier steht nur der Anlass.
 
 **Aufsetzen:** Der Prüfauftrag enthält den Diff oder den Vergleichsbereich, das
 Repo — und ausdrücklich **nicht** den Bau-Brief, den Bericht des Bauers oder die
@@ -440,7 +441,7 @@ den gepushten Zweig. Stimme 3 hängt an der Besetzung: bei R2 (wenn besetzt)
 entweder die diff-only-Stimme — sie bekommt den Diff über die
 Standardeingabe — oder der Gegenprüfer; bei R3 der Gegenprüfer, der im
 `git archive`-Baum mit dem Vergleichsbereich als Datei misst (unten, „Stimmen
-mit Repo-Zugriff arbeiten in eigenen Worktrees"). Eine Stimme,
+mit Repo-Zugriff arbeiten in eigenen Bäumen"). Eine Stimme,
 die den Zweig nicht sieht, prüft einen alten Stand — das hat einen kompletten
 Lauf gekostet.
 
@@ -650,7 +651,8 @@ sichtbar und kosteten keine Stimmenrunde). Das Panel läuft trotzdem.
 ist ein Zeitpunkt, kein Zustand: Die Aussage „Baum rot" war beim Lesen schon
 falsch, weil zwischen Messung und Entscheidung Nacharbeit einfloss. Die volle
 Suite läuft dafür einmal **allein** in einem eigenen Worktree — parallel zu
-Stimmen mit Mutationen ist sie nicht isoliert.
+Stimmen mit Mutationen ist sie nicht isoliert — und unter der Rechner-Sperre
+wie jeder schwere Lauf.
 
 ## Prüfaufträge, die sich bewährt haben
 
@@ -1109,9 +1111,10 @@ offenlegte. **Das war Sorgfalt des Modells, nicht Eigenschaft des Verfahrens.**
 
 **Regel:** Die Vorabprüfung setzt einen BEFEHL ab, dessen Ausgabe zurückkommen
 muss — und zwar einen, der in der Umgebung der Stimme sinnvoll ist: im
-Worktree `git rev-parse HEAD` gegen den erwarteten Stand; im `git archive`-Baum
-des Gegenprüfers (kein `.git`, unten) ein Befehl auf die mitgelegte
-Diff-Datei, etwa `wc -l <diff-datei>` gegen die bekannte Zeilenzahl. Kommt die
+Worktree des Fremdprüfers `git rev-parse HEAD` gegen den erwarteten Stand; im
+`git archive`-Baum von Blind- und Gegenprüfer (kein `.git`, unten) ein Befehl
+auf die mitgelegte Diff-Datei, etwa `wc -l <diff-datei>` gegen die bekannte
+Zeilenzahl. Kommt die
 Ausgabe nicht, ist die Stimme ausgefallen und der Ausfall-Vermerk gilt.
 
 **Und in der Ergebnisform:** Konnte eine Stimme ihre Werkzeuge nicht nutzen,
@@ -1176,8 +1179,9 @@ bevor die letzte Stimme fertig ist** — die Stimmen prüfen den Commit, nicht d
 Baum. Das ist die Quellen-Regel unten zu Ende gedacht. Gemessen in zwei
 Projekten: Der Gegenprüfer meldete um 21:12, die Nacharbeit begann in
 derselben Minute, die übrigen Stimmen fanden trotzdem sauber, weil sie einen
-Commit prüften. Kosten: `git worktree add --detach <pfad> <commit>` und ein
-`remove` am Ende.
+Commit prüften. Kosten: ein `git archive` je Auszug (`git worktree add
+--detach <pfad> <commit>` für eine Stimme, die einen Git-Baum braucht) und das
+Aufräumen am Ende.
 
 Unsere Form davon:
 
