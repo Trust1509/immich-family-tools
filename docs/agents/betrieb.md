@@ -130,9 +130,15 @@ Ergebnis liegt beim Owner; die Rückfrage dazu ist ihm direkt gestellt, der
 Vorgang läuft als Issue #151.
 
 **Was daraus folgt, solange das offen ist:** Die Regel „Sonden nur lesend" aus
-`CLAUDE.md`, Abschnitt „Produktivinstanz", ist für den Shell-Weg **durch nichts
-durchsetzbar** — weder durch einen Hook (siehe dort) noch durch nachgewiesene
-Rechte. Sie ist eine Zusage, und sie ist als Zusage zu lesen. Das ist kein
+`CLAUDE.md`, Abschnitt „Produktivinstanz", ist für den Shell-Weg **heute
+durch nichts Nachgewiesenes durchsetzbar** — und die genaue Form dieses
+Satzes ist wichtig: Es ist **kein** Beweis, dass sie unmöglich durchzusetzen
+wäre. Der Hook ist dort **ungemessen** (so steht es in `CLAUDE.md`), die
+Rechte sind unbekannt. Hier stand zuerst der stärkere Satz
+(„durch nichts durchsetzbar") mit genau dieser Quelle als Beleg — der
+Blindprüfer des Panels zu v1.19.1 hielt beide Texte gegeneinander und fand,
+dass der zitierende Satz mehr behauptet als der zitierte. Bis es gemessen
+ist, gilt die Regel als Zusage und wird als Zusage gelesen. Das ist kein
 Grund, sie zu lockern, sondern der Grund, sie nicht für mehr zu halten, als sie
 ist.
 

@@ -580,7 +580,7 @@ testet eine.
   (`abgleich.md` 2b, wo jeder Umlaut durch zwei Punkte ersetzt wird),
   hier im Code. **Bei uns gemessen:** Alle sieben Ersatzmuster in
   `scripts/bau-brief-pruefen.sh` benutzen `..?` statt eines einzelnen
-  Punkts, genau deswegen (§22).
+  Punkts, genau deswegen (§21, Absatz zur Ersatzschreibweise).
 
 ---
 
@@ -1094,10 +1094,18 @@ Produktcode.
   Byte-Zahl treffen** — sonst tauscht sie einen sichtbaren Defekt gegen einen
   unsichtbaren. In `scripts/bau-brief-pruefen.sh` steht `.` als Platzhalter
   für Umlaute; ein Punkt in einem Muster trifft aber **ein** Byte, ein Umlaut
-  besteht aus zweien. Von sieben Ersatzmustern sind nur die beiden mit `..?`
-  zweibytefest (`pr..?ffrage`, `pr..?f-kommando`); `zweck-identit.t`,
-  `verhalten .nder`, `entf.ll`, `er.brigt` und `wei. ich nicht` treffen unter
-  `LC_ALL=C` **null** Zeilen. Vorher stand
+  besteht aus zweien. **Der Stand, der den Defekt zeigte** (Vorlage v1.14.0,
+  hier bis zur Nachbesserung): Von sieben Ersatzmustern waren nur die beiden
+  mit `..?` zweibytefest; `zweck-identit.t`, `verhalten .nder`, `entf.ll`,
+  `er.brigt` und `wei. ich nicht` trafen unter `LC_ALL=C` **null** Zeilen.
+  **Behoben, nachgemessen am 03.11.2026:** Alle sieben lebenden Muster in
+  `scripts/bau-brief-pruefen.sh` benutzen `..?`
+  (`LC_ALL=C grep -nE '^[^#]*\.\.\?'` → sieben Zeilen); `zweck-identit.t`
+  steht nur noch im historischen Kommentar der Datei. Dass diese Stelle den
+  kaputten Zustand drei Abgleiche lang als gegenwärtig behauptete, fand erst
+  der Blindprüfer des Panels zu v1.19.1 — weil der Abgleich an einer
+  ANDEREN Stelle den behobenen Zustand hinschrieb und die beiden sich
+  widersprachen. Vorher stand
   ein `ü` im Muster und man sah das Problem; jetzt steht ein `.` da und sieht
   behoben aus. **Der Fix hat den Defekt nicht beseitigt, sondern getarnt.**
   Gefunden von der blinden Stimme, an die Vorlage gemeldet — und bei uns

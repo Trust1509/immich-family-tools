@@ -340,12 +340,12 @@ zum ungünstigsten Zeitpunkt — genau so ist `npm audit` in diesem Repo einmal
 rot geworden, mitten in einem Release, ohne dass sich eine Zeile geändert
 hatte. Deshalb hier **alle** Kommandos, die die CI fährt:
 
-**Push-Pfad (`.github/workflows/ci.yml`, bei Push auf `main`/`release/**`
-und bei Tags, außer bei reinem Doku-Push — Pfadfilter greifen bei Tag-Pushes
-nicht):\*\*
+**Push-Pfad** (`.github/workflows/ci.yml`, bei Push auf `main` und
+`release/`-Zweigen und bei Tags, außer bei reinem Doku-Push — Pfadfilter
+greifen bei Tag-Pushes nicht):
 
 - Backend: `pytest -q backend/tests`
-- Backend: `python -m compileall -q backend`
+- Backend: `python -I -S -m compileall -q backend`
 - Backend: `sh scripts/release-selbstprobe.sh` — die Selbstprobe des
   Release-Gates. Sie hängt am Push-Pfad und nicht am Release, weil ein
   Wächter, dessen Lauf niemand erzwingt, seine Abdeckungszahl zur Beruhigung
@@ -457,6 +457,23 @@ docs/agents/lehren.md docs/agents/*.md CLAUDE.md` — der Verweis-Wächter für
 
 Zusätzlich lokal vor jedem Commit (Husky-Pre-Commit-Hook, nicht Teil der CI,
 aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
+
+**Dieser Hook ist ein schwerer Lauf, und `git commit` ist der Aufruf, der ihn
+startet.** Er fährt die volle Frontend- und Backend-Suite. Die Zeile
+„Schwere Läufe auf dem Rechner" im Schwellen-Inventar verlangt dafür die
+rechnerweite Sperre, und sie verlangt zugleich, dass das Gate sie **nicht
+selbst** nimmt — also nimmt sie, **wer committet**, im selben Aufruf:
+
+```bash
+S="$HOME/.sperre-schwerer-lauf"; until mkdir "$S" 2>/dev/null; do sleep 30; done
+echo "immich-family-tools $(date +%FT%T)" > "$S/wer"
+git add -A && git commit -F <nachricht>
+rc=$?; rm -f "$HOME/.sperre-schwerer-lauf/wer"; rmdir "$HOME/.sperre-schwerer-lauf"; exit $rc
+```
+
+Dass diese Regel in diesem Repo keinen benannten Angriffspunkt hatte, fand der
+Blindprüfer des Panels zu v1.19.1: Die Sperre war beschrieben, der einzige
+schwere Lauf des Repos war beschrieben, und niemand hatte beides verbunden.
 
 - `npx lint-staged` (prettier)
 - Frontend (in `frontend/`): `npm run typecheck` (= `tsc --noEmit`)

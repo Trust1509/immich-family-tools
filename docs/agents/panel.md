@@ -100,7 +100,7 @@ Arbiter und wird mit den Funden der Stimmen arbitriert. Sie läuft in der Nachar
 erneut, zählt nicht als Stimme und verbraucht keine Runde. Wurde schon etwas
 zurückgebaut, kommt ein Brief-Nachtrag dazu; sonst meldet sie den Rückbau als „fehlt".
 Zugelassen ist nur ein Modell, das die Daten des Projekts sehen darf — in diesem Repo
-heißt das zusätzlich: **keine Personen- oder Gesichtsdaten**, siehe „PII-Grenze" oben.
+heißt das zusätzlich: **keine Personen- oder Gesichtsdaten**, siehe „PII-Grenze" **unten**.
 **Bei einem Abgleich** bekommt sie den Abgleich-Auftrag samt den CHANGELOG-Einträgen des
 Sprungs als Brief, den Abgleich-Diff und die ausgefüllte Urteilstabelle aus `abgleich.md`
 2a (die später ins Abgleich-Issue kommt) als Datei im Auszug und prüft auch die Urteile
@@ -343,7 +343,13 @@ Ergebnis.
 
 Die diff-only-Stimme und `ast-gleich.py` liegen **im Repo** unter
 `docs/vorlagen/` — byte-identisch mit der Vorlage (`panel-stimme3.py`
-74be4dd, `ast-gleich.py` 0e9b6dc, geprüft beim Abgleich auf v1.16.0). Dieselben
+c668578, `ast-gleich.py` 4004f6d, geprüft beim Abgleich auf v1.19.1).
+**Diese zwei Hashes sind Pins ohne Leser** — kein Gate vergleicht sie mit
+der Datei, und beim Abgleich auf v1.19.1 standen hier noch die Blobs von
+v1.16.0 (74be4dd / 0e9b6dc), obwohl derselbe Commit beide Dateien
+austauschte. Gefunden hat das der Blindprüfer, nicht der Blob-Nachweis des
+Abgleichs: Der prüfte die Dateien, nicht den Satz über sie. Wer sie
+nachzieht, nimmt `git hash-object <pfad>`. Dieselben
 Dateien liegen portfolioweit unter
 `C:\Users\manue\.claude\Immich\model-panel\` und tragen dort **denselben
 Blob**; welche der beiden aufgerufen wird, ist heute dasselbe Werkzeug. Der
@@ -1188,13 +1194,29 @@ Commit prüften. Kosten: ein `git archive` je Auszug (`git worktree add
 --detach <pfad> <commit>` für eine Stimme, die einen Git-Baum braucht) und das
 Aufräumen am Ende.
 
-Unsere Form davon:
+Unsere Form davon — **zwei Formen, und die erste ist der Normalfall:**
 
 ```bash
-git worktree add --detach ../immich-family-tools-panel-<stimme> <commit>
+# Blind- und Gegenprüfer: Auszug OHNE .git, ausserhalb jedes Repos.
+# Der Pfad liegt bewusst nicht unter dem Repo: sonst findet git das .git
+# des Elternverzeichnisses und `git show HEAD~1:<brief>` holt den Brief.
+mkdir -p <auszug> && git archive <commit> | tar -x -C <auszug>
+git diff <basis>..<commit> > <auszug>/diff.patch
+git -C <auszug> rev-parse --show-toplevel   # MUSS scheitern (negative Probe)
 # … Stimme prüft dort …
+rm -rf <auszug>
+
+# Nur eine Stimme, deren Werkzeug einen Git-Baum braucht (Fremdprüfer im
+# Container): dann gelten die Worktree-Regeln dieses Abschnitts.
+git worktree add --detach ../immich-family-tools-panel-<stimme> <commit>
 git worktree remove ../immich-family-tools-panel-<stimme>
 ```
+
+Bis zum Abgleich auf v1.19.1 stand hier **nur** die zweite Form — wer sie
+kopierte, gab dem Blindprüfer einen Worktree und damit das geteilte
+Objektlager, genau das, was der Absatz darüber verbietet. Die Probe
+„Worktree leer" unten gilt deshalb nur für die zweite Form; im Auszug
+scheitert jedes git-Kommando, und das ist der Beleg, nicht der Mangel.
 
 **Belegt:** Im Slice vom 01.09. hat der Arbiter während laufender Stimmen im
 selben Arbeitsbaum gearbeitet.

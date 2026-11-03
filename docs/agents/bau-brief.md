@@ -660,6 +660,26 @@ Verwandt: Ein als „verifiziert" gemeldeter Fix, bei dem nur der Nachbar-Zweig
 geprüft wurde. Die Frage lautet nicht „hast du geprüft", sondern **„was genau hast
 du ausgeführt, und was kam heraus"**.
 
+## Offene Punkte eines Bauer-Berichts gehen JE EINZELN in den nächsten Brief
+
+Übernommen aus Vorlage v1.19.0.
+
+Ein Bauer-Bericht endet oft mit offenen Punkten: etwas, das er nicht mehr
+geschafft hat, eine Annahme, die er traf, eine Stelle, die ihm verdächtig war.
+Diese Punkte **sammelt niemand**, wenn sie nur im Bericht stehen: Der nächste
+Brief entsteht aus dem Issue und dem Diff, nicht aus dem Bericht der letzten
+Runde. Sie verschwinden also genau dann, wenn die Arbeit weitergeht.
+
+**Regel:** Jeder offene Punkt eines Bauer-Berichts wird **einzeln** in den
+nächsten Brief übernommen — nicht als Sammelsatz („die Reste aus der letzten
+Runde"), weil ein Sammelsatz keine Prüfung auslöst. Was nicht in den nächsten
+Brief passt, wird ein Issue. Beides ist erlaubt; dass er nur im Bericht steht,
+nicht.
+
+Dasselbe gilt für die Funde einer Panel-Stimme, die der Arbiter verwirft: Der
+Grund gehört in den Panel-Kommentar, damit die nächste Runde ihn nicht erneut
+findet und erneut verwirft.
+
 ## Das Hintergrund-Warte-Muster
 
 Ein wiederkehrendes Bauer-Verhalten, **elf dokumentierte Fälle über zwei
