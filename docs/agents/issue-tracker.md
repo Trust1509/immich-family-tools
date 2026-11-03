@@ -1,34 +1,35 @@
-# Issue tracker: GitHub
+# Issues als Arbeitsspeicher
 
-Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Der Chatverlauf ist flüchtig, der Kontext eines Agenten endet. **Was nicht in
+einem Issue steht, ist verloren** — spätestens beim nächsten Fenster.
 
-## Conventions
+## Wann ein Issue
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- Jeder Fund, der nicht im selben Slice behoben wird
+- Jede bewusste Zurückstellung — **mit der Begründung**, sonst liest sie später
+  jemand als Versehen
+- Jede Entscheidung, die jemand sonst rückgängig macht, weil er den Grund nicht kennt
+- Owner-Meldungen, auch die beiläufigen
 
-Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
+## Was hineingehört
 
-## Pull requests as a triage surface
+**Der Nachweis, nicht die Vermutung.** Ein Issue ohne Fundstelle und Messwert
+erzeugt beim nächsten Agenten die Arbeit noch einmal.
 
-**PRs as a request surface: yes.**
+- Befund mit `Datei:Zeile` und, wo möglich, gemessenen Zahlen
+- Warum es durchgerutscht ist — oft wertvoller als der Fehler selbst
+- Vorgeschlagener Zuschnitt, und was **nicht** dazugehört
+- Bekannte Fallen für den Bau (siehe `lehren.md`)
+- Abnahme: prüfbare Punkte, kein Fließtext
 
-PRs run through the same labels and states as issues, using the `gh pr` equivalents:
+## Beim Schließen
 
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **List external PRs for triage**: `gh pr list --state open --json number,title,body,labels,author,authorAssociation,comments` then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
-- **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
+Kommentar mit dem, was tatsächlich gebaut wurde — **inklusive der Panel-Funde und
+der verworfenen Alternativen**. Das ist die Stelle, an der die Historie später
+gesucht wird, nicht der Commit-Text.
 
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either — resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+## Zuschnitt
 
-## When a skill says "publish to the issue tracker"
-
-Create a GitHub issue.
-
-## When a skill says "fetch the relevant ticket"
-
-Run `gh issue view <number> --comments`.
+Lieber zwei ehrliche Issues als eines, das zwei Dinge vermischt. Wenn beim Bauen
+auffällt, dass ein Teil fachlich anders funktioniert als der Rest: abtrennen und
+begründen, statt „dasselbe nochmal" zu bauen.

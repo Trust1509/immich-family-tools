@@ -178,7 +178,8 @@ SCHARF SCHALTEN
 
      {"hooks": {"PreToolUse": [{"matcher": "<PREFIX>.*",
         "hooks": [{"type": "command",
-                   "command": "⟨/absoluter/pfad/zu/python3⟩ -I -S ⟨/absoluter/pfad/zu⟩/.claude/hooks/⟨projekt⟩_prod_readonly.py"}]}]}}
+                   "command": "⟨/absoluter/pfad/zu/python3⟩ -I -S ⟨/absoluter/pfad/zu⟩/.claude/hooks/⟨projekt⟩_prod_readonly.py",
+                   "onFailure": "block", "timeout": 10}]}]}}
 
    BEIDE Pfade absolut, mit "/", zitiert nur mit ", ohne ~, ohne $VARIABLEN,
    ohne % ^ ' # @ , (Metazeichen von cmd.exe und PowerShell — welche Shell
@@ -189,8 +190,9 @@ SCHARF SCHALTEN
    (Blindpruefer, Nacharbeit 3).
 
    Warum absolut: Findet die Shell den Interpreter nicht ("python: not found"),
-   endet der Aufruf mit Exit 127 — und der Client laesst jeden Exit ausser 2
-   DURCH. Die fail-closed-Logik unten startet dann nie. Ein falscher oder
+   endet der Aufruf mit Exit 127 — und ohne "onFailure": "block" (naechster
+   Absatz) laesst der Client jeden Exit ausser 2 DURCH. Die fail-closed-Logik
+   unten startet dann nie. Ein falscher oder
    spaeter veralteter absoluter Pfad (Python-Update, Versionsnummer im Pfad)
    endet ebenso mit 127; das faengt die Gate-Probe (Schritt 4) bei jedem
    Gate-Lauf.
@@ -214,6 +216,20 @@ SCHARF SCHALTEN
    NEBEN ihm (python._pth, pyvenv.cfg), die -S nicht abschaltet — wer dort
    schreiben darf, ist nicht mehr Gegenstand dieser Probe (Gegenpruefer,
    Nacharbeit 5, gemessen).
+   Warum "onFailure": "block" (Claude Code ab v2.1.295): Es macht aus jedem
+   AUSFALL des Waechters eine Sperre statt eines Durchlasses — Interpreter
+   fehlt (127), .py beschaedigt (1), Zeitgrenze erreicht, Start unmoeglich.
+   Bis v1.17.2 fand das erst die Gate-Probe beim naechsten Gate-Lauf;
+   dazwischen ging jeder Aufruf durch. Das Feld ersetzt den absoluten Pfad
+   und -I -S nicht: Die sorgen dafuer, dass der Waechter LAEUFT, das Feld
+   dafuer, dass sein Ausfall nichts durchlaesst. Ein kaputter Waechter sperrt
+   damit den ganzen Namensraum — der harmlose Fehler, wie ein vergessenes
+   Lese-Werkzeug. "timeout" kurz halten (ganze Zahl in Sekunden; ohne das
+   gilt der Standard des Clients, 600 — so lange sperrt ein haengender
+   Interpreter). Keine weiteren Felder: "async" und "asyncRewake" blockieren
+   nie, "args" startet ohne Shell; die Gate-Probe lehnt jedes Feld ausser
+   type, command, onFailure, timeout und statusMessage ab. Ob der Client das
+   Feld befolgt, zeigt nur die Ausfall-Echtprobe (Schritt 5).
    Pfad mit LEERZEICHEN: Er braucht Anfuehrungszeichen IM Kommando, und in
    JSON wird jedes davon zu \", jeder Backslash zu \\ — also
    "command": "\"C:/Program Files/Python312/python.exe\" -I -S C:/Users/…/⟨projekt⟩_prod_readonly.py".
@@ -249,7 +265,8 @@ SCHARF SCHALTEN
    Import der Standardbibliothek fehlt oder wird von einer fremden Datei
    gleichen Namens verdraengt (Exit 1 — deshalb "-I", Schritt 2). Diese Exits
    kommen nicht aus
-   der Entscheidungslogik — und der Client laesst sie durch. Daher Schritt 4.
+   der Entscheidungslogik — und ohne "onFailure": "block" laesst der Client
+   sie durch. Daher das Feld (Schritt 2) und Schritt 4.
 4. GATE-PROBE — eine Zeile im LOKALEN Gate, bei JEDEM Lauf, nicht einmalig.
    Werkzeug: docs/vorlagen/waechter-gate-probe.py (nur Standardbibliothek,
    kein Netz, liest nur):
@@ -306,7 +323,11 @@ SCHARF SCHALTEN
    Rot ausserdem bei: anderem Ereignis als PreToolUse, abgeschalteten Hooks
    (auch verschachtelt), "command" nicht zeichengenau, Befehl nur in einem
    fremden Feld, veraltetem Interpreter-Pfad, beschaedigter .py, kaputter
-   oder fremder Konfiguration. Ihre eigene Richtigkeit prueft
+   oder fremder Konfiguration — und bei der AUSFALLFORM (v1.18.0): ein Haken
+   mit diesem Befehl, unter welchem Matcher auch immer, ohne "onFailure":
+   "block", mit einem Feld ausser type, command, onFailure, timeout und
+   statusMessage, mit einem "timeout", das keine ganze Zahl ab 1 ist, oder
+   ein Eintrag bzw. Haken, der kein Objekt ist. Ihre eigene Richtigkeit prueft
    waechter-gate-probe-selbsttest.py (eigene Gate-Zeile, deterministisch).
 5. ECHTPROBE — Pflicht beim Scharfschalten UND nach jeder Aenderung an der
    Konfiguration, an der Client-Registrierung (Schluessel, Client,
@@ -330,6 +351,22 @@ SCHARF SCHALTEN
      "Der Aufruf ging durch, der Waechter hat ihn also gesehen" ist KEIN
      Nachweis: Auf dem erlaubten Pfad gibt der Waechter nichts aus, und ein
      Waechter, der nie startet, laesst denselben Aufruf ebenso durch.
+     AUSFALL-ECHTPROBE — einmal beim Eintragen von "onFailure" und nach
+     einem Wechsel des Clients, in einer NEUEN Sitzung (ein Client liest
+     seine Hook-Eintraege beim Start; eine laufende Sitzung zeigt sonst den
+     alten Stand, und das Urteil waere falsch): Im Hook-Eintrag den
+     Interpreter-Pfad voruebergehend auf einen Pfad setzen, den es nicht
+     gibt (an den Dateinamen "-fehlt" anhaengen). Dann im Client einen ECHTEN
+     Aufruf eines LESE-Werkzeugs ausloesen. Er MUSS abgelehnt werden, und zwar mit
+     einer Hook-Fehlermeldung, nicht mit der Waechter-Meldung (der Waechter
+     startet ja nicht). Geht er durch, befolgt der Client das Feld nicht (zu
+     alte Version, anderes Schema): Dann schuetzt beim Ausfall wie bis
+     v1.17.2 nur der Gate-Takt — das gehoert ins Issue, nicht ins Gedaechtnis.
+     Danach den Pfad zuruecksetzen und die Gate-Probe gruen sehen. Ein
+     Lese-Werkzeug, weil ein Durchlass dann nichts schreibt. Diese Probe
+     uebt den Fall "Start unmoeglich"; die Faelle "Exit ausser 0 und 2" und
+     "Zeitgrenze" deckt dasselbe Feld nach der Doku des Herstellers mit,
+     geprobt sind sie hier nicht — das ist eine benannte Grenze.
 6. In CLAUDE.md vermerken, dass der Waechter existiert und NIE abgeschaltet
    wird — und dass neue Lese-Werkzeuge in prod-readonly-hook.json der
    Repo-Quelle nachzutragen sind (danach kopieren, Gate, Echtprobe).
@@ -337,8 +374,9 @@ SCHARF SCHALTEN
 
 # VOR main() stehen nur Importe der Standardbibliothek und Definitionen. Was
 # hier noch scheitern kann (Interpreter fehlt, diese Datei beschaedigt), endet
-# mit einem Exit ausser 2 — das faengt die Gate-Probe (Schritt 4), nicht dieser
-# Code. Alles, was ein Projekt aendert, wird erst in main() im try gelesen.
+# mit einem Exit ausser 2 — beim Aufruf sperrt dann "onFailure": "block" im
+# Hook-Eintrag (Schritt 2), und die Gate-Probe (Schritt 4) meldet es beim
+# naechsten Gate-Lauf; nicht dieser Code. Alles, was ein Projekt aendert, wird erst in main() im try gelesen.
 import json
 import os
 import sys
@@ -356,7 +394,7 @@ EXIT_BLOCKIEREN = 2  # Exit-Code 2 = Aufruf ablehnen, stderr geht an den Agenten
 # Zeichen, aus denen ein Registrierungsschluessel bestehen darf. Alles andere
 # (Leerzeichen, Tabulator, Zeilenumbruch, Punkt, Klammer, Platzhalter) ergibt
 # einen PREFIX, der auf KEINEN Werkzeugnamen passt — und ein PREFIX, der nichts
-# trifft, laesst alles durch (fail-OPEN). Gemessen bis v1.15.2: "mcp__ prod__",
+# trifft, laesst alles durch (fail-OPEN). Gemessen vor v1.15.2: "mcp__ prod__",
 # "mcp__prod.alt__" und ein PREFIX mit Zeilenumbruch galten als gueltige Form,
 # und der schreibende Aufruf endete mit rc=0.
 SCHLUESSEL_ZEICHEN = frozenset(

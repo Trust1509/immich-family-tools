@@ -37,14 +37,17 @@ deshalb ein Kommando mit Exit-Code. Der Anlass steht in `docs/agents/lehren.md`
 Vorlage — auf dem Rechner lagen Node 24 und npm 11, ein Bauer baute sein Ritual
 auf die Aussage, und das Ritual vernichtete Daten.
 
-Gemessen am 22.09.2026 auf dem Entwicklungsrechner:
+Gemessen am 22.09.2026 auf dem Entwicklungsrechner, **nachgemessen am
+03.11.2026** beim Abgleich auf Vorlage v1.19.1. Eine Zahl hatte sich bewegt:
+Docker 29.6.1 → 29.8.2. Node, npm, Python und `gh` standen unverändert, die
+beiden `grep`-Zeilen ebenfalls.
 
 | Behauptung                | Kommando                                                                  | Ergebnis                |
 | ------------------------- | ------------------------------------------------------------------------- | ----------------------- |
 | Node liegt lokal          | `node --version`                                                          | Exit 0, `v24.18.0`      |
 | npm liegt lokal           | `npm --version`                                                           | Exit 0, `11.16.0`       |
 | Python liegt lokal        | `python --version`                                                        | Exit 0, `Python 3.14.5` |
-| Docker liegt lokal        | `docker --version`                                                        | Exit 0, `29.6.1`        |
+| Docker liegt lokal        | `docker --version`                                                        | Exit 0, `29.8.2`        |
 | `gh` liegt lokal          | `gh --version`                                                            | Exit 0, `2.93.0`        |
 | kein Migrations-Framework | `grep -rniE 'alembic\|sqlalchemy\|psycopg' backend/requirements*.txt`     | Exit 1 (kein Treffer)   |
 | kein Datenbank-Dienst     | `grep -cE 'image: *(postgres\|mysql\|mariadb\|mongo)' docker-compose.yml` | `0`, Exit 1             |
@@ -138,11 +141,14 @@ der Punkt, an dem sich der Ausführende unter Druck freispricht.
 
 **Hinweis für den Abgleich (Owner-vorlagepflichtig):** Die Tabelle besitzt die
 PRÜFTIEFE (wer prüft, wie tief). Das RELEASE-GATE — wer vor einem Release
-freigibt — ist eine eigene, projekteigene Größe: Ein Projekt darf breitere
-Freigabe-Auslöser haben als R4 (etwa „jede Migration braucht Owner-OK"), und
-die Tabelle ersetzt so ein Gate NICHT. Wer sein breiteres Gate zugunsten der
-R4-Zeile aufgeben will, tut das als ausdrückliche, veto-fähige
-Owner-Entscheidung — nie als Nebenwirkung der Übernahme. Real passiert: Eine
+freigibt — ist eine eigene Größe mit eigener Zeile im **Schwellen-Inventar**
+unten: Seine **Untergrenze hat der Owner für alle Projekte gesetzt**
+(Migrationen, Geld/Steuer — beides R3-Auslöser, also unterhalb von R4),
+und ein Projekt darf weitere Auslöser haben. Die Tabelle ersetzt so ein Gate
+NICHT. Wer eigene Auslöser über der Untergrenze aufgeben will, tut das als
+ausdrückliche, veto-fähige Owner-Entscheidung — nie als Nebenwirkung der
+Übernahme; **unter die Untergrenze führt kein Entscheid auf
+Projektebene.** Real passiert: Eine
 frühere Fassung dieser Zeile erklärte sich zum „Namen für" das bestehende
 Riskant-Gate und verengte damit in einem Projekt sechs Freigabe-Auslöser
 stillschweigend auf einen; bemerkt hat es der Abgleich, nicht die Übernahme.
@@ -157,8 +163,46 @@ erneut diskutiert werden muss.
 
 Das Verfahren je Klasse beschreibt `docs/agents/panel.md`; diese Tabelle ist
 der einzige Eigentümer der PRÜFTIEFEN-Auslöser. (Über Release-Freigaben
-entscheidet sie nur bis R4 hinauf — projekteigene, breitere Gates siehe
+entscheidet sie nur **bei R4** — projekteigene, breitere Gates siehe
 Hinweis oben.)
+
+## Schwellen-Inventar
+
+**Jede Schwelle hat hier eine Zeile, und ihr WERT steht genau einmal:** entweder
+in dieser Tabelle, oder bei dem Eigentümer, den die Zeile nennt — dann steht
+hier der Zeiger und nicht die Zahl. Die Spalte „entschieden von" sagt, wer den
+Wert ändern darf: **Portfolio** heißt, der Owner hat ihn für alle Projekte
+entschieden; dieses Repo übernimmt ihn und wählt ihn nicht. **Projekt** heißt,
+der Wert gehört hierher. **Portfolio-Untergrenze** heißt: Der Owner hat eine
+Mindestschwelle für alle Projekte gesetzt, und dieses Projekt darf strenger
+sein, nie lockerer. Wer eine Schwelle sucht und sie hier nicht findet, hat eine
+gefunden, die keinen Eigentümer hat — das ist ein Fund, kein Versehen.
+
+Diese Tabelle kam mit dem Abgleich auf Vorlage v1.19.1 (03.11.2026). Vorher gab
+es sie hier **nicht**: Die Schwellen standen über fünf Abschnitte verteilt, und
+ob eine Portfolio-Entscheidung hier schon angekommen war, konnte man nur durch
+Lesen aller fünf herausfinden. Zwei Zeilen unten tragen deshalb einen
+**gemessenen** statt eines gewählten Wertes — sie sind als solche markiert.
+
+| Schwelle                                                                                                                                                                                        | Wert                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | entschieden von                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Nacharbeitsrunden nach einem Panel                                                                                                                                                              | Wert in der Risiko-Tabelle oben, Zeile „Nacharbeit" (höchstens zwei)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | **Portfolio** (2026-09-17)                                  |
+| CI-Läufe je Slice                                                                                                                                                                               | Wert im Abschnitt „Prüfschritte" unten: **einer**, auf dem gelandeten Endstand; Bau-, Panel- und Nacharbeits-Pushes tragen den Überspring-Marker, lokale Gates sind die Verifikation                                                                                                                                                                                                                                                                                                                                                   | **Portfolio** (2026-09-02)                                  |
+| Kostenschwelle je Panel-Lauf (Ersatzstimme)                                                                                                                                                     | **keine** — pauschal freigegeben; das Verfahren bei Guthabenende (HTTP 402) steht im Abschnitt „Review-Panel" unten                                                                                                                                                                                                                                                                                                                                                                                                                    | **Portfolio** (2026-09-19)                                  |
+| Panel-Untergrenze beim Verkürzen                                                                                                                                                                | Wert im Abschnitt „Review-Panel" unten, Absatz „Verkürzen"                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | **Portfolio**                                               |
+| Prüftiefe je Risikoklasse                                                                                                                                                                       | Tabelle oben, Auslöser abschließend                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | **Portfolio**; Risiko-Tabelle                               |
+| Release-Gate (ab wann eine Freigabe nötig ist)                                                                                                                                                  | **Untergrenze:** Migrationen und Geld/Steuer. Geld/Steuer hat hier keinen Gegenstand; „Datenmigration" gilt in diesem Projekt framework-frei und trifft die JSON-Schema-Wanderung in `backend/services/config_store.py`. **Darüber projekteigen:** die Schwelle „gefahrlos", Wert im Abschnitt „Release" unten — sie ist breiter als die Untergrenze und bleibt es                                                                                                                                                                     | **Portfolio-Untergrenze** (2026-09-02), darüber **Projekt** |
+| Zeitlimit einzelner Befehle im Prüfauftrag                                                                                                                                                      | **15 Minuten.** Was länger braucht, wird zerlegt, nicht verlängert. Gewählt nach dem längsten CI-Job (`timeout-minutes: 15` in `.github/workflows/ci.yml`, gemessen 03.11.2026), damit ein Befehl, der örtlich gerade noch durchläuft, nicht erst in der CI abbricht                                                                                                                                                                                                                                                                   | **Projekt** (2026-11-03)                                    |
+| CI-Nebenläufigkeit (`concurrency`, `cancel-in-progress`)                                                                                                                                        | **an** — ein neuer Lauf bricht den alten ab; **Tag-Läufe ausgenommen**. Wert in `.github/workflows/ci.yml`, Block `concurrency:`. Die zwei weiteren Vorlagen-Ausnahmen haben hier keinen Gegenstand (gemessen 03.11.2026): `ci.yml` liefert nicht aus (der Abbild-Job läuft mit `push: false`), und kein Workflow meldet seinen eigenen Abbruch                                                                                                                                                                                        | **Portfolio** (2026-09-02, Notbremse dauerhaft)             |
+| Turnus des Abhängigkeits-Bots                                                                                                                                                                   | **monatlich, höchstens ein offener Vorschlag** je Ökosystem; Wert in `.github/dependabot.yml`, alle vier Ökosysteme. Sicherheits-Updates bleiben unberührt — die hängen an den Repo-Einstellungen, nicht an dieser Datei                                                                                                                                                                                                                                                                                                               | **Portfolio** (2026-09-02)                                  |
+| Schwere Läufe auf dem Rechner — alles, was eine volle Testsuite, einen Browser oder einen Container startet (Gate-Skript, Container-Bau, Mutationslauf über die ganze Suite); im Zweifel schwer | **höchstens einer gleichzeitig auf dem ganzen Rechner**, über alle Sitzungen, Projekte und Rollen (Bauer, Prüfer, Arbiter); leichte Läufe (eine Testdatei, Lint) sind frei. Eingehalten über **eine** Sperre mit festem Pfad für alle Projekte, `$HOME/.sperre-schwerer-lauf` — Kommandos und Regeln stehen in `docs/agents/bau-brief.md`, Randbedingung „Parallelität", nicht hier. Gate-Skripte nehmen die Sperre **nicht** selbst; wer das Gate startet, nimmt sie im selben Aufruf. Eine Zahl je Sitzung begrenzte die Summe nicht | **Portfolio** (2026-10-18)                                  |
+| Parallelität innerhalb eines Laufs (Worker je Testlauf, Browser)                                                                                                                                | **pytest: ein Prozess** (kein `pytest-xdist` im Baum, kein `addopts`). **vitest: kein Deckel gesetzt** — also die Voreinstellung der Bibliothek, auf einem Rechner mit **24 Kernen**. **Kein Browser-Gate.** Alle vier Angaben gemessen am 03.11.2026. Das ist ein **gemessener, kein gewählter** Wert: offener Punkt **Issue #150**                                                                                                                                                                                                   | **Projekt**                                                 |
+
+**Panel-INTERNE Schwellen besitzt `docs/agents/panel.md`**, nicht diese Tabelle:
+wie oft eine ausgefallene Stimme wiederholt wird und wie groß das Antwortbudget
+angesetzt wird. Das ist die ausdrückliche Ausnahme von „Schwellen hier" — sie
+bedeuten nur innerhalb des Panel-Verfahrens etwas. Deshalb steht hier auch
+keine ihrer Zahlen.
 
 ## Review-Panel
 
@@ -440,13 +484,37 @@ Entsprechung. Er ist eine Verifikation auf diesem Rechner, kein Tor am Repo.
 Sonden gegen die laufende Immich-Instanz **nur lesend**. Schreibpfade
 ausschließlich gegen Testdaten. Das ist ein Minimum, keine Lösung — die
 strukturelle Lösung ist ein Immich-API-Key mit ausschließlich lesenden
-Rechten (Immich kann granulare Rechte je Key vergeben, siehe Issue #53). Bis
-dieser Read-Only-Key im Agenten-Kontext hinterlegt ist, gilt die Regel oben als
-das, was tatsächlich durchsetzbar ist.
+Rechten (Immich kann granulare Rechte je Key vergeben, offener Punkt:
+**Issue #149**). Bis dieser Read-Only-Key im Agenten-Kontext hinterlegt ist,
+gilt die Regel oben als das, was tatsächlich durchsetzbar ist.
 
-**Kein technischer Wächter — bewusst.** Ein Hook, der Werkzeugaufrufe abfängt,
-liefe hier ins Leere: Die Zugriffe gehen per `curl` aus einer Shell, nicht über
-einen MCP-Server. Sollte Immich je als MCP angebunden werden, gilt die Fassung
+Hier stand bis zum Abgleich auf v1.19.1 „siehe Issue #53". Gemessen am
+03.11.2026 (`gh issue view 53`): Das ist der **abgeschlossene** Abgleich
+v1.3.0→v1.7.1 und hat mit einem Read-Only-Key nichts zu tun; eine Suche
+über alle Issues fand kein passendes. Der Punkt hatte also keinen
+Eigentümer — der Verweis sah nur so aus. **Prüffrage für jeden Verweis
+dieser Datei: zeigt er auf einen Vorgang, der den Punkt tatsächlich
+führt?**
+
+**Kein technischer Wächter — und der Grund dafür ist zur Hälfte gemessen.**
+Gemessen am 03.11.2026 auf dem Entwicklungsrechner: Es sind zwei
+`PreToolUse`-Hooks eingetragen, **beide mit einem MCP-Matcher**
+(`mcp__<dienst>__.*`) — keiner trifft Shell-Aufrufe. Gelesen wurden die
+`hooks`-Blöcke der Agenten-Einstellungen mit `python -I -S` und `json.load`,
+ausgegeben wurden Ereignis und Matcher je Eintrag. **Heute sieht also kein
+Hook ein `curl`** — das ist die eine Hälfte.
+
+Was daraus NICHT folgt: dass ein Hook das grundsätzlich nicht könnte. Ein
+`PreToolUse`-Hook mit Shell-Matcher bekommt die Kommandozeile zu sehen; ob er
+die Zugriffe dieses Projekts tatsächlich sieht, ist **ungemessen**. Eine
+Echtprobe dafür schaltet einen Wächter scharf und ist damit
+Owner-Einstellung (Issue #149). Bis dahin steht hier die Prüffrage statt der
+Behauptung: **Welcher Zugriff auf Immich entsteht, ohne durch ein Werkzeug zu
+laufen, das ein Hook sieht?** Solange die Antwort „ein Unterprozess, den
+ein Skript startet" lautet, wäre ein solcher Wächter eine Verifikation auf
+diesem Rechner und kein Tor am Repo — genau wie die Husky-Hooks.
+
+Sollte Immich je als MCP angebunden werden, gilt die Fassung
 aus Vorlage v1.3.1 — und zwar mit ihren beiden Korrekturen: Der Präfix
 `mcp__<schlüssel>__<tool>` stammt aus der **Client**-Konfiguration und ist frei
 gewählt (ein geratener Präfix passt auf nichts), und der Wächter muss in dem

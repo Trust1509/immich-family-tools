@@ -43,7 +43,7 @@
 
                           Umfang nicht erweitern⟩
 
-## 9 Prüffragen ⟨die zehn Fragen unten, JE EINE ZEILE Antwort —
+## 9 Prüffragen ⟨ALLE Fragen unten, je Frage der FETT gesetzte Fragesatz WÖRTLICH, JE EINE ZEILE Antwort —
 
                           „trifft nicht zu" ist eine gültige Antwort,
                           Weglassen ist keine⟩
@@ -200,7 +200,7 @@ eine Zeile Begründung statt nichts.⟩
 ⟨Test-Kommandos VOLLSTÄNDIG, Zeitlimits, Vordergrund, nicht pushen, …⟩
 
 ## 9 Prüffragen
-⟨die zehn Fragen unten, JE EINE ZEILE Antwort — „trifft nicht zu" ist eine
+⟨ALLE Fragen unten, je Frage der FETT gesetzte Fragesatz WÖRTLICH, JE EINE ZEILE Antwort — „trifft nicht zu" ist eine
 gültige Antwort, Weglassen ist keine⟩
 ```
 
@@ -237,7 +237,10 @@ die Selbstprobe laufen; sie liest diesen Abschnitt._
 - **Der Bericht endet mit der Zeile „Eigene Läufe am Ende: …"** — keiner, oder
   welcher Lauf noch offen ist, was er hält und ob er gestoppt wurde. Ein Lauf,
   den ein Zeitlimit ins Hintergrundfach verschoben hat, wird gestoppt, bevor es
-  weitergeht (`lehren.md` §37).
+  weitergeht (Vorlage-Lehre §35).
+- **Direkt davor steht die Zeile „Im Brief fehlte: …"** — nichts, oder was du
+  dir selbst beschaffen oder raten musstest. Die Antwort verbessert den nächsten
+  Brief, nicht diesen.
 - **Alle** Prüfläufe nennen, die die CI fährt — vollständig in Block 6.
   (Reales Beispiel: Die CI fuhr
   _zwei_ Typprüfungen, im Brief stand nur eine — der neue Test war lokal grün
@@ -263,11 +266,93 @@ die Selbstprobe laufen; sie liest diesen Abschnitt._
 - **Lokal committen, nicht pushen.** Landen entscheidet der Hauptagent nach dem Panel.
 - Bei neuen Datenbank-Tests: Engine im `tearDown` entsorgen, gegen eine echt
   migrierte DB testen statt gegen ein frisch erzeugtes Schema.
+- **Parallelität: innerhalb eines Laufs höchstens ⟨n⟩ Worker und ⟨n⟩ Browser;
+  jeden schweren Lauf nur unter der Rechner-Sperre** — die Zahlen aus dem
+  Schwellen-Inventar der `CLAUDE.md` stehen HIER, im Brief; ein Zeiger auf die
+  `CLAUDE.md` erreicht den Bauer nicht. Hier stehen NUR die Zahlen; wie das
+  Werkzeug sie setzt (eine Option des Testlaufs), gehört in Block 6 — sonst
+  erfüllt dieser Punkt ein anderes Thema des Prüfskripts, sobald das Werkzeug
+  in dessen Wortschatz steht (gemessen, Blindprüfer v1.18.9).
+  Auf einem geteilten Rechner halten Shards eines Testlaufs das Mehrfache an
+  Speicher (gemessen: mehrere Interpreter mit je rund 350 MB), ohne schneller
+  fertig zu sein. Gemessen in einem Kind-Repo: Ein Rechner mit 64 GB lief auf
+  94 %, als drei Sitzungen gleichzeitig bauten; der Anteil der Agenten daran lag
+  grob bei 7 GB, die Hauptlast kam aus dem Betriebssystem — der Agenten-Anteil
+  war aber vermeidbar, und eine Zahl hatte niemand verlangt. **Die
+  Rechner-Sperre** gilt für jeden schweren Lauf (volle Suite, Gate-Skript,
+  Browser, Container, Mutationslauf über die ganze Suite; im Zweifel schwer) und
+  hat für alle Projekte denselben Pfad, sonst sperren zwei Projekte einander
+  nicht aus. **Nehmen, Lauf und Freigeben stehen in EINEM Aufruf**, und die
+  Sperre nimmt, wer den Lauf startet — nie ein Skript darin:
+
+  ```sh
+  command -v mkdir >/dev/null && command -v sleep >/dev/null || { echo "PATH ohne mkdir/sleep" >&2; exit 2; }
+  S="$HOME/.sperre-schwerer-lauf"; until mkdir "$S" 2>/dev/null; do sleep 30; done
+  echo "⟨Projekt⟩ ⟨Rolle⟩ $(date +%FT%T)" > "$S/wer"; cat "$S/wer"
+  ```
+
+  Im selben Aufruf folgt der schwere Lauf aus Block 6, danach:
+
+  ```sh
+  rc=$?; rm -f "$HOME/.sperre-schwerer-lauf/wer"; rmdir "$HOME/.sperre-schwerer-lauf"; exit $rc
+  ```
+
+  Der Lauf selbst steht nicht in diesem Punkt: Diese Randbedingung steht
+  wörtlich in Block 8, und ein hier eingesetzter Lauf erfüllte das Thema zu
+  Block 6 im Prüfskript, sobald sein Werkzeug in dessen Wortschatz steht — ein
+  Brief ohne Block 6 kam dann als vollständig durch (gemessen, Blindprüfer
+  v1.18.6 und v1.18.9). Deshalb nennt dieser Satz weder ein Werkzeug noch das
+  Thema beim Namen.
+
+  Die erste Zeile ist der Ausgang für den Fehler des Wartens selbst: Fehlen `sleep`
+  und `mkdir` im `PATH` (gemessen: aus PowerShell mit `Start-Process sh.exe`
+  gestartet), dreht sich die Schleife ohne Pause, belegt einen Kern und nimmt die
+  Sperre nie. Fehlt nur `sleep`, dreht sie sich, solange die Sperre belegt ist. Aus
+  einem fremden Startprozess also den `PATH` setzen.
+
+  Der Pfad steht beim Freigeben ausgeschrieben: Claude Code blockiert ein `rm`
+  auf eine Variable, deren Ziel es nicht auflösen kann — gemessen in einer
+  Sitzung, in einer anderen nicht; es hängt vermutlich am Berechtigungsmodus.
+  `$HOME` löst es in beiden auf.
+
+  Ein Skript, das die Sperre selbst nähme, wartete auf den, der es startete. Ein
+  Nehmen in einem eigenen Aufruf hielte sie fest, wenn dieser Aufruf in den
+  Hintergrund wandert und niemand mehr arbeitet. Und ein `trap`, der freigibt,
+  löschte beim Abbruch während des Wartens die FREMDE Sperre (alle drei
+  gemessen, Blindprüfer v1.18.6). Wandert der Aufruf in den Hintergrund, gilt
+  die Regel zum Bericht oben: Er wird gestoppt, bevor es weitergeht; bis dahin
+  hält er die Sperre zu Recht. Gestoppt wird der ganze Prozessbaum des schweren
+  Laufs, nicht nur dessen Prozessnummer: Ein Gate-Skript, ein Testlauf mit
+  Workern oder ein Browser startet Kindprozesse, und die liefen sonst als Waisen
+  weiter, während die Shell die Sperre schon freigibt (gemessen, Blindprüfer
+  v1.18.9). Unter Git Bash erfasst `taskkill //T` die Kinder nicht, die die
+  Shell per Fork gestartet hat, und eine eigene Prozessgruppe legt eine Shell
+  ohne Aufforderung nicht an (beides gemessen). Das leistet
+  `sh docs/vorlagen/baum-stoppen.sh <pid>`: Es hält den Baum an, beendet ihn
+  und endet mit Exit 0 erst, wenn keiner der gefundenen Prozesse mehr lebt —
+  erst dann ist die Sperre frei. Exit 1 heißt: Die Sperre bleibt, bis der Rest
+  beendet ist. Was es nicht finden kann, steht unter GRENZEN im Kopf des
+  Werkzeugs — darunter ein Container (`docker run`), ein Nachkomme, der sich
+  vom Baum löst, bevor sein Elternprozess angehalten ist, und unter Git Bash
+  ein Hintergrundkind vor einem `exec` in ein natives Programm oder ein Enkel,
+  den ein Programm über einen kurzlebigen Zwischenprozess startet. Nach Exit 0
+  zeigt `docker ps` die Container und unter Git Bash `ps -W` (auch native
+  Prozesse), sonst `ps -eo pid,ppid,lstart,args`, welche Programme noch
+  laufen; ob eines zum Lauf gehört, sagen Name und Startzeit, nicht die
+  Elternnummer. Erst danach ist die Sperre frei. Wer stattdessen nur die Shell stoppt, findet den Rest mit dem
+  Werkzeug nicht mehr (ohne lebende Wurzel endet es mit Exit 2), beendet ihn
+  über die Nummern aus `ps` und gibt die Sperre nur frei, wenn
+  `cat "$HOME/.sperre-schwerer-lauf/wer"` seine eigene Zeile zeigt (Block 1 gibt
+  sie beim Nehmen aus).
+  Eine fremde Sperre wird nie gebrochen: Hängt sie länger als 60 Minuten,
+  meldet das der Bericht. `mkdir` ist atomar und überall da, `flock` fehlt unter
+  Git Bash.
+
 - Wenn parallel ein anderer Slice läuft: **welche Dateien tabu sind** — und
   **welche knappe Größe** er belegt. Zwei Pakete können streiten, ohne eine
   gemeinsame Zeile anzufassen: beide wollen dieselben CI-Minuten, dasselbe
-  Guthaben, dieselben Ports, dieselbe Owner-Zeit. Gemessen in einem fremden
-  Projekt (zwei Pakete, jedes für sich maßvoll, zusammen über der Grenze) und
+  Guthaben, dieselben Ports, dieselbe Owner-Zeit, denselben Speicher. Gemessen
+  in einem fremden Projekt (zwei Pakete, jedes für sich maßvoll, zusammen über der Grenze) und
   bei uns (drei Slices parallel am selben Prüf-Kontingent, keiner landete).
   Zwei Pakete an derselben knappen Größe laufen nicht parallel.
 - **Der Einrichtungsblock ist in einer leeren Umgebung ausprobiert**, nicht
@@ -290,6 +375,33 @@ die Selbstprobe laufen; sie liest diesen Abschnitt._
 
 ## Typische Fallen (in den Brief kopieren, wenn einschlägig)
 
+_Diese Texte werden wörtlich in Briefe kopiert. Deshalb gilt für sie dasselbe
+wie für die Pflicht-Randbedingungen: kein Suchwort eines anderen Themas des
+Prüfskripts — sonst erfüllt eine einzige kopierte Falle jenes Thema, auch wenn
+dessen Block fehlt. Gemessen bis v1.15.2: drei Fallen trugen je ein Suchwort
+der Themen Sichtbares, Nachweis und Fixtures und hielten sie ohne den
+jeweiligen Block grün (Exit 0); die drei Formulierungen sind seitdem
+geändert (CHANGELOG v1.15.2). Wer hier ändert, lässt die Selbstprobe laufen;
+sie liest diesen Abschnitt._
+
+**Übernommene Regel.** „Wie bei X" trägt nur, wenn X nicht allein deshalb stimmt,
+weil der übertragene Wert dort 0 ist. Ein Zeitanker einer abgeleiteten Zeile gehört
+an die Zeile selbst, zur Entstehung gesetzt, nie an Zustand, den spätere Züge ändern
+(letzte Zahlung, IDs, Sortierung). Hängt eine Rückfrage an einer Eigenschaft, wird
+sie beim Hinzufügen einer zweiten Wirkung an allen Aufrufstellen umgestellt (Vorlage-Lehre §22).
+
+**Basis-Abbild.** Wer ein Abbild-Rezept oder ein Update-Skript anfasst, sagt, wann die
+Basis zuletzt gezogen wurde und welcher Schritt sie das nächste Mal zieht
+(Vorlage-Lehre §5).
+
+**Plattform.** Ein Test, der eine Ausnahme aus Betriebssystem oder C-Bibliothek
+erwartet, läuft vor der Landung einmal auf der Zielplattform — bei einer
+Container-Anwendung im Wegwerf-Container mit dem App-Abbild. Geht das vor der
+Landung nicht, bleiben plattformabhängige Eingaben aus dem Test: jede, deren
+erwartete Ausnahme aus Betriebssystem oder C-Bibliothek kommt, auch wenn sie
+vermutlich überall gleich wirft. Eingaben, die nur auf einer Plattform werfen,
+gehören nie in den Beweis, dass der Test rot werden kann (Vorlage-Lehre §10).
+
 **Datenmigration.** Treffermenge kumulativ eng fassen. Downgrade muss den
 _Rollback-Pfad_ heil lassen, nicht nur das Schema. Prüfen, ob Altbestand nach
 der Änderung den alten _und_ den neuen Wert gleichzeitig zeigt.
@@ -305,23 +417,49 @@ Freitext-Label wird von feldbasierten Filtern nicht gefangen.
 **Listen und Auswahlfelder.** Kappt die Tür? Sagt sie es? Wird aus der Liste
 etwas _abgeleitet_, das still ausfällt, statt erkennbar zu degradieren?
 
-**Wächter/Prüftests.** Enthalten die Prüfdaten den Fall überhaupt, um den es
-geht? Fallen zwei Ordnungen zufällig zusammen? Kennt ein AST-Wächter das
+**Wächter/Prüftests.** Enthalten die erfundenen Eingaben den Fall überhaupt, um
+den es geht? Fallen zwei Ordnungen zufällig zusammen? Kennt ein AST-Wächter das
 _hausübliche_ Änderungsmuster oder nur die naive Form?
 
-**Fremdcode.** Wir haben zwei zugelieferte Übersetzungs-PRs verarbeitet, und
-die Linie war dabei nur implizit: **An fremdem Code wird nur korrigiert, wo
-der Widerspruch im Artefakt selbst belegbar ist** — ein Wert, der der
-eigenen Datei widerspricht; ein Schlüssel, den es nicht gibt. Nicht: was uns
-besser gefiele. Jede solche Korrektur wird offengelegt als **war → ist →
-warum**, damit der Zulieferer sie prüfen kann statt sie zu entdecken. Alles
-andere ist eine Rückfrage, keine Änderung.
+**Fremdcode (R3-Auslöser).** Der Auslöser sagt, wie geprüft wird — nicht, ob
+fremde Inhalte angefasst werden dürfen. Trennlinie, gemessen an einem Beitrag in
+einer Sprache, die niemand im Team sprach: **Korrigiert wird nur, wo der
+Widerspruch im Artefakt selbst belegbar ist** (ein Label identisch mit der
+Überschrift darüber, ein Navigationseintrag, der die Seite anders nennt als ihr
+Titel, eine englische Pluralregel im fremdsprachigen Text). Alles, was
+Sprachurteil verlangt, geht als Liste an den Autor zurück. Und was geändert
+wird, legt man ihm offen — _war → ist → warum_, mit dem Satz „wenn eine davon
+falsch ist, sag es". Der Gegenprüfer ist bei Fremdcode die richtige
+Besetzung: drei belegbare Fehler im Fremdanteil, die zwei andere Stimmen nicht
+hatten, bei einem Diff aus 95 % Zeichenketten.
 
-**Heuristik-Ablösung gilt pro Vorgang, nicht pro Element.** Wer eine Schätzung
-durch eine exakte Quelle ersetzt, ersetzt sie für den ganzen Durchlauf. Ein
-Vorgang, der für manche Elemente misst und für andere rät, liefert eine
-Mischung, die niemand mehr auseinanderhalten kann — und die Fehlerursache
-sitzt danach im Anteil, nicht im Verfahren.
+**Generator, der in eine Datei mit handgeschriebenem Anteil schreibt.** Er
+liest den Bestand, bevor er schreibt, und hat einen Erhaltungs-Rundlauf als
+Test: handgeschriebenen Inhalt setzen, Generator ausführen, Hash vorher =
+nachher. Gemessen in einem Benchmark: Drei von fünf unabhängigen Umsetzungen
+desselben Slices vernichteten die handgeschriebene Übersetzung bei jedem Lauf
+— eine davon mit Exit 0 und Erfolgsmeldung, auf dem Rechner des Owners, im
+Container dagegen nicht. Keine von 15 Bewertungen fand es.
+
+**Datenmigration: die leere Datenbank beweist nur die Syntax.** Vor dem
+Release eine Generalprobe im Schemastand der Produktion mit **erfundenem**
+Bestand, dazu VOR dem Lauf eine Vorhersage-Abfrage („danach stehen 5/2/3
+Zeilen in …") und die Prüfung, dass die alten Migrationsdateien unverändert
+sind. Gemessen: Vorhersage und Ergebnis stimmten — und die Probe fand
+nebenbei einen Fehler, den die leere Datenbank nie gezeigt hätte.
+
+**Ausnahme, die Sicherheit behauptet („ist unkritisch, weil …").** Sie
+braucht einen Test, der genau diese Behauptung misst — sonst ist die Ausnahme
+der Ort, an dem der Wächter still aufhört.
+
+**Heuristik durch Kennung ablösen.** Wird ein Näherungsweg durch eine genaue
+Kennung ersetzt, gilt die Umschaltung **pro Vorgang, nicht pro Element**: Sobald
+mindestens eine echte Kennung ankommt, ist die Heuristik aus — auch für die
+Elemente ohne Kennung. Gemessen: Ein Bau schaltete je Zeile um; für Zeilen ohne
+Kennung blieb die Index-Heuristik aktiv, obwohl ihre Voraussetzung („die Menge
+hat sich nicht geändert") durch die anderen Zeilen längst nicht mehr galt. Vor
+dem Fix eine Zeile falsch markiert, danach zwei — der Fix erzeugte die Klasse,
+die er beseitigen sollte (fünfter Fall dieser Art in neun Slices).
 
 ---
 
@@ -690,6 +828,36 @@ Issue, nicht erst im commiteten Repo-Stand.
 
 ## Elf Prüffragen vor der Landung — mechanisch stellbar, alle aus Messungen
 
+Gemessen über zwei Codebasen (sieben plus zwei Slices): **keine Frage ist reines
+Ritual, aber zwei wirken woanders als gedacht** — die Rot-Zahl-Frage beim
+Schreiben des Briefs, die Muss-wahr-Frage in der Testformulierung; beide fangen
+nichts beim Beantworten und sehen deshalb wie Ritual aus. Die Frage nach dem
+Pfad des Produkts und die nach der abgezählten Zusage tragen am häufigsten; die
+Frage nach Auswahl-plus-Anlage hatte in neun Slices keinen Gegenstand und
+kostet eine Zeile. **Sie bleibt** (Owner-Entscheid v1.15.0 — angekündigt war die
+Streichung nach der dritten Null-Messung; die dritte Null kam, aber zwei
+Projekte widersprachen mit Beleg): Null Funde in einer Codebasis beweisen nicht,
+dass eine Frage nichts prüft. Die Antwort unterscheidet deshalb **drei
+Ausgänge — kein Gegenstand / vorhanden und richtig gebaut / vorhanden und
+falsch** — und nur der erste ist die Null, die zur Streichung zählt. Gemessen:
+Ein Projekt fand einen Fall der zweiten Art, der ohne die Frage nie
+angesehen worden wäre.
+
+**Wer die Frage stellt, entscheidet, ob sie wirkt.** Die Frage nach den
+belegten Behauptungen (6) und die nach dem, was wahr bleiben muss (2), wirken
+erst, wenn ein anderer sie stellt — als Selbstprüfung antwortet der Schreiber
+„ja" und die Stimme findet trotzdem drei unbelegte Behauptungen, und ein Test
+„200 oder 307" misst nur die Absicht seines Autors. Beide stehen deshalb
+zusätzlich im Prüfauftrag (`panel.md`, „Prüfaufträge, die sich bewährt haben").
+
+**Die Fragen stehen WÖRTLICH im Brief — je Frage der fett gesetzte Fragesatz,
+nicht der Erklärtext dahinter.** Gemessen trugen drei von vier Briefen
+umformulierte Fragen — das Prüfskript prüft je Frage nur die ersten Wörter am
+Zeilenanfang und sieht eine Umformulierung dahinter nicht, und eine
+umformulierte Frage ist eine andere Frage. Jede Frage beginnt eine eigene Zeile. Projekteigene Fragen werden ab der nächsten freien
+Nummer angehängt, nie zwischen die Vorlagen-Fragen geschoben
+(`abgleich.md`, Schritt 2e).
+
 1. **Schreibt dieser Fix an einer Stelle, die vorher nur las — und wer teilt
    sich die Zielzeilen?** (Ein Fix machte einen inerten Pfad aktiv und schuf
    damit den stillen Verlustweg, den er beheben sollte.)
@@ -702,7 +870,7 @@ Issue, nicht erst im commiteten Repo-Stand.
    (Ein Pfad wurde transaktional, Anlegen und Löschen mit identischem Aufbau
    blieben zurück.)
 4. **Wählt eine Routine eine Zeile aus UND legt bei Nichtpassung eine neue
-   an?** Dann läuft die Auswahl über die Identität des Zwecks, nie über eine
+   an?** (Antwort in drei Ausgängen, siehe oben.) Dann läuft die Auswahl über die Identität des Zwecks, nie über eine
    Reihenfolge — sonst wächst der Bestand mit jedem Aufruf. (Gemessen: vier
    offene Fristen nach drei Korrekturen, `.first()` fand immer die falsche.
    Bitter: Eine frühere, richtige deterministische Sortierung machte den
@@ -719,21 +887,24 @@ Issue, nicht erst im commiteten Repo-Stand.
    keine Prüfung. Gemessen: Tests bewiesen einen Direkt-Aufruf, das Produkt
    nutzt einen anderen Weg — der Schutzzweig war unerreichbar, der Kanal tot,
    alles grün. Der Rot-Beweis stellt den ECHTEN Aufrufweg nach, mit dem
-   Datenpaket der Oberfläche. (§8 in neuer Gestalt: Der Wächter lief, aber
+   Datenpaket der Oberfläche. (Vorlage-Lehre §21 in neuer Gestalt: Der Wächter lief, aber
    am falschen Objekt.)
 8. **Zählt der Slice seine eigene Zusage ab?** Wer „kein X mehr über Y"
    verspricht, zählt die Y. Gemessen: Ein Slice versprach Dichtigkeit für
    einen Sprachassistenten mit acht Werkzeugen und schloss eines; der Brief
-   listete unter „Konsumenten" genau dieses eine.
-   _Diese Frage wirkt als **Prüferfrage** stärker denn als Bauerfrage und
-   steht deshalb auch im Prüfauftrag der Stimmen (`panel.md`): Wer die Zusage
-   geschrieben hat, zählt sie anders nach als wer sie zum ersten Mal liest._
+   listete unter „Konsumenten" genau dieses eine. Diese Frage ist als
+   **Prüferfrage stärker denn als Bauerfrage** — ein Bauer, der seine Zusage
+   nicht abzählt, beantwortet auch die Frage danach mit „ja"; im Prüfauftrag
+   gestellt, erzeugte sie den schwersten Befund eines Panels (die Suite war
+   vor und nach dem Fix identisch grün). Sie steht deshalb auch in `panel.md`.
 9. **Welche Eigenschaft hat die Antwort, die es NUR gibt, wenn die Funktion
-   wirklich läuft?** Gemessen: Eine Suite war vor und nach dem Fix identisch
-   grün — die Funktion tat wochenlang nichts, und niemand sah es, weil kein
-   Test etwas prüfte, das ihre Ausführung voraussetzt. Zwei Kopfzeilen der
-   Antwort haben es dann entschieden. Die Frage sucht das Merkmal, das eine
-   nicht ausgeführte Funktion nicht fälschen kann.
+   wirklich läuft?** Ein Test auf „Antwort ist nicht kaputt" besteht im
+   geheilten und im kranken Zustand — deshalb war eine Suite vor und nach dem
+   Fix grün, während die Funktion wochenlang Log-Zeilen schrieb und nichts tat
+   (die Bibliothek fing intern und lieferte unverändert weiter). Getragen hat
+   ein Test auf zwei Antwort-Kopfzeilen, die es ohne die Funktion nicht gibt:
+   zwei Zeilen, keine Abhängigkeit. Für still ausfallende Funktionen ist das
+   die konkrete Form der zweiten Frage.
 10. **Welche real verschiedenen Ausgangszustände stecken hinter demselben
     technischen Zustand — und ist jeder davon am laufenden Stand gemessen?**
     Die Frage hängt an der FORM, nicht am Speicher-Schlüssel (bis v1.14:
@@ -754,10 +925,6 @@ Issue, nicht erst im commiteten Repo-Stand.
     ununterscheidbar von der frischen Installation). Keine von 15 Bewertungen
     fand ihn — die Bewertungsrubrik trug selbst die Owner-Rahmung. Bei R3 ist
     die Matrix die risikospezifische Probe, nicht die Frage allein.
-    **Für uns die konkrete Form** (aus der abgelösten Fassung dieser Frage
-    übernommen): Ein Konto ohne hinterlegten Immich-Schlüssel und eine frische
-    `accounts.json` sind **zwei** Zustände, nicht einer — dazu der Bestand vor
-    und nach der Schema-Wanderung.
 11. **Welche Projekt-Prämisse berührt der Slice — und welcher Wächter oder
     welche Prüffrage hält sie?** Eine Prämisse, die nur in `CLAUDE.md` steht
     („jede neue Funktion ist auch über die Schnittstelle erreichbar"), ist ein

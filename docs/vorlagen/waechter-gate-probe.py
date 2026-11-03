@@ -25,7 +25,18 @@ WAS SIE BEWEIST (Exit 0 nur, wenn ALLES gilt)
 3. Unter hooks.PreToolUse gibt es einen Eintrag mit GENAU diesem Matcher
    (fehlender, leerer und null-Matcher zaehlen als "bewacht alles").
 4. In dessen "hooks"-Liste steht ein Eintrag mit "type": "command" und GENAU
-   dem erwarteten Befehl — zeichengenau, nicht als Teilstring.
+   dem erwarteten Befehl — zeichengenau, nicht als Teilstring. JEDER Haken
+   mit diesem Befehl unter hooks.PreToolUse, unter jedem Matcher, traegt
+   "onFailure": "block" (sonst laesst der Client die Aktion durch, wenn
+   der Waechter nicht startet, haengt oder mit einem Code ausser 0 und 2
+   endet), "timeout" hoechstens als ganze Zahl ab 1, "statusMessage"
+   hoechstens als Text und sonst NUR "type" und "command" — eine Allowlist
+   der Felder wie im Waechter: "async"/"asyncRewake" blockieren nie, "args"
+   startet ohne Shell, und was ein kuenftiges Feld tut, misst diese Probe
+   nicht. Jeder Eintrag und jeder Haken dort ist ein Objekt (v1.18.0), und
+   jeder Eintrag unter hooks.PreToolUse traegt eine "hooks"-Liste — null oder
+   ein fehlendes "hooks" ist rot (v1.18.10). Andere Ereignisse prueft die
+   Probe nicht auf ihre Form.
 4a. DER BEFEHL IST  <interpreter> -I -S <waechter.py>  UND NICHTS SONST:
    * vier Woerter nach Shell-Regeln, in der Mitte -I -S in dieser Reihenfolge.
      -I: keine Umgebungsvariablen, keine Benutzer-Pakete, kein Skriptpfad;
@@ -162,15 +173,21 @@ WAS SIE NICHT ZEIGT
 -------------------
 Ob der Client diese Einstellungsdatei liest und den Waechter wirklich ruft,
 und ob der PREFIX der echte Registrierungsschluessel ist — das zeigt nur die
-ECHTPROBE (prod-readonly-hook.py, Schritt 5). Ob die Werkzeugliste
-vollstaendig ist (oben). Bei Erfolg schreibt die Probe eine Zeile auf stdout
-(Befehlsform, Zahl der echten Aufrufe, Grenzen) — ohne sie ist im Gate-Protokoll
+ECHTPROBE (prod-readonly-hook.py, Schritt 5). Ob der Client "onFailure"
+BEFOLGT (erst ab einer bestimmten Version; ein aelterer kennt das Feld nicht
+und laesst den Ausfall durch) — das zeigt nur die Ausfall-Echtprobe dort. Ob
+die Werkzeugliste vollstaendig ist (oben). Bei Erfolg schreibt die Probe eine Zeile auf stdout
+(Befehlsform, Zahl der echten Aufrufe — gezaehlt, nicht aus einer Formel —,
+Grenzen) — ohne sie ist im Gate-Protokoll
 "lief gruen" nicht von "lief nicht" zu unterscheiden. Ebenfalls NICHT geprueft:
-ob ein ZWEITER PreToolUse-Eintrag denselben Matcher traegt; die Probe nimmt den
-ersten passenden Befehl und meldet nicht, wie viele es gibt. Traegt ein zweiter
-Eintrag eine "allow"-Entscheidung, kann er den Waechter aushebeln, ohne dass
-diese Probe es sieht (gemeldet aus einem Kind-Repo; ob der Client "allow" ueber
-Exit 2 stellt, ist nicht gemessen). Ob die ALLOWLIST nur Lese-Werkzeuge enthaelt: Die
+was ein FREMDER Haken unter einem treffenden Matcher tut — die Probe prueft
+jeden Haken mit dem Waechter-Befehl (Ausfallform, v1.18.0), aber keinen mit
+einem anderen Befehl, und sie ist kein Schema-Pruefer fuer die ganze Datei
+(ein Matcher, der kein Text ist, ein fremder Haken mit kaputtem "timeout"
+bleiben ungesehen). Traegt ein fremder Haken eine "allow"-Entscheidung, kann
+er den Waechter aushebeln, ohne dass diese Probe es sieht (gemeldet aus einem
+Kind-Repo; ob der Client "allow" ueber Exit 2 stellt, ist nicht gemessen). Ob
+die ALLOWLIST nur Lese-Werkzeuge enthaelt: Die
 Probe misst gegen die Allowlist, die der Waechter liest — steht ein
 Schreibwerkzeug darin, erwartet sie Exit 0 und bekommt ihn (Blindpruefer);
 das prueft nur ein Mensch beim Pflegen der Allowlist und die Echtprobe mit
@@ -210,18 +227,35 @@ saet den Zufall der Probe-Namen — nur fuer die Selbstprobe).
 Exit 0 = alles gilt; 1 = rot (Grund auf stderr); 2 = Aufbau (Argumente, sh).
 """
 
+import sys
+
+# Die eigenen Schalter zuerst, vor jedem anderen Import: Ohne -I liegt das
+# Verzeichnis dieser Datei vorn im Modulpfad, und eine shlex.py daneben mit
+# raise SystemExit(0) beendete die Probe mit Exit 0, bevor die Pruefung in main()
+# lief (Blindpruefer v1.18.0, gemessen). Ohne Schalter laeuft site trotzdem vor dieser
+# Zeile — dagegen hilft nur der Schalter selbst (Grenze wie in den Werkzeugen).
+if not (sys.flags.isolated and sys.flags.no_site):
+    sys.stderr.write("Aufbau: diese Probe muss mit demselben Interpreter und denselben Schaltern "
+                     "laufen wie der Hook-Befehl: <interpreter> -I -S waechter-gate-probe.py ...\n")
+    sys.exit(2)
+
 import json
 import os
 import random
 import re
 import shlex
 import subprocess
-import sys
 import types
 
 AUS_SCHALTER = frozenset({"disablehooks", "disableallhooks", "hooksdisabled", "nohooks"})
 AN_SCHALTER = frozenset({"enablehooks", "hooksenabled"})
 EREIGNIS = "PreToolUse"
+# Was im Hook-Eintrag des Waechters stehen darf — eine Allowlist wie im Waechter
+# selbst: Ein Feld, das der Client neu kennt, kann aendern, WIE er den Befehl
+# startet oder ob ein Fehler durchgeht ("async" blockiert nie, "args" startet
+# ohne Shell, was die Probe nicht nachbildet). Unbekannt heisst rot, nicht
+# durchlassen — der harmlose Fehler ist ein Blick in die Doku.
+EINTRAG_FELDER = frozenset({"type", "command", "onFailure", "timeout", "statusMessage"})
 ROT = 1
 AUFBAU = 2
 # sh, cmd.exe und PowerShell zusammen; dazu ' # @ , (cmd.exe kennt ' nicht
@@ -378,34 +412,115 @@ def benannt(matcher: str) -> str:
 
 
 def eintrag_finden(einstellungen: dict, matcher: str, befehl: str):
+    # (gefunden, Grund, Hook-Eintrag) — den Eintrag braucht ausfall_pruefen().
     haken = einstellungen.get("hooks")
     if not isinstance(haken, dict):
-        return False, "kein Objekt 'hooks' in den Einstellungen"
+        return False, "kein Objekt 'hooks' in den Einstellungen", None
     liste = haken.get(EREIGNIS)
     if not isinstance(liste, list) or not liste:
         vorhanden = sorted(str(s) for s in haken)
         return False, ("kein Eintrag unter hooks." + EREIGNIS + " (gefunden: "
-                       + (", ".join(vorhanden) if vorhanden else "nichts") + ")")
+                       + (", ".join(vorhanden) if vorhanden else "nichts") + ")"), None
     gesehene_matcher, passend = [], []
-    for eintrag in liste:
+    for i, eintrag in enumerate(liste):
         if not isinstance(eintrag, dict):
             continue
         gesehene_matcher.append(repr(eintrag.get("matcher")))
         if matcher_von(eintrag) == matcher:
-            passend.append(eintrag)
+            passend.append((i, eintrag))
     if not passend:
         return False, ("kein " + EREIGNIS + "-Eintrag mit dem Matcher " + benannt(matcher)
-                       + " (eingetragen: " + (", ".join(gesehene_matcher) or "nichts") + ")")
+                       + " (eingetragen: " + (", ".join(gesehene_matcher) or "nichts") + ")"), None
     gesehene_befehle = []
-    for eintrag in passend:
-        for h in eintrag.get("hooks") or []:
+    for i, eintrag in passend:
+        # Kein Durchlauf ueber etwas anderes als eine Liste: "hooks": 5 endete
+        # mit einem Traceback, ein Text lief zeichenweise (Blindpruefer v1.18.0).
+        haken_e = eintrag.get("hooks")
+        if not isinstance(haken_e, list):
+            gesehene_befehle.append("hooks." + EREIGNIS + "[" + str(i) + "].hooks ist keine Liste ("
+                                    + ("fehlt" if "hooks" not in eintrag else repr(haken_e)[:40])
+                                    + ")")
+            continue
+        for h in haken_e:
             if not isinstance(h, dict):
                 continue
             gesehene_befehle.append(repr(h.get("type")) + " -> " + repr(h.get("command")))
             if h.get("type") == "command" and h.get("command") == befehl:
-                return True, ""
+                return True, "", h
     return False, ("der erwartete Befehl steht NICHT als command dieses Matchers; "
-                   "eingetragen ist: " + (", ".join(gesehene_befehle) or "nichts"))
+                   "eingetragen ist: " + (", ".join(gesehene_befehle) or "nichts")), None
+
+
+def ausfall_pruefen(h: dict) -> str:
+    """Leer, wenn der Eintrag beim AUSFALL des Waechters blockiert; sonst der Grund.
+
+    Ohne "onFailure": "block" laesst der Client die Aktion durch, wenn der Hook
+    nicht startet, die Zeitgrenze erreicht oder mit einem Code ausser 0 und 2
+    endet (Exit 127 bei fehlendem Interpreter, Exit 1 bei beschaedigter .py).
+    Genau dagegen standen bisher nur der absolute Pfad, -I -S und diese Probe —
+    sie finden den Ausfall beim naechsten Gate-Lauf, nicht beim Aufruf.
+    """
+    fremd = sorted(str(k) for k in h if k not in EINTRAG_FELDER)
+    if fremd:
+        return ("der Hook-Eintrag traegt Felder ausserhalb von " + ", ".join(sorted(EINTRAG_FELDER))
+                + ": " + ", ".join(fremd) + " — \"async\"/\"asyncRewake\" blockieren nie, "
+                "\"args\" startet ohne Shell; was der Client mit einem neuen Feld tut, misst "
+                "diese Probe nicht.")
+    if h.get("onFailure") != "block":
+        return ("der Hook-Eintrag traegt nicht \"onFailure\": \"block\" (steht: "
+                + repr(h.get("onFailure")) + ") — ohne das laesst der Client die Aktion "
+                "durch, wenn der Waechter nicht startet, haengt oder mit einem Code ausser "
+                "0 und 2 endet.")
+    if "timeout" in h:
+        z = h["timeout"]
+        if isinstance(z, bool) or not isinstance(z, int) or z < 1:
+            return ("\"timeout\" im Hook-Eintrag ist keine ganze Zahl ab 1 (steht: "
+                    + repr(z) + ").")
+    if "statusMessage" in h and not isinstance(h["statusMessage"], str):
+        return ("\"statusMessage\" im Hook-Eintrag ist kein Text (steht: "
+                + repr(h["statusMessage"])[:40] + ") — ein Client, der die Datei nach "
+                "Schema liest, koennte sie verwerfen und den Waechter nie rufen.")
+    return ""
+
+
+def ausfall_ueberall(einstellungen: dict, befehl: str) -> str:
+    """Leer, wenn JEDER Eintrag mit diesem Befehl beim Ausfall sperrt; sonst der Grund.
+
+    Nicht nur der erste: Die erste Fassung pruefte den Eintrag, den
+    eintrag_finden() zurueckgab, und ein zweiter Haken mit demselben Befehl —
+    im selben Eintrag, unter anderem Matcher, ohne Matcher, mit "async" — blieb
+    unsichtbar (Blind- und Gegenpruefer v1.18.0, je gemessen). Welchen der
+    Client behaelt, wenn er gleiche Befehle zusammenfasst, ist nicht gemessen;
+    deshalb muessen ALLE sperren. Dazu: Ein Eintrag oder Haken, der kein Objekt
+    ist, ist rot — ein Client, der die Datei nach Schema liest, koennte sie
+    verwerfen und den Waechter gar nicht rufen.
+    """
+    liste = einstellungen["hooks"][EREIGNIS]
+    for i, eintrag in enumerate(liste):
+        if not isinstance(eintrag, dict):
+            return ("hooks." + EREIGNIS + "[" + str(i) + "] ist kein Objekt (" + repr(eintrag)[:40]
+                    + ").")
+        # Auch null oder ein fehlendes "hooks" ist rot: Ein solcher Eintrag
+        # verletzt das Schema wie ein Text an derselben Stelle, und vor einem
+        # guten Eintrag stehend liess er die Probe gruen (Gegenpruefer v1.18.5).
+        haken = eintrag.get("hooks")
+        if not isinstance(haken, list):
+            return ("hooks." + EREIGNIS + "[" + str(i) + "].hooks ist keine Liste ("
+                    + ("fehlt" if "hooks" not in eintrag else repr(haken)[:40]) + ").")
+        for k, h in enumerate(haken):
+            if not isinstance(h, dict):
+                return ("hooks." + EREIGNIS + "[" + str(i) + "].hooks[" + str(k)
+                        + "] ist kein Objekt (" + repr(h)[:40] + ").")
+            if h.get("command") == befehl:
+                # Auch ohne "type": Ergaenzt ein Client den Typ, laeuft dieser
+                # Haken als Waechter (Blindpruefer, Nacharbeit 1).
+                fehler = ("" if h.get("type") == "command" else
+                          "ein Haken mit dem Waechter-Befehl hat nicht \"type\": \"command\" "
+                          "(steht: " + repr(h.get("type"))[:40] + ").") or ausfall_pruefen(h)
+                if fehler:
+                    return (fehler + " (hooks." + EREIGNIS + "[" + str(i) + "].hooks[" + str(k)
+                            + "], Matcher " + benannt(matcher_von(eintrag)) + ")")
+    return ""
 
 
 def gleich(a: str, b: str) -> bool:
@@ -533,6 +648,8 @@ def konfig_erfragen(befehl: str, py: str) -> tuple:
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
         raise KeineShell()
+    # Auch das ist ein Start des Hook-Befehls, mit eigener Exit-Erwartung.
+    AUFRUFE[0] += 1
     antwort = None
     for z in ergebnis.stdout.decode("utf-8", "replace").strip().splitlines():
         try:
@@ -660,6 +777,18 @@ def werkzeuge_lesen(pfad: str) -> tuple:
     return namen, ""
 
 
+# Zaehler der wirklich gestarteten Waechter-Prozesse. Er steht an BEIDEN Stellen,
+# die den Hook-Befehl starten: konfig_erfragen (mit --konfig-pfad) und aufrufen.
+# Bis v1.16.0 druckte die Probe die Formel len(namen) + 2 + len(liste); die war
+# richtig, aber eine Behauptung. Der erste Versuch, sie durch eine Zaehlung zu
+# ersetzen, zaehlte nur in aufrufen() und lag deshalb um eins zu NIEDRIG —
+# gefunden vom Blindpruefer, nachgemessen mit umhuelltem subprocess.run
+# (gedruckt 7/8/10, wirkliche Starts 8/9/11). Lehre, die hier stehenbleibt: Wer
+# eine Zahl gegen die Wirklichkeit pruefen will, umhuellt die GRENZE (den
+# Prozessstart), nicht die Stelle, die er verdaechtigt.
+AUFRUFE = [0]
+
+
 def aufrufen(befehl: str, werkzeug: str) -> int:
     eingabe = json.dumps({
         "session_id": "%032x" % random.getrandbits(128),
@@ -674,7 +803,9 @@ def aufrufen(befehl: str, werkzeug: str) -> int:
         ergebnis = subprocess.run(["sh", "-c", befehl], input=eingabe,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
+        # Ohne Shell ist nichts gelaufen — hier darf nicht gezaehlt werden.
         raise KeineShell()
+    AUFRUFE[0] += 1
     return ergebnis.returncode
 
 
@@ -690,10 +821,12 @@ def main(argv: list) -> int:
         except Exception:
             pass
 
-    if not (sys.flags.isolated and sys.flags.no_site):
-        sys.stderr.write("Aufbau: diese Probe muss mit demselben Interpreter und denselben Schaltern "
-                         "laufen wie der Hook-Befehl: <interpreter> -I -S waechter-gate-probe.py …\n")
-        return AUFBAU
+    # Der Zaehler ist modulweit; wer main() zweimal im selben Prozess fahrt
+    # (etwa eine Selbstprobe), bekaeme sonst die Summe (Fremdstimme).
+    AUFRUFE[0] = 0
+
+    # Die Schalter prueft der Kopf dieser Datei, vor jedem Import (v1.18.0) — hier
+    # waere es zu spaet, die Importe oben sind dann schon gelaufen.
     try:
         werte = argumente(argv)
     except ValueError as fehler:
@@ -719,7 +852,8 @@ def main(argv: list) -> int:
     if aus:
         return rot("Hooks sind abgeschaltet: " + "; ".join(aus))
 
-    gefunden, grund = eintrag_finden(einstellungen, werte["--matcher"], werte["--befehl"])
+    gefunden, grund, haken_eintrag = eintrag_finden(einstellungen, werte["--matcher"],
+                                                    werte["--befehl"])
     if not gefunden:
         meldungen = [grund]
         andere = wo_steht(einstellungen, werte["--befehl"])
@@ -727,6 +861,9 @@ def main(argv: list) -> int:
             meldungen.append("der Befehl steht (als Teilstring) in: " + ", ".join(andere)
                              + " — dort ruft der Client ihn nicht.")
         return rot(*meldungen)
+    fehler = ausfall_pruefen(haken_eintrag) or ausfall_ueberall(einstellungen, werte["--befehl"])
+    if fehler:
+        return rot(fehler)
 
     interp, py, fehler = befehlsform(werte["--befehl"])
     if fehler:
@@ -808,12 +945,17 @@ def main(argv: list) -> int:
     # unterscheiden (gemeldet aus einem Kind-Repo). Die Zeile nennt, was wirklich
     # gelaufen ist, nicht nur dass etwas lief.
     print("Gate-Probe gruen: Befehlsform " + repr(werte["--befehl"]) + "; "
-          + str(len(namen) + 2 + len(liste)) + " echte Aufrufe gegen den erwarteten "
-          "Exit-Code (abgelehnte und erlaubte Namen, dazu die Konfig-Abfrage); "
-          "Quelle und installierte Kopie sind byte-gleich. Nicht geprueft: der "
-          "Client selbst, die Vollstaendigkeit der Werkzeugliste, und ein ZWEITER "
-          "PreToolUse-Eintrag mit demselben Matcher — die Probe sieht nur ihren "
-          "eigenen und meldet nicht, wenn es mehr gibt.")
+          + str(AUFRUFE[0]) + " echte Aufrufe gegen den erwarteten "
+          "Exit-Code, gezaehlt und nicht gerechnet (abgelehnte und erlaubte Namen, "
+          "dazu die Konfig-Abfrage; steht der lesende Name auch in der Werkzeugliste, "
+          "kommt er zweimal vor); "
+          "Quelle und installierte Kopie sind byte-gleich; jeder Eintrag mit diesem "
+          "Befehl sperrt beim Ausfall (onFailure block) — ob der Client das Feld "
+          "befolgt, zeigt nur die Ausfall-Echtprobe. Nicht geprueft: der "
+          "Client selbst, die Vollstaendigkeit der Werkzeugliste, weitere "
+          "Einstellungsdateien, und ein fremder Haken mit einem ANDEREN Befehl "
+          "unter einem treffenden Matcher — die Probe prueft die Haken mit dem "
+          "Waechter-Befehl, keinen anderen.")
     return 0
 
 

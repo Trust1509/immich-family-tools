@@ -160,10 +160,15 @@ jobs:
       # die Meldung auf stderr, ist er zufaellig rot (0 Koepfe). Deshalb erst
       # alembic allein — die Zuweisung traegt dessen Exit, und die Schritt-Shell
       # (bash -e) bricht ab —, dann zaehlen. Neu: rot in beiden Faellen.
+      # Die Zuweisung faengt aber auch die Meldung ein, wenn alembic sie auf
+      # stdout schreibt: Der Schritt war rot ohne Grund (Rueckmeldung eines
+      # Projekts, mit Attrappe gemessen v1.19.1). Deshalb druckt der Zweig nach
+      # "||" die Ausgabe und endet rot; der Exit links von "||" loest bash -e
+      # nicht aus.
       - name: Kopf-Anzahl prüfen
         shell: bash
         run: |
-          koepfe=$(alembic heads)
+          koepfe=$(alembic heads) || { rc=$?; echo "alembic heads scheiterte (Exit $rc):"; printf '%s\n' "$koepfe"; exit 1; }
           anzahl=$(printf '%s\n' "$koepfe" | grep -c . || true)
           echo "Koepfe: $anzahl"
           printf '%s\n' "$koepfe"

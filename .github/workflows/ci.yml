@@ -77,7 +77,7 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r backend/requirements-dev.txt
       - run: pytest -q backend/tests
-      - run: python -m compileall -q backend
+      - run: python -I -m compileall -q backend
       # Die Selbstprobe des Release-Gates. Sie haengt hier und nicht am
       # Release, weil ein Waechter, dessen Lauf niemand erzwingt, seine
       # Abdeckungszahl zur Beruhigung macht (docs/agents/lehren.md §18) —
@@ -112,7 +112,30 @@ jobs:
       # ohne installiertes Backend weg — die Probe bleibt dann gruen und
       # sagt es ("uebersprungen"). Die erste Fassung machte daraus Rot,
       # weil die Mindestzahl den ausgelassenen Fall mitzaehlte.
-      - run: python scripts/faltung-sonde-selbsttest.py
+      - run: python -I scripts/faltung-sonde-selbsttest.py
+      # Verweis-Waechter fuer die Lehren-Nummern (Vorlage v1.19.0).
+      # WOFUER: Beim Uebernehmen einer Lehre aus der Vorlage werden die
+      # Nummern repo-lokal (abgleich.md 2d). Ein im Text stehen gelassener
+      # Verweis trifft dann eine ANDERE, existierende Lehre — das erzeugt
+      # keinen Fehler, nur eine falsche Begruendung. Hier, weil genau das
+      # beim Abgleich entsteht und bis zum naechsten Abgleich niemandem
+      # auffaellt.
+      #
+      # Zuerst die Selbstprobe des Waechters, dann der Lauf: Ein Waechter,
+      # dessen eigene Probe niemand erzwingt, macht seine Abdeckungszahl
+      # zur Beruhigung (docs/agents/lehren.md §18).
+      #
+      # -I -S ist hier gemessen vertretbar: Das Skript benutzt nur die
+      # Standardbibliothek, und seine Selbstprobe laeuft unter beiden
+      # Schaltern gruen (247 Erwartungen, 03.11.2026). Das gilt NICHT
+      # pauschal fuer jede Python-Zeile: Dieselben Schalter machen
+      # faltung-sonde-selbsttest.py rot (65 statt 67 Faelle), weil -S
+      # site-packages weglaesst und damit den config_store-Fall. Deshalb
+      # traegt die Zeile darueber nur -I.
+      - run: python -I -S docs/vorlagen/lehren-verweise-pruefen.py --selbstprobe
+      - run: >-
+          python -I -S docs/vorlagen/lehren-verweise-pruefen.py
+          --lehren docs/agents/lehren.md docs/agents/*.md CLAUDE.md
 
   frontend:
     runs-on: ubuntu-latest

@@ -39,7 +39,17 @@ Verzeichnis, erfundene Namensraeume):
     Probe (auch ein sh-Skript namens python3-hook, auch ein Hardlink des
     Interpreters an anderem Ort), Shell-Metazeichen ($VAR, ~, %, ^, ', #, @,
     Komma, Backslash im Pfad), relativer Pfad, zwei .py, .py fehlt; Eintrag
-    mit fremdem "type";
+    mit fremdem "type"; Ausfallform: Eintrag ohne "onFailure": "block" (fehlt,
+    "continue", "Block", true, null), mit einem Feld ausserhalb der Allowlist
+    (async, asyncRewake — auch false —, args, shell, if, once, ein erfundenes),
+    "timeout" keine ganze Zahl ab 1 (Text, true, 0, negativ, Kommazahl),
+    statusMessage kein Text; JEDER Haken mit dem Waechter-Befehl (zweiter im
+    selben Eintrag, zweiter Eintrag, anderer Matcher, "*" davor, ohne Matcher
+    mit async, fremder Haken davor), Eintrag oder Haken kein Objekt, "hooks"
+    eines Eintrags keine Liste (Zahl, Text, null, fehlend, auch vor einem guten
+    Eintrag und in einem fremden); gruen mit
+    timeout 10, 1, statusMessage, fremdem Haken ohne Sperre daneben und zwei
+    gesperrten Eintraegen;
     --quelle unlesbar; Waechter-Kopie, die auf NICHT-LEERES tool_input
     verzweigt (byte-gleich mit ihrer Quelle — nur der Aufruf zeigt es);
     Waechter ohne Abfragemodus; Waechter, der eine andere .py nennt;
@@ -100,7 +110,12 @@ WAS SIE NICHT PRUEFT: ob der Client die Einstellungsdatei liest und den
 Waechter ruft (Echtprobe), Symlinks, das lokale Gate selbst, den Interpreter.
 
 MUTATIONEN, die rot werden muessen (Kopie in mktemp; jede war in diesem
-Schnitt real oder von einer Panel-Stimme gebaut; zuletzt: sys.path oder
+Schnitt real oder von einer Panel-Stimme gebaut; zuletzt (v1.17.0): die
+allowlist-Regel zurueck auf len(eintrag) > len(praefix) — "PREFIX plus
+Leerraum" greift dann wieder still; die Gate-Probe rechnet ihre Aufrufzahl
+wieder statt sie zu zaehlen (war um eins zu hoch); eine Erwartung gestrichen
+(Untergrenze der FESTEN Zahl, ohne die umgebungsbedingten); weitere_namen()
+bildet drei Namen statt zwei; davor: sys.path oder
 os.sys in der Allowlist, json.loads erlaubt, Modulname als Wert erlaubt,
 os.path-Unterliste weg, Modul-Allowlist weg, os.path als Wert erlaubt,
 .write-Wurzel ohne sys, Modul-als-Wert nur fuer sys, Zuweisung an
@@ -137,13 +152,24 @@ Exit 0 = alle Faelle wie erwartet; 1 = mindestens einer nicht (Liste auf
 stderr); 2 = Aufbau (Dateien fehlen, kein sh).
 """
 
+import sys
+
+# Die eigenen Schalter zuerst, vor jedem anderen Import — wie in der Probe: Eine
+# tempfile.py neben dieser Datei beendete die Selbstprobe ohne Schalter mit
+# Exit 0 und leerer Ausgabe, weil die Pruefung erst in main() stand
+# (Blindpruefer v1.18.0, gemessen). Ohne Schalter laeuft site trotzdem davor.
+if not (sys.flags.isolated and sys.flags.no_site):
+    sys.stderr.write("Aufbau: diese Selbstprobe muss mit -I -S laufen, wie Probe und Waechter: "
+                     "<interpreter> -I -S waechter-gate-probe-selbsttest.py\n")
+    sys.exit(2)
+
 import importlib.util
+import io
 import json
 import os
 import random
 import shutil
 import subprocess
-import sys
 import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
@@ -169,8 +195,101 @@ LISTE = None
 LETZTE_AUSGABE = [""]
 
 # Erwartete Zahl echter Aufrufe der Gate-Probe fuer den Aufbau "werkzeuge_kurz"
-# (gesaete Namensbildung, feste Allowlist). Gemessen, nicht gerechnet.
+# (feste Allowlist, Liste = Allowlist). Gemessen an der laufenden Probe.
+# Seit v1.17.0 ZAEHLT die Probe ihre Aufrufe (AUFRUFE in waechter-gate-probe.py)
+# statt sie zu rechnen. Die Zahl bleibt 9 wie bei der alten Formel: Die Formel war
+# richtig, nur eine Behauptung. Ein Zwischenstand dieses Schnitts zaehlte nur eine
+# der zwei Startstellen und stand auf 8 — Blindpruefer.
 AUFRUFZAHL_KURZ = 9
+
+# Untergrenze der FESTEN Erwartungen (ohne umgebungsbedingte, mit
+# uebersprungenen): genau die gemessene, gedruckte feste Zahl — wer eine
+# Erwartung streicht, faellt darunter (Begruendung an der Schlusspruefung unten;
+# "minus eins" stand hier bis v1.18.0 und widersprach ihr, Gegenpruefer).
+FESTE_MINDESTZAHL = 597
+
+
+def wache_vorn(quelltext: str) -> bool:
+    """Beginnt die Datei mit Docstring, "import sys" und GENAU der Wache?
+
+    Token fuer Token gegen eine feste Form verglichen. Frei sind nur der Text des
+    Docstrings und der Meldung (eine Folge gewoehnlicher Textliterale, kein
+    f-String, keine Bytes), Kommentare, Leerzeilen und Leerraum zwischen den
+    Token; die Datei ist UTF-8 (ein BOM ist erlaubt). Die Fassungen davor verglichen einzelne
+    Bedingungen am Syntaxbaum, und jede Panel-Runde fand die naechste, die sich
+    streichen liess, waehrend ein Schatten gewann (Blind- und Gegenpruefer
+    v1.18.5, drei Runden). Auch dieser Vergleich laesst sich abschwaechen (etwa
+    Operatoren nur nach Typ); die Gegenproben unten halten das fest. Strenger
+    als noetig: Eine gleichwertige Umformung gilt als falsch (rot, nicht gruen).
+    """
+    import codecs
+    import io
+    import tokenize
+    weg = (tokenize.COMMENT, tokenize.NL, tokenize.ENDMARKER)
+
+    def form(text):
+        aus = []
+        try:
+            # Als BYTES zerlegt, wie der Interpreter liest: Eine erklaerte
+            # Kodierung ausser UTF-8 machte einen Kommentar zu Code (utf-7,
+            # unicode_escape, raw_unicode_escape), waehrend diese Pruefung ihn als
+            # Kommentar verwarf (Blind- und Gegenpruefer v1.18.7, gemessen).
+            for t in tokenize.tokenize(io.BytesIO(text.encode("utf-8")).readline):
+                if t.type == tokenize.ENCODING:
+                    # Schreibweisen von UTF-8 (utf8, U8, cp65001) sind UTF-8;
+                    # "utf-8-sig" meldet der Tokenizer bei einem BOM nur bis 3.11.
+                    if codecs.lookup(t.string).name not in ("utf-8", "utf-8-sig"):
+                        return []
+                    continue
+                if t.type in weg:
+                    continue
+                if t.type == tokenize.STRING:
+                    # Nur gewoehnlicher Text zaehlt als Text: Ein f-String ist bis
+                    # Python 3.11 ein STRING-Token, und sein Ausdruck liefe beim
+                    # Start; Bytes liessen die Meldung mit TypeError statt Exit 2
+                    # enden (Fremdpruefer v1.18.7).
+                    vorsatz = t.string[:len(t.string) - len(t.string.lstrip("rRbBuUfF"))]
+                    if set(vorsatz.lower()) & set("fb"):
+                        aus.append(("KEIN-TEXT", vorsatz))
+                        continue
+                    if aus and aus[-1] == ("TEXT", ""):
+                        continue
+                    aus.append(("TEXT", ""))
+                else:
+                    aus.append((tokenize.tok_name[t.type], t.string))
+        except Exception:
+            # Jede Ausnahme ist nein, nie gruen: TokenError, SyntaxError,
+            # LookupError und UnicodeError (unbekannte Kodierung, unter 3.14)
+            # und SystemError (NUL hinter der Wache, unter 3.12; Gegen- und
+            # Blindpruefer v1.18.8).
+            return []
+        return aus
+
+    soll = form('"""Kopf."""\nimport sys\n'
+                "if not (sys.flags.isolated and sys.flags.no_site):\n"
+                "    sys.stderr.write('Meldung')\n    sys.exit(2)\n")
+    return bool(soll) and form(quelltext)[:len(soll)] == soll
+
+
+def aufrufe_erwartet(werkzeugliste: list) -> int:
+    """Unabhaengige Nachrechnung der Aufrufzahl — absichtlich NICHT aus der Probe.
+
+    Die Probe startet den Hook-Befehl fuer: die Konfig-Abfrage (--konfig-pfad),
+    einen unbekannten Namen, zwei selbst gebildete Namen, den lesenden Namen, und
+    jeden Namen der Werkzeugliste. Diese Funktion ist aus dieser BESCHREIBUNG
+    geschrieben, nicht aus dem Code der Probe — laufen Beschreibung und Code
+    auseinander, wird die Erwartung unten rot.
+    Die Konfig-Abfrage stand in einem Zwischenstand dieses Schnitts nicht in der
+    Beschreibung, und deshalb auch nicht im Zaehler: beide Zahlen waren um eins
+    zu niedrig und bestaetigten sich gegenseitig (Blindpruefer). Gegen genau das
+    hilft die Erwartung "wirkliche Prozessstarts" weiter unten, die den Zaehler
+    NICHT fragt.
+    Ein Stellvertreter des Waechters mit Zaehlerdatei ist dagegen unmoeglich: Die
+    Quellpruefung lehnt ihn ab (gemessen: ".write (nicht an sys.stdout/
+    sys.stderr)", "import os as _o", "open(..., schreibend)"), und Zaehlmarken auf
+    stdout verschluckt die Probe (stdout=DEVNULL).
+    """
+    return 1 + 2 + 1 + 1 + len(werkzeugliste)
 
 
 def probe(pp, einst, matcher, befehl, unbekannt, lesend, **opt):
@@ -189,8 +308,14 @@ def probe(pp, einst, matcher, befehl, unbekannt, lesend, **opt):
     return r.returncode, r.stderr.decode("utf-8", "replace")
 
 
-def einstellung(pfad, matcher, befehl, ereignis="PreToolUse", extra=None):
-    e = {"hooks": [{"type": "command", "command": befehl}]}
+def einstellung(pfad, matcher, befehl, ereignis="PreToolUse", extra=None, felder=None):
+    # Ohne felder: die Form, die die Vorlage vorschreibt (onFailure "block").
+    # Mit felder: genau type, command und diese Felder — so laesst sich jede
+    # Abweichung einzeln bauen, auch ein Eintrag OHNE onFailure.
+    haken = {"type": "command", "command": befehl, "onFailure": "block"}
+    if felder is not None:
+        haken = dict({"type": "command", "command": befehl}, **felder)
+    e = {"hooks": [haken]}
     if matcher is not None:
         e["matcher"] = matcher
     daten = {"hooks": {ereignis: [e]}}
@@ -255,10 +380,7 @@ def waechter_pfad() -> str:
 
 
 def main() -> int:
-    if not (sys.flags.isolated and sys.flags.no_site):
-        sys.stderr.write("Aufbau: diese Selbstprobe muss mit -I -S laufen, wie Probe und Waechter: "
-                         "<interpreter> -I -S waechter-gate-probe-selbsttest.py\n")
-        return 2
+    # Die Schalter prueft der Kopf dieser Datei, vor jedem Import (v1.18.0).
     argumente_pruefen()
     w_pfad = waechter_pfad()
     if os.path.isdir(w_pfad):
@@ -275,9 +397,57 @@ def main() -> int:
         sys.stderr.write("Aufbau: 'sh' nicht gefunden.\n")
         return 2
     random.seed(20260920)
-    d = tempfile.mkdtemp(prefix="waechter-selbstprobe-")
     fehler = []
+    # Ein Pfad mit einem Shell-Metazeichen (etwa "Program Files (x86)" oder ein
+    # Komma im Benutzernamen) laesst die Gate-Probe JEDEN Befehl darin ablehnen.
+    # Dann ist nicht der Pruefling kaputt, sondern die Umgebung ungeeignet —
+    # ohne diese Meldung wurde die Probe rot und nannte keine einzige Abweichung
+    # (Gegenpruefer, in sieben von neun Umgebungen gemessen).
+    # Nur die Pfade, die WIRKLICH in einem Hook-Befehl landen: der Interpreter und
+    # das Temp-Verzeichnis, in das Waechter und Probe kopiert werden. Das
+    # Verzeichnis DIESER Datei gehoert nicht dazu — es kommt in keinem Befehl vor
+    # (--quelle wird direkt geoeffnet), und es zu pruefen lehnte gesunde
+    # Umgebungen ab: ein Kind-Repo unter "…(GmbH)" wurde mit Exit 2 abgewiesen,
+    # obwohl dieselbe Probe aus demselben Pfad gruen laeuft (Blindpruefer der
+    # letzten Runde, in beide Richtungen gemessen).
+    # Die Zeichen kommen aus der Gate-Probe selbst, nicht abgeschrieben: Die
+    # Abschrift kannte "@", Zeilenumbruch und Backslash nicht, und mit "@" im
+    # Temp-Pfad wurde die Probe rot ohne diese Meldung (Folge-Issue zu v1.17.0,
+    # gemessen). Den Backslash macht q() unten zu "/" — das ist nur unter Windows
+    # derselbe Pfad; unter POSIX ist er ein Zeichen des Dateinamens und bleibt
+    # deshalb in der Liste (Blind- und Gegenpruefer v1.18.10). Ohne Bytecode:
+    # Der Import laedt die Gate-Probe aus dem Repo, und ein __pycache__ dort
+    # zeigte "git status --ignored" vor jeder Stimme (Blindpruefer).
+    spec_z = importlib.util.spec_from_file_location(
+        "gateprobe_zeichen", os.path.join(HIER, "waechter-gate-probe.py"))
+    gp_z = importlib.util.module_from_spec(spec_z)
+    sys.dont_write_bytecode = True
+    spec_z.loader.exec_module(gp_z)
+    zeichen = sorted(set(gp_z.METAZEICHEN) - ({"\\"} if os.sep == "\\" else set()))
+    for name, pfad in (("Interpreter", PY),
+                       ("Temp-Verzeichnis", tempfile.gettempdir())):
+        schlecht = [z for z in zeichen if z in pfad]
+        if schlecht:
+            sys.stderr.write(
+                "Aufbau: %s enthaelt ein Shell-Metazeichen (%s): %s\n"
+                "Die Gate-Probe lehnt jeden Hook-Befehl unter diesem Pfad ab (das ist "
+                "ihre Regel, kein Defekt), und deshalb kann diese Selbstprobe hier "
+                "nicht laufen. Auf einen Pfad ohne Metazeichen ausweichen (TMPDIR "
+                "setzen) und erneut fahren.\n" % (name, "".join(schlecht), pfad))
+            return 2
+    # Erst NACH der Pruefung angelegt: Vorher blieb bei jedem Abbruch hier ein
+    # leeres Verzeichnis liegen (Folge-Issue zu v1.17.0, gemessen).
+    d = tempfile.mkdtemp(prefix="waechter-selbstprobe-")
+
     geprueft = [0]
+    # Zwei Gruppen von Erwartungen haengen an der UMGEBUNG, nicht am Code: die
+    # Schleife ueber sys.stdlib_module_names (andere Zahl auf einem anderen
+    # Python-Minor) und der Hardlink-Fall (Dateisystem ohne Hardlinks). Sie
+    # werden getrennt gezaehlt, damit die Untergrenze unten eine FESTE Zahl
+    # pruefen kann. Ohne das wird die Probe auf einer anderen Umgebung rot, ohne
+    # dass ein Defekt vorliegt (Blindpruefer, Nacharbeit 2 von v1.16.0).
+    bedingt = [0]
+    uebersprungen = [0]
 
     def erwarte(name, ist, soll, meldung="", muss_enthalten=""):
         geprueft[0] += 1
@@ -337,6 +507,16 @@ def main() -> int:
         erwarte("C unbekannter Schluessel", waechter(c_py, "mcp__c__lesen")[0], 2)
         schreib(cj, json.dumps({"prefix": "mcp__c__", "allowlist": ["mcp__x__lesen"]}))
         erwarte("C allowlist-Eintrag ohne prefix: Konfiguration ungueltig", waechter(c_py, "mcp__x__lesen")[0], 2)
+        # Der PREFIX allein oder mit Leerraum dahinter ist kein Werkzeugname
+        # (v1.16.0, dieselbe Verschaerfung wie bei geblockt). Ohne diese
+        # Erwartungen bleibt die Selbstprobe gruen, wenn man die Regel auf
+        # len(eintrag) > len(praefix) zurueckdreht — dann greift "mcp__c__ "
+        # wieder still (Blindpruefer, Nacharbeit 2 von v1.16.0, gemessen).
+        for schlecht in ("mcp__c__", "mcp__c__ ", "mcp__c__\t"):
+            schreib(cj, json.dumps({"prefix": "mcp__c__",
+                                    "allowlist": ["mcp__c__lesen", schlecht]}))
+            erwarte("C allowlist-Eintrag ohne echten Namen (%r) blockiert" % schlecht,
+                    waechter(c_py, "mcp__c__lesen")[0], 2)
         schreib(cj, json.dumps({"prefix": "mcp__c__", "allowlist": ["mcp__c__lesen"], "geblockt": {"mcp__c__lesen": "x"}}))
         erwarte("C allowlist UND geblockt", waechter(c_py, "mcp__c__lesen")[0], 2)
         # geblockt-Namen tragen den PREFIX (v1.16.0). Ohne diese Erwartungen
@@ -384,16 +564,26 @@ def main() -> int:
         # nicht von "lief nicht" zu unterscheiden, und eine Meldung ohne Pin ist
         # eine Notiz.
         _rc = probe(pp, einst, "mcp__b__.*", befehl, unbek, les)[0]
-        erwarte("gruen: Erfolgsmeldung nennt Befehlsform, Aufrufzahl und Grenzen",
+        erwarte("gruen: Erfolgsmeldung nennt Befehlsform, Aufrufzahl, Ausfallform und Grenzen",
                 _rc == 0 and "Gate-Probe gruen:" in LETZTE_AUSGABE[0]
                 and "echte Aufrufe" in LETZTE_AUSGABE[0]
                 and "byte-gleich" in LETZTE_AUSGABE[0]
-                and "ZWEITER PreToolUse-Eintrag" in LETZTE_AUSGABE[0], True)
+                and "onFailure block" in LETZTE_AUSGABE[0]
+                and "fremder Haken mit einem ANDEREN Befehl" in LETZTE_AUSGABE[0], True)
         # Die Aufrufzahl gegen eine LAENGERE Werkzeugliste: sie muss um genau
         # die Differenz wachsen. Das pinnt die Steigung der Formel, nicht ihren
         # Achsenabschnitt; den pinnt die Erwartung darunter an einem festen Aufbau.
         def _zahl():
-            return int(LETZTE_AUSGABE[0].split("; ", 1)[1].split(" echte Aufrufe")[0])
+            # Ohne Absicherung starb die Selbstprobe hier mit IndexError und
+            # meldete NULL Abweichungen, sobald ein als gruen erwarteter Lauf
+            # stumm blieb — etwa unter einem Pfad mit Klammer oder Komma, den
+            # die Metazeichen-Regel ablehnt (Gegenpruefer, in sieben von neun
+            # Umgebungen gemessen). -1 macht daraus eine benannte Abweichung.
+            text = LETZTE_AUSGABE[0]
+            if "; " not in text or " echte Aufrufe" not in text:
+                return -1
+            teil = text.split("; ", 1)[1].split(" echte Aufrufe")[0]
+            return int(teil) if teil.strip().isdigit() else -1
         _kurz = os.path.join(d, "werkzeuge_kurz.txt")
         schreib(_kurz, "\n".join(b_allow) + "\n")
         _lang = os.path.join(d, "werkzeuge_lang.txt")
@@ -403,12 +593,24 @@ def main() -> int:
         _a = _zahl()
         probe(pp, einst, "mcp__b__.*", befehl, unbek, les, werkzeuge=_lang)
         erwarte("gruen: Aufrufzahl waechst mit der Werkzeugliste", _zahl() - _a, 2)
-        # Und der Achsenabschnitt, gepinnt an einem festen Aufbau: die
-        # Namensbildung der Probe ist gesaet (WAECHTER_GATE_PROBE_SEED), also ist
-        # die Zahl fuer diese Allowlist und diese Liste deterministisch. Sie faellt
-        # absichtlich laut aus, wenn jemand Saat, Aufbau oder Formel aendert —
-        # in v1.16.0 war sie um eins zu klein (Gegenpruefer).
+        # Und der Achsenabschnitt, gepinnt an einem festen Aufbau. Die Zahl ist
+        # deterministisch, weil die Probe je Aufbau GENAU ZWEI zusaetzliche Namen
+        # bildet — auf jedem Pfad, nicht nur bei dieser Saat (gemessen mit anderer
+        # Saat: weitere_namen() liefert immer zwei). Die Saat macht die NAMEN
+        # reproduzierbar, nicht ihre Anzahl. Sie faellt absichtlich laut aus, wenn
+        # jemand den Aufbau oder die Aufrufe aendert.
         erwarte("gruen: Aufrufzahl fuer den festen Aufbau", _a, AUFRUFZAHL_KURZ)
+        # Und gegen die unabhaengige Nachrechnung, fuer BEIDE Aufbauten: die
+        # gedruckte Zahl ist die gezaehlte, die Gegenrechnung kommt aus der
+        # Beschreibung im Kopf dieser Datei. Ohne diese zwei Erwartungen waere
+        # die Zahl nur gegen sich selbst gepinnt (Blindpruefer, Nacharbeit 2 von
+        # v1.16.0: "ein Aenderungsmelder, kein Waechter").
+        erwarte("gruen: Aufrufzahl = Nachrechnung (kurze Liste)", _a,
+                aufrufe_erwartet(b_allow))
+        probe(pp, einst, "mcp__b__.*", befehl, unbek, les, werkzeuge=_lang)
+        erwarte("gruen: Aufrufzahl = Nachrechnung (lange Liste)", _zahl(),
+                aufrufe_erwartet(b_allow + ["mcp__b__rechnung_erstellen",
+                                            "mcp__b__zahlung_eintragen"]))
         erwarte("gruen: --werkzeuge, alles bewacht", probe(pp, einst, "mcp__b__.*", befehl, unbek, les, werkzeuge=liste)[0], 0)
         json_liste = os.path.join(d, "werkzeuge.json")
         schreib(json_liste, json.dumps(b_allow + ["mcp__b__rechnung_erstellen"]))
@@ -422,7 +624,11 @@ def main() -> int:
         schreib(wrapper, '#!/bin/sh\nexec %s -I -S %s "$@"\n' % (q(PY), q(b_py)))
         hardlink = os.path.join(d, "python-hardlink.exe" if PY.lower().endswith(".exe") else "python-hardlink")
         try:
-            os.link(PY, hardlink)
+            # Vom AUFGELOESTEN Pfad: Ist PY ein Symlink (python -> python3 unter
+            # Linux), legte os.link einen Link auf den Symlink an, dessen relatives
+            # Ziel hier fehlt — die Probe meldete richtig "keine vorhandene Datei",
+            # und der Fall war rot (Gegen- und Blindpruefer, python:3.12-slim).
+            os.link(os.path.realpath(PY), hardlink)
         except OSError:
             hardlink = None
         schreib(os.path.join(d, "python3-hook"), '#!/bin/sh\nexec %s "$@"\n' % q(PY))
@@ -653,6 +859,7 @@ def main() -> int:
         for modul in sorted(set(sys.stdlib_module_names) - gp.ERLAUBTE_MODULE)[::7]:
             if modul.startswith("_"):
                 continue
+            bedingt[0] += 1
             schreib(os.path.join(d, "q.py"), rumpf + "import " + modul + "\n")
             erwarte("quelle_pruefen rot: import " + modul, 1 if gp.quelle_pruefen(os.path.join(d, "q.py")) else 0, 1)
         for erlaubt in ("x = os.path.join('a', 'b')\n", "sys.exit(0)\n", "json.load(sys.stdin)\n",
@@ -682,6 +889,7 @@ def main() -> int:
             erwarte("rot: Hardlink des Interpreters an anderem Ort", rc, 1, m, "zeichengleich")
             einstellung(einst, "mcp__b__.*", befehl)
         else:
+            uebersprungen[0] += 1
             print("Hinweis: Hardlink des Interpreters nicht anlegbar — Fall uebersprungen (Zeichengleichheit "
                   "deckt der Fall 'Interpreter-Wrapper namens python3-hook' mit).")
         # Eintrag mit fremdem "type": der Client fuehrt ihn nicht aus
@@ -690,6 +898,131 @@ def main() -> int:
                                                   "hooks": [{"type": "x", "command": befehl}]}]}}, f)
         rc, m = probe(pp, einst, "mcp__b__.*", befehl, unbek, les)
         erwarte("rot: Eintrag mit fremdem type", rc, 1, m, "NICHT als command")
+        # Ausfallform (v1.18.0): Ohne "onFailure": "block" laesst der Client die
+        # Aktion durch, wenn der Waechter nicht startet, haengt oder mit einem Code
+        # ausser 0 und 2 endet. Felder ausserhalb der Allowlist sind rot, weil sie
+        # aendern koennen, WIE der Client startet ("args") oder OB er blockieren
+        # kann ("async"). Jede Form einzeln, damit ein Zurueckdrehen auf eine
+        # Teilpruefung rot wird.
+        for name, felder, muss in (
+                ("ohne onFailure", {}, "onFailure"),
+                ("onFailure continue", {"onFailure": "continue"}, "onFailure"),
+                ("onFailure gross geschrieben", {"onFailure": "Block"}, "onFailure"),
+                ("onFailure als true", {"onFailure": True}, "onFailure"),
+                ("onFailure null", {"onFailure": None}, "onFailure"),
+                ("async true", {"onFailure": "block", "async": True}, "async"),
+                ("async false (Feld ausserhalb der Allowlist)", {"onFailure": "block", "async": False}, "async"),
+                ("asyncRewake true", {"onFailure": "block", "asyncRewake": True}, "asyncRewake"),
+                ("args (Start ohne Shell)", {"onFailure": "block", "args": []}, "args"),
+                ("unbekanntes Feld shell", {"onFailure": "block", "shell": "powershell"}, "shell"),
+                ("timeout als Text", {"onFailure": "block", "timeout": "10"}, "timeout"),
+                ("timeout als true", {"onFailure": "block", "timeout": True}, "timeout"),
+                ("timeout 0", {"onFailure": "block", "timeout": 0}, "timeout"),
+                ("timeout negativ", {"onFailure": "block", "timeout": -5}, "timeout"),
+                ("timeout als Kommazahl", {"onFailure": "block", "timeout": 1.5}, "timeout")):
+            einstellung(einst, "mcp__b__.*", befehl, felder=felder)
+            rc, m = probe(pp, einst, "mcp__b__.*", befehl, unbek, les)
+            erwarte("rot: Ausfallform " + name, rc, 1, m, muss)
+        for name, felder in (("timeout 10", {"onFailure": "block", "timeout": 10}),
+                             ("timeout 1", {"onFailure": "block", "timeout": 1}),
+                             ("statusMessage", {"onFailure": "block", "statusMessage": "Prod-Waechter"})):
+            einstellung(einst, "mcp__b__.*", befehl, felder=felder)
+            erwarte("gruen: Ausfallform " + name, probe(pp, einst, "mcp__b__.*", befehl, unbek, les)[0], 0)
+        # Die Allowlist der Felder, nicht eine Denylist der vier bekannten: Felder,
+        # die keine der Fassungen kennt, und solche, die den Waechter einschraenken
+        # koennten ("if"). Ohne diese Erwartungen blieb ein Umbau zur Denylist gruen
+        # (Blind- und Gegenpruefer v1.18.0). Dazu statusMessage als Nicht-Text.
+        for name, felder, muss in (
+                ("Feld if", {"onFailure": "block", "if": "Bash(git *)"}, "if"),
+                ("Feld once", {"onFailure": "block", "once": True}, "once"),
+                ("erfundenes Feld", {"onFailure": "block", "zz_neu_v9": 1}, "zz_neu_v9"),
+                ("statusMessage als Zahl", {"onFailure": "block", "statusMessage": 123}, "statusMessage"),
+                ("statusMessage null", {"onFailure": "block", "statusMessage": None}, "statusMessage"),
+                ("statusMessage als Liste", {"onFailure": "block", "statusMessage": []}, "statusMessage")):
+            einstellung(einst, "mcp__b__.*", befehl, felder=felder)
+            rc, m = probe(pp, einst, "mcp__b__.*", befehl, unbek, les)
+            erwarte("rot: Ausfallform " + name, rc, 1, m, muss)
+        # JEDER Haken mit dem Waechter-Befehl, nicht nur der erste: im selben
+        # Eintrag, im zweiten Eintrag, unter anderem Matcher, ohne Matcher, vor
+        # dem guten Eintrag. Und ein fremder Haken davor darf den Blick nicht
+        # vom Waechter-Haken lenken (Blindpruefer: eine Fassung, die hooks[0]
+        # prueft, blieb gruen). Nicht-Objekte in den Listen sind rot.
+        gut = {"type": "command", "command": befehl, "onFailure": "block"}
+        ohne_sperre = {"type": "command", "command": befehl}
+        fremd_haken = {"type": "command", "command": "echo hallo", "onFailure": "block"}
+        for name, eintraege, muss in (
+                ("zweiter Haken im selben Eintrag ohne Sperre",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, ohne_sperre]}], "onFailure"),
+                ("zweiter Haken im selben Eintrag mit continue",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, dict(gut, onFailure="continue")]}], "onFailure"),
+                ("fremder Haken vor dem Waechter-Haken ohne Sperre",
+                 [{"matcher": "mcp__b__.*", "hooks": [fremd_haken, ohne_sperre]}], "onFailure"),
+                ("zweiter Eintrag, gleicher Matcher, ohne Sperre",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]},
+                  {"matcher": "mcp__b__.*", "hooks": [ohne_sperre]}], "onFailure"),
+                ("zweiter Eintrag, anderer Matcher, ohne Sperre",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]},
+                  {"matcher": "mcp__b__.+", "hooks": [ohne_sperre]}], "onFailure"),
+                ("Eintrag * ohne Sperre VOR dem guten",
+                 [{"matcher": "*", "hooks": [ohne_sperre]},
+                  {"matcher": "mcp__b__.*", "hooks": [gut]}], "onFailure"),
+                ("Eintrag ohne Matcher mit async",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]},
+                  {"hooks": [dict(gut, **{"async": True})]}], "async"),
+                ("Haken kein Objekt",
+                 [{"matcher": "mcp__b__.*", "hooks": [1, gut]}], "kein Objekt"),
+                ("Eintrag kein Objekt",
+                 ["x", {"matcher": "mcp__b__.*", "hooks": [gut]}], "kein Objekt"),
+                # Die volle Ausfallform auch am ZWEITEN Haken, nicht nur onFailure
+                # und async — sonst blieb ein Umbau gruen, der weitere Haken nur
+                # darauf prueft (Blindpruefer, Nacharbeit 1).
+                ("zweiter Haken mit asyncRewake",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, dict(gut, asyncRewake=True)]}], "asyncRewake"),
+                ("zweiter Eintrag mit args",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]},
+                  {"matcher": "*", "hooks": [dict(gut, args=[])]}], "args"),
+                ("zweiter Haken mit if",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, dict(gut, **{"if": "x"})]}], "if"),
+                ("zweiter Haken mit timeout als Text",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, dict(gut, timeout="x")]}], "timeout"),
+                ("zweiter Haken mit statusMessage als Zahl",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, dict(gut, statusMessage=1)]}], "statusMessage"),
+                ("zweiter Haken mit dem Befehl ohne type",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut, {"command": befehl}]}], "type"),
+                ("hooks eines Eintrags keine Liste",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]}, {"matcher": "*", "hooks": "x"}], "keine Liste"),
+                # Unter dem GEPRUEFTEN Matcher: Dort endete "hooks": 5 mit einem
+                # Traceback ohne Meldung (Blindpruefer v1.18.0, Nacharbeit 2).
+                ("hooks des passenden Eintrags eine Zahl",
+                 [{"matcher": "mcp__b__.*", "hooks": 5}], "PreToolUse[0].hooks ist keine Liste"),
+                # null oder fehlend vor einem guten Eintrag liess die Probe gruen
+                # (Gegenpruefer v1.18.5): jetzt rot wie jede andere Nicht-Liste.
+                ("hooks null vor einem guten Eintrag",
+                 [{"matcher": "mcp__b__.*", "hooks": None}, {"matcher": "mcp__b__.*", "hooks": [gut]}],
+                 "PreToolUse[0].hooks ist keine Liste"),
+                ("hooks fehlt vor einem guten Eintrag",
+                 [{"matcher": "mcp__b__.*"}, {"matcher": "mcp__b__.*", "hooks": [gut]}],
+                 "PreToolUse[0].hooks ist keine Liste"),
+                ("hooks null in einem fremden Eintrag",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]}, {"matcher": "*", "hooks": None}],
+                 "PreToolUse[1].hooks ist keine Liste"),
+                ("hooks des passenden Eintrags ein Text",
+                 [{"matcher": "mcp__b__.*", "hooks": "abc"}], "keine Liste"),
+                ("erster passender Eintrag mit hooks als Zahl, zweiter gut",
+                 [{"matcher": "mcp__b__.*", "hooks": 5}, {"matcher": "mcp__b__.*", "hooks": [gut]}],
+                 "keine Liste")):
+            with open(einst, "w", encoding="utf-8") as f:
+                json.dump({"hooks": {"PreToolUse": eintraege}}, f)
+            rc, m = probe(pp, einst, "mcp__b__.*", befehl, unbek, les)
+            erwarte("rot: " + name, rc, 1, m, muss)
+        for name, eintraege in (
+                ("fremder Haken ohne Sperre neben dem Waechter-Haken",
+                 [{"matcher": "mcp__b__.*", "hooks": [{"type": "command", "command": "echo hallo"}, gut]}]),
+                ("zwei Eintraege, beide mit Sperre",
+                 [{"matcher": "mcp__b__.*", "hooks": [gut]}, {"matcher": "*", "hooks": [gut]}])):
+            with open(einst, "w", encoding="utf-8") as f:
+                json.dump({"hooks": {"PreToolUse": eintraege}}, f)
+            erwarte("gruen: " + name, probe(pp, einst, "mcp__b__.*", befehl, unbek, les)[0], 0)
         einstellung(einst, "mcp__b__.*", befehl)
         rc, m = probe(pp, einst, "mcp__b__.*", befehl, unbek, les, quelle=os.path.join(d, "nix-quelle.py"))
         erwarte("rot: --quelle unlesbar", rc, 1, m, "nicht lesbar")
@@ -713,6 +1046,103 @@ def main() -> int:
                             "--lesend", les, "--matcher", "mcp__b__.*", "--quelle", quelle, "--werkzeuge", liste],
                            capture_output=True)
         erwarte("Aufbau: Probe ohne -S gestartet", r.returncode, 2)
+        # Die Wachen von Probe und Selbstprobe: STELLE und BEIDE Haelften
+        # (Blindpruefer, Nacharbeit 1 — die Wache zurueck hinter die Importe
+        # geschoben, oder nur -S geprueft, blieb gruen). Je eine Kopie neben einem
+        # Schatten der Standardbibliothek, der den Lauf mit Exit 0 beendet: Steht
+        # die Wache hinter den Importen, gewinnt er. Das Kind bekommt
+        # "--wache-probe": Eine Kopie ohne Wache bricht damit am Aufruf ab, statt
+        # sich selbst erneut zu starten. Erwartet wird der TEXT der Wache.
+        for datei, schatten, text in (
+                ("waechter-gate-probe.py", "shlex.py", "muss mit demselben Interpreter"),
+                ("waechter-gate-probe-selbsttest.py", "tempfile.py", "Selbstprobe muss mit -I -S")):
+            sd = os.path.join(d, "wache-" + schatten[:-3])
+            os.makedirs(sd)
+            shutil.copy(os.path.join(HIER, datei), sd)
+            schreib(os.path.join(sd, schatten), "raise SystemExit(0)\n")
+            for name, schalter in (("keiner", []), ("nur -I", ["-I"]), ("nur -S", ["-S"])):
+                try:
+                    rw = subprocess.run([PY] + schalter + [os.path.join(sd, datei), "--wache-probe"],
+                                        capture_output=True, timeout=60)
+                    ergebnis = (rw.returncode, text in rw.stderr.decode("utf-8", "replace"))
+                except subprocess.TimeoutExpired:
+                    ergebnis = ("Zeitgrenze", False)
+                erwarte("Wache %s, Schalter %s, %s daneben -> Exit 2 mit Text der Wache"
+                        % (datei, name, schatten), ergebnis, (2, True))
+        # Und STELLE und FORM, Token fuer Token, fuer jedes Modul: Der Schatten
+        # oben deckt nur das eine, das er nachbildet (wache_vorn()).
+        for datei in ("waechter-gate-probe.py", "waechter-gate-probe-selbsttest.py"):
+            with open(os.path.join(HIER, datei), encoding="utf-8") as f:
+                erwarte("Wache %s: erste Anweisung nach 'import sys', kein Import davor" % datei,
+                        wache_vorn(f.read()), True)
+        # Die Pruefung selbst, an erfundenem Quelltext: die echte Form mit ja, jeder
+        # gemessene Angriff und jede Umformung mit nein (Blind- und Gegenpruefer
+        # v1.18.5; Fassung mit Token-Vergleich v1.18.7).
+        k, s, j = '"""Kopf."""\n', "import sys\n", "import json\n"
+        w = ("if not (sys.flags.isolated and sys.flags.no_site):\n"
+             "    sys.stderr.write('x')\n    sys.exit(2)\n")
+        for name, quelle in (
+                ("Wache vor dem ersten Import", k + s + w + j),
+                ("Meldung ueber zwei Zeilen, Kommentar dazwischen",
+                 k + "# Kopf\n" + s + w.replace("write('x')", "write('a '  # Teil\n                     'b')") + j),
+                ("Datei mit BOM", "\ufeff" + k + s + w + j),
+                ("Kodierungszeile utf8", "# -*- coding: utf8 -*-\n" + k + s + w + j)):
+            erwarte("wache_vorn: %s -> ja" % name, wache_vorn(quelle), True)
+        for name, quelle in (
+                ("ohne Docstring", s + w),
+                ("zwei Docstrings", k + k + s + w),
+                ("Zuweisung statt Docstring", "__import__('json').x = 'Kopf.'\n" + s + w),
+                ("Import vor 'import sys'", k + j + s + w),
+                ("Wache hinter 'import json'", k + s + j + w),
+                ("'import sys, json'", k + "import sys, json\n" + w),
+                ("'import sys as s'", k + "import sys as s\n" + w),
+                ("'import json' statt 'import sys'", k + j + w),
+                ("'from subprocess import sys'", k + "from subprocess import sys\n" + w),
+                ("nur 'import sys'", k + s),
+                ("andere Bedingung", k + s + w.replace("(sys.flags.isolated and sys.flags.no_site)",
+                                                        "sys.flags.isolated")),
+                ("Bedingung mit 'and __import__'", k + s + w.replace("no_site):", "no_site) and __import__('json'):")),
+                ("Import im Rumpf vorn", k + s + w.replace("    sys.stderr", "    import json\n    sys.stderr")),
+                ("Import statt Meldung", k + s + w.replace("sys.stderr.write('x')", "import json")),
+                ("Import statt sys.exit", k + s + w.replace("sys.exit(2)", "import json")),
+                ("Anweisung nach sys.exit", k + s + w + "    import json\n"),
+                ("sys.exit(0)", k + s + w.replace("sys.exit(2)", "sys.exit(0)")),
+                ("print statt Meldung", k + s + w.replace("sys.stderr.write('x')", "print('x')")),
+                ("print(2) statt sys.exit(2)", k + s + w.replace("sys.exit(2)", "print(2)")),
+                ("Meldung mit zweitem Argument", k + s + w.replace("write('x')", "write('x', 'y')")),
+                ("Meldung mit Schluesselwort", k + s + w.replace("write('x')", "write('x', end='')")),
+                ("Meldung als Ausdruck mit __import__", k + s + w.replace("write('x')", "write(__import__('json').dumps(1))")),
+                ("Meldung als Name", k + s + w.replace("write('x')", "write(x)")),
+                ("Meldung leer", k + s + w.replace("write('x')", "write()")),
+                ("Text plus Ausdruck", k + s + w.replace("write('x')", "write('x' + __import__('json').x)")),
+                ("f-String als Meldung", k + s + w.replace("write('x')", "write(f'{__import__(1)}')")),
+                ("Text und f-String als Meldung", k + s + w.replace("write('x')", "write('x' f'{1}')")),
+                ("(__import__ and sys.exit)(2)", k + s + w.replace("sys.exit(2)", "(__import__('json') and sys.exit)(2)")),
+                ("(__import__ and sys).exit(2)", k + s + w.replace("sys.exit(2)", "(__import__('json') and sys).exit(2)")),
+                ("sys.exit(2, **...)", k + s + w.replace("sys.exit(2)", "sys.exit(2, **({} if __import__('json') else {}))")),
+                ("Wache auf einer Zeile", k + s + "if not (sys.flags.isolated and sys.flags.no_site): "
+                                            "sys.stderr.write('x'); sys.exit(2)\n" + j),
+                ("Quelltext nicht lesbar", k + s + "if (\n"),
+                ("zwei Token statt Docstring", "x\n" + s + w),
+                ("Kodierung utf-7 mit verstecktem Import",
+                 "# -*- coding: utf-7 -*-\n" + k + "import sys  # +AAo-import json\n" + w),
+                ("Kodierung raw_unicode_escape",
+                 "# -*- coding: raw_unicode_escape -*-\n" + k + "import sys  # \\u000aimport json\n" + w),
+                ("Kodierung unicode_escape",
+                 "# -*- coding: unicode_escape -*-\n" + k + "import sys  # \\nimport json\n" + w),
+                ("Kodierung latin-1", "# -*- coding: latin-1 -*-\n" + k + s + w),
+                ("Tab-Einzug", k + s + w.replace("    sys.", "\tsys.")),
+                ("zwei Leerzeichen Einzug", k + s + w.replace("    sys.", "  sys.")),
+                ("rb-Bytes als Meldung", k + s + w.replace("write('x')", "write(rb'x')")),
+                ("Kodierung undefined", "# -*- coding: undefined -*-\n" + k + s + w),
+                ("NUL im Kommentar vor der Wache", k + s + "# \x00\n" + w),
+                ("NUL hinter der Wache", k + s + w + "x = 1  # \x00\n"),
+                ("eckige statt runde Klammern", k + s + w.replace("(sys.flags.isolated and sys.flags.no_site)",
+                                                                  "[sys.flags.isolated and sys.flags.no_site]")),
+                ("Bytes als Meldung", k + s + w.replace("write('x')", "write(b'x')")),
+                ("Bytes als Docstring", "b" + k + s + w),
+                ("Text und Bytes als Meldung", k + s + w.replace("write('x')", "write('x' b'y')"))):
+            erwarte("wache_vorn: %s -> nein" % name, wache_vorn(quelle), False)
         bj = os.path.join(d, "b_prod_readonly.json")
         os.rename(bj, os.path.join(d, "weg.json"))
         rc, m = probe(pp, einst, "mcp__b__.*", befehl, unbek, les)
@@ -855,6 +1285,47 @@ def main() -> int:
         # ---------------- Eigenschaften der Namen ----------------
         spec = importlib.util.spec_from_file_location("gateprobe", pp)
         modul = importlib.util.module_from_spec(spec); spec.loader.exec_module(modul)
+
+        # ---------------- Aufrufzahl gegen die WIRKLICHKEIT ----------------
+        # Die Probe einmal im eigenen Prozess fahren und JEDEN Prozessstart
+        # mitschreiben — umhuellt wird die Grenze (subprocess.run), nicht die
+        # Stelle, die man verdaechtigt. Ohne diese Erwartung ist die gedruckte
+        # Zahl nur gegen den eigenen Zaehler und gegen eine Nachrechnung
+        # gepinnt, die aus derselben Beschreibung stammt; ein Zwischenstand
+        # dieses Schnitts zaehlte eine der zwei Startstellen nicht, und beide
+        # Zahlen bestaetigten sich gegenseitig auf dem falschen Wert
+        # (Blindpruefer, gemessen: gedruckt 8, wirkliche Starts 9).
+        einstellung(einst, "mcp__b__.*", befehl)
+        _starts = []
+        _echt_run = modul.subprocess.run
+
+        def _zaehl_run(*a, **k):
+            _starts.append(a[0] if a else k.get("args"))
+            return _echt_run(*a, **k)
+
+        modul.subprocess.run = _zaehl_run
+        _alt_stdout, _fang = sys.stdout, io.StringIO()
+        sys.stdout = _fang
+        try:
+            # main() erwartet die Argumente OHNE Programmnamen (sys.argv[1:]).
+            _rc_intern = modul.main(["--einstellungen", einst,
+                                     "--befehl", befehl, "--unbekannt", unbek,
+                                     "--lesend", les, "--matcher", "mcp__b__.*",
+                                     "--quelle", QUELLE, "--werkzeuge", _kurz])
+        finally:
+            sys.stdout = _alt_stdout
+            modul.subprocess.run = _echt_run
+        _ausgabe = _fang.getvalue()
+        erwarte("gruen: Probe im eigenen Prozess laeuft durch", _rc_intern, 0)
+        _gedruckt = (int(_ausgabe.split("; ", 1)[1].split(" echte Aufrufe")[0])
+                     if "; " in _ausgabe and " echte Aufrufe" in _ausgabe else -1)
+        erwarte("gruen: gedruckte Aufrufzahl = wirkliche Prozessstarts",
+                _gedruckt, len(_starts))
+        erwarte("gruen: wirkliche Prozessstarts = Nachrechnung",
+                len(_starts), aufrufe_erwartet(b_allow))
+        # Jeder Start traegt den Hook-Befehl; genau einer davon die Konfig-Abfrage.
+        erwarte("gruen: genau eine Konfig-Abfrage unter den Starts",
+                sum(1 for s in _starts if "--konfig-pfad" in repr(s)), 1)
         laengen, ok_prefix, ok_verb, ok_stamm, ok_buchstaben, ok_lang, ok_nicht_allow = set(), 0, 0, 0, 0, 0, 0
         for _ in range(500):
             frei, verb = modul.weitere_namen("mcp__b__", b_allow)
@@ -874,11 +1345,18 @@ def main() -> int:
         shutil.rmtree(d, ignore_errors=True)
 
     # Der Zaehler ist gepinnt: Wer AUCH NUR EINE Erwartung streicht, faellt unter
-    # das Minimum. Die Zahl unten ist "gemessene Gesamtzahl minus eins" (erwarte
-    # zaehlt erst nach der Pruefung hoch) und MUSS bei jeder Aenderung der
-    # Erwartungszahl mitgezogen werden. Gegenpruefer und Blindpruefer v1.16.0:
-    # Nach dem Zuwachs 498 -> 501 blieb das Minimum bei 496 — vier Erwartungen
-    # waren still loeschbar, der Pin war lockerer als dieser Kommentar behauptete.
+    # das Minimum. Gepinnt wird die FESTE Zahl (Gesamtzahl + uebersprungene -
+    # bedingte), damit die Grenze nicht an der Umgebung haengt. Gepinnt ist genau
+    # der Wert, den "fest" VOR dieser Schlusspruefung hat — und genau dieser Wert
+    # wird auch gedruckt, die Zahlen sind also GLEICH (die Schlusspruefung zaehlt
+    # erst danach hoch, was nur die GESAMTzahl um eins hebt). Wer die Grenze beim
+    # naechsten Zuwachs setzt, nimmt die gedruckte feste Zahl, nicht eine
+    # kleinere: "minus eins" hat in v1.16.0 vier still loeschbare Erwartungen
+    # erzeugt. Sie MUSS bei jeder Aenderung der Erwartungszahl mitgezogen werden.
+    # Gegenpruefer und Blindpruefer v1.16.0: Nach dem Zuwachs 498 -> 501 blieb das
+    # Minimum bei 496; nach derselben Regel haette es 500 heissen muessen, vier
+    # Erwartungen waren also still loeschbar — der Pin war lockerer als dieser
+    # Kommentar behauptete.
     # Eine Mutation, die "erwarte" an einer Stelle neutralisiert, sieht er
     # weiterhin nicht: die Selbstprobe schuetzt die Probe, nicht sich selbst
     # (Gegenpruefer, sechste Runde; Blindpruefer, siebte Runde).
@@ -895,15 +1373,18 @@ def main() -> int:
     finally:
         sys.argv = _argv
 
-    erwarte("mindestens 508 Erwartungen", geprueft[0] >= 508, True)
+    fest = geprueft[0] + uebersprungen[0] - bedingt[0]
+    erwarte("mindestens %d feste Erwartungen" % FESTE_MINDESTZAHL, fest >= FESTE_MINDESTZAHL, True)
     if fehler:
         sys.stderr.write("Waechter-Selbstprobe ROT: %d Abweichung(en)\n  " % len(fehler) + "\n  ".join(fehler) + "\n")
         return 1
-    print("Waechter-Selbstprobe gruen: %d Erwartungen; Waechter, Gate-Probe (Befehlsform mit "
+    print("Waechter-Selbstprobe gruen: %d Erwartungen = %d feste + %d umgebungsbedingte "
+          "- %d uebersprungene + diese Schlusszeile; Waechter, Gate-Probe (Befehlsform mit "
           "Interpreter-Identitaet, Quelle, Bindung, Konfiguration, Matcher, Aufrufe, Werkzeugliste) "
           "und Namensbildung wie im Kopf beschrieben. Geprueft wurde die Waechter-Quelle %s. "
           "Nicht geprueft: Echtprobe, Symlinks, das Gate "
-          "selbst, Vollstaendigkeit der Werkzeugliste." % (geprueft[0], w_pfad))
+          "selbst, Vollstaendigkeit der Werkzeugliste."
+          % (geprueft[0], fest, bedingt[0], uebersprungen[0], w_pfad))
     return 0
 
 

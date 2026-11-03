@@ -3,8 +3,8 @@
 #
 #   sh scripts/bau-brief-pruefen.sh <brief.md>
 #
-# Selbstprobe nach jeder Aenderung an diesem Skript, an den Prueffragen oder an
-# den Pflicht-Randbedingungen in bau-brief.md:
+# Selbstprobe nach jeder Aenderung an diesem Skript, an den Prueffragen, an den
+# Pflicht-Randbedingungen oder an "Typische Fallen" in bau-brief.md:
 #   sh scripts/bau-brief-pruefen-selbsttest.sh
 #
 # DAS TRAGENDE PRINZIP: DIE ASYMMETRIE
