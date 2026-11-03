@@ -10,7 +10,7 @@ Dokument hält fest, was übertragbar ist.
 
 ## Vor jedem Slice: fünf Fragen
 
-Zweiundvierzig Abschnitte liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
+Die Abschnitte unten liest man einmal. Ein Projekt hat 1233 Zeilen Prozess-Doku
 geschrieben und im selben Zeitraum eine Klasse aus §1 wiederholt — **ein Dokument
 zu haben ist nicht, es gelesen zu haben.** Deshalb die Kurzfassung, die tatsächlich
 vor den Slice gehört:
@@ -59,6 +59,36 @@ den Schutz an die Cloud-Tür bringen — läuft die komplette Suite grün (#349)
   Test fällt. Ein Test ohne Rot-Beweis ist eine Behauptung.
 - **Auch die Verdrahtung sabotieren**, nicht nur die Logik. Die Frage lautet:
   „Welche einzelne Zeile könnte ich löschen, ohne dass etwas rot wird?"
+  Das gilt auch für die Gate-Kette selbst: „die neue Prüfung aus der
+  Gate-Datei streichen" ist eine Mutation. Von der Vorlage gemessen: Sie
+  rutschte durch, weil die Selbstprobe das Prüfskript prüfte, nicht seinen
+  Aufruf.
+- **Wer einen Mutanten für äquivalent erklärt, schuldet die Sonde, die ihm
+  recht gäbe.** Überlebt eine Mutation alle Tests, gibt es zwei Erklärungen:
+  der Code ist überflüssig, oder ein Test fehlt — und unter Druck wird die
+  bequeme gewählt. Von der Vorlage gemessen: Der Bauer erklärte einen Mutanten
+  für äquivalent und entfernte den „überflüssigen" Block vor dem Commit;
+  der Blindprüfer fand mit einer Sonde den Fall, in dem der Block Verhalten
+  trug. Die Commit-Nachricht beschrieb den Block weiter — **ein Commit-Text
+  wird gegen den Diff gelesen, nicht gegen die Absicht.**
+- **Ein Eigenschafts-Wächter prüft die STÄRKE, nicht den Wahrheitswert.** Ein
+  Sperr-Wächter, der „irgendeine Sperre" verlangte, blieb grün, als eine
+  schwächere Sperrform den Fehler zurückbrachte. Der Wächter liest den Rohwert
+  und vergleicht ihn mit der verlangten Stufe.
+- **Fixtures tragen feste Daten oder Daten relativ zum Test-„heute", nie das
+  echte Datum.** Zwei Tests mit dem echten Datum kippten am Quartalswechsel
+  auf jedem Stand rot — eine Zeitbombe mit Kalender-Zünder.
+- **Eine Selbstprobe, deren Eingabe das Format eines fremden Werkzeugs
+  nachbaut, prüft die Annahme mit, statt sie zu prüfen.** Von der Vorlage
+  zweimal am selben Wächter für Commit-Nachrichten gemessen: Ein nachgebauter
+  Fall erwartete, dass git eine Kommentarzeile entfernt — bei
+  `git commit -F` tut es das nicht, und genau so committet der Agent.
+  **Regel:** Bei einem eigenen Wächter, dessen Selbstprobe das Projekt selbst
+  führt, bekommt mindestens ein Fall seine Eingabe vom fremden Werkzeug selbst
+  (echtes `git commit`), nicht nachgebaut. **Bei uns leistet das
+  `scripts/commit-msg-selbstprobe.sh`:** Sie fährt echte Commits in
+  Wegwerf-Repos und prüft, was git SPEICHERT. Das war hier schon so, bevor die
+  Vorlage die Regel hatte — siehe §24.
 - **Testdaten müssen den Unterschied erzwingen.** Wenn zwei Ordnungen/Zustände
   zufällig zusammenfallen, beweist der Test nichts — Anlagereihenfolge drehen.
 - **Prosa-Listen driften.** Wo Doku eine Menge aufzählt (Konsumenten, Türen,
@@ -208,9 +238,65 @@ Real getroffen hat es uns dreimal:
 - Voll-Load hat einen Preis: Auswahlfelder rendern ohne Virtualisierung _alle_
   Optionen (#352).
 
+Ein Fall aus dem Betrieb, von der Vorlage gemessen und teurer als die oben: Ein
+Wartungsschritt konnte einen Container nicht starten, meldete das als **Warnung
+in ein Protokoll** und lief weiter. Der Container blieb elf Tage in „Created",
+mit leerem Log; die Oberfläche urteilte nur über Zeitstempel und nannte den
+Zustand erst nach 26 Stunden „veraltet". Gefunden hat es der Owner, beim
+nächsten Upgrade. Zwei Regeln daraus, beide über den Fall hinaus:
+
+- **Jede Prod-Wirkung braucht einen Meldeweg in die Oberfläche — und der
+  sicherste ist ein Zustand, den die Oberfläche selbst MISST**, nicht eine
+  Meldung, die jemand lesen muss. Ein Lebenszeichen mit kurzer Schwelle ist ein
+  Wächter; ein Urteil über Zeitstempel ist keines, weil es nicht unterscheidet
+  zwischen „läuft und tut nichts" und „läuft nicht".
+- **Die Tür-Probe misst die QUELLE, nicht die Anwesenheit.** „Der Container
+  läuft" ist auf einer Entwicklungsmaschine auch mit falscher Mount-Quelle
+  wahr (Docker Desktop legt fehlende Quellen als Verzeichnis an, ein Linux-Host
+  mit schreibgeschütztem Root nicht). Geprüft wird, WAS eingehängt ist
+  (`docker inspect … .Mounts`), nicht DASS etwas läuft. **Für uns
+  unmittelbar:** Der Datenpfad dieses Projekts ist ein Bind-Mount auf ein
+  ZFS-Volume, und die einzige persistente Datei liegt darin.
+
 ---
 
 ## 6. Betrieb und Werkzeuge
+
+- **Ein Build-Weg, der die Basis nie neu zieht, friert den Sicherheitsstand
+  ihres ersten Tages ein.** `compose up --build` ohne `--pull` nimmt
+  das lokal gecachte Basis-Abbild, und die `RUN`-Schicht bleibt im Cache,
+  solange die Zeile gleich ist. **Hier gemessen am 03.11.2026:** Ein Scan der
+  laufenden Produktivinstanz meldete drei Funde, die alle aus der Basis
+  stammten und längst behoben waren; `docker compose build --pull` vor
+  `up` räumte alle drei weg, nachgemessen im gebauten Abbild. Ein
+  `up -d --build` allein hätte sie stehen gelassen — das war der
+  Irrtum, mit dem der Lauf begann. Lock-Dateien und der Abhängigkeits-Bot
+  sehen das nicht: Sie lesen `requirements.txt` und
+  `package.json`, nicht die Basis-Schicht. Je Update also
+  `build --pull` vor `up` (`up` kennt `--pull` nur mit
+  einem Wert und kein `--no-cache`, also nicht einfach anhängen). Das
+  reicht nicht immer: Liefert der Pull dieselbe Basis, kommt auch die
+  Upgrade-Schicht aus dem Cache; ein Sicherheits-Neubau braucht also
+  `build --no-cache`. Sehen kann es nur ein Scan der **laufenden**
+  Abbilder, nicht des Repos.
+- **Keine relativen Bind-Quellen, wenn die Container-Konfiguration je aus einem
+  CONTAINER heraus gefahren wird.** Ein Deploy-Pfad, der Container aus einem
+  anderen Container neu baut, löst `./datei` gegen das Dateisystem auf,
+  das **dieser** Container sieht — der Daemon auf dem Host kennt den Pfad
+  nicht. Von der Vorlage gemessen: Ein Wartungscontainer mit dem Repo unter
+  einem eigenen Pfad ließ so einen Backup-Container elf Tage in „Created"
+  stehen.
+- **Werte holt man von dem Werkzeug, das die Datei ohnehin liest, nicht vom
+  eigenen Parser.** Für eine Umgebungsdatei heißt das die
+  Konfigurations-Abfrage des Werkzeugs (`docker compose config`), der
+  eigene Parser nur als Rückfall. Von der Vorlage gemessen: Vier Stimmen fanden
+  an einem selbst geschriebenen Dotenv-Parser je ANDERE Fälle
+  (`export`-Vorsatz, Anführungszeichen, Kommentar hinter dem Wert, CRLF,
+  Laufwerkspfade mit Doppelpunkt). Ein eigener Parser für eine Sprache, die
+  jemand anders definiert, ist immer die schwächere Fassung.
+- **Ein ABGEBROCHENER Lauf ist für den Beobachter ein Erfolg.** Das ist bei uns
+  ausgemessen und steht als eigene Lehre: siehe §42. Hier nur der Zeiger, damit
+  wer die CI-Wachen-Regeln dieses Abschnitts liest, nicht daran vorbeiliest.
 
 - **MCP-Clients holen die Werkzeugliste einmal beim Verbinden** und lesen sie nie
   neu. Nach einem Release mit geänderter Werkzeug-Signatur sendet ein alter
@@ -288,6 +374,14 @@ Real getroffen hat es uns dreimal:
 
 ## 7. Was das Panel wert war
 
+**Keine Stimme muss den Auftrag messen.** Die Blindheit, die Blind- und
+Gegenprüfer stark macht, heißt auch: Was der Brief verlangt und der Diff nicht
+liefert, sieht von ihnen niemand, und der Fremdprüfer nur, wenn er den Brief
+bekommt. Von der Vorlage gemessen: Eine Auswahl blieb bei der Nummer, obwohl
+der Auftrag genau diese Stelle als Abweichung nannte, und das überlebte drei
+Runden. Gefunden hat es eine Stimme, die nur Diff und Brief las
+(`panel.md`, „Neben der Erstrunde").
+
 Von den Slices dieser Serie hat das Review-Panel **jeden zweiten Erstbau
 gestoppt** — nicht wegen Kleinigkeiten, sondern wegen Funden, die in Produktion
 wehgetan hätten: ein Workflow-Bruch im Auftrags-Cockpit, ein rekonstruierbarer
@@ -342,6 +436,42 @@ sie bewacht. Derselbe technische Sachverhalt war in einem Projekt ein Loch und
 im anderen ein gewolltes Feature; eine pauschale Regel tut immer einem von
 beiden unrecht.
 
+**Eine Ausschlussliste lässt jedes neue Verzeichnis durch.** Ein Deploy, der
+den Baum spiegelt und ausnimmt, was nicht live soll, liefert alles aus, woran
+beim Schreiben der Liste niemand dachte. Von der Vorlage gemessen: Ein im
+selben Monat eingeführtes Hook-Verzeichnis stand in keiner Ausnahme und wäre
+beim nächsten Deploy öffentlich abrufbar gewesen — drei Wochen unbemerkt,
+weil jede Prüfung die Liste las und keine die Menge. **Regel:** Wer per
+Ausschlussliste ausliefert oder prüft, rechnet die Menge nach —
+`git ls-files` minus die Ausnahmen, aus dem Skript selbst gelesen, gegen
+eine kurze Positivliste. Vergessenes wird dann laut statt still undicht.
+**Bei uns betrifft das zwei Listen:** `.prettierignore` und
+`scripts/zeilenenden-ausnahmen.txt`. Die zweite rechnet ihre Menge schon
+nach (sie zählt nur ANGEWANDTE Ausnahmen, §18); die erste tut es nicht.
+
+**Ein Signal, das ein Zeitfenster ersetzt, macht das Urteil schneller und
+schwächer zugleich.** Ein Urteil „Container nach dem Neubau gesund" war ein
+Schnappschuss nach drei Sekunden; ein Slice ersetzte ihn durch ein
+Lebenszeichen des Prozesses. Das Zeichen kommt aber Millisekunden nach dem
+Start — ein Prozess, der nach vier Sekunden stirbt, galt damit eher als
+gesund als vorher. **Regel:** Wer ein Zeitfenster durch ein Signal ersetzt,
+stellt den Zeitpunkt des Signals gegen das Fenster, das er abschafft, und die
+Tür-Probe enthält den Fall **„Signal da, dann Ausfall"**, nicht nur
+„kein Signal".
+
+**Eine Tür-Probe ist selbst ein Werkzeug ohne Selbstprobe.** Von der Vorlage
+gemessen: Sieben Läufe einer Signal-Probe am echten Container; drei meldeten
+rot oder nichts, ohne dass das Produkt beteiligt war — Docker wertete
+`docker kill` als manuellen Stopp; die Prüfschleife fand ihre eigene
+Shell, weil deren Befehlszeile das Suchwort trug; das Signal traf die
+Erstfassung eines Skripts statt der per `exec` gewechselten. Jeder dieser
+Läufe sah nach einem Produktfund aus. **Regel:** Eine Tür-Probe gibt VOR dem
+Urteil ihre Beweismittel aus — getroffener Prozess mit Nummer und
+Befehlszeile, Zustand des Containers, die letzten Zeilen des Produkt-Logs —,
+und ihr erster Lauf gilt als Probe der Probe: Ein Fall, der nicht das
+erwartete Bild zeigt, wird zuerst gegen das Skript geprüft, dann gegen das
+Produkt.
+
 ---
 
 ## 9. Belegen statt annehmen
@@ -367,6 +497,18 @@ in Ordnung.**
 
 Dieser Punkt stammt aus Immich Family Tools (Vorlagen-Issue #3).
 
+**Wer eine Zahl gegen die Wirklichkeit prüft, umhüllt die GRENZE, nicht die
+Stelle, die er verdächtigt.** Von der Vorlage gemessen: Eine Probe druckte eine
+Aufrufzahl, die zu hoch schien. Die Messung setzte einen Zähler in die
+Funktion, die die Aufrufe macht — und bestätigte den Verdacht. Es gab eine
+**zweite** Stelle, die denselben Befehl startet; umhüllt man stattdessen den
+Prozessstart selbst, zeigt sich, dass die ursprüngliche Zahl richtig war und
+die „Korrektur" den Fehler einführte. Eine Messung, die nur die vermutete
+Stelle instrumentiert, ist eine Bestätigungsmaschine. Die Grenze ist der
+Systemaufruf, die HTTP-Anfrage, der Datenbank-Treffer — nicht die Funktion,
+die man im Kopf hat. Dieselbe Klasse wie §46, dort an einer Zahl aus einer
+Prüfung.
+
 ---
 
 ## 10. Zwei Umgebungen, eine geprüft
@@ -383,6 +525,42 @@ testet eine.
   Entwicklungs-Abhängigkeiten; sichtbar wurde es erst, als ein zweites
   Prüfwerkzeug dazukam und lokal nie lief. Gate und CI müssen **dieselbe Quelle**
   benutzen.
+- **Grün auf der Bau-Maschine ist kein Urteil über die Zielplattform.** Ein
+  Test, der ein Verhalten der C-Bibliothek oder des Betriebssystems festhält
+  (Zeitfunktionen vor 1970, Pfadlängen, Signale, Locale, Vererbung von
+  Handles), hält die Plattform des Bauers fest. Besonders tückisch bei
+  „wirft X": Dort entscheidet die Plattform, OB geworfen wird. Von der
+  Vorlage gemessen: ein Datum vor 1970 warf nur auf Windows, der Bauer
+  arbeitete dort, CI und Produktion (Linux) hätten den Test rot gesehen.
+  **Für uns besonders scharf:** Der Entwicklungsrechner ist Windows, CI und
+  Produktion sind Linux — das ist hier der Normalfall, nicht die Ausnahme.
+  **Regel:** Ein Test, der eine Ausnahme aus Betriebssystem oder C-Bibliothek
+  erwartet, läuft vor der Landung einmal auf der Zielplattform, im
+  Wegwerf-Container mit dem App-Abbild. Gibt es vor der Landung keinen Lauf
+  auf der Zielplattform (die CI läuft erst auf dem gelandeten Endstand),
+  bleiben plattformabhängige Eingaben aus dem Test. Als plattformabhängig gilt
+  dann JEDE Eingabe, deren erwartete Ausnahme aus Betriebssystem oder
+  C-Bibliothek kommt — auch eine, die vermutlich überall gleich wirft: Ohne
+  Lauf auf der Zielplattform ist „überall gleich" eine Annahme.
+- **`.gitattributes` wirkt beim Schreiben, nicht rückwirkend.** Eine Datei
+  mit `eol=lf` lag nach einem abgebrochenen Umschreiben der Historie mit
+  CRLF im Arbeitsbaum: git schreibt Dateien mit unverändertem Blob nicht neu.
+  Ein Werkzeug, das den Arbeitsbaum liest, sieht dann andere Bytes als die CI.
+  `git add --renormalize .` hilft dagegen nicht: Es normalisiert den
+  Index, nicht die Bytes im Arbeitsbaum. Was zu tun ist, zeigt
+  `git ls-files --eol`: Steht der Index auf `i/crlf` oder
+  `i/mixed`, liegen schon die Blobs falsch; steht nur der Arbeitsbaum auf
+  `w/crlf`, reicht das Neuschreiben bei sauberem Baum. **Bei uns ist der
+  Weg in `../../CLAUDE.md` ausgeschrieben** (Abschnitt
+  „Prüfschritte", Auffrischen nach #104) — hier nur die Klasse.
+- **Ein byteweise arbeitendes Werkzeug sieht Mehrbyte-Zeichen als Bytes.** Eine
+  Zeichenklasse in `sed` ohne UTF-8-Locale schließt die Bytes eines
+  Mehrbyte-Zeichens EINZELN aus — und damit auch jedes andere Zeichen, das
+  eines dieser Bytes teilt. Dieselbe Klasse wie bei der Suche
+  (`abgleich.md` 2b, wo jeder Umlaut durch zwei Punkte ersetzt wird),
+  hier im Code. **Bei uns gemessen:** Alle sieben Ersatzmuster in
+  `scripts/bau-brief-pruefen.sh` benutzen `..?` statt eines einzelnen
+  Punkts, genau deswegen (§22).
 
 ---
 
@@ -800,6 +978,16 @@ Entscheidung" — wir kannten die Regel und befolgten sie (§17-Suche vor jedem
 Commit läuft als eigenes Kommando, nie verkettet), aber sie stand bei uns
 nirgends als Form, nur als Spezialfall (Exit-Code in der Pipe). Genau die
 Klasse, die dieser Paragraph beschreibt.
+
+**Und die Gegenrichtung: Die strukturgleiche Regel kann im Original nur
+zufällig stimmen.** Von der Vorlage gemessen: Ein Brief übertrug „wirkt am
+Tag der letzten Zahlung" von einem Mechanismus, in dem der übertragene Wert
+immer 0 trägt, auf einen mit absolutem Betrag. Dort wanderte der Betrag mit
+jeder späteren Zahlung in eine andere Periode, auch aus einer schon gemeldeten;
+alle Tests waren grün. Abgeleitete Anker hatten jeweils einen späteren Zug, der
+sie verschob. Stabil war erst das Datum der Zeile selbst, zur Entstehung
+gesetzt. **Prüffrage dazu:** Welcher spätere Zug, über welche andere Tür,
+ändert diesen Anker, und fragt er?
 
 ## 20. Ein Hook deckt nur, was er nennt — und er nennt seine Auslassungen nicht
 
@@ -1803,3 +1991,38 @@ Problem, sie löst es nicht — sie klingt nur sicherer.
 Regel-ALTERNATIVEN — „so könnte es auch sein" — gehören ins Issue, wo der Owner
 entscheidet, nicht in den Code. Und: Wer merkt, dass er dieselbe Stelle zum
 dritten Mal umformuliert, hört auf zu formulieren.
+
+---
+
+## 48. Ein Skript, das sich selbst aktualisiert, läuft mit seinen alten Funktionen weiter
+
+Übernommen aus Vorlage-Lehre §37.
+
+Ein Ein-Klick-Update holt den neuen Stand und macht dann weiter — mit der
+Fassung, die die Shell **vor** dem Auschecken gelesen hat. Die Datei auf der
+Platte ist neu, der laufende Prozess ist alt. Jede Änderung, die Skript **und**
+Konfiguration gemeinsam braucht, greift deshalb erst ab dem **übernächsten**
+Update: Das Update AUF die Fix-Version trägt den Fehler noch einmal.
+
+Von der Vorlage in einem Kind-Repo gemessen: Der Fix am Update-Pfad war
+korrekt, und trotzdem hätte der nächste Lauf ihn nicht benutzt — gefunden hat
+es die Panel-Runde, nicht der Bau.
+
+**Regel:** Wer ein sich selbst ersetzendes Skript ändert, entscheidet
+ausdrücklich zwischen zwei Wegen und schreibt die Wahl in die Release-Notiz:
+nach dem Auschecken per `exec` in die neue Fassung wechseln, oder den
+Übergang dokumentieren („dieses eine Update von außen fahren"). Ein
+dritter Weg — „fällt niemandem auf" — ist keiner.
+
+**Was das hier trifft, obwohl es kein Deploy-Skript gibt:** Diese Klasse gilt
+für jede Konfiguration, die von einem Programm gelesen wird, das sich mit ihr
+ändert. In diesem Repo sind das die Husky-Hooks (`.husky/_` entsteht erst
+durch ein `npm install` in der Wurzel, §18 und {c('../../CLAUDE.md')}), die
+selbstheilende JSON-Wanderung in `backend/services/config_store.py` (der
+alte Prozess läuft weiter, während die Datei schon das neue Schema trägt) und
+jede Gate-Zeile, die ein Skript aufruft, das derselbe Commit verändert.
+
+Die Frage dazu steht in `panel.md` („Fragen, die überdurchschnittlich oft
+etwas finden"): **Läuft der geänderte Code beim Übergang zwischen zwei
+Versionen überhaupt schon, oder noch die alte Fassung mit der neuen
+Konfiguration?**

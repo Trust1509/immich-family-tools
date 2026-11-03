@@ -312,9 +312,14 @@ selbst weg. Lokale Gates (der Husky-Hook) sind die **Verifikation** und
 bleiben Pflicht; die CI ist die **Gegenprobe**, nicht der Erstlauf. Warum:
 Das Portfolio-Tagesbudget für GitHub Actions liegt bei 100 Minuten über alle
 Repos des Owners (Auslöser: 2701/3000 Portfolio-Minuten am 14.08.2026
-verbraucht) — dieses Repo selbst ist PUBLIC und ein Lauf hier kostet 0
-abgerechnete Minuten (Abrechnungs-API, belegt für alle Läufe seit 11.08.,
-auch während der früheren Notbremse), aber die Regel gilt trotzdem: als
+verbraucht). Dieses Repo selbst ist PUBLIC, und ob ein Lauf hier
+abgerechnete Minuten kostet, ist **ungemessen**: Die Abrechnungs-Schnittstelle
+meldet `billable = 0` — aber sie meldet das auch für PRIVATE Repos
+(gemessen am 28.09.2026 an zwei privaten Läufen), taugt also nicht als Beleg.
+Hier stand bis zum Abgleich auf v1.19.1 „ein Lauf hier kostet 0
+abgerechnete Minuten" mit genau dieser Schnittstelle als Beleg; die Vorlage
+hat die Aussage in v1.19.0 zurückgenommen. **Die Regel hing nie daran** und
+gilt unverändert: als
 Portfolio-Disziplin (dieselbe Arbeitsweise in allen Repos) und weil sie
 sofort real wird, sollte dieses Repo je auf privat umgeschaltet werden. Was
 davon dauerhaft bleibt, weil es Qualität nicht kostet: ein pytest-Job statt
@@ -577,9 +582,12 @@ verwechseln heißt, die Lücke der anderen zu übersehen:
   „Prüfschritte" oben); erst der Wochenlauf (`wochen-pruefung.yml`) deckt den
   vollen Verlauf ab.
 
-**Der Nutzen der Öffentlichkeit gehört auch hin:** CI-Läufe kosten hier 0
-abgerechnete Minuten — Begründung und Beleg stehen in „Prüfschritte" oben,
-hier nur der Verweis.
+**Und was die Öffentlichkeit NICHT belegt:** Dass CI-Läufe hier nichts
+kosten. Das stand hier bis zum Abgleich auf v1.19.1 als Nutzen — mit der
+Abrechnungs-Schnittstelle als Beleg, und die taugt dafür nicht (Begründung
+im Abschnitt „Prüfschritte" oben, hier nur der Verweis). Was die
+Öffentlichkeit wirklich kostet, ist der Abschnitt darüber: Was hier landet,
+ist weltweit und dauerhaft lesbar.
 
 ### Gemessen am 06.09.2026: was der eigene Scanner zusätzlich leistet
 
@@ -617,9 +625,15 @@ generisches Muster (das sind private Schlüssel und Verbindungszeichenketten),
 höchstens ein KI-erkanntes — und die haben laut Plattform-Dokumentation keine
 Push Protection.
 
-**Und die Kostenannahme trägt nicht:** `actions/runs/<id>/timing` meldet
-`billable.UBUNTU.total_ms = 0` für alle Jobs, geprüft über drei Läufe und
-beide Workflows; der `secrets`-Job läuft in 4–10 Sekunden.
+**Und das Kostenargument gegen den eigenen Scanner trägt nicht** — aber aus
+einem anderen Grund, als hier bis zum Abgleich auf v1.19.1 stand. Dort stand:
+`actions/runs/<id>/timing` meldet `billable.UBUNTU.total_ms = 0` für alle
+Jobs, geprüft über drei Läufe und beide Workflows. Das ist richtig gemessen
+und **beweist nichts**: Dieselbe Schnittstelle meldet 0 auch für private
+Repos (gemessen am 28.09.2026 an zwei privaten Läufen). Was trägt, ist die
+**Laufzeit**: Der `secrets`-Job läuft in 4–10 Sekunden. Bei einem Lauf je
+Slice ist das in jeder Abrechnungsform unterhalb der Wahrnehmungsgrenze,
+ohne dass man wissen muss, ob abgerechnet wird.
 
 **Zwei offene Punkte** (Issue #77): Die generischen Muster einschalten ist
 kostenlos und deckt **privaten Schlüssel und Verbindungszeichenkette**
