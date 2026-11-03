@@ -6,7 +6,13 @@ bis zum Abgleich auf v1.16.0 **nicht** — mit der Folge, dass Meldungen von hie
 zeitweise unter P5 liefen und das Register eine eigene Nummer (P7) für sie
 reservierte. Nachweis und Auflösung: Issue #93.
 
-**Prozess-Stand: v1.16.0** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.19.1** — Stand der Vorlage, aus der dieses Projekt stammt.
+Hochgesetzt am 03.11.2026 (Abgleich #153, Sprung von v1.16.0 über 19 Versionen).
+**Zwei Tür-Proben sind dabei NICHT gefahren worden, beide vertagt mit Bedingung:**
+die Ausfall-Echtprobe des Prod-Wächters (Bedingung: erste Instanz, die ein
+Wächter schützt — hier ist keiner installiert) und der Linux-Zweig von
+`baum-stoppen.sh` (dieser Rechner setzt `GITBASH`; die Wache ist dort
+nur gelesen, nicht gemessen). Offene Punkte des Sprungs: #149, #151, #152, #154.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
