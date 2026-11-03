@@ -11,9 +11,7 @@
 frontend/dist/
 dist/
 
-# Oertlicher Arbeitsstand des Agenten-Clients: Worktrees, Sitzungsreste.
-#
-# Nichts davon ist versioniert (`git ls-files .claude/` ist leer; der Pfad
+ ist leer; der Pfad
 # steht in `.git/info/exclude`). Prettier liest `.git/info/exclude` NICHT, nur
 # `.gitignore` und diese Datei — deshalb muss der Pfad hier stehen.
 #
@@ -66,12 +64,21 @@ docs/SECRETS.md
 # ihnen die Pruefung mit.
 #
 # Gemessen am 03.11.2026 beim Abgleich auf v1.19.1: `prettier --check` meldete
-# setup-checkliste.md und panel-kommentar.md unmittelbar nach der
-# byte-identischen Uebernahme. issue-tracker.md und triage-labels.md kamen
-# zufaellig durch — sie stehen trotzdem hier, weil der Grund derselbe ist und
-# die naechste Vorlagen-Fassung sie sonst beim ersten CI-Lauf rot macht.
+# setup-checkliste.md unmittelbar nach der byte-identischen Uebernahme.
+#
+# HIER STEHT NUR EINE DATEI, und das ist die Korrektur eines Fehlers aus
+# demselben Abgleich. Zuerst standen hier vier: panel-kommentar.md,
+# issue-tracker.md und triage-labels.md waren dazugekommen, weil ich sie fuer
+# byte-identische Uebernahmen hielt. Sie waren es nicht — es waren EIGENE
+# Fassungen dieses Projekts, und die Uebernahme war ein Ueberschreiben.
+# Gemessen (`git rev-parse main:<pfad>` gegen `v1.16.0:<pfad>` der Vorlage):
+# neun der zwoelf verglichenen Dateien waren vorher schon byte-identisch, drei
+# nicht. Die drei sind wiederhergestellt; panel-kommentar.md hat die
+# Vorlagen-Aenderung jetzt Hunk fuer Hunk. Gefunden hat das die
+# Umfangspruefung, nicht der Blob-Nachweis:
+#
+#   Ein gruener Blob-Nachweis NACH dem Ueberschreiben beweist Identitaet,
+#   nicht Richtigkeit. Die Probe, die fehlte: War die Datei VORHER
+#   byte-identisch? Nur dann ist eine Kopie eine Uebernahme.
 docs/agents/setup-checkliste.md
-docs/agents/panel-kommentar.md
-docs/agents/issue-tracker.md
-docs/agents/triage-labels.md
 

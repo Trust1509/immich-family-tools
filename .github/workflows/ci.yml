@@ -77,7 +77,7 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r backend/requirements-dev.txt
       - run: pytest -q backend/tests
-      - run: python -I -m compileall -q backend
+      - run: python -I -S -m compileall -q backend
       # Die Selbstprobe des Release-Gates. Sie haengt hier und nicht am
       # Release, weil ein Waechter, dessen Lauf niemand erzwingt, seine
       # Abdeckungszahl zur Beruhigung macht (docs/agents/lehren.md §18) —
@@ -112,7 +112,7 @@ jobs:
       # ohne installiertes Backend weg — die Probe bleibt dann gruen und
       # sagt es ("uebersprungen"). Die erste Fassung machte daraus Rot,
       # weil die Mindestzahl den ausgelassenen Fall mitzaehlte.
-      - run: python -I scripts/faltung-sonde-selbsttest.py
+      - run: python -I -S scripts/faltung-sonde-selbsttest.py
       # Verweis-Waechter fuer die Lehren-Nummern (Vorlage v1.19.0).
       # WOFUER: Beim Uebernehmen einer Lehre aus der Vorlage werden die
       # Nummern repo-lokal (abgleich.md 2d). Ein im Text stehen gelassener
@@ -125,13 +125,32 @@ jobs:
       # dessen eigene Probe niemand erzwingt, macht seine Abdeckungszahl
       # zur Beruhigung (docs/agents/lehren.md §18).
       #
-      # -I -S ist hier gemessen vertretbar: Das Skript benutzt nur die
-      # Standardbibliothek, und seine Selbstprobe laeuft unter beiden
-      # Schaltern gruen (247 Erwartungen, 03.11.2026). Das gilt NICHT
-      # pauschal fuer jede Python-Zeile: Dieselben Schalter machen
-      # faltung-sonde-selbsttest.py rot (65 statt 67 Faelle), weil -S
-      # site-packages weglaesst und damit den config_store-Fall. Deshalb
-      # traegt die Zeile darueber nur -I.
+      # Alle Python-Zeilen dieses Jobs tragen -I -S: Die Werkzeuge der
+      # Vorlage verlangen es, compileall braucht keine Pakete (gemessen:
+      # Exit 0), und die Faltungs-Sonde laeuft damit ebenfalls gruen.
+      #
+      # DASS DIE SONDE DAS TUT, IST ERST SEIT DEM ABGLEICH v1.19.1 WAHR,
+      # und der Weg dahin gehoert hierher, weil er sich wiederholen wird:
+      # Unter -S fehlt `pydantic`, damit scheitert der Import von
+      # `services.config_store`, und ZWEI Faelle des try-Blocks entfallen
+      # (der Vergleich beider Faltungen gegen `_name_key`). Das ist
+      # ausdruecklich erlaubt -- die Sonde ist dafuer gebaut, ohne
+      # installierten Code zu laufen. Ihr `except` zaehlte aber nur EINEN
+      # uebersprungenen Fall, und damit machte die Mindestzahl aus einem
+      # erlaubten Ausfall ein ROT bei NULL Fehlschlaegen (65 < 67 - 1).
+      #
+      # Der erste Befund dieses Abgleichs lautete deshalb: "-I -S in jeder
+      # Gate-Zeile macht ein gruenes Gate rot". Das war HALB FALSCH. Rot
+      # machte es ein Off-by-one in unserer eigenen Sonde, nicht der
+      # Schalter. Gefunden hat das der Gegenpruefer des Abgleich-Panels,
+      # durch Zaehlen der pruefe()-Aufrufe im try-Block -- nicht durch
+      # einen Lauf. Nach dem Fix (UEBERSPRUNGEN += 2): mit -I -S 65
+      # bestanden Exit 0, ohne Schalter 67 bestanden Exit 0.
+      #
+      # Lehre, die daraus wurde: Eine Mindestzahl, die uebersprungene
+      # Faelle verrechnet, muss so viele zaehlen, wie der uebersprungene
+      # Block enthaelt. Ein Block mit zwei Pruefungen und += 1 ist ein
+      # Zufallswaechter.
       - run: python -I -S docs/vorlagen/lehren-verweise-pruefen.py --selbstprobe
       - run: >-
           python -I -S docs/vorlagen/lehren-verweise-pruefen.py

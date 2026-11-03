@@ -1030,7 +1030,12 @@ Abschnitt führt nur die Liste und den Grund; Besetzung, Untergrenze, Tür-Probe
   `ci.yml`, `security-scan.yml`, `scripts/*`, Gate- und Release-Skripte des
   Projekts, die Stimme-3-Vorlage (`docs/vorlagen/panel-stimme3.py`) und jede
   Panel-Stimmen-Anbindung; `docs/vorlagen/baum-stoppen.sh` (beendet Prozesse,
-  und sein Exit 0 gibt die Rechner-Sperre frei);
+  und sein Exit 0 ist die **Voraussetzung** dafuer, die Rechner-Sperre
+  freizugeben — nicht schon die Freigabe: `bau-brief.md`, Randbedingung
+  „Parallelitaet", verlangt danach zusaetzlich die Kontrolle von
+  Containern und verbliebenen Prozessen nach Name und Startzeit. Ein
+  falsches Exit 0 gibt also eine Sperre frei, waehrend ein schwerer Lauf
+  noch laeuft);
   **`docs/vorlagen/ast-gleich.py`**, weil sein Urteil
   über die Größe des nächsten Panels entscheidet — sonst dürfte es sich mit
   dem eigenen Urteil herunterstufen;

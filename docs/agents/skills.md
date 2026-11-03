@@ -138,7 +138,10 @@ klingt, und das ist selten das Gemeinte.
 | **`to-issues`** | Die Spezifikation in **vertikale Slices** zerlegen — je ein Issue. Upstream `to-tickets` — hier nicht installiert |
 | **`triage`**    | Issue-Status pflegen (die fünf Rollen aus `triage-labels.md`)                                                     |
 
-## Fundament und Leitplanken
+## Fundament und Leitplanken (nur Weg B)
+
+Diese beiden liegen im Quell-Repo unter `skills/misc/` und sind **nicht** im
+Plugin von Weg A. Wer auf Weg A umstellt, verliert sie.
 
 | Skill                            | Wofür                                                                                                                           |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |

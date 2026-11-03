@@ -10,14 +10,19 @@ Nicht kürzen, nicht zu Fließtext zusammenfassen, keine Überschrift weglassen 
 auch nicht die einer gelaufenen Zusatzstimme (optionaler Block unten in der
 Vorlage).
 
-Der Kommentar endet mit der Zeile **„Eigene Läufe am Ende: …"**
-(Vorlage-Lehre §35): Hintergrundläufe des Orchestrators sind erlaubt, unbemerkte nicht.
+Der Kommentar endet mit der Zeile **„Eigene Läufe am Ende: …"** (`lehren.md`
+§37): Hintergrundläufe des Orchestrators sind erlaubt, unbemerkte nicht.
 Derselbe Satz gehört in den Prüfauftrag jeder Stimme, als Anweisung und nicht
 nur als Formfeld. Den Wortlaut führt `panel.md` („Pflichtzeile in jedem
-Prüfauftrag") — hier steht er absichtlich NICHT, weil zwei wortgleiche Fassungen
-beim nächsten Ändern auseinanderlaufen. Gemessen in einem Kind-Repo: Ein Blindprüfer
+Prüfauftrag") — hier steht er absichtlich NICHT, weil zwei wortgleiche
+Fassungen beim nächsten Ändern auseinanderlaufen. Gemessen in einem Kind-Repo: Ein Blindprüfer
 ließ eine Python-Sitzung vier Stunden offen und erwähnte sie nur als Nebensatz
 — der Owner sah sie zuerst.
+
+**Projekteigen — der Commit-Stempel:** Die Arbitrierung dieses Panels liefert
+den Wert für `arbitriert=` im mehrteiligen `Built-With`-Stempel am Commit
+(`bau-brief.md`, Block 7). Ohne ihn trägt der Commit eine Lücke, die niemand
+später füllen kann.
 
 ---
 
@@ -25,26 +30,32 @@ ließ eine Python-Sitzung vier Stunden offen und erwähnte sie nur als Nebensatz
 ## Panel ⟨Slice / Issue⟩
 
 Basis: `⟨commit-a⟩..⟨commit-b⟩` · Umfang: ⟨was geprüft wurde⟩
+Risiko: R⟨n⟩ — Auslöser: ⟨aus Block 0 des Bau-Briefs⟩ · Diff-Typ:
+⟨Erstbau | Nacharbeit⟩
 
 Runde: ⟨Erstrunde / Nacharbeit N — Grenze siehe `CLAUDE.md`, Zeile „Nacharbeit"⟩
 
 ### Stimme 1 — Blindprüfer (⟨Modell, Subagent-Typ — kein Fork, Datum⟩)
+
 ⟨Frischer Reviewer-Subagent: nur Diff + Repo als `git archive`-Auszug, kein
 Bau-Brief, kein Bericht des Bauers. Je Fund: Schwere, Datei:Zeile, Nachweis. „Keine Funde" ist ein
 gültiges Ergebnis und wird hingeschrieben; „nicht entschieden — Probe X"
 ebenfalls.⟩
 
 ### Stimme 2 — Fremdprüfer (⟨Modell, Datum⟩)
+
 ⟨Über denselben Diff, eigener Review-Zweig. In einer Nacharbeitsrunde:
 „nicht eingesetzt — Nacharbeit, Blindprüfer genügt" oder der Grund, warum doch.⟩
 
 ### Stimme 3 — ⟨R2: diff-only-Fremdstimme oder Gegenprüfer / R3: Gegenprüfer⟩ (⟨Modell, beim Gegenprüfer Subagent-Typ — kein Fork, Datum⟩)
+
 ⟨Gegenprüfer: Widerlegungsauftrag, eigener `git archive`-Baum. In einer Nacharbeitsrunde nur,
 wenn eine neue Tür angefasst wurde — sonst hier die Begründung. Diff-only-Stimme:
 kurz; bekanntes Muster: irrt Richtung zu-streng, liest gelegentlich die
 Vorher-Seite eines Diffs.⟩
 
 ### Zusätzlich, nicht gezählt — ⟨diff-only-Stimme⟩ (⟨Modell, Datum⟩)
+
 ⟨Optional: nur, wenn neben den gezählten Stimmen eine diff-only-Fremdstimme
 als Konvergenz-Gegenprobe lief (bei R3 erlaubt, `panel.md`, „Verfahren je
 Risikoklasse"). Lief keine — auch wenn sie mit Guthabenende abbrach —,
@@ -52,6 +63,7 @@ entfällt dieser Block ohne Vermerk; lief eine, bleibt er stehen. Zählt mit
 ihren Funden, nie mit ihrer Freigabe.⟩
 
 ### Tür-Probe (R3/R4; Kopftext-R2 an einer kritischen Datei)
+
 ⟨Nur bei R3/R4; bei R2 entfällt dieser Block — außer bei einer reinen
 Kopftext-Änderung an einer kritischen Datei (`panel.md`, „Kritische Dateien"):
 Dort ist sie R2, die Tür-Probe bleibt und steht hier. Was geprobt wurde (welche Tür,
@@ -61,6 +73,7 @@ Review-Panel: vor der Auslieferung nachholen oder ausdrückliche
 Owner-Freigabe ohne sie, beides hier vermerkt.⟩
 
 ### Arbitrierung
+
 ⟨Je Fund: reproduziert / verworfen / umgangen (nicht entschieden) — und WIE
 reproduziert (Kommando, Test, Messung, aus einer anderen Quelle als dem
 Geprüften). Dazu die Attribution: welche Stimme hatte ihn, welche nicht.
@@ -90,6 +103,7 @@ nur im Ausfall gelesen wird).
 
 ```markdown
 ### Stimme 2 — Fremdprüfer
+
 Ausgefallen: Kontingent des Werkzeugs gesperrt um ⟨Uhrzeit⟩ (kein Warten).
 Schritt 2 (Ersatzregel Fremdprüfer): Ersatz über ⟨API-Leitung des anderen
 Anbieters⟩, Modell ⟨Name⟩, agentisch/diff-only, gestartet ⟨Datum Uhrzeit⟩ auf
@@ -97,6 +111,7 @@ Commit ⟨SHA⟩ — Ergebnis unten. ⟨oder: Guthabenende auf der Leitung → F
 `panel.md`, Klumpenrisiko Punkt 4; Owner gefragt am ⟨Datum⟩⟩
 
 ### Stimme 3 — Gegenprüfer (R3)
+
 Ausgefallen: Sitzungslimit um ⟨Uhrzeit⟩.
 Schritt 2 (Ersatzregel Gegenprüfer, nur R3): Fremdprüfer übernimmt die Widerlegungsrahmung
 in einem zweiten Lauf — Ergebnis unten. ⟨oder: Fremdprüfer ebenfalls nicht

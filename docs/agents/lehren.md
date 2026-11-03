@@ -83,6 +83,9 @@ den Schutz an die Cloud-Tür bringen — läuft die komplette Suite grün (#349)
   zweimal am selben Wächter für Commit-Nachrichten gemessen: Ein nachgebauter
   Fall erwartete, dass git eine Kommentarzeile entfernt — bei
   `git commit -F` tut es das nicht, und genau so committet der Agent.
+  Ein zweiter baute den `-v`-Anhang ohne die zwei Zeilen, die git dort
+  schreibt, und der Wächter lehnte danach jeden echten Commit mit `-v`
+  ab, während die Probe grün blieb.
   **Regel:** Bei einem eigenen Wächter, dessen Selbstprobe das Projekt selbst
   führt, bekommt mindestens ein Fall seine Eingabe vom fremden Werkzeug selbst
   (echtes `git commit`), nicht nachgebaut. **Bei uns leistet das
@@ -274,7 +277,14 @@ nächsten Upgrade. Zwei Regeln daraus, beide über den Fall hinaus:
   sehen das nicht: Sie lesen `requirements.txt` und
   `package.json`, nicht die Basis-Schicht. Je Update also
   `build --pull` vor `up` (`up` kennt `--pull` nur mit
-  einem Wert und kein `--no-cache`, also nicht einfach anhängen). Das
+  einem Wert und kein `--no-cache`, also nicht einfach anhängen; ein
+  Dienst auf rein lokaler Basis baut **ohne** `--pull`, sonst bricht er
+  ab). Dazu zwei Dinge, die leicht wegfallen: **das Paket-Upgrade gehört in
+  dieselbe Schicht wie die Installation** (sonst liegt das Upgrade in einer
+  Schicht, die der Cache behalten darf), und **jedes Nebenabbild hat einen
+  benannten Neubau-Weg** — Sicherung, Wartung, Hilfscontainer. Das
+  Wartungs-Abbild ist der Fall, der in der Vorlage auffiel: Es baute das
+  Update-Skript nie neu. Das
   reicht nicht immer: Liefert der Pull dieselbe Basis, kommt auch die
   Upgrade-Schicht aus dem Cache; ein Sicherheits-Neubau braucht also
   `build --no-cache`. Sehen kann es nur ein Scan der **laufenden**
@@ -441,13 +451,20 @@ den Baum spiegelt und ausnimmt, was nicht live soll, liefert alles aus, woran
 beim Schreiben der Liste niemand dachte. Von der Vorlage gemessen: Ein im
 selben Monat eingeführtes Hook-Verzeichnis stand in keiner Ausnahme und wäre
 beim nächsten Deploy öffentlich abrufbar gewesen — drei Wochen unbemerkt,
-weil jede Prüfung die Liste las und keine die Menge. **Regel:** Wer per
+weil jede Prüfung die Liste las und keine die Menge. **Dieselbe Klasse
+zweimal in denselben Wochen:** Ein Stil-Gate mit Geltungsbereich nach
+**Dateiendung** übersah genau die Dateien ohne passende Endung. **Das trifft
+uns unmittelbar:** Unser Formatier-Gate läuft mit `--ignore-unknown`,
+also mit einem Geltungsbereich nach Endung, und die Ausnahmeliste dazu ist
+`.prettierignore`. **Regel:** Wer per
 Ausschlussliste ausliefert oder prüft, rechnet die Menge nach —
 `git ls-files` minus die Ausnahmen, aus dem Skript selbst gelesen, gegen
 eine kurze Positivliste. Vergessenes wird dann laut statt still undicht.
 **Bei uns betrifft das zwei Listen:** `.prettierignore` und
 `scripts/zeilenenden-ausnahmen.txt`. Die zweite rechnet ihre Menge schon
-nach (sie zählt nur ANGEWANDTE Ausnahmen, §18); die erste tut es nicht.
+nach (sie zählt nur ANGEWANDTE Ausnahmen; der Beleg steht im Kopf von
+`scripts/zeilenenden.sh` und in `../../CLAUDE.md`, Abschnitt
+„Prüfschritte"); die erste tut es nicht.
 
 **Ein Signal, das ein Zeitfenster ersetzt, macht das Urteil schneller und
 schwächer zugleich.** Ein Urteil „Container nach dem Neubau gesund" war ein
@@ -541,7 +558,10 @@ testet eine.
   bleiben plattformabhängige Eingaben aus dem Test. Als plattformabhängig gilt
   dann JEDE Eingabe, deren erwartete Ausnahme aus Betriebssystem oder
   C-Bibliothek kommt — auch eine, die vermutlich überall gleich wirft: Ohne
-  Lauf auf der Zielplattform ist „überall gleich" eine Annahme.
+  Lauf auf der Zielplattform ist „überall gleich" eine Annahme. Der Test
+  prüft dann nur Verhalten, das nicht von Betriebssystem oder C-Bibliothek
+  abhängt. **Eingaben, die nur auf einer Plattform werfen, gehören nie in den
+  Rot-Beweis.**
 - **`.gitattributes` wirkt beim Schreiben, nicht rückwirkend.** Eine Datei
   mit `eol=lf` lag nach einem abgebrochenen Umschreiben der Historie mit
   CRLF im Arbeitsbaum: git schreibt Dateien mit unverändertem Blob nicht neu.
@@ -2017,7 +2037,7 @@ dritter Weg — „fällt niemandem auf" — ist keiner.
 **Was das hier trifft, obwohl es kein Deploy-Skript gibt:** Diese Klasse gilt
 für jede Konfiguration, die von einem Programm gelesen wird, das sich mit ihr
 ändert. In diesem Repo sind das die Husky-Hooks (`.husky/_` entsteht erst
-durch ein `npm install` in der Wurzel, §18 und {c('../../CLAUDE.md')}), die
+durch ein `npm install` in der Wurzel, §18 und `../../CLAUDE.md`), die
 selbstheilende JSON-Wanderung in `backend/services/config_store.py` (der
 alte Prozess läuft weiter, während die Datei schon das neue Schema trägt) und
 jede Gate-Zeile, die ein Skript aufruft, das derselbe Commit verändert.
