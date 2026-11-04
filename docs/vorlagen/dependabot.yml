@@ -20,10 +20,11 @@
 #   beweist nichts.
 
 #
-# LAUFZEIT: Jede Bot-PR loest einen CI-Lauf aus (ci.yml, pull_request). Intervall,
-# Gruppierung und Anzahl offener PRs deshalb am Laufzeit-Budget des Projekts
-# messen, nicht am Standard — ein erschoepftes Budget macht JEDEN folgenden Lauf
-# rot, ohne dass sich Code geaendert hat.
+# LAUFZEIT: Jede Bot-PR loest einen CI-Lauf aus (ci.yml, pull_request). Intervall
+# und Anzahl offener PRs sind deshalb Portfolio-Werte (Schwellen-Inventar in
+# CLAUDE.md): monatlich, hoechstens ein offener Vorschlag je Oekosystem;
+# Sicherheits-Updates des Bots sind davon nicht betroffen. Ein erschoepftes Budget
+# macht JEDEN folgenden Lauf rot, ohne dass sich Code geaendert hat.
 
 version: 2
 updates:
@@ -36,7 +37,8 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 1
     groups:
       actions:
         patterns: ["*"]
@@ -44,7 +46,8 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 1
     groups:
       python-minor:
         update-types: ["minor", "patch"]

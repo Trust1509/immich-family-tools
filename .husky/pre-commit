@@ -2,3 +2,20 @@ npx lint-staged
 npm --prefix frontend run typecheck
 npm --prefix frontend run test
 PYTHONPATH=backend python -m pytest backend/tests/ --basetemp=/tmp/pytest-immich -q
+# Verweis-Waechter fuer die Lehren-Nummern (Vorlage v1.19.0,
+# setup-checkliste.md). Hier und nicht nur in der CI, weil Doku-Commits von
+# `paths-ignore` weggefiltert werden und die CI sie nie sieht -- genau die
+# Commits, in denen ein Verweis stehen bleibt.
+#
+# Zuerst die Selbstprobe des Waechters, dann der Lauf. -I -S: Das Werkzeug
+# benutzt nur die Standardbibliothek und verweigert den Lauf ohne die Schalter.
+# GRENZE, benannt statt umgedeutet: setup-checkliste.md verlangt, dass die
+# Zeile EINZELN FAHRBAR ist -- etwa ueber ein Argument des Gate-Skripts --,
+# damit ein Doku-Commit nicht durch die volle Suite muss. Das ist hier NICHT
+# erfuellt: Die beiden Zeilen stehen hinter lint-staged, typecheck, vitest und
+# der ganzen pytest-Suite, und der einzige Weg daran vorbei ist --no-verify,
+# der sie mit auslaesst. Als Kommando sind sie kopierbar, das ist aber nicht
+# die Forderung. Gefunden vom Blindpruefer des Panels zu v1.19.1; der Umbau
+# auf ein zaehlendes Gate mit Schrittwahl laeuft als Issue #152.
+python -I -S docs/vorlagen/lehren-verweise-pruefen.py --selbstprobe
+python -I -S docs/vorlagen/lehren-verweise-pruefen.py --lehren docs/agents/lehren.md docs/agents/*.md CLAUDE.md

@@ -90,6 +90,28 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
    ein Issue gegen fremdes Grün geschlossen. Über den eigenen `headSha` filtern,
    dann auf die gefundene Lauf-ID warten. Details in `docs/agents/lehren.md` §6.
 
+   **Nach dem Warten wird das ERGEBNIS abgefragt, nicht der Exit des Wartens
+   gelesen.** `gh run watch <id> --exit-status` endet mit **0**, wenn der Lauf
+   **abgebrochen** wurde — für den Beobachter ist ein Abbruch ein
+   erfolgreiches Warten. Der Exit des Wartens beantwortet „habe ich zu Ende
+   gewartet", nicht „ist es gut ausgegangen". Also
+   `gh run view <id> --json status,conclusion` — und **dieser Wert** gehört in
+   den Bericht, nicht das Wort „grün". Dieser Fall ist in diesem Repo
+   gemessen und steht in `docs/agents/lehren.md`, Abschnitt zum
+   `--exit-status`-Fall (Lauf 35733115930); die Vorlage führt ihn seit v1.19.0
+   ebenfalls. Gemeinsam mit den beiden §6-Fällen gilt: Der Statuskanal trägt
+   weniger, als der Leser ihm zutraut. Verschieden ist der Weg — hier stirbt
+   kein Exit-Code, er beantwortet eine andere Frage als die gestellte.
+
+   **Und eine Regel, die nur durch eine Einstellung eingehalten wird, die man
+   nicht im Blick hatte, ist nicht eingehalten** — sie ist noch nicht
+   zugeschlagen. Von der Vorlage gemessen: Beim Zusammenfassen dreier
+   Zwischenstände fiel der Überspring-Marker aus der Nachricht, der Push löste
+   einen zweiten Lauf aus, und dass am Ende doch nur einer lief, verdankte sich
+   einer `concurrency`-Einstellung, die ihn abbrach. Dieses Repo hat genau
+   diese Einstellung (`ci.yml`, Tag-Läufe ausgenommen) — sie ist eine
+   Rettung, kein Beleg für „ein Lauf je Slice".
+
    **„Kein Lauf zum `headSha` gefunden" ist ROT, nicht „noch nicht da".** Das
    ist keine Formulierungsfrage: Nur diese Lesart hat den Vorfall aus §24
    überhaupt sichtbar gemacht — ein Commit auf `main`, der **null** Läufe
@@ -130,6 +152,14 @@ Owner-Freigabe zum Taggen erlaubt, steht in `CLAUDE.md`, Abschnitt „Release"
 3. **Notizen-Eintrag** ganz oben: Titel, Risiko, „Neu", „Bitte testen".
    In der Sprache des Nutzers, nicht in der des Codes: _was er merkt_, nicht
    welche Funktion umgebaut wurde.
+
+   **Bietet der Eintrag eine ERLEICHTERUNG an, nennt er die Dateien, die diese
+   Erleichterung berührt.** „Jetzt möglich: die zweite Kopie löschen" liest
+   sich wie ein Nebenbei-Schritt und war in einem fremden Projekt eine Änderung
+   an vier kritischen Dateien — also R3 mit vollem Panel. Wer die Erleichterung
+   anbietet, weiß, was sie kostet; wer sie liest, erfährt es sonst erst beim
+   Aufräumen.
+
 4. **Frischer Build** — sonst prüft Schritt 5 einen veralteten Stand. (Die
    Vorlage begründet diesen Schritt mit dem Rauchtest-Set; solange es das
    hier nicht gibt, gilt er für die Handprobe genauso.)

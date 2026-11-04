@@ -81,6 +81,51 @@ Daraus drei Regeln:
 Behalten lohnt trotzdem: Sie liefert **Konvergenz**, die einen Fund von einer
 Meinung unterscheidet, und kostet Bruchteile eines Cents.
 
+## Neben der Erstrunde: die Umfangsprüfung (Pilot)
+
+Blind- und Gegenprüfer kennen den Brief bewusst nicht, und der Fremdprüfer misst nur
+gegen ihn, wenn er ihn bekommt. Deshalb muss keine Stimme messen, ob der Auftrag erfüllt
+ist. Die Umfangsprüfung schließt diese Lücke: Eine frische Stimme bekommt nur den Diff
+und die Briefe, in einem eigenen Auszug ohne Repo und ohne Bauer-Bericht, und beantwortet
+drei Fragen:
+
+1. Was verlangt der Brief, das der Diff nicht liefert? (Fundstelle im Brief, Hunk
+   oder „fehlt")
+2. Was liefert der Diff, das der Brief nicht verlangt? Das ist kein Mangel, wenn es
+   zwangsläufig dazugehört; dann sagt sie, warum.
+3. Was widerspricht dem Brief, auch wenn es die Abnahme formal besteht?
+
+**Ablauf.** Einmal, ab R2, gleichzeitig mit der Erstrunde; ihr Ergebnis geht nur an den
+Arbiter und wird mit den Funden der Stimmen arbitriert. Sie läuft in der Nacharbeit nicht
+erneut, zählt nicht als Stimme und verbraucht keine Runde. Wurde schon etwas
+zurückgebaut, kommt ein Brief-Nachtrag dazu; sonst meldet sie den Rückbau als „fehlt".
+Zugelassen ist nur ein Modell, das die Daten des Projekts sehen darf — in diesem Repo
+heißt das zusätzlich: **keine Personen- oder Gesichtsdaten**, siehe „PII-Grenze" **unten**.
+**Bei einem Abgleich** bekommt sie den Abgleich-Auftrag samt den CHANGELOG-Einträgen des
+Sprungs als Brief, den Abgleich-Diff und die ausgefüllte Urteilstabelle aus `abgleich.md`
+2a (die später ins Abgleich-Issue kommt) als Datei im Auszug und prüft auch die Urteile
+darin (Rückmeldung P3, v1.19.0: Sie fand dort als einzige Stimme ein falsches Urteil).
+
+**Die Blindheit bleibt nur, wenn man sie schützt.** Der Auszug der Umfangsprüfung und ihr
+Ergebnis liegen auf demselben Rechner wie die blinden Stimmen: Ihre Pfade gehören in deren
+negative Probe, wie der Brief selbst. Ihre Funde kommen erst nach der Erstrunde zum
+Bauer, sie erreichen also dort keinen Prüfgegenstand.
+
+**Warum Pilot.** Von der Vorlage gemessen an drei gelandeten Slices eines Kind-Repos und
+einer Kopie mit vier gepflanzten Abweichungen: 4 von 4 gefunden; an den echten Slices 10
+Funde, davon 1 neuer echter Mangel, den drei Panel-Runden nicht hatten, 4 neu, aber
+gering, 3 schon bekannt, 2 kein Mangel. Rund 130.000 Tokens je Stimme. Die Stichprobe ist
+klein, die Einstufung stammt vom Arbiter, und gemessen wurden nur gelandete Stände. Die
+Idee stammt aus einem veröffentlichten Bericht über eine fremde Agenten-Flotte; dort ist
+der Prüfer selbst nicht evaluiert.
+
+**Was der Pilot liefern muss.** Der Panel-Kommentar führt die Zeile „Umfangsprüfung:
+⟨Modell⟩, ⟨n⟩ Funde, davon ⟨m⟩ bestätigt, ⟨k⟩ auch von einer Stimme der Erstrunde,
+Tokens ⟨t⟩" oder „nicht gelaufen — Grund". Weil alle gleichzeitig laufen, zeigt ⟨k⟩ die
+Überschneidung; was ⟨m⟩ minus ⟨k⟩ ergibt, hatte die Erstrunde nicht. Nach drei Slices
+meldet dieses Projekt die Zeilen an die Vorlage (Rückmeldungs-Issue). Danach entscheidet
+der Owner, ob sie Pflicht wird oder wieder wegfällt.
+
 ## Der Fragetyp bestimmt, was ein Panel wert ist
 
 Der stärkste Zahlenbefund der Messreihe betrifft nicht die Stimmen, sondern die
@@ -109,9 +154,23 @@ und dann fehlt genau die Stimme, die erfahrungsgemäß die schwersten Funde
 liefert. Ein zweites Fenster derselben Sitzung ist **kein** Ersatz: Es sieht die
 Historie.
 
+**Ein Fork ist kein leerer Kontext.** Manche CLIs starten Subagenten auch als
+Abzweig der laufenden Sitzung — in Claude Code `subagent_type: "fork"`, seit
+v2.1.302 in mehreren Oberflächen eingeschaltet. Ein Fork erbt alles, was der
+Orchestrator gesehen hat: Brief, Bauer-Bericht, frühere Funde, die eigene
+Einschätzung. Ein Blindprüfer als Fork ist nicht blind, und nichts meldet es.
+**Blindprüfer und Gegenprüfer starten deshalb nie als Fork**, sondern als
+frischer Subagent eines benannten Typs; der Panel-Kommentar nennt den Typ neben
+dem Modell. Für den Gegenprüfer ist das keine Blindheit, sondern dieselbe
+Vorsicht gegen die Rahmung: Er bekommt seine Unterlagen als Dateien, nicht die
+Sicht des Orchestrators.
+
 **Pflichtzeile in jedem Prüfauftrag:** „Beende jeden eigenen Hintergrundlauf
-VOR dem Bericht — über seine Prozessnummer, nie über den Programmnamen — und
-nenne ihn in der Schlusszeile ‚Eigene Läufe am Ende: …'."
+VOR dem Bericht samt seinen Kindprozessen — über seine Prozessnummer
+(`sh docs/vorlagen/baum-stoppen.sh <pid>`), nie über den Programmnamen — und
+nenne ihn in der Schlusszeile ‚Eigene Läufe am Ende: …'." Die Prozessnummer
+allein reicht nicht: Ein Gate oder ein Testlauf mit Workern startet Kinder, die
+sonst als Waisen weiterlaufen (von der Vorlage gemessen, v1.18.9 und v1.18.12).
 Die Schlusszeile allein reicht nicht — sie ist ein Formfeld, das eine Stimme
 auch mit einem laufenden Prozess wahrheitsgemäß ausfüllen kann. **Kein Gate
 macht das rot**: Der Arbiter sieht die offenen Läufe nur, wenn er selbst
@@ -119,12 +178,21 @@ nachsieht — er tut es, bevor er den Bericht verwertet (`lehren.md` §37).
 Dasselbe gilt für den Nachweisweg der R2-Ausnahme unten: `ast-gleich.py` läuft
 nur, wenn jemand daran denkt.
 
+**Und die Rechner-Sperre, mit den zwei Blöcken aus `bau-brief.md`**
+(Randbedingung „Parallelität": Nehmen, Lauf und Freigeben in EINEM Aufruf;
+der Lauf zwischen den Blöcken ist der der Stimme): Jeder schwere Lauf einer
+Stimme — Gate, volle Suite, Mutationen über die ganze Suite, Tür-Probe mit
+Container oder Browser — nur unter ihr. Parallel gestartete Stimmen warten
+dann aufeinander; das kostet Zeit und ist gewollt (Portfolio-Wert, 2026-10-18,
+Zeile im Schwellen-Inventar der `CLAUDE.md`). Ein Prüfauftrag ohne sie
+erreicht die Stimme nicht: Der erste Blindprüfer nach der Regel fuhr sein Gate
+ohne Sperre, weil sein Auftrag sie nicht nannte.
+
 **Und eine Stimme räumt nur ihre eigenen Prozesse ab.** Gemessen im Panel zu
 v1.16.0: Eine Stimme beendete einen hängenden Lauf mit einem rechnerweiten
 `taskkill /F /IM python.exe` und hat das offengelegt — der Griff trifft jeden
-Python-Prozess auf dem Rechner, auch die einer parallelen Sitzung. In den
-Prüfauftrag gehört deshalb: **eigene Läufe über ihre Prozessnummer beenden,
-nie über den Programmnamen.**
+Python-Prozess auf dem Rechner, auch die einer parallelen Sitzung. Den Wortlaut
+für den Prüfauftrag führt die **Pflichtzeile** oben; hier steht nur der Anlass.
 
 **Aufsetzen:** Der Prüfauftrag enthält den Diff oder den Vergleichsbereich, das
 Repo — und ausdrücklich **nicht** den Bau-Brief, den Bericht des Bauers oder die
@@ -144,6 +212,32 @@ mehrere Serien unbemerkt. Nach dem Umbau auf „nur das Nötige einhängen" 0 vo
 Zugänge der Stimme (versucht, die verbotenen Dateien zu lesen — muss scheitern)
 **und die Gegenprobe**, dass das Nötige da ist. Nur die erste Hälfte ist von
 einem leeren Mount nicht zu unterscheiden.
+
+**Zu den Zugängen gehören drei, die man leicht übersieht:**
+
+- **Das Objektlager hinter einem Worktree.** Ein `git worktree` teilt es mit dem
+  Hauptrepo: `git show <commit>:<pfad>` holt einen gelöschten oder nie
+  gelandeten Brief aus jedem erreichbaren Commit zurück, `git log --all` zeigt
+  die Zweige mit Bauer-Berichten. Deshalb bekommt der Blindprüfer einen
+  `git archive`-Auszug ohne `.git` — **und zwar außerhalb jedes Repos.**
+  Liegt der Auszug unter einem Repo, findet git dessen `.git` im
+  Elternverzeichnis, und `git show HEAD~1:<brief>` liefert den gelöschten Brief
+  wieder. Die negative Probe dazu: `git -C <auszug> rev-parse --show-toplevel`
+  muss scheitern. **Was der Auszug nicht schließt:** Jede Stimme mit
+  Dateizugriff erreicht das Hauptrepo trotzdem direkt (`git -C <hauptrepo>
+show …`). Der Auszug schließt den versehentlichen Weg, nicht den
+  absichtlichen; gegen den hilft nur die Durchsicht der Transkripte nach dem
+  Lauf.
+- **Die Ablage des Orchestrators auf demselben Rechner.** Liegt der Brief als
+  Datei in seinem Arbeits- oder Notizverzeichnis, erreicht ihn jede Stimme mit
+  Dateizugriff — blind ist sie dann nur per Auftrag. **In diesem Repo ist das
+  kein Gedankenspiel:** Die Sitzungsablage des Agenten-Clients liegt unter
+  `.claude/` IM Repo (deshalb steht sie in `.prettierignore` und in
+  `.git/info/exclude`). Den Brief erst nach dem Blindprüfer als Datei
+  schreiben, oder seinen Pfad in die negative Probe aufnehmen und die
+  Transkripte der Stimme danach auf Zugriffe darauf durchsuchen.
+- **Der Kontext des Starts.** Ein Fork erbt die Sitzung des Orchestrators
+  (Absatz „Ein Fork ist kein leerer Kontext" oben).
 
 **Der Prüfauftrag geht als Datei, nicht als Argument.** An der Argumentgrenze
 des Betriebssystems liefert der Aufruf Exit 0 und eine leere Stimme —
@@ -219,7 +313,7 @@ PANEL_API_KEY=<schlüssel>
 
 ```sh
 git diff <basis>..<kopf> > stimme3.diff || exit 1
-python docs/vorlagen/panel-stimme3.py \
+python -I -S docs/vorlagen/panel-stimme3.py \
     --model ⟨anbieter/modell⟩ --max-tokens 32768 --stdin-anhang \
     "⟨Prüfauftrag⟩" < stimme3.diff > review-stimme3.md
 ```
@@ -228,7 +322,10 @@ python docs/vorlagen/panel-stimme3.py \
 `git diff … | python …` geht der Exit von `git diff` verloren (dieselbe Klasse
 wie die Kopf-Zählung in `ci.yml`); erst in eine Datei, Exit prüfen, dann per
 Umleitung. Ausgabe in eine Datei, nie in eine Pipe. Bei großen Diffs
-`--max-tokens` großzügig — reicht das Budget nicht, verbraucht das Modell alles
+`--max-tokens` großzügig; das Beispiel oben setzt 32768, die **Vorgabe des
+Werkzeugs ist 16384** — niedriger, weil ein Anbieter ablehnt, sobald das
+Restguthaben `max_tokens × Preis` nicht mehr deckt. Reicht das Budget nicht,
+verbraucht das Modell alles
 im Nachdenk-Anteil und die Antwort kommt leer oder abgeschnitten zurück.
 
 **Exit-Code lesen, nicht die Datei:** 0 = Antwort vollständig geschrieben
@@ -246,7 +343,13 @@ Ergebnis.
 
 Die diff-only-Stimme und `ast-gleich.py` liegen **im Repo** unter
 `docs/vorlagen/` — byte-identisch mit der Vorlage (`panel-stimme3.py`
-74be4dd, `ast-gleich.py` 0e9b6dc, geprüft beim Abgleich auf v1.16.0). Dieselben
+c668578, `ast-gleich.py` 4004f6d, geprüft beim Abgleich auf v1.19.1).
+**Diese zwei Hashes sind Pins ohne Leser** — kein Gate vergleicht sie mit
+der Datei, und beim Abgleich auf v1.19.1 standen hier noch die Blobs von
+v1.16.0 (74be4dd / 0e9b6dc), obwohl derselbe Commit beide Dateien
+austauschte. Gefunden hat das der Blindprüfer, nicht der Blob-Nachweis des
+Abgleichs: Der prüfte die Dateien, nicht den Satz über sie. Wer sie
+nachzieht, nimmt `git hash-object <pfad>`. Dieselben
 Dateien liegen portfolioweit unter
 `C:\Users\manue\.claude\Immich\model-panel\` und tragen dort **denselben
 Blob**; welche der beiden aufgerufen wird, ist heute dasselbe Werkzeug. Der
@@ -344,7 +447,7 @@ den gepushten Zweig. Stimme 3 hängt an der Besetzung: bei R2 (wenn besetzt)
 entweder die diff-only-Stimme — sie bekommt den Diff über die
 Standardeingabe — oder der Gegenprüfer; bei R3 der Gegenprüfer, der im
 `git archive`-Baum mit dem Vergleichsbereich als Datei misst (unten, „Stimmen
-mit Repo-Zugriff arbeiten in eigenen Worktrees"). Eine Stimme,
+mit Repo-Zugriff arbeiten in eigenen Bäumen"). Eine Stimme,
 die den Zweig nicht sieht, prüft einen alten Stand — das hat einen kompletten
 Lauf gekostet.
 
@@ -385,6 +488,16 @@ vor Hypothese**: Die Stimme formuliert den Verdacht, eine reproduzierbare Sonde
 (echte Werkzeugfunktion, gefälschter Kontext, Wegwerf-Datenbank — Sekunden,
 kein Token) entscheidet. Zwei plausible Hypothesen zu einem Türverhalten waren
 beide falsch; die Sonde brauchte 0,1 s.
+
+**Ein diff-only-Fund über die ABWESENHEIT einer Stelle ist ohne Gegenmessung am
+Baum kein Fund** — ein Verweis, der ins Leere laufe, eine fehlende
+Nummerierung, ein Abschnitt, den es nicht gebe. Die Stimme sieht den Baum
+nicht; was der Diff nicht zeigt, existiert für sie nicht. Der Arbiter schlägt
+solche Funde nach, bevor er sie zählt (`grep -n` auf die Überschrift genügt).
+Von der Vorlage gemessen: Von fünf Funden einer diff-only-Stimme waren zwei
+dieser Klasse, beide verworfen, beide Stellen existierten. Das heißt nicht,
+dass die Stimme schlecht ist — die drei inhaltlichen Funde derselben Stimme
+waren gut, und der bestätigte war der teuerste des Schnitts.
 
 **Unsere konkrete Form:** die Funktion aus `backend/` direkt importieren, ein
 erfundenes `accounts.json` in ein Wegwerf-Verzeichnis legen, aufrufen — kein
@@ -544,7 +657,8 @@ sichtbar und kosteten keine Stimmenrunde). Das Panel läuft trotzdem.
 ist ein Zeitpunkt, kein Zustand: Die Aussage „Baum rot" war beim Lesen schon
 falsch, weil zwischen Messung und Entscheidung Nacharbeit einfloss. Die volle
 Suite läuft dafür einmal **allein** in einem eigenen Worktree — parallel zu
-Stimmen mit Mutationen ist sie nicht isoliert.
+Stimmen mit Mutationen ist sie nicht isoliert — und unter der Rechner-Sperre
+wie jeder schwere Lauf.
 
 ## Prüfaufträge, die sich bewährt haben
 
@@ -629,29 +743,20 @@ Dazu:
 - „Welche einzelne Zeile könnte ich löschen, ohne dass ein Test rot wird?"
 - „Enthalten die Testdaten den Fall überhaupt, um den es geht?"
 - „Gibt es einen Rückkanal — Fehlermeldungen, Reihenfolge, Zähler, Timing?"
+- „Läuft der geänderte Code beim ÜBERGANG zwischen zwei Versionen
+  überhaupt schon — oder noch die alte Fassung mit der neuen Konfiguration?"
+- „Läuft die geänderte Testdatei auf der ZIELPLATTFORM? Welche Eingabe
+  verhält sich dort anders als auf der Bau-Maschine?" (`docs/agents/lehren.md` §10)
 
 ## Der Panel-Kommentar hat eine feste Form
 
-Das Ergebnis wird als Kommentar am Issue festgehalten — **immer in dieser
-Gliederung**, eine Überschrift je Stimme, auch wenn eine Stimme nichts gefunden
-hat:
-
-```markdown
-## Panel ⟨Slice⟩
-
-### Stimme 1 — Blindprüfer
-
-### Stimme 2 — Fremdprüfer
-
-### Stimme 3 — ⟨R2: diff-only-Fremdstimme oder Gegenprüfer / R3: Gegenprüfer⟩
-
-### Zusätzlich, nicht gezählt — ⟨diff-only-Stimme; nur, wenn sie gelaufen ist⟩
-
-### Arbitrierung
-
-⟨je Fund: reproduziert / verworfen / umgangen, und von welcher Stimme er kam⟩
-⟨Orchestrator-Quote: wie viele Funde trafen einen Text des Orchestrators⟩
-```
+Das Ergebnis wird als Kommentar am Issue festgehalten — **immer in der
+Gliederung aus `docs/agents/panel-kommentar.md`**, eine Überschrift je Stimme,
+auch wenn eine Stimme nichts gefunden hat. Das Gerüst steht nur dort: Hier stand
+bis zum Abgleich auf v1.19.1 eine Kurzfassung als Kopiervorlage, und sie ließ
+die Tür-Probe, die Zeile **Urteil:** und **Eigene Läufe am Ende:** weg — wer sie
+als Vorlage nahm, ließ sie auch weg. Eine Kopie, die weniger führt als das
+Original, ist schlimmer als keine.
 
 **Warum so streng:** Ein Panel-Ergebnis in Fließtext zeigt nicht, **wer**
 gesprochen hat. Es liest sich vollständig, egal ob drei Stimmen geprüft haben
@@ -896,7 +1001,7 @@ welche Klasse ein Slice hat. Hier steht nur, was je Klasse zu tun ist:
   Geheimnis, auch nicht auf einem Wegwerf-Stand. Fehlt der Pfad, probt man die
   Tür bis zur Klinke: Anwendung baut, mountet, Anmeldebildschirm rendert — und
   genau das, was der Slice sichtbar ändert, wurde nie im laufenden Bild
-  gesehen. Dann steht unter der Überschrift **„Tür-Probe (R3/R4)"** in
+  gesehen. Dann steht unter der Überschrift **„Tür-Probe"** in
   `panel-kommentar.md` **„teilweise ausgefallen"** mit dem Grund, wie bei
   einem Werkzeugausfall. Die Folge ist eine Schwelle und steht deshalb in
   `../../CLAUDE.md`, Review-Panel: dieselbe wie bei einer ausgefallenen
@@ -930,10 +1035,18 @@ Abschnitt führt nur die Liste und den Grund; Besetzung, Untergrenze, Tür-Probe
 - alles, was im lokalen Gate, in der CI oder im Panel ein Urteil fällt:
   `ci.yml`, `security-scan.yml`, `scripts/*`, Gate- und Release-Skripte des
   Projekts, die Stimme-3-Vorlage (`docs/vorlagen/panel-stimme3.py`) und jede
-  Panel-Stimmen-Anbindung; **`docs/vorlagen/ast-gleich.py`**, weil sein Urteil
+  Panel-Stimmen-Anbindung; `docs/vorlagen/baum-stoppen.sh` (beendet Prozesse,
+  und sein Exit 0 ist die **Voraussetzung** dafuer, die Rechner-Sperre
+  freizugeben — nicht schon die Freigabe: `bau-brief.md`, Randbedingung
+  „Parallelitaet", verlangt danach zusaetzlich die Kontrolle von
+  Containern und verbliebenen Prozessen nach Name und Startzeit. Ein
+  falsches Exit 0 gibt also eine Sperre frei, waehrend ein schwerer Lauf
+  noch laeuft);
+  **`docs/vorlagen/ast-gleich.py`**, weil sein Urteil
   über die Größe des nächsten Panels entscheidet — sonst dürfte es sich mit
   dem eigenen Urteil herunterstufen;
-- Prüfskripte, die Panel oder Bau-Brief absichern (`scripts/bau-brief-pruefen*.sh`).
+- Prüfskripte, die Panel oder Bau-Brief absichern (`scripts/bau-brief-pruefen*.sh`,
+  `docs/vorlagen/lehren-verweise-pruefen.py`).
 
 Faustregel für alles, was hier nicht steht: **Was Befehle ausführt oder
 Urteile fällt, ist kritisch** — im Zweifel die höhere Klasse (`CLAUDE.md`).
@@ -945,9 +1058,12 @@ läuft der Schnitt mit Blindprüfer und Fremdprüfer statt mit dem vollen
 R3-Panel. Bedingungen, alle drei:
 
 1. **Der Syntaxbaum ohne Docstrings ist gleich** — gemessen, nicht behauptet:
-   `python docs/vorlagen/ast-gleich.py <alt.py> <neu.py>`; das Ergebnis steht
+   `python -I -S docs/vorlagen/ast-gleich.py <alt.py> <neu.py>`; das Ergebnis steht
    im Panel-Kommentar. Ändert sich der Baum auch nur um eine Konstante, ist es
-   keine Kopftext-Änderung mehr.
+   keine Kopftext-Änderung mehr. Liest der Interpreter eine der Dateien anders
+   als das Werkzeug, oder erklärt sie eine andere Kodierung als UTF-8, bricht
+   das Werkzeug ab (Exit 2), und die Ausnahme gilt nicht: Unter utf-7 kann ein
+   Kommentar für den Interpreter Code sein (Vorlage v1.18.11, gemessen).
 2. **Die Tür-Probe bleibt** — unverändert, wie bei jedem R3. Ein Kopftext, der
    die Datei nicht anfasst, ändert auch nichts an ihrer Tür; die Probe kostet
    also wenig und belegt, dass die Kopie läuft.
@@ -1006,9 +1122,10 @@ offenlegte. **Das war Sorgfalt des Modells, nicht Eigenschaft des Verfahrens.**
 
 **Regel:** Die Vorabprüfung setzt einen BEFEHL ab, dessen Ausgabe zurückkommen
 muss — und zwar einen, der in der Umgebung der Stimme sinnvoll ist: im
-Worktree `git rev-parse HEAD` gegen den erwarteten Stand; im `git archive`-Baum
-des Gegenprüfers (kein `.git`, unten) ein Befehl auf die mitgelegte
-Diff-Datei, etwa `wc -l <diff-datei>` gegen die bekannte Zeilenzahl. Kommt die
+Worktree des Fremdprüfers `git rev-parse HEAD` gegen den erwarteten Stand; im
+`git archive`-Baum von Blind- und Gegenprüfer (kein `.git`, unten) ein Befehl
+auf die mitgelegte Diff-Datei, etwa `wc -l <diff-datei>` gegen die bekannte
+Zeilenzahl. Kommt die
 Ausgabe nicht, ist die Stimme ausgefallen und der Ausfall-Vermerk gilt.
 
 **Und in der Ergebnisform:** Konnte eine Stimme ihre Werkzeuge nicht nutzen,
@@ -1026,14 +1143,19 @@ sondern einer, dessen Ausgabe zurückkommen muss:
 sh /c/Users/manue/.claude/Immich/model-panel/codex.sh exec --skip-git-repo-check -c 'model_reasoning_effort="high"' 'git rev-parse HEAD'
 ```
 
-## Stimmen mit Repo-Zugriff arbeiten in eigenen Worktrees
+## Stimmen mit Repo-Zugriff arbeiten in eigenen Bäumen
 
-Der Blindprüfer bekommt einen eigenen `git worktree` auf dem gemessenen
-Commit, der Gegenprüfer einen `git archive`-Baum desselben Commits (Absatz
-„Der Gegenprüfer misst in einem `git archive`-Baum" unten); Mutationen und
-Container tragen ein stimmen-eigenes Präfix, das
-Aufräumen wird nachgewiesen. Der Hauptagent darf den Hauptbaum währenddessen
-weiterbewegen.
+Blindprüfer und Gegenprüfer bekommen je einen eigenen `git archive`-Baum des
+gemessenen Commits, ohne `.git`, mit dem Vergleichsbereich als Datei daneben
+(Absatz „Der Gegenprüfer misst in einem `git archive`-Baum" unten). Beim
+Blindprüfer ist das eine Frage der Blindheit, nicht nur der Ordnung: Ein
+Worktree teilt das Objektlager, und daraus holt `git show` jeden Brief zurück,
+der je in einem Commit stand (Absatz „Zu den Zugängen gehören drei" oben).
+Bis zum Abgleich auf v1.19.1 stand hier für ihn ein Worktree. Eine Stimme,
+deren Werkzeug einen Git-Baum braucht (der Fremdprüfer in seinem Container),
+bekommt einen eigenen `git worktree`; die Regeln unten gelten für sie.
+Mutationen und Container tragen ein stimmen-eigenes Präfix, das Aufräumen wird
+nachgewiesen. Der Hauptagent darf den Hauptbaum währenddessen weiterbewegen.
 
 **Eine Stimme, ein Worktree — je Runde, und der Orchestrator editiert dort
 nie.** Vor dem Start ist der Worktree leer (`git status --short --ignored`)
@@ -1068,16 +1190,33 @@ bevor die letzte Stimme fertig ist** — die Stimmen prüfen den Commit, nicht d
 Baum. Das ist die Quellen-Regel unten zu Ende gedacht. Gemessen in zwei
 Projekten: Der Gegenprüfer meldete um 21:12, die Nacharbeit begann in
 derselben Minute, die übrigen Stimmen fanden trotzdem sauber, weil sie einen
-Commit prüften. Kosten: `git worktree add --detach <pfad> <commit>` und ein
-`remove` am Ende.
+Commit prüften. Kosten: ein `git archive` je Auszug (`git worktree add
+--detach <pfad> <commit>` für eine Stimme, die einen Git-Baum braucht) und das
+Aufräumen am Ende.
 
-Unsere Form davon:
+Unsere Form davon — **zwei Formen, und die erste ist der Normalfall:**
 
 ```bash
-git worktree add --detach ../immich-family-tools-panel-<stimme> <commit>
+# Blind- und Gegenprüfer: Auszug OHNE .git, ausserhalb jedes Repos.
+# Der Pfad liegt bewusst nicht unter dem Repo: sonst findet git das .git
+# des Elternverzeichnisses und `git show HEAD~1:<brief>` holt den Brief.
+mkdir -p <auszug> && git archive <commit> | tar -x -C <auszug>
+git diff <basis>..<commit> > <auszug>/diff.patch
+git -C <auszug> rev-parse --show-toplevel   # MUSS scheitern (negative Probe)
 # … Stimme prüft dort …
+rm -rf <auszug>
+
+# Nur eine Stimme, deren Werkzeug einen Git-Baum braucht (Fremdprüfer im
+# Container): dann gelten die Worktree-Regeln dieses Abschnitts.
+git worktree add --detach ../immich-family-tools-panel-<stimme> <commit>
 git worktree remove ../immich-family-tools-panel-<stimme>
 ```
+
+Bis zum Abgleich auf v1.19.1 stand hier **nur** die zweite Form — wer sie
+kopierte, gab dem Blindprüfer einen Worktree und damit das geteilte
+Objektlager, genau das, was der Absatz darüber verbietet. Die Probe
+„Worktree leer" unten gilt deshalb nur für die zweite Form; im Auszug
+scheitert jedes git-Kommando, und das ist der Beleg, nicht der Mangel.
 
 **Belegt:** Im Slice vom 01.09. hat der Arbiter während laufender Stimmen im
 selben Arbeitsbaum gearbeitet.

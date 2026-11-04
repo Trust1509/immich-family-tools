@@ -8,7 +8,7 @@
 # steht, den JEDER Brief traegt (die elf Prueffragen, die
 # Pflicht-Randbedingungen), oder sobald Alltagsprosa ein Muster erfuellt
 # ("der Wert, der wahr ist" hielt bis v1.15.2 eine fehlende Frage fuer
-# vorhanden). lehren.md §21: eine Regel, deren Auslassung nichts rot macht,
+# vorhanden). Vorlage-Lehre §21: eine Regel, deren Auslassung nichts rot macht,
 # ist eine Notiz — diese Probe ist der Waechter dafuer.
 #
 # WAS SIE PRUEFT — UND WAS NICHT: Sie prueft das Skript gegen EINEN

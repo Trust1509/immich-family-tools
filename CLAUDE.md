@@ -6,7 +6,13 @@ bis zum Abgleich auf v1.16.0 **nicht** — mit der Folge, dass Meldungen von hie
 zeitweise unter P5 liefen und das Register eine eigene Nummer (P7) für sie
 reservierte. Nachweis und Auflösung: Issue #93.
 
-**Prozess-Stand: v1.16.0** — Stand der Vorlage, aus der dieses Projekt stammt.
+**Prozess-Stand: v1.19.1** — Stand der Vorlage, aus der dieses Projekt stammt.
+Hochgesetzt am 03.11.2026 (Abgleich #153, Sprung von v1.16.0 über 19 Versionen).
+**Zwei Tür-Proben sind dabei NICHT gefahren worden, beide vertagt mit Bedingung:**
+die Ausfall-Echtprobe des Prod-Wächters (Bedingung: erste Instanz, die ein
+Wächter schützt — hier ist keiner installiert) und der Linux-Zweig von
+`baum-stoppen.sh` (dieser Rechner setzt `GITBASH`; die Wache ist dort
+nur gelesen, nicht gemessen). Offene Punkte des Sprungs: #149, #151, #152, #154.
 Beim Abgleich mit einer neueren Vorlagen-Version hochsetzen; wie das geht, steht
 in `docs/agents/abgleich.md` im Vorlagen-Repo `Trust1509/agent-projekt-template`
 (dieses Repo führt selbst keine `abgleich.md`, weil sie nur beim Abgleichen
@@ -37,14 +43,17 @@ deshalb ein Kommando mit Exit-Code. Der Anlass steht in `docs/agents/lehren.md`
 Vorlage — auf dem Rechner lagen Node 24 und npm 11, ein Bauer baute sein Ritual
 auf die Aussage, und das Ritual vernichtete Daten.
 
-Gemessen am 22.09.2026 auf dem Entwicklungsrechner:
+Gemessen am 22.09.2026 auf dem Entwicklungsrechner, **nachgemessen am
+03.11.2026** beim Abgleich auf Vorlage v1.19.1. Eine Zahl hatte sich bewegt:
+Docker 29.6.1 → 29.8.2. Node, npm, Python und `gh` standen unverändert, die
+beiden `grep`-Zeilen ebenfalls.
 
 | Behauptung                | Kommando                                                                  | Ergebnis                |
 | ------------------------- | ------------------------------------------------------------------------- | ----------------------- |
 | Node liegt lokal          | `node --version`                                                          | Exit 0, `v24.18.0`      |
 | npm liegt lokal           | `npm --version`                                                           | Exit 0, `11.16.0`       |
 | Python liegt lokal        | `python --version`                                                        | Exit 0, `Python 3.14.5` |
-| Docker liegt lokal        | `docker --version`                                                        | Exit 0, `29.6.1`        |
+| Docker liegt lokal        | `docker --version`                                                        | Exit 0, `29.8.2`        |
 | `gh` liegt lokal          | `gh --version`                                                            | Exit 0, `2.93.0`        |
 | kein Migrations-Framework | `grep -rniE 'alembic\|sqlalchemy\|psycopg' backend/requirements*.txt`     | Exit 1 (kein Treffer)   |
 | kein Datenbank-Dienst     | `grep -cE 'image: *(postgres\|mysql\|mariadb\|mongo)' docker-compose.yml` | `0`, Exit 1             |
@@ -124,25 +133,28 @@ nicht frei vergeben** — kleine Diff-Größe stuft einen R3-Auslöser nie herun
 höhere Klasse; **die Abstufung nach unten braucht die Begründung, nicht die
 nach oben.**
 
-| Klasse       | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Mindestprüfung                                                                                                                                                                                                                                                                                       |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **R0**       | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | lokale Gates                                                                                                                                                                                                                                                                                         |
-| _R1_         | **keine frei vergebbare Klasse** — seit v1.15.0 in der Zeile „Nacharbeit" aufgegangen, die für JEDE Nacharbeit gilt, nicht nur für mechanische Auflagen                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | siehe „Nacharbeit"                                                                                                                                                                                                                                                                                   |
-| **R2**       | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Blindprüfer + Fremdprüfer                                                                                                                                                                                                                                                                            |
-| **R3**       | Datenmigration — unabhängig davon, ob ein Migrations-Framework beteiligt ist: Gemeint ist der VORGANG, bestehende Daten werden unumkehrbar umgewandelt (auch eine selbstheilende JSON-Schema-Wanderung ist eine); Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel) — **und fremde Werkzeug-Mechanik, die in den eigenen Prozess übernommen wird** (Hooks, Agenten-Definitionen, Skills eines anderen Frameworks: je Zusicherung wie „nur lesend" oder „schlägt geschlossen fehl" eine negative Probe); **kritische Dateien** — Wächter, Gate-Probe, Selbstprobe, Hook-Einträge, Gate-, Release- und Prüfskripte (Liste in `docs/agents/panel.md`, „Kritische Dateien"), unabhängig von der Diffgröße — **zwei Ausnahmen, beide nur für das Panel, die Probe durch die echte Tür bleibt in beiden Fällen:** (a) byte-identische Übernahme aus der Vorlage beim Abgleich (`docs/agents/abgleich.md`, Absatz „Panel für den Abgleich-Commit"); (b) **reine Kopftext-Änderung** — nur Kommentare oder Docstrings, Syntaxbaum nachweislich gleich; dann R2. **Bedingungen, Verfahren und Beleg stehen in `docs/agents/panel.md`, „Kritische Dateien"** und werden hier nicht wiederholt (Owner-Entscheid 2026-09-21). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel mit Gegenprüfer + risikospezifische Probe durch die echte Tür                                                                                                                                                                                                                           |
-| _Nacharbeit_ | jede Nacharbeitsrunde nach einem Panel, gleich welcher Klasse; **höchstens zwei** (gezählt: Erstrunde, Nacharbeit 1, Nacharbeit 2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Blindprüfer; Gegenprüfer nur bei neuer Tür; bei R3 und R4 zusätzlich die risikospezifische Probe durch den Arbiter. **Nach Nacharbeit 2 wird nicht weiter gebaut:** offene oder neue BLOCKER → anhalten, Owner fragen; nur noch Nicht-Blocker → landen, die Funde werden ein eigenes Issue mit Beleg |
-| **R4**       | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | R3 + ausdrückliche Owner-Freigabe. **Ein projekteigenes Release-Gate mit breiteren Auslösern bleibt davon unberührt** — diese Spalte sagt, ab wann die VORLAGE eine Freigabe verlangt, nicht, ab wann euer Projekt sie verlangen darf                                                                |
+| Klasse       | Auslöser (abschließend)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Mindestprüfung                                                                                                                                                                                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R0**       | reine Testinfrastruktur ohne Verhaltensänderung (ein neuer Test ist das NICHT); Doku-Korrektur ohne ausgelieferten Inhalt; Typisierung ohne Verhaltensänderung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | lokale Gates                                                                                                                                                                                                                                                                                         |
+| _R1_         | **keine frei vergebbare Klasse** — seit v1.15.0 in der Zeile „Nacharbeit" aufgegangen, die für JEDE Nacharbeit gilt, nicht nur für mechanische Auflagen                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | siehe „Nacharbeit"                                                                                                                                                                                                                                                                                   |
+| **R2**       | alles ohne R0-, R3- oder R4-Auslöser (der Normalfall)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Blindprüfer + Fremdprüfer                                                                                                                                                                                                                                                                            |
+| **R3**       | Datenmigration — unabhängig davon, ob ein Migrations-Framework beteiligt ist: Gemeint ist der VORGANG, bestehende Daten werden unumkehrbar umgewandelt (auch eine selbstheilende JSON-Schema-Wanderung ist eine); Berechtigungs-/Datenschutzlogik; Geld/Steuern; Außenwirkung über eine Schnittstelle; **Fremdcode** — Produktionscode, den ein FREMDES System beigesteuert hat (Patch eines Anbietermodells, zugelieferter Zweig, übernommener Schnipsel) — **und fremde Werkzeug-Mechanik, die in den eigenen Prozess übernommen wird** (Hooks, Agenten-Definitionen, Skills eines anderen Frameworks: je Zusicherung wie „nur lesend" oder „schlägt geschlossen fehl" eine negative Probe); **kritische Dateien** — Wächter, Gate-Probe, Selbstprobe, Hook-Einträge, Gate-, Release- und Prüfskripte (Liste in `docs/agents/panel.md`, „Kritische Dateien"), unabhängig von der Diffgröße — **zwei Ausnahmen, beide nur für das Panel, die Probe durch die echte Tür bleibt in beiden Fällen:** (a) byte-identische Übernahme aus der Vorlage beim Abgleich (`abgleich.md` **im Vorlagen-Repo**, siehe Kopf dieser Datei — hier liegt sie nicht; Absatz „Panel für den Abgleich-Commit"); (b) **reine Kopftext-Änderung** — nur Kommentare oder Docstrings, Syntaxbaum nachweislich gleich; dann R2. **Bedingungen, Verfahren und Beleg stehen in `docs/agents/panel.md`, „Kritische Dateien"** und werden hier nicht wiederholt (Owner-Entscheid 2026-09-21). **NICHT gemeint: der eigene Bau-Subagent** — sonst ist der Auslöser immer erfüllt und R2 verschwindet | volles Panel mit Gegenprüfer + risikospezifische Probe durch die echte Tür                                                                                                                                                                                                                           |
+| _Nacharbeit_ | jede Nacharbeitsrunde nach einem Panel, gleich welcher Klasse; **höchstens zwei** (gezählt: Erstrunde, Nacharbeit 1, Nacharbeit 2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Blindprüfer; Gegenprüfer nur bei neuer Tür; bei R3 und R4 zusätzlich die risikospezifische Probe durch den Arbiter. **Nach Nacharbeit 2 wird nicht weiter gebaut:** offene oder neue BLOCKER → anhalten, Owner fragen; nur noch Nicht-Blocker → landen, die Funde werden ein eigenes Issue mit Beleg |
+| **R4**       | irreversible Daten-/Prod-Wirkung; fachlich nicht rückholbare Entscheidung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | R3 + ausdrückliche Owner-Freigabe. **Ein projekteigenes Release-Gate mit breiteren Auslösern bleibt davon unberührt** — diese Spalte sagt, ab wann die VORLAGE eine Freigabe verlangt, nicht, ab wann euer Projekt sie verlangen darf                                                                |
 
 „Klein" und „gut rückrollbar" sind Urteile, keine Auslöser — und Urteile sind
 der Punkt, an dem sich der Ausführende unter Druck freispricht.
 
 **Hinweis für den Abgleich (Owner-vorlagepflichtig):** Die Tabelle besitzt die
 PRÜFTIEFE (wer prüft, wie tief). Das RELEASE-GATE — wer vor einem Release
-freigibt — ist eine eigene, projekteigene Größe: Ein Projekt darf breitere
-Freigabe-Auslöser haben als R4 (etwa „jede Migration braucht Owner-OK"), und
-die Tabelle ersetzt so ein Gate NICHT. Wer sein breiteres Gate zugunsten der
-R4-Zeile aufgeben will, tut das als ausdrückliche, veto-fähige
-Owner-Entscheidung — nie als Nebenwirkung der Übernahme. Real passiert: Eine
+freigibt — ist eine eigene Größe mit eigener Zeile im **Schwellen-Inventar**
+unten: Seine **Untergrenze hat der Owner für alle Projekte gesetzt**
+(Migrationen, Geld/Steuer — beides R3-Auslöser, also unterhalb von R4),
+und ein Projekt darf weitere Auslöser haben. Die Tabelle ersetzt so ein Gate
+NICHT. Wer eigene Auslöser über der Untergrenze aufgeben will, tut das als
+ausdrückliche, veto-fähige Owner-Entscheidung — nie als Nebenwirkung der
+Übernahme; **unter die Untergrenze führt kein Entscheid auf
+Projektebene.** Real passiert: Eine
 frühere Fassung dieser Zeile erklärte sich zum „Namen für" das bestehende
 Riskant-Gate und verengte damit in einem Projekt sechs Freigabe-Auslöser
 stillschweigend auf einen; bemerkt hat es der Abgleich, nicht die Übernahme.
@@ -157,8 +169,49 @@ erneut diskutiert werden muss.
 
 Das Verfahren je Klasse beschreibt `docs/agents/panel.md`; diese Tabelle ist
 der einzige Eigentümer der PRÜFTIEFEN-Auslöser. (Über Release-Freigaben
-entscheidet sie nur bis R4 hinauf — projekteigene, breitere Gates siehe
+entscheidet sie nur **bei R4** — projekteigene, breitere Gates siehe
 Hinweis oben.)
+
+## Schwellen-Inventar
+
+**Jede Schwelle hat hier eine Zeile, und ihr WERT steht genau einmal:** entweder
+in dieser Tabelle, oder bei dem Eigentümer, den die Zeile nennt — dann steht
+hier der Zeiger und nicht die Zahl. Die Spalte „entschieden von" sagt, wer den
+Wert ändern darf: **Portfolio** heißt, der Owner hat ihn für alle Projekte
+entschieden; dieses Repo übernimmt ihn und wählt ihn nicht. **Projekt** heißt,
+der Wert gehört hierher. **Portfolio-Untergrenze** heißt: Der Owner hat eine
+Mindestschwelle für alle Projekte gesetzt, und dieses Projekt darf strenger
+sein, nie lockerer. Wer eine Schwelle sucht und sie hier nicht findet, hat eine
+gefunden, die keinen Eigentümer hat — das ist ein Fund, kein Versehen.
+
+Diese Tabelle kam mit dem Abgleich auf Vorlage v1.19.1 (03.11.2026). Vorher gab
+es sie hier **nicht**: Die Schwellen standen über fünf Abschnitte verteilt, und
+ob eine Portfolio-Entscheidung hier schon angekommen war, konnte man nur durch
+Lesen aller fünf herausfinden. **Eine** Zeile unten trägt einen **gemessenen**
+statt eines gewählten Wertes und ist als solche markiert (Parallelität innerhalb
+eines Laufs). Das Zeitlimit je Prüfbefehl ist ausdrücklich **gewählt**; alle
+übrigen Zeilen sind Portfolio-Entscheidungen oder Zeiger. Hier stand zuerst
+„zwei Zeilen" — nachgezählt vom Fremdprüfer des Abgleich-Panels.
+
+| Schwelle                                                                                                                                                                                        | Wert                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | entschieden von                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Nacharbeitsrunden nach einem Panel                                                                                                                                                              | Wert in der Risiko-Tabelle oben, Zeile „Nacharbeit" — hier absichtlich nur der Zeiger, nicht die Zahl (Ein-Eigentümer-Regel; der Fremdprüfer des Abgleich-Panels fand die Zahl hier zuerst doppelt)                                                                                                                                                                                                                                                                                                                                                                                                                                         | **Portfolio** (2026-09-17)                                  |
+| CI-Läufe je Slice                                                                                                                                                                               | Wert im Abschnitt „Prüfschritte" unten: **einer**, auf dem gelandeten Endstand; Bau-, Panel- und Nacharbeits-Pushes tragen den Überspring-Marker, lokale Gates sind die Verifikation                                                                                                                                                                                                                                                                                                                                                                                                                                                        | **Portfolio** (2026-09-02)                                  |
+| Kostenschwelle je Panel-Lauf (Ersatzstimme)                                                                                                                                                     | **keine** — pauschal freigegeben; das Verfahren bei Guthabenende (HTTP 402) steht im Abschnitt „Review-Panel" unten                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | **Portfolio** (2026-09-19)                                  |
+| Panel-Untergrenze beim Verkürzen                                                                                                                                                                | Wert im Abschnitt „Review-Panel" unten, Absatz „Verkürzen"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **Portfolio**                                               |
+| Prüftiefe je Risikoklasse                                                                                                                                                                       | Tabelle oben, Auslöser abschließend                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | **Portfolio**; Risiko-Tabelle                               |
+| Release-Gate (ab wann eine Freigabe nötig ist)                                                                                                                                                  | **Untergrenze:** Migrationen und Geld/Steuer. Geld/Steuer hat hier keinen Gegenstand; „Datenmigration" gilt in diesem Projekt framework-frei und trifft die JSON-Schema-Wanderung in `backend/services/config_store.py`. **Darüber projekteigen:** die Schwelle „gefahrlos", Wert im Abschnitt „Release" unten — sie ist breiter als die Untergrenze und bleibt es                                                                                                                                                                                                                                                                          | **Portfolio-Untergrenze** (2026-09-02), darüber **Projekt** |
+| Zeitlimit einzelner Befehle im Prüfauftrag                                                                                                                                                      | **15 Minuten.** Was länger braucht, wird zerlegt, nicht verlängert. Gewählt nach dem längsten CI-Job (`timeout-minutes: 15` in `.github/workflows/ci.yml`, gemessen 03.11.2026), damit ein Befehl, der örtlich gerade noch durchläuft, nicht erst in der CI abbricht                                                                                                                                                                                                                                                                                                                                                                        | **Projekt** (2026-11-03)                                    |
+| CI-Nebenläufigkeit (`concurrency`, `cancel-in-progress`)                                                                                                                                        | **an** — ein neuer Lauf bricht den alten ab; **Tag-Läufe ausgenommen**. Wert in `.github/workflows/ci.yml`, Block `concurrency:`. Die zwei weiteren Vorlagen-Ausnahmen haben hier keinen Gegenstand (gemessen 03.11.2026): `ci.yml` liefert nicht aus (der Abbild-Job läuft mit `push: false`), und kein Workflow meldet seinen eigenen Abbruch                                                                                                                                                                                                                                                                                             | **Portfolio** (2026-09-02, Notbremse dauerhaft)             |
+| Turnus des Abhängigkeits-Bots                                                                                                                                                                   | **monatlich, höchstens ein offener Vorschlag** je Ökosystem; Wert in `.github/dependabot.yml`, alle vier Ökosysteme. Sicherheits-Updates bleiben unberührt — die hängen an den Repo-Einstellungen, nicht an dieser Datei                                                                                                                                                                                                                                                                                                                                                                                                                    | **Portfolio** (2026-09-02)                                  |
+| Schwere Läufe auf dem Rechner — alles, was eine volle Testsuite, einen Browser oder einen Container startet (Gate-Skript, Container-Bau, Mutationslauf über die ganze Suite); im Zweifel schwer | **höchstens einer gleichzeitig auf dem ganzen Rechner**, über alle Sitzungen, Projekte und Rollen (Bauer, Prüfer, Arbiter); leichte Läufe (eine Testdatei, Lint) sind frei. Eingehalten über **eine** Sperre mit festem Pfad für alle Projekte, `$HOME/.sperre-schwerer-lauf` — Kommandos und Regeln stehen in `docs/agents/bau-brief.md`, Randbedingung „Parallelität", nicht hier. Gate-Skripte nehmen die Sperre **nicht** selbst; wer das Gate startet, nimmt sie im selben Aufruf. Eine Zahl je Sitzung begrenzte die Summe nicht                                                                                                      | **Portfolio** (2026-10-18)                                  |
+| Parallelität innerhalb eines Laufs (Worker je Testlauf, Browser)                                                                                                                                | **pytest: ein Prozess** (kein `pytest-xdist` im Baum, kein `addopts`). **vitest: kein Deckel gesetzt** — also die Voreinstellung der Bibliothek, auf einem Rechner mit **24 Kernen**. **Kein Browser-Gate.** Alle vier Angaben gemessen am 03.11.2026. Das ist ein **gemessener, kein gewählter** Wert: offener Punkt **Issue #150**. **Was ein Bau-Brief hier einträgt, solange das offen ist:** „pytest 1 Prozess; vitest ohne Deckel (Voreinstellung), Issue #150" — die Randbedingung „Parallelität" des Briefs verlangt eine Zahl, und ein Brief darf sie nicht erfinden. Gefunden hat diese Lücke der Fremdprüfer des Abgleich-Panels | **Projekt**                                                 |
+
+**Panel-INTERNE Schwellen besitzt `docs/agents/panel.md`**, nicht diese Tabelle:
+wie oft eine ausgefallene Stimme wiederholt wird und wie groß das Antwortbudget
+angesetzt wird. Das ist die ausdrückliche Ausnahme von „Schwellen hier" — sie
+bedeuten nur innerhalb des Panel-Verfahrens etwas. Deshalb steht hier auch
+keine ihrer Zahlen.
 
 ## Review-Panel
 
@@ -268,9 +321,14 @@ selbst weg. Lokale Gates (der Husky-Hook) sind die **Verifikation** und
 bleiben Pflicht; die CI ist die **Gegenprobe**, nicht der Erstlauf. Warum:
 Das Portfolio-Tagesbudget für GitHub Actions liegt bei 100 Minuten über alle
 Repos des Owners (Auslöser: 2701/3000 Portfolio-Minuten am 14.08.2026
-verbraucht) — dieses Repo selbst ist PUBLIC und ein Lauf hier kostet 0
-abgerechnete Minuten (Abrechnungs-API, belegt für alle Läufe seit 11.08.,
-auch während der früheren Notbremse), aber die Regel gilt trotzdem: als
+verbraucht). Dieses Repo selbst ist PUBLIC, und ob ein Lauf hier
+abgerechnete Minuten kostet, ist **ungemessen**: Die Abrechnungs-Schnittstelle
+meldet `billable = 0` — aber sie meldet das auch für PRIVATE Repos
+(gemessen am 28.09.2026 an zwei privaten Läufen), taugt also nicht als Beleg.
+Hier stand bis zum Abgleich auf v1.19.1 „ein Lauf hier kostet 0
+abgerechnete Minuten" mit genau dieser Schnittstelle als Beleg; die Vorlage
+hat die Aussage in v1.19.0 zurückgenommen. **Die Regel hing nie daran** und
+gilt unverändert: als
 Portfolio-Disziplin (dieselbe Arbeitsweise in allen Repos) und weil sie
 sofort real wird, sollte dieses Repo je auf privat umgeschaltet werden. Was
 davon dauerhaft bleibt, weil es Qualität nicht kostet: ein pytest-Job statt
@@ -288,12 +346,12 @@ zum ungünstigsten Zeitpunkt — genau so ist `npm audit` in diesem Repo einmal
 rot geworden, mitten in einem Release, ohne dass sich eine Zeile geändert
 hatte. Deshalb hier **alle** Kommandos, die die CI fährt:
 
-**Push-Pfad (`.github/workflows/ci.yml`, bei Push auf `main`/`release/**`
-und bei Tags, außer bei reinem Doku-Push — Pfadfilter greifen bei Tag-Pushes
-nicht):\*\*
+**Push-Pfad** (`.github/workflows/ci.yml`, bei Push auf `main` und
+`release/`-Zweigen und bei Tags, außer bei reinem Doku-Push — Pfadfilter
+greifen bei Tag-Pushes nicht):
 
 - Backend: `pytest -q backend/tests`
-- Backend: `python -m compileall -q backend`
+- Backend: `python -I -S -m compileall -q backend`
 - Backend: `sh scripts/release-selbstprobe.sh` — die Selbstprobe des
   Release-Gates. Sie hängt am Push-Pfad und nicht am Release, weil ein
   Wächter, dessen Lauf niemand erzwingt, seine Abdeckungszahl zur Beruhigung
@@ -338,7 +396,16 @@ nicht):\*\*
   stehen im Kopf des Wächters. Ein Push, der nur `.md`-Dateien ändert, löst
   wegen `paths-ignore` keinen Lauf aus — ein CRLF-Blob in einer `.md` fällt
   dann erst beim nächsten Code-Push auf.
-- Backend: `python scripts/faltung-sonde-selbsttest.py` — die Selbstprobe der
+- Backend: `python -I -S docs/vorlagen/lehren-verweise-pruefen.py --selbstprobe`
+  und `python -I -S docs/vorlagen/lehren-verweise-pruefen.py --lehren
+docs/agents/lehren.md docs/agents/*.md CLAUDE.md` — der Verweis-Wächter für
+  die Lehren-Nummern, seit dem Abgleich auf Vorlage v1.19.1. Er fängt die
+  Verweise, die beim Übernehmen einer Lehre in der Vorlagen-Zählung stehen
+  bleiben und dann eine ANDERE, existierende Lehre treffen. **Seine benannte
+  Grenze:** Er prüft nur, DASS ein `§N` einen Abschnitt trifft, nicht ob es
+  den gemeinten. Genau diese Lücke hat im Abgleich-Panel einen Verweis
+  durchgelassen, den derselbe Abgleich erzeugt hatte.
+- Backend: `python -I -S scripts/faltung-sonde-selbsttest.py` — die Selbstprobe der
   Faltungs-Sonde (#83). Hier aus demselben Grund wie die beiden darüber, nur
   schärfer: Die Sonde trägt eine Owner-Entscheidung über eine **unumkehrbare**
   Datenwanderung, und ihre erste Fassung meldete „folgenlos" für einen
@@ -397,10 +464,33 @@ nicht):\*\*
 Zusätzlich lokal vor jedem Commit (Husky-Pre-Commit-Hook, nicht Teil der CI,
 aber dieselbe Klasse von „muss laufen, sonst meldet es sich zu spät"):
 
+**Dieser Hook ist ein schwerer Lauf, und `git commit` ist der Aufruf, der ihn
+startet.** Er fährt die volle Frontend- und Backend-Suite. Die Zeile
+„Schwere Läufe auf dem Rechner" im Schwellen-Inventar verlangt dafür die
+rechnerweite Sperre, und sie verlangt zugleich, dass das Gate sie **nicht
+selbst** nimmt — also nimmt sie, **wer committet**, im selben Aufruf:
+
+```bash
+S="$HOME/.sperre-schwerer-lauf"; until mkdir "$S" 2>/dev/null; do sleep 30; done
+echo "immich-family-tools $(date +%FT%T)" > "$S/wer"
+git add -A && git commit -F <nachricht>
+rc=$?; rm -f "$HOME/.sperre-schwerer-lauf/wer"; rmdir "$HOME/.sperre-schwerer-lauf"; exit $rc
+```
+
+Dass diese Regel in diesem Repo keinen benannten Angriffspunkt hatte, fand der
+Blindprüfer des Panels zu v1.19.1: Die Sperre war beschrieben, der einzige
+schwere Lauf des Repos war beschrieben, und niemand hatte beides verbunden.
+
 - `npx lint-staged` (prettier)
 - Frontend (in `frontend/`): `npm run typecheck` (= `tsc --noEmit`)
 - Frontend (in `frontend/`): `npm run test` (= `vitest run`, kein Watch-Modus)
 - Backend: `pytest backend/tests/ --basetemp=/tmp/pytest-immich -q`
+- Backend: `python -I -S docs/vorlagen/lehren-verweise-pruefen.py --selbstprobe`
+  und daneben der Lauf selbst
+  (`--lehren docs/agents/lehren.md docs/agents/*.md CLAUDE.md`). Hier und
+  nicht nur in der CI, weil `paths-ignore` reine Doku-Pushes wegfiltert und
+  die CI sie nie sieht — genau die Commits, in denen ein Verweis stehen
+  bleibt. Beide Zeilen sind einzeln fahrbar.
 
 Dazu der **Commit-Nachrichten-Hook** (`.husky/commit-msg`): Er lehnt die
 CI-Überspring-Kennung ab Zeile 2 ab — in der Klammer- **und** in der
@@ -440,13 +530,37 @@ Entsprechung. Er ist eine Verifikation auf diesem Rechner, kein Tor am Repo.
 Sonden gegen die laufende Immich-Instanz **nur lesend**. Schreibpfade
 ausschließlich gegen Testdaten. Das ist ein Minimum, keine Lösung — die
 strukturelle Lösung ist ein Immich-API-Key mit ausschließlich lesenden
-Rechten (Immich kann granulare Rechte je Key vergeben, siehe Issue #53). Bis
-dieser Read-Only-Key im Agenten-Kontext hinterlegt ist, gilt die Regel oben als
-das, was tatsächlich durchsetzbar ist.
+Rechten (Immich kann granulare Rechte je Key vergeben, offener Punkt:
+**Issue #149**). Bis dieser Read-Only-Key im Agenten-Kontext hinterlegt ist,
+gilt die Regel oben als das, was tatsächlich durchsetzbar ist.
 
-**Kein technischer Wächter — bewusst.** Ein Hook, der Werkzeugaufrufe abfängt,
-liefe hier ins Leere: Die Zugriffe gehen per `curl` aus einer Shell, nicht über
-einen MCP-Server. Sollte Immich je als MCP angebunden werden, gilt die Fassung
+Hier stand bis zum Abgleich auf v1.19.1 „siehe Issue #53". Gemessen am
+03.11.2026 (`gh issue view 53`): Das ist der **abgeschlossene** Abgleich
+v1.3.0→v1.7.1 und hat mit einem Read-Only-Key nichts zu tun; eine Suche
+über alle Issues fand kein passendes. Der Punkt hatte also keinen
+Eigentümer — der Verweis sah nur so aus. **Prüffrage für jeden Verweis
+dieser Datei: zeigt er auf einen Vorgang, der den Punkt tatsächlich
+führt?**
+
+**Kein technischer Wächter — und der Grund dafür ist zur Hälfte gemessen.**
+Gemessen am 03.11.2026 auf dem Entwicklungsrechner: Es sind zwei
+`PreToolUse`-Hooks eingetragen, **beide mit einem MCP-Matcher**
+(`mcp__<dienst>__.*`) — keiner trifft Shell-Aufrufe. Gelesen wurden die
+`hooks`-Blöcke der Agenten-Einstellungen mit `python -I -S` und `json.load`,
+ausgegeben wurden Ereignis und Matcher je Eintrag. **Heute sieht also kein
+Hook ein `curl`** — das ist die eine Hälfte.
+
+Was daraus NICHT folgt: dass ein Hook das grundsätzlich nicht könnte. Ein
+`PreToolUse`-Hook mit Shell-Matcher bekommt die Kommandozeile zu sehen; ob er
+die Zugriffe dieses Projekts tatsächlich sieht, ist **ungemessen**. Eine
+Echtprobe dafür schaltet einen Wächter scharf und ist damit
+Owner-Einstellung (Issue #149). Bis dahin steht hier die Prüffrage statt der
+Behauptung: **Welcher Zugriff auf Immich entsteht, ohne durch ein Werkzeug zu
+laufen, das ein Hook sieht?** Solange die Antwort „ein Unterprozess, den
+ein Skript startet" lautet, wäre ein solcher Wächter eine Verifikation auf
+diesem Rechner und kein Tor am Repo — genau wie die Husky-Hooks.
+
+Sollte Immich je als MCP angebunden werden, gilt die Fassung
 aus Vorlage v1.3.1 — und zwar mit ihren beiden Korrekturen: Der Präfix
 `mcp__<schlüssel>__<tool>` stammt aus der **Client**-Konfiguration und ist frei
 gewählt (ein geratener Präfix passt auf nichts), und der Wächter muss in dem
@@ -509,9 +623,12 @@ verwechseln heißt, die Lücke der anderen zu übersehen:
   „Prüfschritte" oben); erst der Wochenlauf (`wochen-pruefung.yml`) deckt den
   vollen Verlauf ab.
 
-**Der Nutzen der Öffentlichkeit gehört auch hin:** CI-Läufe kosten hier 0
-abgerechnete Minuten — Begründung und Beleg stehen in „Prüfschritte" oben,
-hier nur der Verweis.
+**Und was die Öffentlichkeit NICHT belegt:** Dass CI-Läufe hier nichts
+kosten. Das stand hier bis zum Abgleich auf v1.19.1 als Nutzen — mit der
+Abrechnungs-Schnittstelle als Beleg, und die taugt dafür nicht (Begründung
+im Abschnitt „Prüfschritte" oben, hier nur der Verweis). Was die
+Öffentlichkeit wirklich kostet, ist der Abschnitt darüber: Was hier landet,
+ist weltweit und dauerhaft lesbar.
 
 ### Gemessen am 06.09.2026: was der eigene Scanner zusätzlich leistet
 
@@ -549,9 +666,15 @@ generisches Muster (das sind private Schlüssel und Verbindungszeichenketten),
 höchstens ein KI-erkanntes — und die haben laut Plattform-Dokumentation keine
 Push Protection.
 
-**Und die Kostenannahme trägt nicht:** `actions/runs/<id>/timing` meldet
-`billable.UBUNTU.total_ms = 0` für alle Jobs, geprüft über drei Läufe und
-beide Workflows; der `secrets`-Job läuft in 4–10 Sekunden.
+**Und das Kostenargument gegen den eigenen Scanner trägt nicht** — aber aus
+einem anderen Grund, als hier bis zum Abgleich auf v1.19.1 stand. Dort stand:
+`actions/runs/<id>/timing` meldet `billable.UBUNTU.total_ms = 0` für alle
+Jobs, geprüft über drei Läufe und beide Workflows. Das ist richtig gemessen
+und **beweist nichts**: Dieselbe Schnittstelle meldet 0 auch für private
+Repos (gemessen am 28.09.2026 an zwei privaten Läufen). Was trägt, ist die
+**Laufzeit**: Der `secrets`-Job läuft in 4–10 Sekunden. Bei einem Lauf je
+Slice ist das in jeder Abrechnungsform unterhalb der Wahrnehmungsgrenze,
+ohne dass man wissen muss, ob abgerechnet wird.
 
 **Zwei offene Punkte** (Issue #77): Die generischen Muster einschalten ist
 kostenlos und deckt **privaten Schlüssel und Verbindungszeichenkette**

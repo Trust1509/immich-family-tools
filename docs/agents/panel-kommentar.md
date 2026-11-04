@@ -13,10 +13,9 @@ Vorlage).
 Der Kommentar endet mit der Zeile **„Eigene Läufe am Ende: …"** (`lehren.md`
 §37): Hintergrundläufe des Orchestrators sind erlaubt, unbemerkte nicht.
 Derselbe Satz gehört in den Prüfauftrag jeder Stimme, als Anweisung und nicht
-nur als Formfeld: **„Beende jeden eigenen Hintergrundlauf VOR dem Bericht —
-über seine Prozessnummer, nie über den Programmnamen — und nenne ihn in der
-Schlusszeile."** Den Wortlaut führt `panel.md` („Pflichtzeile in jedem
-Prüfauftrag"); hier steht er als Beispiel. Gemessen in einem Kind-Repo: Ein Blindprüfer
+nur als Formfeld. Den Wortlaut führt `panel.md` („Pflichtzeile in jedem
+Prüfauftrag") — hier steht er absichtlich NICHT, weil zwei wortgleiche
+Fassungen beim nächsten Ändern auseinanderlaufen. Gemessen in einem Kind-Repo: Ein Blindprüfer
 ließ eine Python-Sitzung vier Stunden offen und erwähnte sie nur als Nebensatz
 — der Owner sah sie zuerst.
 
@@ -36,10 +35,10 @@ Risiko: R⟨n⟩ — Auslöser: ⟨aus Block 0 des Bau-Briefs⟩ · Diff-Typ:
 
 Runde: ⟨Erstrunde / Nacharbeit N — Grenze siehe `CLAUDE.md`, Zeile „Nacharbeit"⟩
 
-### Stimme 1 — Blindprüfer (⟨Modell, Datum⟩)
+### Stimme 1 — Blindprüfer (⟨Modell, Subagent-Typ — kein Fork, Datum⟩)
 
-⟨Frischer Reviewer-Subagent: nur Diff + Repo, kein Bau-Brief, kein Bericht des
-Bauers. Je Fund: Schwere, Datei:Zeile, Nachweis. „Keine Funde" ist ein
+⟨Frischer Reviewer-Subagent: nur Diff + Repo als `git archive`-Auszug, kein
+Bau-Brief, kein Bericht des Bauers. Je Fund: Schwere, Datei:Zeile, Nachweis. „Keine Funde" ist ein
 gültiges Ergebnis und wird hingeschrieben; „nicht entschieden — Probe X"
 ebenfalls.⟩
 
@@ -48,9 +47,9 @@ ebenfalls.⟩
 ⟨Über denselben Diff, eigener Review-Zweig. In einer Nacharbeitsrunde:
 „nicht eingesetzt — Nacharbeit, Blindprüfer genügt" oder der Grund, warum doch.⟩
 
-### Stimme 3 — ⟨R2: diff-only-Fremdstimme oder Gegenprüfer / R3: Gegenprüfer⟩ (⟨Modell, Datum⟩)
+### Stimme 3 — ⟨R2: diff-only-Fremdstimme oder Gegenprüfer / R3: Gegenprüfer⟩ (⟨Modell, beim Gegenprüfer Subagent-Typ — kein Fork, Datum⟩)
 
-⟨Gegenprüfer: Widerlegungsauftrag, eigener Baum. In einer Nacharbeitsrunde nur,
+⟨Gegenprüfer: Widerlegungsauftrag, eigener `git archive`-Baum. In einer Nacharbeitsrunde nur,
 wenn eine neue Tür angefasst wurde — sonst hier die Begründung. Diff-only-Stimme:
 kurz; bekanntes Muster: irrt Richtung zu-streng, liest gelegentlich die
 Vorher-Seite eines Diffs.⟩
@@ -63,9 +62,11 @@ Risikoklasse"). Lief keine — auch wenn sie mit Guthabenende abbrach —,
 entfällt dieser Block ohne Vermerk; lief eine, bleibt er stehen. Zählt mit
 ihren Funden, nie mit ihrer Freigabe.⟩
 
-### Tür-Probe (R3/R4)
+### Tür-Probe (R3/R4; Kopftext-R2 an einer kritischen Datei)
 
-⟨Nur bei R3/R4; bei R2 entfällt dieser Block. Was geprobt wurde (welche Tür,
+⟨Nur bei R3/R4; bei R2 entfällt dieser Block — außer bei einer reinen
+Kopftext-Änderung an einer kritischen Datei (`panel.md`, „Kritische Dateien"):
+Dort ist sie R2, die Tür-Probe bleibt und steht hier. Was geprobt wurde (welche Tür,
 auf welchem Stand, mit welchem Aufruf) — Ergebnis. Oder: „teilweise
 ausgefallen — ⟨Grund, bis wohin geprobt⟩"; dann gilt die Folge aus `CLAUDE.md`,
 Review-Panel: vor der Auslieferung nachholen oder ausdrückliche
@@ -82,6 +83,8 @@ Prüfer-Konvergenz ersetzt keine Reproduktion.⟩
 Orchestrators (Brief, Prüfauftrag, Issue-Text, Notiz)⟩
 
 **Urteil:** ⟨landen / nacharbeiten / nach Nacharbeit 2: landen mit Folge-Issue #⟨N⟩ (nur Nicht-Blocker offen) / anhalten — Blocker nach Nacharbeit 2, Owner fragen⟩
+
+**Umfangsprüfung:** ⟨Modell, n Funde, davon m bestätigt, k auch von einer Stimme der Erstrunde, Tokens t — oder: nicht gelaufen, Grund⟩ (`panel.md`, „Neben der Erstrunde")
 
 **Eigene Läufe am Ende:** ⟨keine — oder: welcher Lauf, was er hält, gestoppt ja/nein⟩
 ```

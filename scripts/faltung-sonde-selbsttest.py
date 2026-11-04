@@ -155,7 +155,12 @@ except ImportError as exc:
     # aber dastehen statt still zu verschwinden.
     # Die Mindestzahl darf daraus kein Rot machen: Die CI-Zusage lautet
     # "braucht keine Installation" (Blindpruefer, Nacharbeit 1).
-    UEBERSPRUNGEN += 1
+    # ZWEI Faelle, nicht einer: Der try-Block oben haelt zwei pruefe()-Aufrufe.
+    # Mit += 1 ergab 65 < 67 - 1 Rot bei NULL Fehlschlaegen -- also genau das,
+    # was der Kommentar darueber ausschliesst. Gefunden vom Gegenpruefer des
+    # Abgleich-Panels v1.19.1 (03.11.2026) durch Zaehlen der Aufrufe im Block,
+    # nicht durch einen Lauf.
+    UEBERSPRUNGEN += 2
     print("  uebersprungen   alte_faltung gegen _name_key (%s)" % exc)
 
 pruefe("NFD und NFC sind heute VERSCHIEDEN (der Anlass)",

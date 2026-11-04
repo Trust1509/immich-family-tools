@@ -11,6 +11,17 @@
 frontend/dist/
 dist/
 
+ ist leer; der Pfad
+# steht in `.git/info/exclude`). Prettier liest `.git/info/exclude` NICHT, nur
+# `.gitignore` und diese Datei — deshalb muss der Pfad hier stehen.
+#
+# Gemessen am 03.11.2026: Ein Worktree traegt eine vollstaendige Kopie des
+# Repos, und bei 42 liegengebliebenen Worktrees meldete `prettier --check .`
+# 616 Dateien, alle darin. In der CI faellt das nie auf (frischer Checkout
+# ohne Worktrees) — oertlich war das Gate damit unbrauchbar, und ein
+# unbrauchbares Gate wird uebergangen statt befolgt (siehe Kopf dieser Datei).
+.claude/
+
 # Maschinell erzeugt und von npm verwaltet.
 package-lock.json
 frontend/package-lock.json
@@ -44,4 +55,30 @@ docker-compose.yml
 # ueber diese Dateien und meldete drei davon (Lauf 35727747234).
 docs/vorlagen/
 docs/SECRETS.md
+
+# Byte-identisch uebernommene Verfahrensdateien unter docs/agents/.
+#
+# Hier steht ABSICHTLICH jede Datei einzeln und nicht der ganze Ordner: Die
+# uebrigen Dateien in docs/agents/ sind EIGENE Fassungen dieses Projekts und
+# sollen weiter formatiert werden. Wer den Ordner pauschal ausnimmt, nimmt
+# ihnen die Pruefung mit.
+#
+# Gemessen am 03.11.2026 beim Abgleich auf v1.19.1: `prettier --check` meldete
+# setup-checkliste.md unmittelbar nach der byte-identischen Uebernahme.
+#
+# HIER STEHT NUR EINE DATEI, und das ist die Korrektur eines Fehlers aus
+# demselben Abgleich. Zuerst standen hier vier: panel-kommentar.md,
+# issue-tracker.md und triage-labels.md waren dazugekommen, weil ich sie fuer
+# byte-identische Uebernahmen hielt. Sie waren es nicht — es waren EIGENE
+# Fassungen dieses Projekts, und die Uebernahme war ein Ueberschreiben.
+# Gemessen (`git rev-parse main:<pfad>` gegen `v1.16.0:<pfad>` der Vorlage):
+# neun der zwoelf verglichenen Dateien waren vorher schon byte-identisch, drei
+# nicht. Die drei sind wiederhergestellt; panel-kommentar.md hat die
+# Vorlagen-Aenderung jetzt Hunk fuer Hunk. Gefunden hat das die
+# Umfangspruefung, nicht der Blob-Nachweis:
+#
+#   Ein gruener Blob-Nachweis NACH dem Ueberschreiben beweist Identitaet,
+#   nicht Richtigkeit. Die Probe, die fehlte: War die Datei VORHER
+#   byte-identisch? Nur dann ist eine Kopie eine Uebernahme.
+docs/agents/setup-checkliste.md
 

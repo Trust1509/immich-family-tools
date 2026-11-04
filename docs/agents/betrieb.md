@@ -106,6 +106,47 @@ Absicht (fremder Code soll keine Läufe in unserem Kontingent starten), aber es
 heißt auch: Bei Fremdcode ersetzt nichts das Lesen. Fremdcode ist ein
 R3-Auslöser; die Prüfung passiert im Panel, nicht im Trigger.
 
+## Prod-Zugang über die Shell
+
+Übernommen aus Vorlage v1.19.0.
+
+**Der Grundsatz:** Ein Prod-Lesewächter sieht nur MCP-Werkzeuge. Ein
+Shell-Zugang trifft ihn nie — alles außerhalb des Präfixes ist für ihn ein
+anderer Namensraum. Eine Sperrregel nach Kommandonamen wäre eine umgehbare
+Denylist (es gibt mehr als ein Werkzeug, mehr als einen Pfad und immer noch eine
+Bibliothek), also das Gegenteil einer fail-closed-Allowlist. Deshalb zählt als
+Auslöser, dass ein Weg **für einen Agenten erreichbar** ist, nicht dass er „in
+den Kontext gerät": Einen Zugang auf der Platte muss niemand kennen, um ihn zu
+benutzen. Tragen können nur drei Dinge — der Zugang gilt auf dem Server nicht,
+der Agent kann ihn nicht lesen, oder er ist serverseitig eingeschränkt.
+
+**Gemessen am 03.11.2026, ohne eine Verbindung aufzubauen:** Dieses Projekt hat
+diese drei Dinge zum ersten Mal geprüft, und das Ergebnis trägt **nicht** — die
+frühere Annahme, es gäbe für einen Agenten keinen Shell-Weg zur
+Produktivumgebung, hielt der Messung nicht stand. Welcher Weg das ist und wie er
+zu schließen wäre, steht **absichtlich nicht in diesem Repo**: Es ist
+öffentlich, und eine Beschreibung des offenen Weges wäre eine Anleitung. Das
+Ergebnis liegt beim Owner; die Rückfrage dazu ist ihm direkt gestellt, der
+Vorgang läuft als Issue #151.
+
+**Was daraus folgt, solange das offen ist:** Die Regel „Sonden nur lesend" aus
+`CLAUDE.md`, Abschnitt „Produktivinstanz", ist für den Shell-Weg **heute
+durch nichts Nachgewiesenes durchsetzbar** — und die genaue Form dieses
+Satzes ist wichtig: Es ist **kein** Beweis, dass sie unmöglich durchzusetzen
+wäre. Der Hook ist dort **ungemessen** (so steht es in `CLAUDE.md`), die
+Rechte sind unbekannt. Hier stand zuerst der stärkere Satz
+(„durch nichts durchsetzbar") mit genau dieser Quelle als Beleg — der
+Blindprüfer des Panels zu v1.19.1 hielt beide Texte gegeneinander und fand,
+dass der zitierende Satz mehr behauptet als der zitierte. Bis es gemessen
+ist, gilt die Regel als Zusage und wird als Zusage gelesen. Das ist kein
+Grund, sie zu lockern, sondern der Grund, sie nicht für mehr zu halten, als sie
+ist.
+
+**Prüffrage für den nächsten Abgleich (`abgleich.md`, 2f):** Welcher Weg zur
+Produktivumgebung ist für einen Agenten erreichbar, ohne durch ein Werkzeug zu
+laufen, das ein Wächter sieht? Die Antwort wird gemessen, nicht erinnert — beim
+letzten Mal stand hier, es gäbe keinen.
+
 ## Checkliste
 
 - [ ] Automatischer Auszug läuft, verschlüsselt, mit Aufbewahrungsregel

@@ -52,3 +52,10 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Oertlicher Arbeitsstand des Agenten-Clients (Worktrees, Sitzungsreste).
+# Hier und nicht nur in .git/info/exclude: Diese Datei ist versioniert, gilt
+# also auf JEDEM Klon, und Prettier liest sie ebenfalls -- damit entfaellt der
+# Eintrag in .prettierignore. Vorschlag des Gegenpruefers im Abgleich-Panel
+# v1.19.1; vorher hing beides an einer unversionierten Datei je Klon.
+.claude/
