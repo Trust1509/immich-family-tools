@@ -19,16 +19,18 @@ This tool bridges that gap.
 
 ### Core
 
-- **People overview** — All recognized faces from all accounts in one unified view, loaded per-account in parallel with progress indicator
-- **Match suggestions** — Automatically detects the same person across accounts using name similarity, face embeddings (if available), and shared assets
+- **People overview** — All recognized faces from every account plus consolidated linked identities with their source thumbnails, names, account badges, and combined photo count
+- **Match suggestions** — Automatically detects the same person across accounts and lets you confirm the identity link directly from each suggestion
 - **Name sync** — Set a canonical name across all matched persons with one click; bulk-sync for high-confidence matches
+- **Linked people** — Record that face profiles from different accounts represent the same person without renaming either profile
 - **Shared album** — Create a shared album containing all photos of a matched person, populated from each account's own API key
+- **Conditional albums** — Select several people and include photos where at least a configurable number of them appear together (for example, at least 2 of 3 family members)
 - **Album rename** — Rename managed albums from the Albums overview; grouped entries are updated in each owning Immich account
 - **Sync log** — Full history of all actions with undo support for name syncs
 
 ### Manual Matching
 
-- **Manuelles Matching** — Pick one person per account from searchable dropdowns, assign a shared name, and optionally create a shared album in one step — for cases the automatic matcher missed
+- **Manuelles Matching** — Pick one person per account and either link them without changing Immich, or synchronize their names and optionally create/link an album
 - **Match erweitern** — Add a new account/person to an existing shared album (e.g. when a new family member joins); shares the album, adds photos, and optionally renames the person
 
 ### Account Management
@@ -68,6 +70,16 @@ Immich Account B:  "Leonie" (own face DB)
          Actions: sync name · create shared album
          → Both face DBs remain untouched
 ```
+
+### Conditional albums
+
+First use **Manual Matching → Link people** to record identities that exist in several Immich accounts. Linking does not rename profiles or create an album; it only records that those profiles represent the same real person. Successful name synchronization also records the corresponding link automatically.
+
+Then open **Albums** and choose **Create conditional album**. You can select linked identities, people local to the owner account, or both, set the minimum match count, and choose either a new album or an existing Immich album. For a family group of three where any two must be present, select all three identities and set the condition to **at least 2 of 3 people**. A linked identity always counts once even when it has profiles in several accounts.
+
+The rule is evaluated from Immich's paginated person searches rather than from face data embedded in asset responses. It is therefore compatible with Immich 3.x, and the same rule is applied again by manual and scheduled album refreshes. Synchronization is additive: matching photos are added, while existing or manually added album contents are never removed.
+
+On Immich 3.2 and newer, conditional rules use the structured Search API v2 with cursor pagination. `1 of M` maps to `personIds.any`, `M of M` maps to `personIds.all`, and small intermediate thresholds are expressed as OR branches (for example, `(A+B) OR (A+C) OR (B+C)` for 2 of 3). Large rules avoid exponential request bodies by retaining the bounded per-person counting strategy. Immich 3.1 continues to use the legacy search shape, while Immich 4 is handled entirely through Search API v2.
 
 **Automatic match suggestions are limited to named people.** Unnamed people
 remain available in Manual Matching. Name similarity is the primary signal;

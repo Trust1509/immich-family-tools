@@ -131,6 +131,13 @@ export interface PersonRef {
   account_color: string;
 }
 
+export interface LinkedPerson {
+  id: string;
+  display_name: string;
+  person_refs: PersonRef[];
+  created_at: string;
+}
+
 export interface Match {
   id: string;
   person_a: PersonRef;
@@ -183,10 +190,22 @@ export interface ManagedAlbum {
   created_at: string;
   last_synced_at?: string;
   total_assets: number;
+  minimum_person_count?: number;
+  condition_person_count?: number;
+  linked_person_ids?: string[];
   /** Beim Lesen berechnet (#99, #112) — nicht gespeichert. Besitzerkonto fehlt. */
   owner_account_missing?: boolean;
   /** Beim Lesen berechnet (#99, #112) — nicht gespeichert. Weniger als zwei Personen. */
   too_few_people?: boolean;
+}
+
+export interface ConditionalAlbumRequest {
+  album_name?: string;
+  existing_album_id?: string;
+  owner_account_id: string;
+  persons: { account_id: string; person_id: string }[];
+  linked_person_ids?: string[];
+  minimum_person_count: number;
 }
 
 export interface SyncLogEntry {
@@ -250,6 +269,15 @@ export const api = {
     dismiss: (matchId: string) => request<void>(`/matches/${matchId}/dismiss`, { method: "POST" }),
   },
 
+  personLinks: {
+    list: () => request<LinkedPerson[]>("/person-links"),
+    create: (body: {
+      display_name?: string;
+      persons: { account_id: string; person_id: string }[];
+    }) => request<LinkedPerson>("/person-links", { method: "POST", body: JSON.stringify(body) }),
+    remove: (id: string) => request<void>(`/person-links/${id}`, { method: "DELETE" }),
+  },
+
   sync: {
     names: (matchId: string, name: string) =>
       request<SyncLogEntry[]>("/sync/names", {
@@ -287,6 +315,11 @@ export const api = {
       expected_no_group?: boolean;
     }) =>
       request<SyncLogEntry[]>("/sync/album", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    conditionalAlbum: (body: ConditionalAlbumRequest) =>
+      request<SyncLogEntry[]>("/sync/conditional-album", {
         method: "POST",
         body: JSON.stringify(body),
       }),

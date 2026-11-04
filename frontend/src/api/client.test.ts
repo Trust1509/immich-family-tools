@@ -221,6 +221,103 @@ describe("Fehler-Schluessel aus der Antwort", () => {
     }
   });
 });
+describe("conditional album client", () => {
+  it("posts the selected people and threshold to the conditional-album endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const body = {
+      album_name: "Family",
+      owner_account_id: "account-1",
+      persons: [
+        { account_id: "account-1", person_id: "person-1" },
+        { account_id: "account-1", person_id: "person-2" },
+        { account_id: "account-1", person_id: "person-3" },
+      ],
+      minimum_person_count: 2,
+    };
+
+    await api.sync.conditionalAlbum(body);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync/conditional-album",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      })
+    );
+  });
+
+  it("can target an existing album and send linked identities", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const body = {
+      existing_album_id: "album-7",
+      owner_account_id: "account-1",
+      persons: [{ account_id: "account-1", person_id: "person-1" }],
+      linked_person_ids: ["link-1", "link-2"],
+      minimum_person_count: 2,
+    };
+
+    await api.sync.conditionalAlbum(body);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync/conditional-album",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) })
+    );
+  });
+});
+
+describe("person links client", () => {
+  it("lists, creates, and deletes linked identities", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.personLinks.list();
+    await api.personLinks.create({
+      display_name: "Alex",
+      persons: [
+        { account_id: "a1", person_id: "p1" },
+        { account_id: "a2", person_id: "p2" },
+      ],
+    });
+    await api.personLinks.remove("link-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/person-links", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/person-links",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          display_name: "Alex",
+          persons: [
+            { account_id: "a1", person_id: "p1" },
+            { account_id: "a2", person_id: "p2" },
+          ],
+        }),
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/person-links/link-1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+});
+
 describe("managed album rename client", () => {
   it("patches the managed album with the new name", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
